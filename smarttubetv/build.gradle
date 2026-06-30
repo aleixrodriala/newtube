@@ -206,6 +206,14 @@ dependencies {
     // widgets.
     implementation 'com.google.android.material:material:' + materialVersion
 
+    // Touch UI (stmobile flavor): client-side QR encoder for the device-code sign-in
+    // screen (com.newtube.mobile.ui.signin.MobileSignInActivity). Encoder only, no UI
+    // dependency - we render the BitMatrix into a Bitmap ourselves - so it pulls in no
+    // transitive androidx/appcompat that could clash with the project's pinned versions.
+    // Replaces the TV path of fetching the QR image from api.qrserver.com via Glide.
+    // Harmless for the TV flavors, which never reference it.
+    implementation 'com.google.zxing:core:3.5.3'
+
     implementation 'com.github.bumptech.glide:glide:' + glideVersion
     implementation 'com.github.bumptech.glide:annotations:' + glideVersion
     annotationProcessor 'com.github.bumptech.glide:compiler:' + glideVersion

@@ -6,4 +6,13 @@
     <string name="mobile_back">Back</string>
     <string name="mobile_search_button">Search</string>
     <string name="mobile_search_voice">Voice search</string>
+
+    <!-- Device-code sign-in screen (com.newtube.mobile.ui.signin.MobileSignInActivity) -->
+    <string name="mobile_signin_title">Sign in</string>
+    <string name="mobile_signin_instructions">On a phone or computer, go to the address below and enter this code:</string>
+    <string name="mobile_signin_copy_hint">Tap the code to copy it</string>
+    <string name="mobile_signin_code_copied">Code copied to clipboard</string>
+    <string name="mobile_signin_qr_hint">Or scan this QR code:</string>
+    <string name="mobile_signin_open_hint">Tap the address to open it in your browser</string>
+    <string name="mobile_signin_error">Sign in failed. Please try again.</string>
 </resources>

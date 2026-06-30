@@ -6,6 +6,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelUploadsView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SearchView;
+import com.liskovsoft.smartyoutubetv2.common.app.views.SignInView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.tv.ui.main.MainApplication;
 import com.newtube.mobile.ui.browse.MobileBrowseActivity;
@@ -14,6 +15,7 @@ import com.newtube.mobile.ui.channel.MobileChannelUploadsActivity;
 import com.newtube.mobile.ui.dialog.MobileAppDialogActivity;
 import com.newtube.mobile.ui.playback.MobilePlaybackActivity;
 import com.newtube.mobile.ui.search.MobileSearchActivity;
+import com.newtube.mobile.ui.signin.MobileSignInActivity;
 
 /**
  * stmobile flavor application class.
@@ -74,6 +76,15 @@ public class MobileMainApplication extends MainApplication {
         // touch MobileSearchActivity, otherwise SearchPresenter.startSearch() / the Home search
         // icon would still launch the Leanback SearchTagsActivity on a touch phone.
         viewManager.register(SearchView.class, MobileSearchActivity.class, MobileBrowseActivity.class);
+
+        // Wave 5: touch device-code sign-in screen (ARCHITECTURE.md section 7). Re-point the
+        // SignInView mapping (parent = Home, mirroring TV's
+        // SignInView -> SignInActivity, parent BrowseActivity) at the touch MobileSignInActivity,
+        // otherwise Settings -> Accounts -> "Sign in" (which calls YTSignInPresenter.start() ->
+        // ViewManager.startView(SignInView.class)) would still launch the Leanback GuidedStep
+        // SignInActivity on a touch phone. The auth backend (YTSignInPresenter / SignInService /
+        // token storage) is reused unchanged - only the View is re-skinned.
+        viewManager.register(SignInView.class, MobileSignInActivity.class, MobileBrowseActivity.class);
 
         viewManager.setRoot(MobileBrowseActivity.class);
     }

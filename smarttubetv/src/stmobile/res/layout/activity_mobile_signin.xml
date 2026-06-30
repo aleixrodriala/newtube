@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Touch device-code sign-in screen - Wave 5 (ARCHITECTURE.md section 7).
+
+  Renders what YTSignInPresenter pushes through SignInView.showCode(): the user code
+  (large + tap-to-copy), the verification URL (tappable link), and a QR code generated
+  CLIENT-SIDE from the full sign-in URL (zxing) instead of hitting api.qrserver.com.
+  A spinner shows until the first code arrives from the backend; an error TextView
+  surfaces the network/auth error verbatim (SignInView's 2-arg showCode error path).
+  The account/auth backend is untouched - this view only renders.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/mobile_signin_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/mobile_color_background"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:id="@+id/mobile_signin_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/mobile_title_bar_height"
+        android:background="@color/mobile_color_surface"
+        android:elevation="4dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageButton
+            android:id="@+id/mobile_signin_back"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/mobile_back"
+            android:padding="12dp"
+            android:src="@drawable/ic_mobile_back_arrow" />
+
+        <TextView
+            android:id="@+id/mobile_signin_toolbar_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingEnd="16dp"
+            android:text="@string/mobile_signin_title"
+            android:textColor="@color/mobile_color_on_surface"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:fillViewport="true">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <ProgressBar
+                android:id="@+id/mobile_signin_progress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_marginTop="64dp"
+                android:indeterminateTint="@color/mobile_color_primary" />
+
+            <TextView
+                android:id="@+id/mobile_signin_error"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top"
+                android:padding="24dp"
+                android:gravity="center"
+                android:textColor="@color/mobile_color_primary"
+                android:textSize="16sp"
+                android:visibility="gone"
+                tools:text="Sign in error: network unreachable"
+                tools:visibility="visible" />
+
+            <LinearLayout
+                android:id="@+id/mobile_signin_content"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingStart="24dp"
+                android:paddingEnd="24dp"
+                android:paddingTop="24dp"
+                android:paddingBottom="32dp"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <TextView
+                    android:id="@+id/mobile_signin_instructions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="@string/mobile_signin_instructions"
+                    android:textColor="@color/mobile_color_on_surface_secondary"
+                    android:textSize="15sp" />
+
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/mobile_signin_code_card"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    app:cardBackgroundColor="@color/mobile_color_placeholder"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="0dp"
+                    app:rippleColor="@color/mobile_color_on_surface_secondary">
+
+                    <TextView
+                        android:id="@+id/mobile_signin_code"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.15"
+                        android:paddingStart="28dp"
+                        android:paddingEnd="28dp"
+                        android:paddingTop="18dp"
+                        android:paddingBottom="18dp"
+                        android:textColor="@color/mobile_color_on_surface"
+                        android:textSize="34sp"
+                        android:textStyle="bold"
+                        tools:text="ABC-DEF" />
+
+                </com.google.android.material.card.MaterialCardView>
+
+                <TextView
+                    android:id="@+id/mobile_signin_copy_hint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/mobile_signin_copy_hint"
+                    android:textColor="@color/mobile_color_on_surface_secondary"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/mobile_signin_url"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="28dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:padding="8dp"
+                    android:textColor="@color/mobile_color_link"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    tools:text="https://yt.be/activate" />
+
+                <TextView
+                    android:id="@+id/mobile_signin_open_hint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/mobile_signin_open_hint"
+                    android:textColor="@color/mobile_color_on_surface_secondary"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/mobile_signin_qr_hint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="32dp"
+                    android:text="@string/mobile_signin_qr_hint"
+                    android:textColor="@color/mobile_color_on_surface_secondary"
+                    android:textSize="15sp" />
+
+                <androidx.cardview.widget.CardView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    app:cardBackgroundColor="@color/mobile_color_qr_bg"
+                    app:cardCornerRadius="8dp"
+                    app:cardElevation="0dp">
+
+                    <ImageView
+                        android:id="@+id/mobile_signin_qr"
+                        android:layout_width="220dp"
+                        android:layout_height="220dp"
+                        android:layout_margin="12dp"
+                        android:contentDescription="@string/mobile_signin_qr_hint"
+                        android:scaleType="fitCenter" />
+
+                </androidx.cardview.widget.CardView>
+
+            </LinearLayout>
+
+        </FrameLayout>
+
+    </ScrollView>
+
+</LinearLayout>

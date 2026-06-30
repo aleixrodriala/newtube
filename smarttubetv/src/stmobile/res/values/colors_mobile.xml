@@ -12,4 +12,6 @@
     <color name="mobile_color_progress_track">#33FFFFFF</color>
     <color name="mobile_color_progress">#FF0000</color>
     <color name="mobile_color_placeholder">#2A2A2A</color>
+    <color name="mobile_color_link">#4FC3F7</color>
+    <color name="mobile_color_qr_bg">#FFFFFF</color>
 </resources>

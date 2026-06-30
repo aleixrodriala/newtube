@@ -112,6 +112,21 @@
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.NewTube" />
 
+        <!--
+          Touch device-code sign-in screen (Wave 5, ARCHITECTURE.md section 7). Same
+          singleInstance + configChanges pattern as the other touch Activities:
+          ViewManager.startActivity() launches with FLAG_ACTIVITY_NEW_TASK, and surviving
+          rotation keeps the live device-code OAuth poll (the YTSignInPresenter Rx subscription)
+          and the already-rendered code/QR instead of restarting the whole sign-in flow.
+        -->
+        <activity
+            android:name="com.newtube.mobile.ui.signin.MobileSignInActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:screenOrientation="unspecified"
+            android:theme="@style/Theme.NewTube" />
+
     </application>
 
 </manifest>
