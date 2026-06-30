@@ -5,6 +5,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelUploadsView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
+import com.liskovsoft.smartyoutubetv2.common.app.views.SearchView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.tv.ui.main.MainApplication;
 import com.newtube.mobile.ui.browse.MobileBrowseActivity;
@@ -12,6 +13,7 @@ import com.newtube.mobile.ui.channel.MobileChannelActivity;
 import com.newtube.mobile.ui.channel.MobileChannelUploadsActivity;
 import com.newtube.mobile.ui.dialog.MobileAppDialogActivity;
 import com.newtube.mobile.ui.playback.MobilePlaybackActivity;
+import com.newtube.mobile.ui.search.MobileSearchActivity;
 
 /**
  * stmobile flavor application class.
@@ -67,6 +69,11 @@ public class MobileMainApplication extends MainApplication {
         // the touch screens, otherwise they'd still resolve to the inherited Leanback Activities.
         viewManager.register(ChannelUploadsView.class, MobileChannelUploadsActivity.class, MobileBrowseActivity.class);
         viewManager.register(ChannelView.class, MobileChannelActivity.class, MobileBrowseActivity.class);
+
+        // Wave 4b: touch Search screen. Re-point the SearchView mapping (parent = Home) at the
+        // touch MobileSearchActivity, otherwise SearchPresenter.startSearch() / the Home search
+        // icon would still launch the Leanback SearchTagsActivity on a touch phone.
+        viewManager.register(SearchView.class, MobileSearchActivity.class, MobileBrowseActivity.class);
 
         viewManager.setRoot(MobileBrowseActivity.class);
     }

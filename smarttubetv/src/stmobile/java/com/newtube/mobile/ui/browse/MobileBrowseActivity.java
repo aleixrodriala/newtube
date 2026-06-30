@@ -26,6 +26,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.errors.ErrorFragmentData
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.BrowsePresenter;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.SearchPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.misc.AppDataSourceManager;
 import com.liskovsoft.smartyoutubetv2.tv.R;
@@ -95,6 +96,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     private View mErrorContainer;
     private TextView mErrorMessage;
     private MaterialButton mErrorAction;
+    private ImageButton mSearchButton;
     private ImageButton mSettingsButton;
 
     private final List<BrowseSection> mSections = new ArrayList<>();
@@ -114,6 +116,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         setupContentGrid();
         setupBottomNav();
         setupErrorAction();
+        setupSearchButton();
         setupSettingsButton();
 
         mPresenter = BrowsePresenter.instance(this);
@@ -128,6 +131,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         mErrorContainer = findViewById(R.id.mobile_error_container);
         mErrorMessage = findViewById(R.id.mobile_error_message);
         mErrorAction = findViewById(R.id.mobile_error_action);
+        mSearchButton = findViewById(R.id.mobile_search_button);
         mSettingsButton = findViewById(R.id.mobile_settings_button);
     }
 
@@ -157,6 +161,18 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
      * {@code SettingsItem.onClick}, which opens its own nested AppDialog screen on top (the
      * same "push a new level" mechanism described in {@code MobileAppDialogActivity}).
      */
+    /**
+     * Search entry point (Wave 4b). Mirrors the gear button's "drive the presenter" approach
+     * (the TV Home does the exact same thing - {@code BrowseFragment} wires its search affordance
+     * to {@code SearchPresenter.instance(ctx).startSearch(null)}): the presenter calls
+     * {@code ViewManager.startView(SearchView.class)} - now mapped to {@code MobileSearchActivity}
+     * (see {@link com.newtube.mobile.MobileMainApplication}) - then drives the freshly-created
+     * touch Search view. Passing {@code null} opens an empty search field (no pre-filled query).
+     */
+    private void setupSearchButton() {
+        mSearchButton.setOnClickListener(v -> SearchPresenter.instance(this).startSearch(null));
+    }
+
     private void setupSettingsButton() {
         mSettingsButton.setOnClickListener(v -> openSettings());
     }

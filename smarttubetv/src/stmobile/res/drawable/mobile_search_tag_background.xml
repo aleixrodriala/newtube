@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Rounded chip background for a search suggestion tag. Ripple foreground is set on the
+     item view in the layout via ?attr/selectableItemBackground. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/mobile_color_surface" />
+    <corners android:radius="16dp" />
+    <stroke
+        android:width="1dp"
+        android:color="@color/mobile_color_progress_track" />
+</shape>

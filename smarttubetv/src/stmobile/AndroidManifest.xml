@@ -96,6 +96,22 @@
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
 
+        <!--
+          Touch Search screen (Wave 4b). Same singleInstance + configChanges pattern as the
+          other touch Activities (ViewManager.startActivity() launches with FLAG_ACTIVITY_NEW_TASK;
+          surviving rotation keeps the loaded results + the presenter's in-flight Rx load).
+          adjustResize so the results grid shrinks (rather than being covered) when the soft
+          keyboard is up while typing a query.
+        -->
+        <activity
+            android:name="com.newtube.mobile.ui.search.MobileSearchActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:screenOrientation="unspecified"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.NewTube" />
+
     </application>
 
 </manifest>
