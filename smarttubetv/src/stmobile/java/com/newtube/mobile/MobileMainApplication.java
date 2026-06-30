@@ -1,10 +1,12 @@
 package com.newtube.mobile;
 
+import com.liskovsoft.smartyoutubetv2.common.app.views.AppDialogView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.tv.ui.main.MainApplication;
 import com.newtube.mobile.ui.browse.MobileBrowseActivity;
+import com.newtube.mobile.ui.dialog.MobileAppDialogActivity;
 import com.newtube.mobile.ui.playback.MobilePlaybackActivity;
 
 /**
@@ -22,6 +24,13 @@ import com.newtube.mobile.ui.playback.MobilePlaybackActivity;
  * BrowseActivity (Leanback)}), so tapping a video card would launch the Leanback
  * player on a touch phone instead of the new touch one.
  *
+ * Wave 3: also re-point the {@link AppDialogView} mapping at the touch
+ * {@link MobileAppDialogActivity} (parent: {@link MobileBrowseActivity}, mirroring TV's
+ * {@code AppDialogView -> AppDialogActivity, parent BrowseActivity}). Without this override
+ * every settings screen and every long-press context menu - which all funnel through
+ * {@code AppDialogPresenter} - would still launch the Leanback {@code AppDialogActivity}.
+ *
+
  * NOTE: We also re-point {@link ViewManager#setRoot}. The TV {@code MainApplication}
  * sets the root activity to the Leanback {@code BrowseActivity} inside
  * {@code setupViewManager()}. {@code ViewManager.startDefaultView()} (used by
@@ -47,6 +56,7 @@ public class MobileMainApplication extends MainApplication {
         // is left intact for later waves.
         viewManager.register(BrowseView.class, MobileBrowseActivity.class);
         viewManager.register(PlaybackView.class, MobilePlaybackActivity.class, MobileBrowseActivity.class);
+        viewManager.register(AppDialogView.class, MobileAppDialogActivity.class, MobileBrowseActivity.class);
         viewManager.setRoot(MobileBrowseActivity.class);
     }
 }

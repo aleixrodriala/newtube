@@ -33,11 +33,26 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
         void onVideoClick(Video video);
     }
 
+    /** Long-press = the touch equivalent of the TV D-pad OK-long-press context-menu shortcut
+     *  (ARCHITECTURE.md section 3's input contract: {@code onVideoItemLongClicked}). Routes to
+     *  {@code BrowsePresenter.onVideoItemLongClicked()}, which builds an OptionCategory menu via
+     *  {@code VideoMenuPresenter}/{@code AppDialogPresenter} and shows it through the Wave 3
+     *  {@code MobileAppDialogActivity} renderer. */
+    public interface OnVideoLongClickListener {
+        boolean onVideoLongClick(Video video);
+    }
+
     private final OnVideoClickListener mClickListener;
+    private final OnVideoLongClickListener mLongClickListener;
 
     public VideoCardAdapter(OnVideoClickListener clickListener) {
+        this(clickListener, null);
+    }
+
+    public VideoCardAdapter(OnVideoClickListener clickListener, OnVideoLongClickListener longClickListener) {
         super(DIFF_CALLBACK);
         mClickListener = clickListener;
+        mLongClickListener = longClickListener;
     }
 
     private static final DiffUtil.ItemCallback<Video> DIFF_CALLBACK = new DiffUtil.ItemCallback<Video>() {
@@ -62,7 +77,7 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
 
     @Override
     public void onBindViewHolder(@NonNull VideoViewHolder holder, int position) {
-        holder.bind(getItem(position));
+        holder.bind(getItem(position), mLongClickListener);
     }
 
     @Override
@@ -95,9 +110,12 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
             });
         }
 
-        void bind(Video video) {
+        void bind(Video video, OnVideoLongClickListener longClickListener) {
             mVideo = video;
             Context context = itemView.getContext();
+
+            itemView.setOnLongClickListener(v ->
+                    mVideo != null && longClickListener != null && longClickListener.onVideoLongClick(mVideo));
 
             mTitle.setText(video.getTitle());
             mChannel.setText(video.getAuthor());

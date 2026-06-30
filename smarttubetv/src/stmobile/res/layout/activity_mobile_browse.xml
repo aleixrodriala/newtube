@@ -16,14 +16,25 @@
         android:elevation="4dp"
         android:gravity="center_vertical|start"
         android:paddingStart="16dp"
-        android:paddingEnd="16dp"
         android:text="@string/app_name"
         android:textColor="@color/mobile_color_on_surface"
         android:textSize="20sp"
         android:textStyle="bold"
-        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/mobile_settings_button"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
+
+    <ImageButton
+        android:id="@+id/mobile_settings_button"
+        android:layout_width="48dp"
+        android:layout_height="@dimen/mobile_title_bar_height"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/mobile_settings_button"
+        android:elevation="4dp"
+        android:padding="12dp"
+        android:src="@drawable/ic_mobile_settings"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/mobile_content_grid"

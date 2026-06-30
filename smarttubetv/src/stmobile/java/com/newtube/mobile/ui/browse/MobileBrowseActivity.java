@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.util.DisplayMetrics;
 import android.view.Menu;
 import android.view.View;
+import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
@@ -18,11 +19,15 @@ import com.liskovsoft.mediaserviceinterfaces.data.MediaGroup;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.BrowseSection;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.SettingsGroup;
+import com.liskovsoft.smartyoutubetv2.common.app.models.data.SettingsItem;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.errors.ErrorFragmentData;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.BrowsePresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
+import com.liskovsoft.smartyoutubetv2.common.misc.AppDataSourceManager;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.common.MobileActivity;
 
@@ -90,6 +95,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     private View mErrorContainer;
     private TextView mErrorMessage;
     private MaterialButton mErrorAction;
+    private ImageButton mSettingsButton;
 
     private final List<BrowseSection> mSections = new ArrayList<>();
     private final List<Video> mCurrentVideos = new ArrayList<>();
@@ -108,6 +114,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         setupContentGrid();
         setupBottomNav();
         setupErrorAction();
+        setupSettingsButton();
 
         mPresenter = BrowsePresenter.instance(this);
         mPresenter.setView(this);
@@ -121,11 +128,12 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         mErrorContainer = findViewById(R.id.mobile_error_container);
         mErrorMessage = findViewById(R.id.mobile_error_message);
         mErrorAction = findViewById(R.id.mobile_error_action);
+        mSettingsButton = findViewById(R.id.mobile_settings_button);
     }
 
     private void setupContentGrid() {
         mLayoutManager = new GridLayoutManager(this, computeSpanCount());
-        mAdapter = new VideoCardAdapter(this::onVideoClicked);
+        mAdapter = new VideoCardAdapter(this::onVideoClicked, this::onVideoLongClicked);
 
         mContentGrid.setLayoutManager(mLayoutManager);
         mContentGrid.setAdapter(mAdapter);
@@ -135,6 +143,33 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
                 maybeTriggerPagination();
             }
         });
+    }
+
+    /**
+     * Settings entry point (Wave 3). Reuses the Wave 3 AppDialog renderer directly instead of
+     * a separate settings screen: {@link AppDataSourceManager#getSettingItems} returns the same
+     * {@code List<SettingsItem>} (title + onClick + icon) that the TV {@code SettingsGridFragment}
+     * renders as a grid - each item's {@code onClick} already calls e.g.
+     * {@code GeneralSettingsPresenter.instance(context).show()}, which itself just builds
+     * {@code OptionCategory} lists and calls {@code AppDialogPresenter.showDialog()}. So the
+     * cleanest reuse is to render the top-level Settings list as one more
+     * {@code AppDialogPresenter} button category screen: tapping a row runs the real
+     * {@code SettingsItem.onClick}, which opens its own nested AppDialog screen on top (the
+     * same "push a new level" mechanism described in {@code MobileAppDialogActivity}).
+     */
+    private void setupSettingsButton() {
+        mSettingsButton.setOnClickListener(v -> openSettings());
+    }
+
+    private void openSettings() {
+        AppDialogPresenter dialogPresenter = AppDialogPresenter.instance(this);
+        dialogPresenter.clearBackstack();
+
+        for (SettingsItem item : AppDataSourceManager.instance().getSettingItems(this)) {
+            dialogPresenter.appendSingleButton(UiOptionItem.from(item.title, optionItem -> item.onClick.run()));
+        }
+
+        dialogPresenter.showDialog(getString(R.string.header_settings));
     }
 
     private void setupBottomNav() {
@@ -169,6 +204,21 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         // videos (now mapped to MobilePlaybackActivity - see MobileMainApplication); channel/
         // playlist items are routed elsewhere by the same presenter, which is fine here too.
         mPresenter.onVideoItemClicked(video);
+    }
+
+    /**
+     * Wave 3: long-press = the touch equivalent of the TV D-pad OK-long-press context-menu
+     * shortcut. {@code BrowsePresenter.onVideoItemLongClicked()} builds the "..." menu
+     * (add to playlist / share / subscribe / etc.) via {@code VideoMenuPresenter} and shows it
+     * through {@code AppDialogPresenter} - now rendered by {@code MobileAppDialogActivity}.
+     */
+    private boolean onVideoLongClicked(Video video) {
+        if (mPresenter == null) {
+            return false;
+        }
+
+        mPresenter.onVideoItemLongClicked(video);
+        return true;
     }
 
     private void maybeTriggerPagination() {

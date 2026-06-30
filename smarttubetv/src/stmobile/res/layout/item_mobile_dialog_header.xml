@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Section header row for an OptionCategory.title (radio/checkbox/string-list categories). -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/dialog_header_title"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingStart="16dp"
+    android:paddingTop="16dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="8dp"
+    android:textAllCaps="true"
+    android:textColor="@color/mobile_color_accent"
+    android:textSize="13sp"
+    android:textStyle="bold"
+    tools:text="Video quality" />

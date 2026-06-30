@@ -59,6 +59,21 @@
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
 
+        <!--
+          Touch AppDialog renderer (Wave 3). configChanges/launchMode mirror the other
+          registered View Activities: ViewManager.startActivity() always launches with
+          FLAG_ACTIVITY_NEW_TASK from a non-Activity Context, and surviving rotation matters
+          here too - the in-memory dialog level backstack (and the OptionItem callback
+          closures captured by it) would otherwise be lost on a config change.
+        -->
+        <activity
+            android:name="com.newtube.mobile.ui.dialog.MobileAppDialogActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:screenOrientation="unspecified"
+            android:theme="@style/Theme.NewTube" />
+
     </application>
 
 </manifest>
