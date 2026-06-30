@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Touch Channel page (Wave 4a).
+
+  LEAN rendering per the port's preference: ONE vertically-scrolling RecyclerView (a
+  GridLayoutManager) that interleaves full-span section headers (Uploads / Playlists /
+  Live / ...) with the section's videos laid out as a grid - NOT nested horizontal-scroll
+  carousels like the TV MultipleRowsFragment. See ChannelSectionAdapter for the two
+  view types + MobileChannelActivity's SpanSizeLookup that makes headers span the full row.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/mobile_channel_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/mobile_color_background"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:id="@+id/mobile_channel_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/mobile_title_bar_height"
+        android:background="@color/mobile_color_surface"
+        android:elevation="4dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageButton
+            android:id="@+id/mobile_channel_back"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/mobile_back"
+            android:padding="12dp"
+            android:src="@drawable/ic_mobile_back_arrow" />
+
+        <TextView
+            android:id="@+id/mobile_channel_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingEnd="16dp"
+            android:text="@string/header_channels"
+            android:textColor="@color/mobile_color_on_surface"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            tools:text="Some Channel" />
+
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/mobile_channel_grid"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingHorizontal="@dimen/mobile_card_spacing"
+            android:paddingBottom="@dimen/mobile_card_spacing"
+            android:scrollbars="vertical"
+            tools:listitem="@layout/item_video_card" />
+
+        <ProgressBar
+            android:id="@+id/mobile_channel_progress"
+            style="?android:attr/progressBarStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+
+    </FrameLayout>
+
+</LinearLayout>

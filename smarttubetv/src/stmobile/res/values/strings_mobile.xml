@@ -3,4 +3,5 @@
     <string name="mobile_player_back">Back</string>
     <string name="mobile_dialog_back">Back</string>
     <string name="mobile_settings_button">Settings</string>
+    <string name="mobile_back">Back</string>
 </resources>

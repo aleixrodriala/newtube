@@ -2,10 +2,14 @@ package com.newtube.mobile;
 
 import com.liskovsoft.smartyoutubetv2.common.app.views.AppDialogView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
+import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelUploadsView;
+import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.tv.ui.main.MainApplication;
 import com.newtube.mobile.ui.browse.MobileBrowseActivity;
+import com.newtube.mobile.ui.channel.MobileChannelActivity;
+import com.newtube.mobile.ui.channel.MobileChannelUploadsActivity;
 import com.newtube.mobile.ui.dialog.MobileAppDialogActivity;
 import com.newtube.mobile.ui.playback.MobilePlaybackActivity;
 
@@ -57,6 +61,13 @@ public class MobileMainApplication extends MainApplication {
         viewManager.register(BrowseView.class, MobileBrowseActivity.class);
         viewManager.register(PlaybackView.class, MobilePlaybackActivity.class, MobileBrowseActivity.class);
         viewManager.register(AppDialogView.class, MobileAppDialogActivity.class, MobileBrowseActivity.class);
+
+        // Wave 4a: list/channel destinations (e.g. tapping a MIX/CHART/playlist on Home, or
+        // "Open channel" from a context menu) - re-point the ChannelUploads/Channel mappings at
+        // the touch screens, otherwise they'd still resolve to the inherited Leanback Activities.
+        viewManager.register(ChannelUploadsView.class, MobileChannelUploadsActivity.class, MobileBrowseActivity.class);
+        viewManager.register(ChannelView.class, MobileChannelActivity.class, MobileBrowseActivity.class);
+
         viewManager.setRoot(MobileBrowseActivity.class);
     }
 }

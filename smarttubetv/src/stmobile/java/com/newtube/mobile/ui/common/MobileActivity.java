@@ -57,7 +57,20 @@ public abstract class MobileActivity extends MotherActivity {
     @Override
     public void finishReally() {
         // Mandatory line. Fix un-proper view order (especially for playback view).
-        getViewManager().startParentView(this);
+        //
+        // Normally we explicitly relaunch the parent screen here because singleInstance
+        // back-navigation is unreliable. BUT if another screen is being launched right now
+        // (e.g. a long-press context-menu action like "Open channel"/"Open playlist" that
+        // calls a presenter.openChannel() -> ViewManager.startView() and THEN closeDialog()),
+        // relaunching this screen's parent (Home) would land on top of and hide that new
+        // screen. In that race, just pop ourselves off the ViewManager back-stack and let the
+        // freshly-started view stay in front. Plain Android back (nothing else launching) is
+        // unaffected: isNewViewPending() is false then, so the parent is relaunched as before.
+        if (getViewManager().isNewViewPending()) {
+            getViewManager().removeTop(this);
+        } else {
+            getViewManager().startParentView(this);
+        }
         super.finishReally();
     }
 

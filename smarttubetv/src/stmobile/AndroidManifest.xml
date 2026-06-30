@@ -74,6 +74,28 @@
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
 
+        <!--
+          Touch Channel-Uploads list + Channel page (Wave 4a). Same singleInstance +
+          configChanges pattern as the other touch Activities: ViewManager.startActivity()
+          launches with FLAG_ACTIVITY_NEW_TASK, and surviving rotation keeps the loaded
+          content (and the presenter's in-flight Rx load) instead of recreating the screen.
+        -->
+        <activity
+            android:name="com.newtube.mobile.ui.channel.MobileChannelUploadsActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:screenOrientation="unspecified"
+            android:theme="@style/Theme.NewTube" />
+
+        <activity
+            android:name="com.newtube.mobile.ui.channel.MobileChannelActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:screenOrientation="unspecified"
+            android:theme="@style/Theme.NewTube" />
+
     </application>
 
 </manifest>

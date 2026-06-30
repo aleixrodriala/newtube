@@ -86,7 +86,14 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
         holder.unbind();
     }
 
-    static class VideoViewHolder extends RecyclerView.ViewHolder {
+    /**
+     * Public so the channel page's heterogeneous adapter
+     * ({@code com.newtube.mobile.ui.channel.ChannelSectionAdapter}) can reuse the exact same
+     * card binding for its video rows (headers are a separate view type there), instead of
+     * duplicating the thumbnail/badge/progress binding logic. Inflate {@link R#layout} {@code
+     * item_video_card} and construct one of these for each video row.
+     */
+    public static class VideoViewHolder extends RecyclerView.ViewHolder {
         private final ImageView mThumbnail;
         private final TextView mBadge;
         private final ProgressBar mWatchProgress;
@@ -94,7 +101,7 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
         private final TextView mChannel;
         private Video mVideo;
 
-        VideoViewHolder(@NonNull View itemView, OnVideoClickListener clickListener) {
+        public VideoViewHolder(@NonNull View itemView, OnVideoClickListener clickListener) {
             super(itemView);
 
             mThumbnail = itemView.findViewById(R.id.video_thumbnail);
@@ -110,7 +117,7 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
             });
         }
 
-        void bind(Video video, OnVideoLongClickListener longClickListener) {
+        public void bind(Video video, OnVideoLongClickListener longClickListener) {
             mVideo = video;
             Context context = itemView.getContext();
 
@@ -171,7 +178,7 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
                     .into(mThumbnail);
         }
 
-        void unbind() {
+        public void unbind() {
             mVideo = null;
             Glide.with(itemView.getContext().getApplicationContext()).clear(mThumbnail);
         }
