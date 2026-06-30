@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Target width of a video card; actual column count is computed at runtime
+         from the screen width so portrait phones and tablets both get a sensible
+         grid (mirrors the intent of GridFragmentHelper's column math, but driven by
+         the real current width instead of always the long screen dimension - that
+         TV helper assumes landscape, which is wrong for a portrait phone). -->
+    <dimen name="mobile_card_target_width">168dp</dimen>
+    <dimen name="mobile_card_spacing">8dp</dimen>
+    <dimen name="mobile_card_corner_radius">8dp</dimen>
+    <dimen name="mobile_title_bar_height">56dp</dimen>
+</resources>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Touch UI theme for the stmobile flavor.
+
+      Deliberately Theme.MaterialComponents (NOT a Theme.AppCompat fallback): Material
+      Components 1.5.0 (`materialVersion` in SharedModules/constants.gradle) is already
+      pulled into this exact Gradle module graph at runtime via the `chatkit` library
+      dependency (smarttubetv/build.gradle -> implementation project(':chatkit') ->
+      com.google.android.material:material:1.5.0), and `filepicker-lib` (a dependency
+      of `common`) depends on the same artifact/version. So Material Components was
+      already proven to resolve cleanly against this project's pinned
+      appcompat/fragment/leanback versions before this change - no fallback to
+      AppCompat + cardview was needed.
+    -->
+    <style name="Theme.NewTube" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/mobile_color_primary</item>
+        <item name="colorPrimaryDark">@color/mobile_color_primary_dark</item>
+        <item name="colorAccent">@color/mobile_color_accent</item>
+        <item name="android:colorBackground">@color/mobile_color_background</item>
+        <item name="colorSurface">@color/mobile_color_surface</item>
+        <item name="colorOnSurface">@color/mobile_color_on_surface</item>
+        <item name="android:windowBackground">@color/mobile_color_background</item>
+    </style>
+</resources>

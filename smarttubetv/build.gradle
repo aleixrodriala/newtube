@@ -196,6 +196,16 @@ dependencies {
     implementation 'androidx.media:media:' + mediaXVersion // exoplayer fix
     implementation 'androidx.constraintlayout:constraintlayout:' + constraintLayoutXVersion
 
+    // Touch UI (stmobile flavor): BottomNavigationView/MaterialCardView/MaterialButton
+    // for the mobile Home shell (com.newtube.mobile.*). Same materialVersion that
+    // 'chatkit' (a transitive dependency of this very module, see below) and
+    // 'filepicker-lib' (a dependency of :common) already pull in - already proven to
+    // resolve cleanly against this project's pinned appcompat/fragment/leanback
+    // versions, so no AppCompat+cardview fallback was needed. Harmless no-op version
+    // bump for the TV flavors (stbeta/ststable/stfdroid), which never reference these
+    // widgets.
+    implementation 'com.google.android.material:material:' + materialVersion
+
     implementation 'com.github.bumptech.glide:glide:' + glideVersion
     implementation 'com.github.bumptech.glide:annotations:' + glideVersion
     annotationProcessor 'com.github.bumptech.glide:compiler:' + glideVersion

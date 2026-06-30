@@ -9,8 +9,14 @@
     * android.hardware.touchscreen -> required (TV manifest declares it false).
 
   SplashActivity already carries the normal LAUNCHER category in the main manifest,
-  so no launcher changes are needed here. The touch UI / theme will be layered on
-  this flavor in later waves.
+  so no launcher changes are needed here - it routes via SplashPresenter ->
+  ViewManager.startView(BrowseView.class)/startDefaultView(), both of which are
+  re-pointed at the touch Home screen below (see MobileMainApplication).
+
+  Wave 1 vertical slice: override the Application class to MobileMainApplication
+  (re-points just the BrowseView mapping + root activity at the touch shell; every
+  other TV View->Activity mapping from MainApplication.setupViewManager() is left
+  intact) and declare the touch Home Activity itself.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           xmlns:tools="http://schemas.android.com/tools">
@@ -23,5 +29,20 @@
         android:name="android.hardware.touchscreen"
         android:required="true"
         tools:replace="android:required" />
+
+    <application
+        android:name="com.newtube.mobile.MobileMainApplication"
+        android:theme="@style/Theme.NewTube"
+        tools:replace="android:name,android:theme">
+
+        <activity
+            android:name="com.newtube.mobile.ui.browse.MobileBrowseActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:screenOrientation="unspecified"
+            android:theme="@style/Theme.NewTube" />
+
+    </application>
 
 </manifest>
