@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Touch player - Wave 2 vertical slice.
+
+  A single com.google.android.exoplayer2.ui.PlayerView filling the screen with
+  use_controller="true" so play/pause, seek bar + position/duration text and
+  rewind/fast-forward come for free from ExoPlayer's built-in PlaybackControlView.
+  Back and the loading spinner are the only pieces this layout adds on top, since
+  PlayerView's stock controller has neither.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black"
+    android:keepScreenOn="true">
+
+    <com.google.android.exoplayer2.ui.PlayerView
+        android:id="@+id/mobile_player_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:resize_mode="fit"
+        app:show_buffering="when_playing"
+        app:show_timeout="4000"
+        app:use_controller="true" />
+
+    <ProgressBar
+        android:id="@+id/mobile_player_progress"
+        style="?android:attr/progressBarStyleLarge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/mobile_player_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:background="@drawable/mobile_player_title_scrim"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:paddingStart="64dp"
+        android:paddingTop="32dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="12dp"
+        android:textColor="@android:color/white"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        tools:text="Video title" />
+
+    <ImageButton
+        android:id="@+id/mobile_player_back"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="24dp"
+        android:background="@drawable/mobile_player_back_background"
+        android:contentDescription="@string/mobile_player_back"
+        android:padding="8dp"
+        android:src="@drawable/ic_mobile_back_arrow" />
+
+</FrameLayout>

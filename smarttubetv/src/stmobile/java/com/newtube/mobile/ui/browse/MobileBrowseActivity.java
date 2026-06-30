@@ -7,7 +7,6 @@ import android.view.Menu;
 import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.GridLayoutManager;
@@ -50,7 +49,8 @@ import java.util.List;
  * remaining sections are simply not shown in this slice (a "more"/drawer entry for
  * them is future work).
  *
- * No player yet: tapping a card only shows a Toast with the title.
+ * Wave 2: tapping a card routes through {@link BrowsePresenter#onVideoItemClicked} into
+ * the real touch player ({@code MobilePlaybackActivity}).
  */
 public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     /** BottomNavigationView item ids must be non-zero; BrowseSection ids start at 0. */
@@ -158,12 +158,17 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     }
 
     private void onVideoClicked(Video video) {
-        if (mPresenter != null) {
-            mPresenter.onVideoItemSelected(video);
+        if (mPresenter == null) {
+            return;
         }
 
-        // Wave 1 has no player yet - just prove the click reaches a real, loaded Video.
-        Toast.makeText(this, video.getTitle(), Toast.LENGTH_SHORT).show();
+        mPresenter.onVideoItemSelected(video);
+
+        // Wave 2: real route. BrowsePresenter.onVideoItemClicked() -> VideoActionPresenter.apply()
+        // -> PlaybackPresenter.openVideo() -> ViewManager.startView(PlaybackView.class) for plain
+        // videos (now mapped to MobilePlaybackActivity - see MobileMainApplication); channel/
+        // playlist items are routed elsewhere by the same presenter, which is fine here too.
+        mPresenter.onVideoItemClicked(video);
     }
 
     private void maybeTriggerPagination() {
@@ -288,6 +293,10 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         if (mPresenter != null) {
             mPresenter.onViewResumed();
         }
+
+        // Wave-1 wart fix (ARCHITECTURE.md / ROADMAP Wave 2): MotherActivity goes
+        // immersive-sticky by default - see MobileActivity.showSystemBars() for why.
+        showSystemBars();
     }
 
     @Override

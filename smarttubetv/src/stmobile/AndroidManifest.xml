@@ -43,6 +43,22 @@
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
 
+        <!--
+          Touch player (Wave 2). configChanges covers orientation/screenSize/keyboardHidden so
+          the Activity (and the live ExoPlayer instance it holds) survives device rotation
+          instead of being torn down and recreated - rotating to landscape is exactly how the
+          user reaches fullscreen. screenOrientation="unspecified" lets the system/sensor decide
+          (same as every other touch screen in this flavor), so portrait playback still works on
+          devices/users with auto-rotate off.
+        -->
+        <activity
+            android:name="com.newtube.mobile.ui.playback.MobilePlaybackActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:screenOrientation="unspecified"
+            android:theme="@style/Theme.NewTube" />
+
     </application>
 
 </manifest>

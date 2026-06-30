@@ -1,9 +1,11 @@
 package com.newtube.mobile;
 
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
+import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.tv.ui.main.MainApplication;
 import com.newtube.mobile.ui.browse.MobileBrowseActivity;
+import com.newtube.mobile.ui.playback.MobilePlaybackActivity;
 
 /**
  * stmobile flavor application class.
@@ -12,6 +14,13 @@ import com.newtube.mobile.ui.browse.MobileBrowseActivity;
  * handler, the full {@link ViewManager} mapping for every other screen) by calling
  * {@code super.onCreate()}, then re-point only the {@link BrowseView} (Home) mapping
  * at the touch {@link MobileBrowseActivity}.
+ *
+ * Wave 2: also re-point the {@link PlaybackView} mapping at the touch
+ * {@link MobilePlaybackActivity}. Without this, {@code PlaybackView} would still
+ * resolve to the inherited TV mapping ({@code MainApplication.setupViewManager()}
+ * registers it as {@code PlaybackView -> PlaybackActivity (Leanback), parent
+ * BrowseActivity (Leanback)}), so tapping a video card would launch the Leanback
+ * player on a touch phone instead of the new touch one.
  *
  * NOTE: We also re-point {@link ViewManager#setRoot}. The TV {@code MainApplication}
  * sets the root activity to the Leanback {@code BrowseActivity} inside
@@ -32,8 +41,12 @@ public class MobileMainApplication extends MainApplication {
 
         ViewManager viewManager = ViewManager.instance(this);
 
-        // Override just the Home mapping + the cold-launch root with the touch screen.
+        // Override just the Home + Playback mappings (and the cold-launch root) with
+        // the touch screens. Every other View->Activity mapping from
+        // MainApplication.setupViewManager() (Search, Channel, AppDialog, SignIn, ...)
+        // is left intact for later waves.
         viewManager.register(BrowseView.class, MobileBrowseActivity.class);
+        viewManager.register(PlaybackView.class, MobilePlaybackActivity.class, MobileBrowseActivity.class);
         viewManager.setRoot(MobileBrowseActivity.class);
     }
 }
