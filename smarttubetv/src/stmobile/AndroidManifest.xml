@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Mobile (touch) flavor manifest overlay.
+
+  Overrides the TV manifest so the app installs and shows in the launcher on
+  ordinary touchscreen phones/tablets:
+    * android.software.leanback  -> NOT required (TV manifest + leanbackassistant
+      both declare it required=true; tools:replace forces the merged value false).
+    * android.hardware.touchscreen -> required (TV manifest declares it false).
+
+  SplashActivity already carries the normal LAUNCHER category in the main manifest,
+  so no launcher changes are needed here. The touch UI / theme will be layered on
+  this flavor in later waves.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false"
+        tools:replace="android:required" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="true"
+        tools:replace="android:required" />
+
+</manifest>

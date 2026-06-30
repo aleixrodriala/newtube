@@ -172,6 +172,16 @@ android {
             minSdkVersion 21
             targetSdkVersion project.properties.compileSdkVersion
         }
+        // Touch-mobile (phone/tablet) port. Reuses the ststable variant of all
+        // library modules via matchingFallbacks; a flavor-specific manifest
+        // (src/stmobile/AndroidManifest.xml) drops the Leanback requirement so the
+        // app installs on touchscreens. Keeps the TV flavors building untouched.
+        stmobile {
+            applicationId "com.newtube.app"
+            minSdkVersion 21
+            targetSdkVersion project.properties.compileSdkVersion
+            matchingFallbacks = ['ststable']
+        }
     }
 }
 
