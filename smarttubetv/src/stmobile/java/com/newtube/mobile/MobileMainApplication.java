@@ -13,6 +13,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.WebBrowserView;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.ExoMediaSourceFactory;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.ExoPlayerInitializer;
 import com.liskovsoft.smartyoutubetv2.tv.ui.main.MainApplication;
+import com.liskovsoft.youtubeapi.videoinfo.V2.VideoInfoService;
 import com.newtube.mobile.ui.adddevice.MobileAddDeviceActivity;
 import com.newtube.mobile.ui.browse.MobileBrowseActivity;
 import com.newtube.mobile.ui.channel.MobileChannelActivity;
@@ -102,6 +103,15 @@ public class MobileMainApplication extends MainApplication {
         // TTFF FIX (mobile-only): lower the first-frame / after-rebuffer start gate so playback starts
         // sooner. Steady-state buffering is untouched. TV never calls this -> TV start gate unchanged.
         ExoPlayerInitializer.setStartBufferOverride(START_BUFFER_MS, START_BUFFER_AFTER_REBUFFER_MS);
+
+        // TTFF FIX (mobile-only, biggest cold-start win): make getVideoInfo try a no-PO-token/no-cipher
+        // client (ANDROID_VR, then ANDROID_REEL) BEFORE WEB_EMBED. WEB_EMBED (the default first client)
+        // requires a synchronous PO token + signature deciphering (~2.7s of self-inflicted latency on
+        // every cold start); the fast clients skip both. WEB_EMBED and the rest of the client list
+        // remain as fallbacks (firstInfoWith falls through), so restricted / age-gated videos still
+        // play. The winning fast client is persisted so subsequent cold starts skip straight to it.
+        // TV never calls this -> TV keeps the WEB_EMBED-first order unchanged.
+        VideoInfoService.setPreferNoPotClient(true);
 
         // SEEK-BACK FIX (secondary, defense-in-depth): install a bounded on-disk media cache. It does
         // NOT help the SABR path (POST bodies aren't cacheable), but it makes the progressive /
