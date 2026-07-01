@@ -3,8 +3,10 @@
   Touch device-code sign-in screen - Wave 5 (ARCHITECTURE.md section 7).
 
   Renders what YTSignInPresenter pushes through SignInView.showCode(): the user code
-  (large + tap-to-copy), the verification URL (tappable link), and a QR code generated
-  CLIENT-SIDE from the full sign-in URL (zxing) instead of hitting api.qrserver.com.
+  (large + tap-to-copy), the verification URL (tappable link), and a prominent
+  "Open sign-in page" button. On a phone there is nothing to scan, so instead of a QR
+  the activation page is opened directly in the device browser when the code arrives
+  (see MobileSignInActivity.showCode); the button re-opens it on demand.
   A spinner shows until the first code arrives from the backend; an error TextView
   surfaces the network/auth error verbatim (SignInView's 2-arg showCode error path).
   The account/auth backend is untouched - this view only renders.
@@ -166,32 +168,24 @@
                     android:textColor="@color/mobile_color_on_surface_secondary"
                     android:textSize="12sp" />
 
-                <TextView
-                    android:id="@+id/mobile_signin_qr_hint"
+                <!--
+                  Primary action: (re)open the code-prefilled activation page in the device browser.
+                  It is auto-opened once when the code arrives (see MobileSignInActivity.showCode);
+                  this button lets the user get back to it after backgrounding / dismissing the tab.
+                  Replaces the QR area of the TV path - a phone has nothing to scan from.
+                -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/mobile_signin_open_button"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="32dp"
-                    android:text="@string/mobile_signin_qr_hint"
-                    android:textColor="@color/mobile_color_on_surface_secondary"
-                    android:textSize="15sp" />
-
-                <androidx.cardview.widget.CardView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    app:cardBackgroundColor="@color/mobile_color_qr_bg"
-                    app:cardCornerRadius="8dp"
-                    app:cardElevation="0dp">
-
-                    <ImageView
-                        android:id="@+id/mobile_signin_qr"
-                        android:layout_width="220dp"
-                        android:layout_height="220dp"
-                        android:layout_margin="12dp"
-                        android:contentDescription="@string/mobile_signin_qr_hint"
-                        android:scaleType="fitCenter" />
-
-                </androidx.cardview.widget.CardView>
+                    android:paddingStart="24dp"
+                    android:paddingEnd="24dp"
+                    android:text="@string/mobile_signin_open_button"
+                    android:textColor="@color/mobile_color_on_surface"
+                    android:textSize="16sp"
+                    app:backgroundTint="@color/mobile_color_primary"
+                    app:cornerRadius="24dp" />
 
             </LinearLayout>
 

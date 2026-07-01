@@ -3,34 +3,23 @@ package com.newtube.mobile.ui.signin;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
-import android.graphics.Bitmap;
-import android.graphics.Color;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.ImageButton;
-import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 
+import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
-import com.google.zxing.BarcodeFormat;
-import com.google.zxing.EncodeHintType;
-import com.google.zxing.MultiFormatWriter;
-import com.google.zxing.WriterException;
-import com.google.zxing.common.BitMatrix;
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
-import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.YTSignInPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SignInView;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.common.MobileActivity;
-
-import java.util.EnumMap;
-import java.util.Map;
 
 /**
  * Touch device-code sign-in screen - Wave 5 (ARCHITECTURE.md section 7, "Account-login seam").
@@ -51,22 +40,23 @@ import java.util.Map;
  * UI thread - {@code runOnUiThread} is used defensively anyway.
  *
  * <h3>What it renders</h3>
+ * Unlike the TV path (which shows a QR meant to be scanned from a second device), this is a phone,
+ * so there is nothing to scan: the activation page is opened right here in the device browser.
  * <ul>
- *   <li>The <b>user code</b> large + monospace, in a card that copies it to the clipboard on tap.</li>
- *   <li>The <b>verification URL</b> ({@code https://yt.be/activate}) as a tappable link that opens
- *       the system browser / Custom Tab (via {@link Utils#openLinkExt}). When the presenter also
- *       supplies the full QR URL ({@code https://youtube.com/qr/activate/<code>}), tapping opens
- *       that instead so the code is pre-filled.</li>
- *   <li>A <b>QR code</b> generated CLIENT-SIDE from the full sign-in URL with zxing (no
- *       {@code api.qrserver.com} round-trip that the TV path uses via {@code Utils.toQrCodeLink}).</li>
+ *   <li>When the first code arrives it AUTO-OPENS the code-prefilled activation page
+ *       ({@code https://youtube.com/qr/activate/<code>}) in the system browser / Custom Tab via
+ *       {@link Utils#openLinkExt}, so the user can approve the request on this same device. This
+ *       happens once per launch (guarded by {@link #mAutoOpenAllowed}) - not on every rotation.</li>
+ *   <li>The <b>user code</b> large + monospace, in a card that copies it to the clipboard on tap
+ *       (fallback for entering it manually).</li>
+ *   <li>The <b>verification URL</b> ({@code https://yt.be/activate}) as a tappable link.</li>
+ *   <li>A prominent <b>"Open sign-in page"</b> button that re-opens the activation page in the
+ *       browser (for when the user backgrounds / dismisses the auto-opened tab).</li>
  * </ul>
  * A spinner shows until the first code arrives; the {@link #showCode(String, String)} 2-arg error
  * path (empty {@code signInUrl}) surfaces the backend error message verbatim.
  */
 public class MobileSignInActivity extends MobileActivity implements SignInView {
-    private static final String TAG = MobileSignInActivity.class.getSimpleName();
-    /** Encode resolution for the QR bitmap; the ImageView scales it down (fitCenter). */
-    private static final int QR_SIZE_PX = 600;
 
     private YTSignInPresenter mSignInPresenter;
 
@@ -76,17 +66,26 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
     private MaterialCardView mCodeCard;
     private TextView mCodeView;
     private TextView mUrlView;
-    private ImageView mQrView;
+    private MaterialButton mOpenButton;
     private ImageButton mBackButton;
 
     private String mUserCode;
     private String mSignInUrl;
     /** The QR/full URL (code pre-filled); falls back to {@link #mSignInUrl} when absent. */
     private String mFullSignInUrl;
+    /**
+     * Guards the one-shot auto-open of the browser. Only {@code true} on a fresh launch
+     * ({@code savedInstanceState == null}); a config change / rotation recreates the Activity with a
+     * non-null bundle, so we do NOT re-launch the browser on the user - the button is there for that.
+     */
+    private boolean mAutoOpenAllowed;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Only auto-open the browser on the very first launch of this screen, never on rotation.
+        mAutoOpenAllowed = savedInstanceState == null;
 
         setContentView(R.layout.activity_mobile_signin);
 
@@ -95,6 +94,7 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
         mBackButton.setOnClickListener(v -> onBackPressed());
         mCodeCard.setOnClickListener(v -> copyCodeToClipboard());
         mUrlView.setOnClickListener(v -> openSignInUrl());
+        mOpenButton.setOnClickListener(v -> openSignInUrl());
 
         mSignInPresenter = YTSignInPresenter.instance(this);
         mSignInPresenter.setView(this);
@@ -108,7 +108,7 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
         mCodeCard = findViewById(R.id.mobile_signin_code_card);
         mCodeView = findViewById(R.id.mobile_signin_code);
         mUrlView = findViewById(R.id.mobile_signin_url);
-        mQrView = findViewById(R.id.mobile_signin_qr);
+        mOpenButton = findViewById(R.id.mobile_signin_open_button);
         mBackButton = findViewById(R.id.mobile_signin_back);
     }
 
@@ -164,7 +164,12 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
             mCodeView.setText(userCode);
             mUrlView.setText(signInUrl);
 
-            renderQrCode(mFullSignInUrl);
+            // Auto-open the code-prefilled activation page in the browser, once per launch, so the
+            // user can approve on this device. The code + URL + button remain as a fallback.
+            if (mAutoOpenAllowed) {
+                mAutoOpenAllowed = false;
+                openSignInUrl();
+            }
         });
     }
 
@@ -202,49 +207,6 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
         String url = !TextUtils.isEmpty(mFullSignInUrl) ? mFullSignInUrl : mSignInUrl;
         if (!TextUtils.isEmpty(url)) {
             Utils.openLinkExt(this, url);
-        }
-    }
-
-    private void renderQrCode(String data) {
-        if (TextUtils.isEmpty(data)) {
-            return;
-        }
-
-        Bitmap bitmap = generateQrBitmap(data, QR_SIZE_PX);
-        if (bitmap != null) {
-            mQrView.setImageBitmap(bitmap);
-            mQrView.setVisibility(View.VISIBLE);
-        } else {
-            // zxing failed: hide the QR rather than show a blank box. The code + tappable URL
-            // are still enough to complete sign-in.
-            mQrView.setVisibility(View.GONE);
-        }
-    }
-
-    private Bitmap generateQrBitmap(String data, int sizePx) {
-        try {
-            Map<EncodeHintType, Object> hints = new EnumMap<>(EncodeHintType.class);
-            hints.put(EncodeHintType.MARGIN, 1);
-            hints.put(EncodeHintType.CHARACTER_SET, "UTF-8");
-
-            BitMatrix matrix = new MultiFormatWriter().encode(data, BarcodeFormat.QR_CODE, sizePx, sizePx, hints);
-
-            int width = matrix.getWidth();
-            int height = matrix.getHeight();
-            int[] pixels = new int[width * height];
-            for (int y = 0; y < height; y++) {
-                int offset = y * width;
-                for (int x = 0; x < width; x++) {
-                    pixels[offset + x] = matrix.get(x, y) ? Color.BLACK : Color.WHITE;
-                }
-            }
-
-            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-            bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
-            return bitmap;
-        } catch (WriterException | IllegalArgumentException e) {
-            Log.e(TAG, "QR generation failed: %s", e.getMessage());
-            return null;
         }
     }
 }

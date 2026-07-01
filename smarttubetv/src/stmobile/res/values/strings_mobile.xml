@@ -86,10 +86,10 @@
 
     <!-- Device-code sign-in screen (com.newtube.mobile.ui.signin.MobileSignInActivity) -->
     <string name="mobile_signin_title">Sign in</string>
-    <string name="mobile_signin_instructions">On a phone or computer, go to the address below and enter this code:</string>
+    <string name="mobile_signin_instructions">The sign-in page should open in your browser. Approve the request there, then come back. If it doesn\'t open, enter this code at the address below:</string>
     <string name="mobile_signin_copy_hint">Tap the code to copy it</string>
     <string name="mobile_signin_code_copied">Code copied to clipboard</string>
-    <string name="mobile_signin_qr_hint">Or scan this QR code:</string>
+    <string name="mobile_signin_open_button">Open sign-in page</string>
     <string name="mobile_signin_open_hint">Tap the address to open it in your browser</string>
     <string name="mobile_signin_error">Sign in failed. Please try again.</string>
 
