@@ -14,4 +14,6 @@
     <color name="mobile_color_placeholder">#2A2A2A</color>
     <color name="mobile_color_link">#4FC3F7</color>
     <color name="mobile_color_qr_bg">#FFFFFF</color>
+    <color name="mobile_color_divider">#22FFFFFF</color>
+    <color name="mobile_color_pill">#26FFFFFF</color>
 </resources>

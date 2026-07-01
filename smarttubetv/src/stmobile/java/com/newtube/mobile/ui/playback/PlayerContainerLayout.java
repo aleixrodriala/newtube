@@ -4,6 +4,7 @@ import android.content.Context;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
+import android.view.View;
 import android.view.ViewConfiguration;
 import android.widget.FrameLayout;
 
@@ -44,6 +45,10 @@ public class PlayerContainerLayout extends FrameLayout {
     private float mDownRawX;
     private float mDownRawY;
     private boolean mDragging;
+    private boolean mDownInDragRegion;
+    @Nullable
+    private View mDragStartBoundView;
+    private final int[] mTmpLocation = new int[2];
     @Nullable
     private VelocityTracker mVelocityTracker;
 
@@ -64,6 +69,32 @@ public class PlayerContainerLayout extends FrameLayout {
         mListener = listener;
     }
 
+    /**
+     * Restrict where a dismiss drag may begin. When set, a swipe-to-dismiss only starts if the
+     * initial touch-down landed inside {@code view}'s on-screen bounds (the watch page uses the
+     * 16:9 video area). This keeps the vertical drag off the scrollable content column below, so
+     * the related list scrolls normally. When {@code null}, a drag may begin anywhere (the old
+     * full-screen behaviour, still used effectively in landscape where the video fills the screen).
+     */
+    public void setDragStartBoundView(@Nullable View view) {
+        mDragStartBoundView = view;
+    }
+
+    private boolean isInDragRegion(MotionEvent ev) {
+        if (mDragStartBoundView == null) {
+            return true;
+        }
+        if (mDragStartBoundView.getVisibility() != VISIBLE
+                || mDragStartBoundView.getWidth() == 0 || mDragStartBoundView.getHeight() == 0) {
+            return false;
+        }
+        mDragStartBoundView.getLocationOnScreen(mTmpLocation);
+        float x = ev.getRawX();
+        float y = ev.getRawY();
+        return x >= mTmpLocation[0] && x <= mTmpLocation[0] + mDragStartBoundView.getWidth()
+                && y >= mTmpLocation[1] && y <= mTmpLocation[1] + mDragStartBoundView.getHeight();
+    }
+
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
         if (mListener == null) {
@@ -75,9 +106,10 @@ public class PlayerContainerLayout extends FrameLayout {
                 mDownRawX = ev.getRawX();
                 mDownRawY = ev.getRawY();
                 mDragging = false;
+                mDownInDragRegion = isInDragRegion(ev);
                 break;
             case MotionEvent.ACTION_MOVE:
-                if (!mDragging) {
+                if (!mDragging && mDownInDragRegion) {
                     float dy = ev.getRawY() - mDownRawY;
                     float dx = ev.getRawX() - mDownRawX;
                     // Downward, clearly vertical, and beyond a comfortable slop.

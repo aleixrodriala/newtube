@@ -1,13 +1,15 @@
 package com.newtube.mobile.ui.playback;
 
+import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
-import android.os.Build;
 import android.os.Bundle;
+import android.text.TextUtils;
+import android.util.SparseIntArray;
 import android.view.View;
-import android.view.WindowInsets;
-import android.view.WindowInsetsController;
 import android.widget.ImageButton;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
@@ -15,6 +17,14 @@ import androidx.annotation.Nullable;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.core.widget.NestedScrollView;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.bumptech.glide.Glide;
+import com.google.android.material.button.MaterialButton;
+import com.liskovsoft.mediaserviceinterfaces.data.MediaItemMetadata;
+import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 
 import com.github.vkay94.dtpv.DoubleTapPlayerView;
 import com.github.vkay94.dtpv.DoubleTapPlayerViewImpl;
@@ -46,7 +56,9 @@ import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.common.MobileActivity;
 
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Formatter;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 
@@ -76,8 +88,11 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private static final long AUTO_HIDE_MS = 3_500;
     private static final long PROGRESS_UPDATE_MS = 500;
+    /** Trigger related-list paging when the content is scrolled within this many px of the bottom. */
+    private static final int SUGGESTIONS_PAGE_THRESHOLD_PX = 800;
 
     private PlayerContainerLayout mContainer;
+    private View mVideoArea;
     private DoubleTapPlayerViewImpl mPlayerView;
     private YouTubeOverlay mYouTubeOverlay;
     private View mControlsRoot;
@@ -89,6 +104,41 @@ public class MobilePlaybackActivity extends MobileActivity
     private TextView mDurationView;
     private DefaultTimeBar mTimeBar;
     private ProgressBar mProgressBar;
+
+    // Watch page (portrait content column under the video).
+    private NestedScrollView mWatchScroll;
+    private TextView mWatchTitle;
+    private TextView mWatchMeta;
+    private View mWatchMetaRow;
+    private ImageView mWatchExpand;
+    private TextView mWatchDescription;
+    private View mWatchLike;
+    private ImageView mWatchLikeIcon;
+    private TextView mWatchLikeCount;
+    private View mWatchDislike;
+    private ImageView mWatchDislikeIcon;
+    private TextView mWatchDislikeCount;
+    private View mWatchShare;
+    private ImageView mWatchAvatar;
+    private TextView mWatchChannelName;
+    private TextView mWatchSubs;
+    private MaterialButton mWatchSubscribe;
+    private TextView mWatchRelatedLabel;
+    private RecyclerView mWatchRelated;
+    private RelatedVideoAdapter mRelatedAdapter;
+
+    // Suggestions store: id -> accumulated videos (LinkedHashMap keeps delivery/row order).
+    private final LinkedHashMap<Integer, List<Video>> mSuggestionVideos = new LinkedHashMap<>();
+    private final LinkedHashMap<Integer, VideoGroup> mSuggestionGroups = new LinkedHashMap<>();
+    private final List<Video> mRelatedVideos = new ArrayList<>();
+    private Video mLastPagedVideo;
+
+    // Like/Dislike/Subscribe visual state, keyed by R.id.action_*.
+    private final SparseIntArray mButtonStates = new SparseIntArray();
+
+    private Video mWatchVideo;
+    private String mWatchVideoId;
+    private boolean mDescriptionExpanded;
 
     private PlaybackPresenter mPresenter;
     private ExoPlayerInitializer mPlayerInitializer;
@@ -127,8 +177,12 @@ public class MobilePlaybackActivity extends MobileActivity
 
         bindViews();
         setupControls();
-        applySystemBarsForOrientation(getResources().getConfiguration().orientation);
-        updateFullscreenIcon(getResources().getConfiguration().orientation);
+        setupWatchContent();
+
+        int orientation = getResources().getConfiguration().orientation;
+        applyWatchLayoutForOrientation(orientation);
+        applySystemBarsForOrientation(orientation);
+        updateFullscreenIcon(orientation);
 
         // NOTE: position matters! Mirrors EmbedPlayerView.initPlayer()/PlaybackFragment.onCreate():
         // create the controller objects and hand the presenter our view BEFORE building the actual
@@ -145,6 +199,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private void bindViews() {
         mContainer = findViewById(R.id.mobile_player_container);
+        mVideoArea = findViewById(R.id.mobile_video_area);
         mPlayerView = findViewById(R.id.mobile_player_view);
         mYouTubeOverlay = findViewById(R.id.mobile_player_yt_overlay);
         mControlsRoot = findViewById(R.id.mobile_controls_root);
@@ -156,10 +211,33 @@ public class MobilePlaybackActivity extends MobileActivity
         mDurationView = findViewById(R.id.mobile_player_duration);
         mTimeBar = findViewById(R.id.mobile_player_time_bar);
         mProgressBar = findViewById(R.id.mobile_player_progress);
+
+        // Watch page content column.
+        mWatchScroll = findViewById(R.id.mobile_watch_scroll);
+        mWatchTitle = findViewById(R.id.mobile_watch_title);
+        mWatchMeta = findViewById(R.id.mobile_watch_meta);
+        mWatchMetaRow = findViewById(R.id.mobile_watch_meta_row);
+        mWatchExpand = findViewById(R.id.mobile_watch_expand);
+        mWatchDescription = findViewById(R.id.mobile_watch_description);
+        mWatchLike = findViewById(R.id.mobile_watch_like);
+        mWatchLikeIcon = findViewById(R.id.mobile_watch_like_icon);
+        mWatchLikeCount = findViewById(R.id.mobile_watch_like_count);
+        mWatchDislike = findViewById(R.id.mobile_watch_dislike);
+        mWatchDislikeIcon = findViewById(R.id.mobile_watch_dislike_icon);
+        mWatchDislikeCount = findViewById(R.id.mobile_watch_dislike_count);
+        mWatchShare = findViewById(R.id.mobile_watch_share);
+        mWatchAvatar = findViewById(R.id.mobile_watch_avatar);
+        mWatchChannelName = findViewById(R.id.mobile_watch_channel_name);
+        mWatchSubs = findViewById(R.id.mobile_watch_subs);
+        mWatchSubscribe = findViewById(R.id.mobile_watch_subscribe);
+        mWatchRelatedLabel = findViewById(R.id.mobile_watch_related_label);
+        mWatchRelated = findViewById(R.id.mobile_watch_related);
     }
 
     private void setupControls() {
         mContainer.setDragListener(this);
+        // Only let a swipe-to-dismiss begin over the video box, so the watch content scrolls freely.
+        mContainer.setDragStartBoundView(mVideoArea);
 
         // The window is edge-to-edge (MotherActivity.makeActivityFullscreen2 sets translucent
         // status/nav flags, so the video fills behind the bars). Pad ONLY the controls overlay by
@@ -213,6 +291,72 @@ public class MobilePlaybackActivity extends MobileActivity
         mControlsRoot.setVisibility(View.VISIBLE);
         mControlsRoot.setAlpha(1f);
         armAutoHide();
+    }
+
+    private void setupWatchContent() {
+        mRelatedAdapter = new RelatedVideoAdapter(this::onRelatedClicked);
+        mWatchRelated.setLayoutManager(new LinearLayoutManager(this));
+        mWatchRelated.setNestedScrollingEnabled(false);
+        mWatchRelated.setHasFixedSize(false);
+        mWatchRelated.setAdapter(mRelatedAdapter);
+
+        // Expandable description (tap the views/date row or chevron).
+        mWatchMetaRow.setOnClickListener(v -> toggleDescription());
+
+        // Actions row. Like/Dislike/Subscribe go through the presenter's onButtonClicked vocabulary
+        // (R.id.action_*); the controller flips the visual state back via setButtonState. Share fires
+        // a plain ACTION_SEND of the video url (per brief), independent of the presenter.
+        mWatchLike.setOnClickListener(v -> onActionButtonClicked(R.id.action_thumbs_up));
+        mWatchDislike.setOnClickListener(v -> onActionButtonClicked(R.id.action_thumbs_down));
+        mWatchSubscribe.setOnClickListener(v -> onActionButtonClicked(R.id.action_subscribe));
+        mWatchShare.setOnClickListener(v -> shareCurrentVideo());
+
+        // Related-list paging: when the content is scrolled near the bottom, page the last row.
+        mWatchScroll.setOnScrollChangeListener((NestedScrollView.OnScrollChangeListener)
+                (v, scrollX, scrollY, oldX, oldY) -> {
+                    View child = v.getChildAt(0);
+                    if (child == null) {
+                        return;
+                    }
+                    int distanceToBottom = child.getBottom() - (v.getHeight() + scrollY);
+                    if (distanceToBottom <= SUGGESTIONS_PAGE_THRESHOLD_PX) {
+                        maybePageSuggestions();
+                    }
+                });
+
+        // Reflect the initial (empty) button states.
+        updateButtonVisual(R.id.action_thumbs_up, BUTTON_OFF);
+        updateButtonVisual(R.id.action_thumbs_down, BUTTON_OFF);
+        updateButtonVisual(R.id.action_subscribe, BUTTON_OFF);
+    }
+
+    /**
+     * Portrait: 16:9 video box pinned at the top, scrollable watch content filling the rest.
+     * Landscape: hide the content and let the video fill the whole screen (PLAYER POLISH immersive).
+     */
+    private void applyWatchLayoutForOrientation(int orientation) {
+        if (mVideoArea == null) {
+            return;
+        }
+
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) mVideoArea.getLayoutParams();
+
+        if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            lp.height = LinearLayout.LayoutParams.MATCH_PARENT;
+            lp.weight = 0;
+            mVideoArea.setLayoutParams(lp);
+            if (mWatchScroll != null) {
+                mWatchScroll.setVisibility(View.GONE);
+            }
+        } else {
+            int width = getResources().getDisplayMetrics().widthPixels;
+            lp.height = Math.round(width * 9f / 16f);
+            lp.weight = 0;
+            mVideoArea.setLayoutParams(lp);
+            if (mWatchScroll != null) {
+                mWatchScroll.setVisibility(View.VISIBLE);
+            }
+        }
     }
 
     private void createPlayerObjects() {
@@ -328,6 +472,7 @@ public class MobilePlaybackActivity extends MobileActivity
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
 
+        applyWatchLayoutForOrientation(newConfig.orientation);
         applySystemBarsForOrientation(newConfig.orientation);
         updateFullscreenIcon(newConfig.orientation);
     }
@@ -348,37 +493,16 @@ public class MobilePlaybackActivity extends MobileActivity
      */
     private void applySystemBarsForOrientation(int orientation) {
         if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            // Immersive full-bleed video (PLAYER POLISH behaviour).
             Helpers.makeActivityFullscreen2(this);
         } else {
-            showSystemBarsEdgeToEdge();
+            // Watch page: keep the status/navigation bars; the video sits below the status bar and
+            // the content column lays out inside the safe area (decor fits system windows).
+            showSystemBars();
         }
 
         if (mControlsRoot != null) {
             ViewCompat.requestApplyInsets(mControlsRoot);
-        }
-    }
-
-    /**
-     * Portrait: show the status + navigation bars but keep the window edge-to-edge (decor does NOT
-     * fit system windows) so the video stays full-bleed behind them AND window insets are still
-     * dispatched to the controls overlay's listener (which pads itself out of the bars). This is
-     * deliberately different from {@code MobileActivity.showSystemBars()}, whose
-     * {@code setDecorFitsSystemWindows(true)} would consume the insets before the controls see them.
-     */
-    private void showSystemBarsEdgeToEdge() {
-        if (Build.VERSION.SDK_INT >= 30) {
-            getWindow().setDecorFitsSystemWindows(false);
-            WindowInsetsController controller = getWindow().getInsetsController();
-            if (controller != null) {
-                controller.show(WindowInsets.Type.systemBars());
-                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_DEFAULT);
-            }
-        } else {
-            // Layout flags only (no FULLSCREEN/HIDE_NAVIGATION) -> edge-to-edge with bars visible.
-            getWindow().getDecorView().setSystemUiVisibility(
-                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         }
     }
 
@@ -681,92 +805,222 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     // ---------------------------------------------------------------------------------
-    // PlayerUI - stubs (no touch surface yet). Safe no-ops/empty defaults; don't crash.
+    // PlayerUI - Suggestions (related / up-next list in the portrait watch page).
+    //
+    // The SuggestionsController feeds this. On each new video it calls clearSuggestions() then
+    // updateSuggestions(group) once per row (chapters/queue/related). We flatten all non-chapter
+    // rows into a single related list keyed by group id (LinkedHashMap preserves delivery order),
+    // so continuations (ACTION_APPEND, same id) append to that row. isSuggestionsShown() returns
+    // false so the controller always (re)populates suggestions for the current video (the mobile
+    // watch page rebuilds them per video rather than preserving a TV-style focused row).
     // ---------------------------------------------------------------------------------
 
     @Override
     public void updateSuggestions(VideoGroup group) {
-        // TODO Wave 3: related-videos panel (swipe-up sheet under the player).
+        if (group == null || group.isEmpty()) {
+            return;
+        }
+
+        // Skip chapter rows - they aren't related videos and would play as odd seek points.
+        if (group.isChapters()) {
+            return;
+        }
+
+        runOnUiThread(() -> {
+            int id = group.getId();
+            List<Video> incoming = group.getVideos();
+
+            switch (group.getAction()) {
+                case VideoGroup.ACTION_REPLACE:
+                    mSuggestionVideos.put(id, new ArrayList<>(incoming));
+                    mSuggestionGroups.put(id, group);
+                    break;
+                case VideoGroup.ACTION_REMOVE:
+                case VideoGroup.ACTION_REMOVE_AUTHOR: {
+                    List<Video> existing = mSuggestionVideos.get(id);
+                    if (existing != null) {
+                        existing.removeAll(incoming);
+                    }
+                    break;
+                }
+                case VideoGroup.ACTION_SYNC: {
+                    List<Video> existing = mSuggestionVideos.get(id);
+                    if (existing == null) {
+                        mSuggestionVideos.put(id, new ArrayList<>(incoming));
+                        mSuggestionGroups.put(id, group);
+                    } else {
+                        for (Video v : incoming) {
+                            int idx = existing.indexOf(v);
+                            if (idx >= 0) {
+                                existing.set(idx, v);
+                            }
+                        }
+                    }
+                    break;
+                }
+                case VideoGroup.ACTION_APPEND:
+                default: {
+                    List<Video> existing = mSuggestionVideos.get(id);
+                    if (existing == null) {
+                        mSuggestionVideos.put(id, new ArrayList<>(incoming));
+                    } else {
+                        for (Video v : incoming) {
+                            if (!existing.contains(v)) {
+                                existing.add(v);
+                            }
+                        }
+                    }
+                    mSuggestionGroups.put(id, group);
+                    break;
+                }
+            }
+
+            rebuildRelatedList();
+        });
     }
 
     @Override
     public void removeSuggestions(VideoGroup group) {
-        // TODO Wave 3: related-videos panel.
+        if (group == null) {
+            return;
+        }
+
+        runOnUiThread(() -> {
+            mSuggestionVideos.remove(group.getId());
+            mSuggestionGroups.remove(group.getId());
+            rebuildRelatedList();
+        });
     }
 
     @Override
     public int getSuggestionsIndex(VideoGroup group) {
-        // TODO Wave 3: related-videos panel.
-        return 0;
+        if (group == null) {
+            return -1;
+        }
+
+        int id = group.getId();
+        int i = 0;
+        for (Integer key : mSuggestionVideos.keySet()) {
+            if (key != null && key == id) {
+                return i;
+            }
+            i++;
+        }
+        return -1;
     }
 
     @Override
     public VideoGroup getSuggestionsByIndex(int index) {
-        // TODO Wave 3: related-videos panel. Callers null-check this (see SuggestionsController).
+        // Callers null-check this (see SuggestionsController.focusCurrentChapter).
+        if (mRelatedVideos.isEmpty() || index < 0) {
+            return null;
+        }
+
+        int i = 0;
+        for (Integer key : mSuggestionVideos.keySet()) {
+            if (i == index) {
+                List<Video> vids = mSuggestionVideos.get(key);
+                return (vids == null || vids.isEmpty()) ? null : VideoGroup.from(vids);
+            }
+            i++;
+        }
         return null;
     }
 
     @Override
     public void focusSuggestedItem(int index) {
-        // TODO Wave 3: related-videos panel.
+        // No TV-style row focus on touch; the related list is a plain scroll list.
     }
 
     @Override
     public void focusSuggestedItem(Video video) {
-        // TODO Wave 3: related-videos panel.
+        // No TV-style row focus on touch.
     }
 
     @Override
     public void resetSuggestedPosition() {
-        // TODO Wave 3: related-videos panel.
+        // No TV-style row focus on touch.
     }
 
     @Override
     public boolean isSuggestionsEmpty() {
-        // TODO Wave 3: related-videos panel.
-        return true;
+        return mRelatedVideos.isEmpty();
     }
 
     @Override
     public void clearSuggestions() {
-        // TODO Wave 3: related-videos panel.
+        runOnUiThread(() -> {
+            mSuggestionVideos.clear();
+            mSuggestionGroups.clear();
+            mRelatedVideos.clear();
+            mLastPagedVideo = null;
+            if (mRelatedAdapter != null) {
+                mRelatedAdapter.submitList(new ArrayList<>());
+            }
+            if (mWatchRelatedLabel != null) {
+                mWatchRelatedLabel.setVisibility(View.GONE);
+            }
+        });
     }
 
     @Override
     public void showSuggestions(boolean show) {
-        // TODO Wave 3: related-videos panel.
+        // The related list is always visible as part of the scrollable portrait content.
     }
 
     @Override
     public boolean isSuggestionsShown() {
-        // TODO Wave 3: related-videos panel.
+        // Report "not shown" so the controller always (re)loads suggestions for the current video.
         return false;
     }
 
+    // ---------------------------------------------------------------------------------
+    // PlayerUI - action buttons (Like / Dislike / Subscribe visual state).
+    // ---------------------------------------------------------------------------------
+
     @Override
     public int getButtonState(int buttonId) {
-        // TODO Wave 3: custom touch transport row (like/dislike/quality/speed buttons).
+        if (buttonId == R.id.action_thumbs_up
+                || buttonId == R.id.action_thumbs_down
+                || buttonId == R.id.action_subscribe) {
+            return mButtonStates.get(buttonId, BUTTON_OFF);
+        }
         return BUTTON_DISABLED;
     }
 
     @Override
     public void setButtonState(int buttonId, int buttonState) {
-        // TODO Wave 3: custom touch transport row.
+        mButtonStates.put(buttonId, buttonState);
+        runOnUiThread(() -> updateButtonVisual(buttonId, buttonState));
     }
 
     @Override
     public void setChannelIcon(String iconUrl) {
-        // TODO Wave 3: custom touch transport row.
+        runOnUiThread(() -> {
+            if (mWatchAvatar == null) {
+                return;
+            }
+            if (TextUtils.isEmpty(iconUrl)) {
+                mWatchAvatar.setImageResource(R.drawable.ic_watch_channel_placeholder);
+            } else {
+                Glide.with(this)
+                        .load(iconUrl)
+                        .circleCrop()
+                        .placeholder(R.drawable.ic_watch_channel_placeholder)
+                        .error(R.drawable.ic_watch_channel_placeholder)
+                        .into(mWatchAvatar);
+            }
+        });
     }
 
     @Override
     public void setSeekPreviewTitle(String title) {
-        // TODO Wave 3: chapter/seek-preview UI.
+        // TODO Wave N: chapter/seek-preview UI.
     }
 
     @Override
     public void setNextTitle(Video nextVideo) {
-        // TODO Wave 3: custom touch transport row ("up next" label).
+        // The related/up-next list already surfaces what plays next; no separate label needed.
     }
 
     @Override
@@ -799,6 +1053,230 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     public void setChatReceiver(ChatReceiver chatReceiver) {
         // TODO Wave N: live chat panel.
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Watch page - header binding, actions and related list.
+    // ---------------------------------------------------------------------------------
+
+    /**
+     * Bind the watch-page header from the current {@link Video}. Called from {@link #setVideo} on
+     * every update: the presenter/SuggestionsController calls setVideo() again after folding the
+     * loaded metadata (and again after the real Return-YouTube-Dislike counts) into the Video, so
+     * the like/dislike/subscriber counts and description fill in as they arrive. A fresh video id
+     * additionally resets the header, scrolls back to the top and kicks off a metadata load for the
+     * bits not stored on the Video (channel avatar, clean view-count / date line).
+     */
+    private void bindWatchVideo(Video item) {
+        if (item == null || mWatchTitle == null) {
+            return;
+        }
+
+        mWatchVideo = item;
+        boolean isNewVideo = !Helpers.equals(item.videoId, mWatchVideoId);
+
+        if (isNewVideo) {
+            mWatchVideoId = item.videoId;
+            resetWatchHeader();
+            if (mWatchScroll != null) {
+                mWatchScroll.scrollTo(0, 0);
+            }
+        }
+
+        mWatchTitle.setText(item.getTitleFull());
+        mWatchChannelName.setText(item.getAuthor());
+
+        // Fallback meta line until the metadata load returns a clean "views • date".
+        CharSequence second = item.getSecondTitleFull();
+        if (mWatchMeta.length() == 0 && !TextUtils.isEmpty(second)) {
+            mWatchMeta.setText(second);
+        }
+
+        if (!TextUtils.isEmpty(item.likeCount)) {
+            mWatchLikeCount.setText(item.likeCount);
+        }
+        if (!TextUtils.isEmpty(item.dislikeCount)) {
+            mWatchDislikeCount.setText(item.dislikeCount);
+        }
+        if (!TextUtils.isEmpty(item.subscriberCount)) {
+            mWatchSubs.setText(item.subscriberCount);
+            mWatchSubs.setVisibility(View.VISIBLE);
+        }
+        if (!TextUtils.isEmpty(item.description)) {
+            mWatchDescription.setText(item.description);
+        }
+
+        if (isNewVideo) {
+            MediaServiceManager.instance().loadMetadata(item, this::onWatchMetadata);
+        }
+    }
+
+    private void resetWatchHeader() {
+        mDescriptionExpanded = false;
+        mWatchDescription.setVisibility(View.GONE);
+        mWatchDescription.setText(null);
+        mWatchMeta.setText(null);
+        mWatchLikeCount.setText(R.string.mobile_watch_count_placeholder);
+        mWatchDislikeCount.setText(R.string.mobile_watch_count_placeholder);
+        mWatchSubs.setText(null);
+        mWatchSubs.setVisibility(View.GONE);
+        mWatchAvatar.setImageResource(R.drawable.ic_watch_channel_placeholder);
+    }
+
+    private void onWatchMetadata(MediaItemMetadata metadata) {
+        if (metadata == null) {
+            return;
+        }
+
+        runOnUiThread(() -> {
+            // Clean "views • date" line.
+            String views = metadata.getViewCount();
+            String date = metadata.getPublishedDate();
+            String meta;
+            if (!TextUtils.isEmpty(views) && !TextUtils.isEmpty(date)) {
+                meta = views + "  •  " + date;
+            } else if (!TextUtils.isEmpty(views)) {
+                meta = views;
+            } else {
+                meta = date;
+            }
+            if (!TextUtils.isEmpty(meta)) {
+                mWatchMeta.setText(meta);
+            }
+
+            String description = metadata.getDescription();
+            if (!TextUtils.isEmpty(description)) {
+                mWatchDescription.setText(description);
+            }
+
+            if (!TextUtils.isEmpty(metadata.getAuthor())) {
+                mWatchChannelName.setText(metadata.getAuthor());
+            }
+
+            if (!TextUtils.isEmpty(metadata.getSubscriberCount())) {
+                mWatchSubs.setText(metadata.getSubscriberCount());
+                mWatchSubs.setVisibility(View.VISIBLE);
+            }
+
+            setChannelIcon(metadata.getAuthorImageUrl());
+
+            // Counts: prefer the real values already synced onto the Video; fall back to metadata.
+            if (isCountUnset(mWatchLikeCount) && !TextUtils.isEmpty(metadata.getLikeCount())) {
+                mWatchLikeCount.setText(metadata.getLikeCount());
+            }
+            if (isCountUnset(mWatchDislikeCount) && !TextUtils.isEmpty(metadata.getDislikeCount())) {
+                mWatchDislikeCount.setText(metadata.getDislikeCount());
+            }
+
+            // Initial like/dislike/subscribe button states (also pushed by PlayerUIController.onMetadata).
+            setButtonState(R.id.action_thumbs_up,
+                    metadata.getLikeStatus() == MediaItemMetadata.LIKE_STATUS_LIKE ? BUTTON_ON : BUTTON_OFF);
+            setButtonState(R.id.action_thumbs_down,
+                    metadata.getLikeStatus() == MediaItemMetadata.LIKE_STATUS_DISLIKE ? BUTTON_ON : BUTTON_OFF);
+            setButtonState(R.id.action_subscribe, metadata.isSubscribed() ? BUTTON_ON : BUTTON_OFF);
+        });
+    }
+
+    private boolean isCountUnset(TextView view) {
+        CharSequence text = view.getText();
+        return TextUtils.isEmpty(text) || getString(R.string.mobile_watch_count_placeholder).contentEquals(text);
+    }
+
+    private void toggleDescription() {
+        if (TextUtils.isEmpty(mWatchDescription.getText())) {
+            return;
+        }
+
+        mDescriptionExpanded = !mDescriptionExpanded;
+        mWatchDescription.setVisibility(mDescriptionExpanded ? View.VISIBLE : View.GONE);
+        mWatchExpand.setRotation(mDescriptionExpanded ? 180f : 0f);
+    }
+
+    /** Route Like / Dislike / Subscribe through the presenter's onButtonClicked vocabulary. */
+    private void onActionButtonClicked(int actionId) {
+        if (mPresenter == null) {
+            return;
+        }
+
+        int currentState = getButtonState(actionId);
+        if (currentState == BUTTON_DISABLED) {
+            currentState = BUTTON_OFF;
+        }
+
+        // The controller performs the toggle and calls setButtonState() back with the new state.
+        mPresenter.onButtonClicked(actionId, currentState);
+    }
+
+    private void updateButtonVisual(int buttonId, int buttonState) {
+        boolean on = buttonState == BUTTON_ON;
+
+        if (buttonId == R.id.action_thumbs_up && mWatchLikeIcon != null) {
+            mWatchLikeIcon.setColorFilter(getColorInt(on
+                    ? R.color.mobile_color_primary : R.color.mobile_color_on_surface));
+        } else if (buttonId == R.id.action_thumbs_down && mWatchDislikeIcon != null) {
+            mWatchDislikeIcon.setColorFilter(getColorInt(on
+                    ? R.color.mobile_color_primary : R.color.mobile_color_on_surface));
+        } else if (buttonId == R.id.action_subscribe && mWatchSubscribe != null) {
+            mWatchSubscribe.setText(on ? R.string.mobile_watch_subscribed : R.string.mobile_watch_subscribe);
+            mWatchSubscribe.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    getColorInt(on ? R.color.mobile_color_pill : R.color.mobile_color_primary)));
+            mWatchSubscribe.setTextColor(getColorInt(on
+                    ? R.color.mobile_color_on_surface : android.R.color.white));
+        }
+    }
+
+    private int getColorInt(int colorRes) {
+        return androidx.core.content.ContextCompat.getColor(this, colorRes);
+    }
+
+    private void shareCurrentVideo() {
+        Video video = getVideo();
+        if (video == null || TextUtils.isEmpty(video.videoId)) {
+            return;
+        }
+
+        String url = "https://youtu.be/" + video.videoId;
+        Intent intent = new Intent(Intent.ACTION_SEND);
+        intent.setType("text/plain");
+        intent.putExtra(Intent.EXTRA_SUBJECT, getString(R.string.mobile_watch_share_subject));
+        intent.putExtra(Intent.EXTRA_TEXT, url);
+        startActivity(Intent.createChooser(intent, getString(R.string.mobile_watch_share)));
+    }
+
+    private void onRelatedClicked(Video video) {
+        if (mPresenter != null && video != null) {
+            // Loads + plays the tapped video in this same player (VideoLoaderController.openVideoInt).
+            mPresenter.onSuggestionItemClicked(video);
+        }
+    }
+
+    private void maybePageSuggestions() {
+        if (mPresenter == null || mRelatedVideos.isEmpty()) {
+            return;
+        }
+
+        Video last = mRelatedVideos.get(mRelatedVideos.size() - 1);
+        if (last == mLastPagedVideo) {
+            return;
+        }
+
+        mLastPagedVideo = last;
+        // The controller derives the row to continue from last.getGroup().
+        mPresenter.onScrollEnd(last);
+    }
+
+    private void rebuildRelatedList() {
+        mRelatedVideos.clear();
+        for (List<Video> vids : mSuggestionVideos.values()) {
+            mRelatedVideos.addAll(vids);
+        }
+
+        if (mRelatedAdapter != null) {
+            mRelatedAdapter.submitList(new ArrayList<>(mRelatedVideos));
+        }
+        if (mWatchRelatedLabel != null) {
+            mWatchRelatedLabel.setVisibility(mRelatedVideos.isEmpty() ? View.GONE : View.VISIBLE);
+        }
     }
 
     // ---------------------------------------------------------------------------------
@@ -1041,6 +1519,7 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         setTitle(item != null ? item.getTitleFull() : null);
+        bindWatchVideo(item);
     }
 
     @Override

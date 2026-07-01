@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Touch player - PLAYER POLISH wave.
+  Touch WATCH PAGE (PLAYER WATCH PAGE wave, on top of PLAYER POLISH).
 
-  A polished, fully-custom control surface replaces ExoPlayer's stock PlaybackControlView
-  (use_controller="false"). Hierarchy, bottom (behind) to top (front):
+  Structure:
+    PlayerContainerLayout (root, swipe-DOWN-to-dismiss, scoped to the video area)
+      LinearLayout (vertical page)
+        FrameLayout  @id/mobile_video_area  - the video + its custom controls overlay.
+            Portrait: fixed 16:9 height (set in code). Landscape: match_parent (full-bleed).
+            Children (back to front): DoubleTapPlayerView, YouTubeOverlay, controls overlay,
+            buffering spinner - exactly the PLAYER POLISH surface, now clipped to the video box.
+        NestedScrollView  @id/mobile_watch_scroll  - the YouTube-style content column.
+            Portrait: fills the rest and scrolls. Landscape: GONE (immersive video only).
+            Holds: title, views/date, actions row (Like/Dislike + counts, Share), channel row
+            (avatar + name + Subscribe), expandable description, and the related/up-next list.
 
-    1. DoubleTapPlayerView  - the video surface. Consumes touches itself: single tap toggles
-       our controls overlay, double tap on the left/right third drives YouTubeOverlay seek.
-    2. YouTubeOverlay       - the YouTube-style ripple + "+10s / -10s" seconds animation, wired
-       to the live player in code (playerView()/player()). Sits above the video, below controls.
-    3. mobile_controls_root - our custom overlay: top bar (back + title), large center
-       play/pause, bottom seek row (current time + DefaultTimeBar + total time + fullscreen).
-       Animated in/out and auto-hidden; clickable so a tap on empty space hides it.
-    4. mobile_player_progress - buffering spinner, shown immediately on open and on rebuffer.
-
-  The root is a PlayerContainerLayout (custom FrameLayout) that recognises a downward drag
-  anywhere on the video and forwards it to the Activity for swipe-down-to-dismiss.
+  In landscape the content is hidden and the video area is match_parent, restoring the
+  PLAYER POLISH immersive full-bleed video with only the custom controls.
 -->
 <com.newtube.mobile.ui.playback.PlayerContainerLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -27,153 +27,451 @@
     android:background="@android:color/black"
     android:keepScreenOn="true">
 
-    <com.github.vkay94.dtpv.DoubleTapPlayerViewImpl
-        android:id="@+id/mobile_player_view"
+    <LinearLayout
+        android:id="@+id/mobile_watch_root"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_gravity="center"
-        app:resize_mode="fit"
-        app:show_buffering="never"
-        app:use_controller="false" />
+        android:orientation="vertical">
 
-    <com.github.vkay94.dtpv.youtube.YouTubeOverlay
-        android:id="@+id/mobile_player_yt_overlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:visibility="gone"
-        app:yt_animationDuration="500"
-        app:yt_seekSeconds="10" />
-
-    <!-- Custom controls overlay. clickable so taps on empty space hide it. -->
-    <FrameLayout
-        android:id="@+id/mobile_controls_root"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clickable="true"
-        android:focusable="true">
-
-        <View
+        <!-- Video area: 16:9 in portrait (set in code), match_parent in landscape. -->
+        <FrameLayout
+            android:id="@+id/mobile_video_area"
             android:layout_width="match_parent"
-            android:layout_height="@dimen/mobile_player_top_scrim_height"
-            android:layout_gravity="top"
-            android:background="@drawable/mobile_player_top_scrim" />
+            android:layout_height="0dp"
+            android:background="@android:color/black">
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="@dimen/mobile_player_bottom_scrim_height"
-            android:layout_gravity="bottom"
-            android:background="@drawable/mobile_player_bottom_scrim" />
+            <com.github.vkay94.dtpv.DoubleTapPlayerViewImpl
+                android:id="@+id/mobile_player_view"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_gravity="center"
+                app:resize_mode="fit"
+                app:show_buffering="never"
+                app:use_controller="false" />
 
-        <!-- Top bar: back + title -->
-        <ImageButton
-            android:id="@+id/mobile_player_back"
-            android:layout_width="@dimen/mobile_player_icon_button"
-            android:layout_height="@dimen/mobile_player_icon_button"
-            android:layout_gravity="top|start"
-            android:layout_marginStart="8dp"
-            android:layout_marginTop="20dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/mobile_player_back"
-            android:padding="8dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_mobile_back_arrow" />
+            <com.github.vkay94.dtpv.youtube.YouTubeOverlay
+                android:id="@+id/mobile_player_yt_overlay"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone"
+                app:yt_animationDuration="500"
+                app:yt_seekSeconds="10" />
 
-        <TextView
-            android:id="@+id/mobile_player_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top"
-            android:ellipsize="end"
-            android:maxLines="2"
-            android:paddingStart="56dp"
-            android:paddingTop="24dp"
-            android:paddingEnd="16dp"
-            android:paddingBottom="12dp"
-            android:shadowColor="#80000000"
-            android:shadowDx="0"
-            android:shadowDy="1"
-            android:shadowRadius="3"
-            android:textColor="@android:color/white"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            tools:text="Video title goes here and may wrap onto a second line" />
+            <!-- Custom controls overlay. clickable so taps on empty space hide it. -->
+            <FrameLayout
+                android:id="@+id/mobile_controls_root"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clickable="true"
+                android:focusable="true">
 
-        <!-- Large center play / pause / replay -->
-        <ImageButton
-            android:id="@+id/mobile_player_play_pause"
-            android:layout_width="@dimen/mobile_player_center_button"
-            android:layout_height="@dimen/mobile_player_center_button"
-            android:layout_gravity="center"
-            android:background="@drawable/mobile_player_center_button_bg"
-            android:contentDescription="@string/mobile_player_pause"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_player_pause" />
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/mobile_player_top_scrim_height"
+                    android:layout_gravity="top"
+                    android:background="@drawable/mobile_player_top_scrim" />
 
-        <!-- Bottom seek row -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="12dp"
-            android:paddingEnd="4dp"
-            android:paddingBottom="6dp">
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/mobile_player_bottom_scrim_height"
+                    android:layout_gravity="bottom"
+                    android:background="@drawable/mobile_player_bottom_scrim" />
 
-            <TextView
-                android:id="@+id/mobile_player_position"
+                <!-- Top bar: back + title -->
+                <ImageButton
+                    android:id="@+id/mobile_player_back"
+                    android:layout_width="@dimen/mobile_player_icon_button"
+                    android:layout_height="@dimen/mobile_player_icon_button"
+                    android:layout_gravity="top|start"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginTop="8dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/mobile_player_back"
+                    android:padding="8dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_mobile_back_arrow" />
+
+                <TextView
+                    android:id="@+id/mobile_player_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top"
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:paddingStart="56dp"
+                    android:paddingTop="12dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="12dp"
+                    android:shadowColor="#80000000"
+                    android:shadowDx="0"
+                    android:shadowDy="1"
+                    android:shadowRadius="3"
+                    android:textColor="@android:color/white"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    tools:text="Video title goes here and may wrap onto a second line" />
+
+                <!-- Large center play / pause / replay -->
+                <ImageButton
+                    android:id="@+id/mobile_player_play_pause"
+                    android:layout_width="@dimen/mobile_player_center_button"
+                    android:layout_height="@dimen/mobile_player_center_button"
+                    android:layout_gravity="center"
+                    android:background="@drawable/mobile_player_center_button_bg"
+                    android:contentDescription="@string/mobile_player_pause"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_player_pause" />
+
+                <!-- Bottom seek row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="4dp"
+                    android:paddingBottom="6dp">
+
+                    <TextView
+                        android:id="@+id/mobile_player_position"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFeatureSettings="tnum"
+                        android:text="@string/mobile_player_time_default"
+                        android:textColor="@android:color/white"
+                        android:textSize="@dimen/mobile_player_time_text" />
+
+                    <com.google.android.exoplayer2.ui.DefaultTimeBar
+                        android:id="@+id/mobile_player_time_bar"
+                        android:layout_width="0dp"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="8dp"
+                        android:layout_marginEnd="8dp"
+                        android:layout_weight="1"
+                        app:bar_height="3dp"
+                        app:buffered_color="#80FFFFFF"
+                        app:played_color="@color/mobile_color_primary"
+                        app:scrubber_color="@color/mobile_color_primary"
+                        app:scrubber_enabled_size="14dp"
+                        app:scrubber_dragged_size="18dp"
+                        app:unplayed_color="#4DFFFFFF" />
+
+                    <TextView
+                        android:id="@+id/mobile_player_duration"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFeatureSettings="tnum"
+                        android:text="@string/mobile_player_time_default"
+                        android:textColor="@android:color/white"
+                        android:textSize="@dimen/mobile_player_time_text" />
+
+                    <ImageButton
+                        android:id="@+id/mobile_player_fullscreen"
+                        android:layout_width="@dimen/mobile_player_icon_button"
+                        android:layout_height="@dimen/mobile_player_icon_button"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_player_fullscreen"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_player_fullscreen" />
+
+                </LinearLayout>
+
+            </FrameLayout>
+
+            <ProgressBar
+                android:id="@+id/mobile_player_progress"
+                style="?android:attr/progressBarStyleLarge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:fontFeatureSettings="tnum"
-                android:text="@string/mobile_player_time_default"
-                android:textColor="@android:color/white"
-                android:textSize="@dimen/mobile_player_time_text" />
+                android:layout_gravity="center"
+                android:indeterminateTint="@color/mobile_color_primary"
+                android:indeterminateTintMode="src_in" />
 
-            <com.google.android.exoplayer2.ui.DefaultTimeBar
-                android:id="@+id/mobile_player_time_bar"
-                android:layout_width="0dp"
-                android:layout_height="32dp"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:layout_weight="1"
-                app:bar_height="3dp"
-                app:buffered_color="#80FFFFFF"
-                app:played_color="@color/mobile_color_primary"
-                app:scrubber_color="@color/mobile_color_primary"
-                app:scrubber_enabled_size="14dp"
-                app:scrubber_dragged_size="18dp"
-                app:unplayed_color="#4DFFFFFF" />
+        </FrameLayout>
 
-            <TextView
-                android:id="@+id/mobile_player_duration"
-                android:layout_width="wrap_content"
+        <!-- Scrollable watch content (portrait only). -->
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/mobile_watch_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="@color/mobile_color_background"
+            android:fillViewport="true"
+            android:scrollbars="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:fontFeatureSettings="tnum"
-                android:text="@string/mobile_player_time_default"
-                android:textColor="@android:color/white"
-                android:textSize="@dimen/mobile_player_time_text" />
+                android:orientation="vertical"
+                android:paddingBottom="24dp">
 
-            <ImageButton
-                android:id="@+id/mobile_player_fullscreen"
-                android:layout_width="@dimen/mobile_player_icon_button"
-                android:layout_height="@dimen/mobile_player_icon_button"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/mobile_player_fullscreen"
-                android:padding="8dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_player_fullscreen" />
+                <!-- Title -->
+                <TextView
+                    android:id="@+id/mobile_watch_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:paddingHorizontal="@dimen/mobile_watch_content_padding"
+                    android:ellipsize="end"
+                    android:maxLines="3"
+                    android:textColor="@color/mobile_color_on_surface"
+                    android:textSize="17sp"
+                    android:textStyle="bold"
+                    tools:text="A great video title that may wrap across a couple of lines" />
 
-        </LinearLayout>
+                <!-- views + date + expand-description affordance -->
+                <LinearLayout
+                    android:id="@+id/mobile_watch_meta_row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="@dimen/mobile_watch_content_padding"
+                    android:paddingVertical="4dp">
 
-    </FrameLayout>
+                    <TextView
+                        android:id="@+id/mobile_watch_meta"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="@color/mobile_color_on_surface_secondary"
+                        android:textSize="13sp"
+                        tools:text="1,234,567 views • Jan 1, 2026" />
 
-    <ProgressBar
-        android:id="@+id/mobile_player_progress"
-        style="?android:attr/progressBarStyleLarge"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:indeterminateTint="@color/mobile_color_primary"
-        android:indeterminateTintMode="src_in" />
+                    <ImageView
+                        android:id="@+id/mobile_watch_expand"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:contentDescription="@string/mobile_watch_description"
+                        android:src="@drawable/ic_watch_expand" />
+
+                </LinearLayout>
+
+                <!-- Expandable description (collapsed by default) -->
+                <TextView
+                    android:id="@+id/mobile_watch_description"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:paddingHorizontal="@dimen/mobile_watch_content_padding"
+                    android:autoLink="web"
+                    android:textColor="@color/mobile_color_on_surface_secondary"
+                    android:textColorLink="@color/mobile_color_link"
+                    android:textSize="13sp"
+                    android:visibility="gone"
+                    tools:text="Video description text..."
+                    tools:visibility="visible" />
+
+                <!-- Actions row: Like / Dislike (with counts) / Share -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="@dimen/mobile_watch_content_padding">
+
+                    <LinearLayout
+                        android:id="@+id/mobile_watch_like"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/mobile_watch_pill_bg"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="8dp">
+
+                        <ImageView
+                            android:id="@+id/mobile_watch_like_icon"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:contentDescription="@string/mobile_watch_like"
+                            android:src="@drawable/ic_watch_thumb_up" />
+
+                        <TextView
+                            android:id="@+id/mobile_watch_like_count"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="6dp"
+                            android:text="@string/mobile_watch_count_placeholder"
+                            android:textColor="@color/mobile_color_on_surface"
+                            android:textSize="13sp"
+                            tools:text="12K" />
+
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/mobile_watch_dislike"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/mobile_watch_pill_bg"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="8dp">
+
+                        <ImageView
+                            android:id="@+id/mobile_watch_dislike_icon"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:contentDescription="@string/mobile_watch_dislike"
+                            android:src="@drawable/ic_watch_thumb_down" />
+
+                        <TextView
+                            android:id="@+id/mobile_watch_dislike_count"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="6dp"
+                            android:text="@string/mobile_watch_count_placeholder"
+                            android:textColor="@color/mobile_color_on_surface"
+                            android:textSize="13sp"
+                            tools:text="123" />
+
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/mobile_watch_share"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/mobile_watch_pill_bg"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="8dp">
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:contentDescription="@string/mobile_watch_share"
+                            android:src="@drawable/ic_watch_share" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="6dp"
+                            android:text="@string/mobile_watch_share"
+                            android:textColor="@color/mobile_color_on_surface"
+                            android:textSize="13sp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="12dp"
+                    android:background="@color/mobile_color_divider" />
+
+                <!-- Channel row: avatar + name/subs + Subscribe -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="@dimen/mobile_watch_content_padding"
+                    android:paddingVertical="10dp">
+
+                    <ImageView
+                        android:id="@+id/mobile_watch_avatar"
+                        android:layout_width="@dimen/mobile_watch_avatar_size"
+                        android:layout_height="@dimen/mobile_watch_avatar_size"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_watch_channel_placeholder" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/mobile_watch_channel_name"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:textColor="@color/mobile_color_on_surface"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            tools:text="Channel name" />
+
+                        <TextView
+                            android:id="@+id/mobile_watch_subs"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:textColor="@color/mobile_color_on_surface_secondary"
+                            android:textSize="12sp"
+                            android:visibility="gone"
+                            tools:text="1.2M subscribers"
+                            tools:visibility="visible" />
+
+                    </LinearLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/mobile_watch_subscribe"
+                        style="@style/Widget.MaterialComponents.Button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:backgroundTint="@color/mobile_color_primary"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minHeight="0dp"
+                        android:paddingHorizontal="16dp"
+                        android:paddingVertical="8dp"
+                        android:text="@string/mobile_watch_subscribe"
+                        android:textColor="@android:color/white"
+                        app:cornerRadius="18dp" />
+
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/mobile_color_divider" />
+
+                <!-- Related / up next -->
+                <TextView
+                    android:id="@+id/mobile_watch_related_label"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="@dimen/mobile_watch_content_padding"
+                    android:paddingTop="12dp"
+                    android:paddingBottom="4dp"
+                    android:text="@string/mobile_watch_related"
+                    android:textColor="@color/mobile_color_on_surface"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/mobile_watch_related"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:nestedScrollingEnabled="false"
+                    tools:listitem="@layout/item_mobile_related_video" />
+
+            </LinearLayout>
+
+        </androidx.core.widget.NestedScrollView>
+
+    </LinearLayout>
 
 </com.newtube.mobile.ui.playback.PlayerContainerLayout>

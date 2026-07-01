@@ -16,4 +16,10 @@
     <dimen name="mobile_player_top_scrim_height">112dp</dimen>
     <dimen name="mobile_player_bottom_scrim_height">128dp</dimen>
     <dimen name="mobile_player_time_text">13sp</dimen>
+
+    <!-- Watch page (portrait content under the video) -->
+    <dimen name="mobile_watch_content_padding">12dp</dimen>
+    <dimen name="mobile_watch_avatar_size">40dp</dimen>
+    <dimen name="mobile_watch_related_thumb_width">160dp</dimen>
+    <dimen name="mobile_watch_related_thumb_height">90dp</dimen>
 </resources>

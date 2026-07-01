@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Compact horizontal "up next / related" row for the watch page: a small 16:9 thumbnail
+  on the left with title + channel + meta on the right. Deliberately more compact than the
+  full-width Home card (item_video_card) so a related list reads as a list, not a feed.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/related_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingHorizontal="@dimen/mobile_watch_content_padding"
+    android:paddingVertical="6dp">
+
+    <FrameLayout
+        android:layout_width="@dimen/mobile_watch_related_thumb_width"
+        android:layout_height="@dimen/mobile_watch_related_thumb_height">
+
+        <ImageView
+            android:id="@+id/related_thumbnail"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/mobile_color_placeholder"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop" />
+
+        <TextView
+            android:id="@+id/related_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="4dp"
+            android:background="@color/mobile_color_badge_bg"
+            android:paddingHorizontal="4dp"
+            android:paddingVertical="1dp"
+            android:textColor="@android:color/white"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:text="12:34"
+            tools:visibility="visible" />
+
+        <ProgressBar
+            android:id="@+id/related_watch_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:layout_gravity="bottom"
+            android:max="100"
+            android:progressBackgroundTint="@color/mobile_color_progress_track"
+            android:progressTint="@color/mobile_color_progress"
+            android:visibility="gone" />
+
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/related_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textColor="@color/mobile_color_on_surface"
+            android:textSize="14sp"
+            tools:text="A related video title that can wrap onto two lines" />
+
+        <TextView
+            android:id="@+id/related_channel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/mobile_color_on_surface_secondary"
+            android:textSize="12sp"
+            tools:text="Channel name" />
+
+        <TextView
+            android:id="@+id/related_meta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/mobile_color_on_surface_secondary"
+            android:textSize="12sp"
+            android:visibility="gone"
+            tools:text="1.2M views" />
+
+    </LinearLayout>
+
+</LinearLayout>
