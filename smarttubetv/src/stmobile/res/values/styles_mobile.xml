@@ -41,4 +41,27 @@
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:windowAnimationStyle">@style/PlayerWindowAnimation</item>
     </style>
+
+    <!--
+      Translucent theme for MobileAppDialogActivity (context menus, player option pickers,
+      settings). Mirrors the proven TV overlay theme (App.Theme.Leanback.Preferences:
+      windowIsTranslucent + transparent windowBackground + backgroundDimEnabled=false):
+
+        * No black flash - the window starts transparent, so the caller (Home / the player)
+          shows through until the dialog content is laid out.
+        * No force-rotate - a translucent activity defers screen orientation to the opaque
+          activity behind it, so opening a picker from the LANDSCAPE player no longer snaps to
+          portrait (the manifest keeps screenOrientation="unspecified"; a translucent window must
+          NOT request a fixed orientation - "Only fullscreen opaque activities can request
+          orientation" on API 26).
+        * The activity draws its own scrim + bottom sheet (or an opaque full-screen surface),
+          so backgroundDimEnabled is left off and window animations are handled per-mode in code.
+    -->
+    <style name="Theme.NewTube.Dialog" parent="Theme.NewTube">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

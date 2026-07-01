@@ -1,62 +1,95 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Touch AppDialog renderer - Wave 3.
+  Touch AppDialog renderer - Wave 3 + polish.
 
-  Full-screen Toolbar + RecyclerView per ARCHITECTURE.md section 4: the single Material
-  renderer of AppDialogPresenter's List<OptionCategory>, used for every settings screen and
-  every long-press context menu. isOverlay/isTransparent are tracked (see
-  MobileAppDialogActivity) but not yet reflected in the window styling - a bottom-sheet
-  variant is a later refinement.
+  The single Material renderer of AppDialogPresenter's List<OptionCategory>, used for every
+  settings screen and every long-press context menu / player option picker (ARCHITECTURE.md
+  section 4). The activity theme is now translucent (Theme.NewTube.Dialog), so this root
+  FrameLayout starts transparent - the caller (Home / the landscape player) stays visible behind
+  it, which (a) removes the ~1-2s black flash before content renders and (b) lets the system keep
+  the caller's orientation instead of force-rotating to portrait.
+
+  MobileAppDialogActivity picks one of two presentations at show() time:
+    * BOTTOM SHEET (default: context menus + player Quality/Speed/Subtitles + overlay dialogs) -
+      the scrim is shown, the content is anchored to the bottom with a rounded top + drag handle
+      and sizes to its content (capped by MaxHeightRecyclerView).
+    * FULL SCREEN (large settings category screens) - the scrim is hidden and the content fills
+      the window with an opaque background.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/mobile_dialog_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/mobile_color_background"
-    android:orientation="vertical">
+    android:layout_height="match_parent">
+
+    <!-- Dim scrim behind the sheet (sheet mode only); tap to dismiss. -->
+    <View
+        android:id="@+id/mobile_dialog_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#99000000"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone" />
 
     <LinearLayout
-        android:id="@+id/mobile_dialog_toolbar"
+        android:id="@+id/mobile_dialog_content"
         android:layout_width="match_parent"
-        android:layout_height="@dimen/mobile_title_bar_height"
-        android:background="@color/mobile_color_surface"
-        android:elevation="4dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:layout_height="match_parent"
+        android:background="@color/mobile_color_background"
+        android:orientation="vertical">
 
-        <ImageButton
-            android:id="@+id/mobile_dialog_back"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="4dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/mobile_dialog_back"
-            android:padding="12dp"
-            android:src="@drawable/ic_mobile_back_arrow" />
+        <View
+            android:id="@+id/mobile_dialog_handle"
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_mobile_sheet_handle"
+            android:visibility="gone" />
 
-        <TextView
-            android:id="@+id/mobile_dialog_title"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
+        <LinearLayout
+            android:id="@+id/mobile_dialog_toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/mobile_title_bar_height"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/mobile_dialog_back"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="4dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/mobile_dialog_back"
+                android:padding="12dp"
+                android:src="@drawable/ic_mobile_back_arrow" />
+
+            <TextView
+                android:id="@+id/mobile_dialog_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:paddingStart="4dp"
+                android:paddingEnd="16dp"
+                android:textColor="@color/mobile_color_on_surface"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                tools:text="Settings" />
+
+        </LinearLayout>
+
+        <com.newtube.mobile.ui.dialog.MaxHeightRecyclerView
+            android:id="@+id/mobile_dialog_list"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
             android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:paddingEnd="16dp"
-            android:textColor="@color/mobile_color_on_surface"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            tools:text="Settings" />
+            android:clipToPadding="false"
+            android:scrollbars="vertical"
+            tools:listitem="@layout/item_mobile_dialog_row" />
 
     </LinearLayout>
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/mobile_dialog_list"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:clipToPadding="false"
-        android:scrollbars="vertical"
-        tools:listitem="@layout/item_mobile_dialog_row" />
-
-</LinearLayout>
+</FrameLayout>

@@ -92,7 +92,7 @@
             android:launchMode="singleInstance"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
             android:screenOrientation="unspecified"
-            android:theme="@style/Theme.NewTube" />
+            android:theme="@style/Theme.NewTube.Dialog" />
 
         <!--
           Touch Channel-Uploads list + Channel page (Wave 4a). Same singleInstance +

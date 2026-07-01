@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Neutral empty-state glyph for MobileBrowseActivity (shown when a section is
+  empty / sign-in gated / errored): an outlined display with a play triangle.
+  Coloured with the secondary on-surface tint so it reads as a quiet placeholder.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@color/mobile_color_on_surface_secondary"
+        android:pathData="M20,4H4C2.9,4 2,4.9 2,6v12c0,1.1 0.9,2 2,2h16c1.1,0 2,-0.9 2,-2V6C22,4.9 21.1,4 20,4zM20,18H4V6h16V18z" />
+    <path
+        android:fillColor="@color/mobile_color_on_surface_secondary"
+        android:pathData="M10,8.5v7l6,-3.5z" />
+</vector>

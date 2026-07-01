@@ -83,16 +83,25 @@
             app:layout_constraintTop_toBottomOf="@id/mobile_title_bar"
             tools:listitem="@layout/item_video_card" />
 
+        <!--
+             Progress + empty/error placeholder are anchored to the title bar / bottom
+             nav / parent (NOT to the content grid): when a section is empty or sign-in
+             gated the grid is set GONE, and ConstraintLayout collapses any view
+             constrained to a GONE view to a zero-size point - which is exactly why the
+             signed-out Subscriptions/Playlists sections used to render as a blank black
+             area with no message. Independent anchors keep the placeholder centered and
+             visible over the (empty) content area.
+        -->
         <ProgressBar
             android:id="@+id/mobile_progress_bar"
             style="?android:attr/progressBarStyle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:visibility="gone"
-            app:layout_constraintBottom_toBottomOf="@id/mobile_content_grid"
-            app:layout_constraintEnd_toEndOf="@id/mobile_content_grid"
-            app:layout_constraintStart_toStartOf="@id/mobile_content_grid"
-            app:layout_constraintTop_toTopOf="@id/mobile_content_grid" />
+            app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/mobile_title_bar" />
 
         <LinearLayout
             android:id="@+id/mobile_error_container"
@@ -102,10 +111,18 @@
             android:orientation="vertical"
             android:padding="24dp"
             android:visibility="gone"
-            app:layout_constraintBottom_toBottomOf="@id/mobile_content_grid"
-            app:layout_constraintEnd_toEndOf="@id/mobile_content_grid"
-            app:layout_constraintStart_toStartOf="@id/mobile_content_grid"
-            app:layout_constraintTop_toTopOf="@id/mobile_content_grid">
+            app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/mobile_title_bar">
+
+            <ImageView
+                android:id="@+id/mobile_error_icon"
+                android:layout_width="96dp"
+                android:layout_height="96dp"
+                android:layout_marginBottom="16dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_mobile_empty" />
 
             <TextView
                 android:id="@+id/mobile_error_message"

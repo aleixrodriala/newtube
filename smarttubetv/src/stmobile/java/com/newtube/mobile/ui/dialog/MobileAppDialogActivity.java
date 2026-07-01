@@ -1,13 +1,17 @@
 package com.newtube.mobile.ui.dialog;
 
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
 
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionCategory;
@@ -56,6 +60,19 @@ import java.util.Map;
  */
 public class MobileAppDialogActivity extends MobileActivity implements AppDialogView {
 
+    /**
+     * Marker dialog id set by the mobile Settings entry point ({@code MobileBrowseActivity.openSettings()})
+     * so this renderer knows to present the (large, multi-level) Settings tree FULL-SCREEN. Every other
+     * caller - long-press context menus, the player Quality/Speed/Subtitles pickers, overlay dialogs -
+     * uses the default BOTTOM-SHEET presentation. Nested Settings screens push new levels onto this same
+     * activity instance, so the full-screen mode chosen for the root level naturally carries through them.
+     * The value is deliberately far outside the small integer ids the common dialogs use (144, 565, ...).
+     */
+    public static final int ID_FULLSCREEN_SETTINGS = 0x4E540001;
+
+    /** Bottom sheet is capped at this fraction of the screen height, then the list scrolls. */
+    private static final float SHEET_MAX_HEIGHT_FRACTION = 0.72f;
+
     private static final class DialogLevel {
         final List<OptionCategory> categories;
         final CharSequence title;
@@ -67,10 +84,19 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
     }
 
     private AppDialogPresenter mPresenter;
-    private RecyclerView mRecyclerView;
+    private FrameLayout mRoot;
+    private View mScrim;
+    private LinearLayout mContent;
+    private View mHandle;
+    private MaxHeightRecyclerView mRecyclerView;
     private TextView mTitleView;
     private ImageButton mBackButton;
     private DialogRowAdapter mAdapter;
+
+    /** true = full-screen settings surface; false (default) = bottom sheet overlay. */
+    private boolean mFullScreen;
+    /** Presentation (sheet vs full-screen) is locked in on the first show() call. */
+    private boolean mModeConfigured;
 
     private final List<DialogLevel> mLevels = new ArrayList<>();
     /** See {@link DialogRowAdapter#submit}. Keyed by category identity; stale entries from a
@@ -151,9 +177,16 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
     }
 
     private void bindViews() {
+        mRoot = findViewById(R.id.mobile_dialog_root);
+        mScrim = findViewById(R.id.mobile_dialog_scrim);
+        mContent = findViewById(R.id.mobile_dialog_content);
+        mHandle = findViewById(R.id.mobile_dialog_handle);
         mRecyclerView = findViewById(R.id.mobile_dialog_list);
         mTitleView = findViewById(R.id.mobile_dialog_title);
         mBackButton = findViewById(R.id.mobile_dialog_back);
+
+        // Sheet mode: tapping the dim scrim dismisses the whole dialog (like a Material sheet).
+        mScrim.setOnClickListener(v -> finish());
     }
 
     private void setupRecyclerView() {
@@ -170,8 +203,76 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
         DialogLevel level = mLevels.get(mLevels.size() - 1);
 
         mTitleView.setText(level.title);
+        // Show the back arrow when it can pop a level; in full-screen mode also at the root (it
+        // closes Settings). A root-level bottom sheet has no back arrow - the scrim/back dismiss it.
+        mBackButton.setVisibility(canGoBack() || mFullScreen ? View.VISIBLE : View.GONE);
         mAdapter.submit(level.categories, mRadioOverrides);
         mRecyclerView.scrollToPosition(0);
+    }
+
+    /**
+     * Choose the presentation once, on the first {@link #show}. FULL-SCREEN only for the Settings
+     * tree (tagged with {@link #ID_FULLSCREEN_SETTINGS}); everything else - context menus, the player
+     * Quality/Speed/Subtitles pickers, transparent/overlay dialogs - is a bottom sheet.
+     */
+    private void configurePresentation(int id) {
+        if (mModeConfigured) {
+            return;
+        }
+        mModeConfigured = true;
+        mFullScreen = (id == ID_FULLSCREEN_SETTINGS);
+
+        if (mFullScreen) {
+            configureFullScreen();
+        } else {
+            configureSheet();
+        }
+    }
+
+    private void configureFullScreen() {
+        mScrim.setVisibility(View.GONE);
+        mHandle.setVisibility(View.GONE);
+        mContent.setBackgroundColor(ContextCompat.getColor(this, R.color.mobile_color_background));
+
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) mContent.getLayoutParams();
+        lp.height = ViewGroup.LayoutParams.MATCH_PARENT;
+        lp.gravity = Gravity.NO_GRAVITY;
+        mContent.setLayoutParams(lp);
+
+        // List fills the window (no cap).
+        mRecyclerView.setMaxHeight(0);
+        LinearLayout.LayoutParams rlp = (LinearLayout.LayoutParams) mRecyclerView.getLayoutParams();
+        rlp.height = 0;
+        rlp.weight = 1;
+        mRecyclerView.setLayoutParams(rlp);
+    }
+
+    private void configureSheet() {
+        mScrim.setVisibility(View.VISIBLE);
+        mHandle.setVisibility(View.VISIBLE);
+        mContent.setBackgroundResource(R.drawable.bg_mobile_sheet);
+
+        // Anchor the content to the bottom and size it to its content.
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) mContent.getLayoutParams();
+        lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+        lp.gravity = Gravity.BOTTOM;
+        mContent.setLayoutParams(lp);
+
+        // Let the list wrap its content but cap it so a long sheet scrolls instead of overrunning.
+        int maxSheet = Math.round(getResources().getDisplayMetrics().heightPixels * SHEET_MAX_HEIGHT_FRACTION);
+        LinearLayout.LayoutParams rlp = (LinearLayout.LayoutParams) mRecyclerView.getLayoutParams();
+        rlp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+        rlp.weight = 0;
+        mRecyclerView.setLayoutParams(rlp);
+        mRecyclerView.setMaxHeight(maxSheet);
+
+        // Enter animation: scrim fades in, sheet slides up.
+        mScrim.setAlpha(0f);
+        mScrim.animate().alpha(1f).setDuration(180).start();
+        mContent.post(() -> {
+            mContent.setTranslationY(mContent.getHeight());
+            mContent.animate().translationY(0f).setDuration(220).start();
+        });
     }
 
     // ---------------------------------------------------------------------------------
@@ -188,9 +289,12 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
             mPresenter.onViewResumed();
         }
 
-        // Full-screen Toolbar + list per this wave's scope (see class javadoc) - keep normal
-        // system bars like every other mobile screen except the player.
-        showSystemBars();
+        // Full-screen settings: restore the normal system bars like every other mobile screen.
+        // Bottom-sheet overlays: leave the caller's system-bar state untouched (so a sheet opened
+        // over the immersive landscape player doesn't pop the status bar in over the video).
+        if (mFullScreen) {
+            showSystemBars();
+        }
     }
 
     @Override
@@ -238,6 +342,11 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
             mIsTransparent = stackWasEmpty ? isTransparent : mIsTransparent;
             mIsOverlay = isOverlay;
             mId = id;
+
+            // Lock in sheet-vs-full-screen on the root level (nested levels inherit it).
+            if (stackWasEmpty) {
+                configurePresentation(id);
+            }
 
             mLevels.add(new DialogLevel(categories, title));
             renderTopLevel();

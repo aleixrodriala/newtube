@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  NewTube adaptive-icon foreground (stmobile flavor).
+
+  A single white play glyph with softly rounded corners, centred inside the
+  66x66 adaptive safe zone (viewport 108, safe area ~21..87) so no launcher mask
+  clips it. This is the NewTube mark that replaces SmartTube's teal "S".
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="6"
+        android:strokeLineJoin="round"
+        android:strokeLineCap="round"
+        android:pathData="M46,40 L46,68 L74,54 Z" />
+</vector>

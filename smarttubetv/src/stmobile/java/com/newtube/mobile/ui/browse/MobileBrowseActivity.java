@@ -6,6 +6,7 @@ import android.util.DisplayMetrics;
 import android.view.Menu;
 import android.view.View;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
@@ -101,6 +102,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     private NavigationView mNavView;
     private ProgressBar mProgressBar;
     private View mErrorContainer;
+    private ImageView mErrorIcon;
     private TextView mErrorMessage;
     private MaterialButton mErrorAction;
     private ImageButton mSearchButton;
@@ -140,6 +142,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         mNavView = findViewById(R.id.mobile_nav_view);
         mProgressBar = findViewById(R.id.mobile_progress_bar);
         mErrorContainer = findViewById(R.id.mobile_error_container);
+        mErrorIcon = findViewById(R.id.mobile_error_icon);
         mErrorMessage = findViewById(R.id.mobile_error_message);
         mErrorAction = findViewById(R.id.mobile_error_action);
         mSearchButton = findViewById(R.id.mobile_search_button);
@@ -197,6 +200,10 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
             dialogPresenter.appendSingleButton(UiOptionItem.from(item.title, optionItem -> item.onClick.run()));
         }
 
+        // Tag this as the full-screen Settings tree so MobileAppDialogActivity renders it full-screen
+        // (nested category screens push onto the same activity and inherit that). Context menus and the
+        // player option pickers leave the id unset and get the default bottom-sheet presentation.
+        dialogPresenter.setId(com.newtube.mobile.ui.dialog.MobileAppDialogActivity.ID_FULLSCREEN_SETTINGS);
         dialogPresenter.showDialog(getString(R.string.header_settings));
     }
 
@@ -702,24 +709,53 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         });
     }
 
+    /**
+     * Graceful empty state for an empty / sign-in-gated / errored section (ROADMAP polish).
+     * {@code BrowsePresenter} routes ALL of these here: signed-out auth-only sections (Subscriptions,
+     * Playlists) via {@code authCheck()} -> {@link com.liskovsoft.smartyoutubetv2.common.app.models.errors.SignInError},
+     * and genuinely-empty / failed loads via {@code handleLoadError()} ->
+     * {@link com.liskovsoft.smartyoutubetv2.common.app.models.errors.CategoryEmptyError}. We render a
+     * centered icon + message (and, when the error carries a sign-in action, a "Sign in" button that
+     * runs {@code ErrorFragmentData.onAction()} -> {@code YTSignInPresenter.start()} -> the mobile
+     * SignIn screen). The message is section-aware for the sign-in case ("Sign in to see your
+     * Subscriptions") and a clean generic line otherwise - we deliberately do NOT surface
+     * {@code CategoryEmptyError.getMessage()} verbatim because for real errors it returns a raw stack
+     * trace, which is not something to show a phone user.
+     */
     @Override
     public void showError(ErrorFragmentData data) {
         runOnUiThread(() -> {
             mContentGrid.setVisibility(View.GONE);
             mErrorContainer.setVisibility(View.VISIBLE);
-
-            mErrorMessage.setText(data != null ? data.getMessage() : null);
+            mErrorIcon.setVisibility(View.VISIBLE);
 
             String actionText = data != null ? data.getActionText() : null;
-            mErrorAction.setTag(data);
+            boolean hasSignInAction = actionText != null && !actionText.isEmpty();
 
-            if (data != null && actionText != null && !actionText.isEmpty()) {
+            if (hasSignInAction) {
+                String sectionTitle = getCurrentSectionTitle();
+                mErrorMessage.setText(sectionTitle != null
+                        ? getString(R.string.mobile_empty_signin_section, sectionTitle)
+                        : getString(R.string.mobile_empty_signin_generic));
                 mErrorAction.setText(actionText);
                 mErrorAction.setVisibility(View.VISIBLE);
             } else {
+                mErrorMessage.setText(R.string.mobile_empty_generic);
                 mErrorAction.setVisibility(View.GONE);
             }
+
+            mErrorAction.setTag(data);
         });
+    }
+
+    /** Title of the section the user is currently viewing, for a section-aware empty message. */
+    private String getCurrentSectionTitle() {
+        for (BrowseSection section : mSections) {
+            if (section.getId() == mCurrentSectionId) {
+                return section.getTitle();
+            }
+        }
+        return null;
     }
 
     private void hideError() {
