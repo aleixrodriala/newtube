@@ -25,6 +25,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.base.BasePresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.VideoMenuPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
+import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils.ChainProcessor;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils.Processor;
@@ -38,6 +39,9 @@ public class PlaybackPresenter extends BasePresenter<PlaybackView> implements Pl
     private static final String TAG = PlaybackPresenter.class.getSimpleName();
     @SuppressLint("StaticFieldLeak")
     private static PlaybackPresenter sInstance;
+    // Mobile click-to-play win: when enabled, openVideo() warms the format-info fetch immediately so it
+    // overlaps the player Activity bring-up. Off by default -> TV path unchanged.
+    private static boolean sPrefetchOnOpenEnabled;
     private final List<PlayerEventListener> mEventListeners = new CopyOnWriteArrayList<PlayerEventListener>() {
         @Override
         public boolean add(PlayerEventListener listener) {
@@ -109,9 +113,21 @@ public class PlaybackPresenter extends BasePresenter<PlaybackView> implements Pl
         openVideo(video);
     }
 
+    public static void setPrefetchOnOpenEnabled(boolean enabled) {
+        sPrefetchOnOpenEnabled = enabled;
+    }
+
     public void openVideo(Video video) {
         if (video == null) {
             return;
+        }
+
+        // Mobile: kick the getVideoInfo fetch NOW (at tap) so it runs concurrently with startActivity +
+        // the player Activity's onCreate (layout inflation + ExoPlayer construction) instead of after
+        // them. The player's own fetch at the end of onCreate shares this in-flight request via the
+        // media service's single-flight, so there's no duplicate round-trip. TV never enables this.
+        if (sPrefetchOnOpenEnabled) {
+            MediaServiceManager.instance().prefetchFormatInfo(video);
         }
 
         if (getView() != null && getView().isEmbed()) { // switching from the embed player to the fullscreen one

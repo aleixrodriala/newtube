@@ -52,6 +52,7 @@ public class MediaServiceManager implements OnAccountChange {
     private Disposable mRowsAction;
     private Disposable mSubscribedChannelsAction;
     private Disposable mFormatInfoAction;
+    private Disposable mPrefetchAction;
     private Disposable mPlaylistGroupAction;
     private Disposable mPlaylistInfosAction;
     private Disposable mHistoryAction;
@@ -257,6 +258,26 @@ public class MediaServiceManager implements OnAccountChange {
                 .subscribe(
                         onFormatInfo::onFormatInfo,
                         error -> Log.e(TAG, "loadFormatInfo error: %s", error.getMessage())
+                );
+    }
+
+    /**
+     * Mobile click-to-play win: warm the format-info fetch for {@code item} the instant the user taps,
+     * so the network round-trip overlaps the player Activity's bring-up (layout inflation + ExoPlayer
+     * construction) instead of running after it. The player's own end-of-onCreate fetch then shares this
+     * in-flight request via {@link com.liskovsoft.youtubeapi.service.YouTubeMediaItemService}'s
+     * single-flight (must be enabled), so no duplicate round-trip occurs. Fire-and-forget; result is
+     * only cached, never consumed here. Uses its own disposable so it never disturbs {@link #loadFormatInfo}.
+     */
+    public void prefetchFormatInfo(Video item) {
+        if (item == null || item.videoId == null) {
+            return;
+        }
+
+        mPrefetchAction = mItemService.getFormatInfoObserve(item.videoId)
+                .subscribe(
+                        info -> { /* cached by the service; nothing to do here */ },
+                        error -> Log.e(TAG, "prefetchFormatInfo error: %s", error.getMessage())
                 );
     }
 

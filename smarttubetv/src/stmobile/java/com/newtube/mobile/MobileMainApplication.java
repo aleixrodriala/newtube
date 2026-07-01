@@ -10,10 +10,12 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.SearchView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SignInView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.common.app.views.WebBrowserView;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.ExoMediaSourceFactory;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.ExoPlayerInitializer;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.tv.ui.main.MainApplication;
+import com.liskovsoft.youtubeapi.service.YouTubeMediaItemService;
 import com.liskovsoft.youtubeapi.videoinfo.V2.VideoInfoService;
 import com.newtube.mobile.ui.adddevice.MobileAddDeviceActivity;
 import com.newtube.mobile.ui.browse.MobileBrowseActivity;
@@ -125,6 +127,15 @@ public class MobileMainApplication extends MainApplication {
         // play. The winning fast client is persisted so subsequent cold starts skip straight to it.
         // TV never calls this -> TV keeps the WEB_EMBED-first order unchanged.
         VideoInfoService.setPreferNoPotClient(true);
+
+        // TTFF FIX (mobile-only, click-to-play parallelization): kick the getVideoInfo fetch the instant a
+        // video is tapped (PlaybackPresenter.openVideo) so the network round-trip - the single biggest
+        // chunk of click-to-play - overlaps the player Activity's bring-up (layout inflation + ExoPlayer
+        // construction) instead of running strictly after it. The single-flight below makes the player's
+        // own end-of-onCreate fetch reuse this in-flight request rather than issue a second round-trip.
+        // Both are off on TV -> TV click-to-play path unchanged.
+        PlaybackPresenter.setPrefetchOnOpenEnabled(true);
+        YouTubeMediaItemService.setSingleFlightEnabled(true);
 
         // SEEK-BACK FIX (secondary, defense-in-depth): install a bounded on-disk media cache. It does
         // NOT help the SABR path (POST bodies aren't cacheable), but it makes the progressive /
