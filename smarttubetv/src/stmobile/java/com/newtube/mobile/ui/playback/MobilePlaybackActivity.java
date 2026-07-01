@@ -19,7 +19,10 @@ import android.os.IBinder;
 import android.text.TextUtils;
 import android.util.Rational;
 import android.util.SparseIntArray;
+import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -37,6 +40,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
 import com.liskovsoft.mediaserviceinterfaces.LiveChatService;
 import com.liskovsoft.mediaserviceinterfaces.MediaItemService;
@@ -62,16 +66,23 @@ import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.mediaserviceinterfaces.data.ChatItem;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerConstants;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.ChatReceiver;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionCategory;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.SeekBarSegment;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.controller.ExoPlayerController;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.DebugInfoManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.ExoPlayerInitializer;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.versions.renderer.CustomOverridesRenderersFactory;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.versions.selector.RestoreTrackSelector;
+import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
+import com.liskovsoft.smartyoutubetv2.common.utils.AppDialogUtil;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.common.MobileActivity;
@@ -130,6 +141,19 @@ public class MobilePlaybackActivity extends MobileActivity
     private ImageButton mSubtitlesButton;
     private ImageButton mSpeedButton;
     private ImageButton mPipButton;
+    private ImageButton mMoreButton;
+    private ImageButton mPrevButton;
+    private ImageButton mNextButton;
+    private ViewGroup mDebugViewGroup;
+
+    // Subtitle styling + debug overlay. Both mirror the TV PlaybackFragment wiring: SubtitleManager
+    // applies the user's stored SubtitleStyle to the PlayerView's built-in SubtitleView; the
+    // DebugInfoManager drives the "stats for nerds" overlay. Created lazily once the player exists.
+    private SubtitleManager mSubtitleManager;
+    private DebugInfoManager mDebugInfoManager;
+
+    // Screen-orientation lock toggled from the overflow menu ("Rotate lock").
+    private boolean mOrientationLocked;
 
     // Watch page (portrait content column under the video).
     private NestedScrollView mWatchScroll;
@@ -217,14 +241,9 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Buffer/cache tuning (see class doc / report). Must be set BEFORE the player is created:
-        // ExoPlayerInitializer.createLoadControl() reads PlayerData.getVideoBufferType() when
-        // createPlayer() runs. BUFFER_HIGH = 50s min/max + 50s back-buffer, while ExoPlayer's
-        // bufferForPlaybackMs stays at the engine default (2.5s) so the first frame still starts
-        // fast - a quick start with a generous cushion against mid-stream stutter on mobile data.
-        // (No on-disk SimpleCache: wiring CacheDataSource would require editing common/'s
-        // ExoMediaSourceFactory, which this wave must not touch, so we tune buffers only.)
-        PlayerData.instance(this).setVideoBufferType(PlayerData.BUFFER_HIGH);
+        // NOTE: buffer tuning is applied locally around createPlayer() (see createPlayerObjects),
+        // NOT here - forcing PlayerData.setVideoBufferType() on every onCreate permanently
+        // overwrote the user's persisted global buffer preference. See createPlayerObjects().
 
         setContentView(R.layout.activity_mobile_playback);
 
@@ -271,6 +290,10 @@ public class MobilePlaybackActivity extends MobileActivity
         mSubtitlesButton = findViewById(R.id.mobile_player_subtitles);
         mSpeedButton = findViewById(R.id.mobile_player_speed);
         mPipButton = findViewById(R.id.mobile_player_pip);
+        mMoreButton = findViewById(R.id.mobile_player_more);
+        mPrevButton = findViewById(R.id.mobile_player_previous);
+        mNextButton = findViewById(R.id.mobile_player_next);
+        mDebugViewGroup = findViewById(R.id.mobile_player_debug);
 
         // Watch page content column.
         mWatchScroll = findViewById(R.id.mobile_watch_scroll);
@@ -323,6 +346,29 @@ public class MobilePlaybackActivity extends MobileActivity
         mBackButton.setOnClickListener(v -> onBackPressed());
         mPlayPauseButton.setOnClickListener(v -> togglePlayPause());
         mFullscreenButton.setOnClickListener(v -> toggleFullscreen());
+
+        // Manual previous/next skip (auto-advance already handled by the controllers).
+        if (mPrevButton != null) {
+            mPrevButton.setOnClickListener(v -> {
+                if (mPresenter != null) {
+                    mPresenter.onPreviousClicked();
+                }
+                armAutoHide();
+            });
+        }
+        if (mNextButton != null) {
+            mNextButton.setOnClickListener(v -> {
+                if (mPresenter != null) {
+                    mPresenter.onNextClicked();
+                }
+                armAutoHide();
+            });
+        }
+
+        // Overflow "⋮" menu: the long tail of SmartTube player actions.
+        if (mMoreButton != null) {
+            mMoreButton.setOnClickListener(v -> openPlayerMenu());
+        }
 
         // Player options row (Quality / Subtitles / Speed). Each dispatches an R.id.action_* through
         // the presenter so the existing controllers open their AppDialog option lists (rendered by
@@ -450,7 +496,21 @@ public class MobilePlaybackActivity extends MobileActivity
         mExoPlayerController.setTrackSelector(trackSelector);
 
         DefaultRenderersFactory renderersFactory = new CustomOverridesRenderersFactory(this);
-        mPlayer = mPlayerInitializer.createPlayer(this, renderersFactory, trackSelector);
+
+        // Buffer tuning applied LOCALLY (see class doc). ExoPlayerInitializer.createLoadControl()
+        // reads PlayerData.getVideoBufferType() during createPlayer(), so temporarily force
+        // BUFFER_HIGH (50s min/max + back-buffer, generous cushion against mobile-data stutter),
+        // then restore the user's persisted global immediately. The already-built LoadControl keeps
+        // the high value; the saved preference is left exactly as the user chose it. (Previously
+        // this was set in onCreate and never restored, permanently clobbering the global pref.)
+        PlayerData playerData = PlayerData.instance(this);
+        int priorBufferType = playerData.getVideoBufferType();
+        playerData.setVideoBufferType(PlayerData.BUFFER_HIGH);
+        try {
+            mPlayer = mPlayerInitializer.createPlayer(this, renderersFactory, trackSelector);
+        } finally {
+            playerData.setVideoBufferType(priorBufferType);
+        }
         mPlayer.setPlayWhenReady(true);
 
         mExoPlayerController.setPlayer(mPlayer);
@@ -495,6 +555,11 @@ public class MobilePlaybackActivity extends MobileActivity
         // buffering spinner, the play/pause/replay icon and the end-of-video state.
         mPlayer.addListener(mUiPlayerListener);
 
+        // Apply the user's subtitle style to the PlayerView's built-in SubtitleView (see gap #2).
+        // Registered AFTER setPlayer() so our (styled) SubtitleManager is the last TextOutput and
+        // wins over PlayerView's default component that would otherwise render with embedded styles.
+        createSubtitleManager();
+
         mPresenter.onEngineInitialized(); // VideoLoaderController picks up the pending video here
 
         // Attach the reused player to the background-playback service (media session + notification).
@@ -517,6 +582,15 @@ public class MobilePlaybackActivity extends MobileActivity
 
         stopProgressUpdates();
         mPlayer.removeListener(mUiPlayerListener);
+
+        // Tear down the debug overlay (removes its Player listener) and drop the subtitle manager
+        // before the player is released. SubtitleManager registers on PlayerData via a WeakHashSet,
+        // so nulling the reference is enough to let it be collected.
+        if (mDebugInfoManager != null) {
+            mDebugInfoManager.show(false);
+            mDebugInfoManager = null;
+        }
+        mSubtitleManager = null;
 
         // Detach the player from the media session/notification BEFORE releasing it, so the service
         // never references a released player. The service (and any audio) stops here on real finish.
@@ -1000,6 +1074,155 @@ public class MobilePlaybackActivity extends MobileActivity
         }
     }
 
+    // ---------------------------------------------------------------------------------
+    // Overflow ("⋮") menu: the long tail of SmartTube player actions.
+    //
+    // The top controls only expose Quality/Subtitles/Speed/PiP + prev/next + play-pause. Everything
+    // else SmartTube offers on the player is reached from here. Each row dispatches an R.id.action_*
+    // through PlaybackPresenter (same vocabulary the TV VideoPlayerGlue used) so the reused
+    // PlayerUIController does the real work: dialog-opening actions (repeat/zoom/playlist/queue) show
+    // their AppDialog via the touch MobileAppDialogActivity; simple toggles (stats/screen-off) flip
+    // and are reflected here. Actions with no mobile meaning (AFR) are omitted; "Rotate lock" is a
+    // native screen-orientation lock rather than the TV video-frame rotate.
+    // ---------------------------------------------------------------------------------
+
+    private void openPlayerMenu() {
+        if (mPresenter == null) {
+            return;
+        }
+
+        cancelAutoHide();
+
+        BottomSheetDialog sheet = new BottomSheetDialog(this);
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setBackgroundResource(R.drawable.bg_mobile_sheet);
+        content.setPadding(0, dp(8), 0, dp(16));
+
+        View handle = new View(this);
+        LinearLayout.LayoutParams handleLp = new LinearLayout.LayoutParams(dp(36), dp(4));
+        handleLp.gravity = Gravity.CENTER_HORIZONTAL;
+        handleLp.bottomMargin = dp(8);
+        handle.setLayoutParams(handleLp);
+        handle.setBackgroundResource(R.drawable.bg_mobile_sheet_handle);
+        content.addView(handle);
+
+        TextView title = new TextView(this);
+        title.setText(R.string.mobile_menu_title);
+        title.setTextColor(getColorInt(R.color.mobile_color_on_surface));
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
+        title.setPadding(dp(20), dp(4), dp(20), dp(12));
+        content.addView(title);
+
+        boolean shuffleOn = PlayerData.instance(this).getPlaybackMode() == PlayerConstants.PLAYBACK_MODE_SHUFFLE;
+        boolean statsOn = getButtonState(R.id.action_video_stats) == BUTTON_ON;
+        boolean screenOffOn = getButtonState(R.id.action_screen_dimming) == BUTTON_ON;
+
+        // Repeat mode -> playback-mode dialog (long-click path always opens the picker; the plain
+        // click just cycles). The dialog includes Shuffle among its radio options too.
+        addMenuRow(content, sheet, R.string.mobile_menu_repeat, null, () -> openPlayerOption(R.id.action_repeat, true));
+        // Dedicated Shuffle toggle (SHUFFLE <-> ALL) for quick access.
+        addMenuRow(content, sheet, R.string.mobile_menu_shuffle, stateLabel(shuffleOn), this::toggleShuffleMode);
+        // Video zoom / aspect ratio / rotate dialog.
+        addMenuRow(content, sheet, R.string.mobile_menu_zoom, null, () -> openPlayerOption(R.id.action_video_zoom, false));
+        // Play as audio / background mode (PiP-on-home etc.).
+        addMenuRow(content, sheet, R.string.mobile_menu_background, null, this::openBackgroundModeDialog);
+        // Screen off / dimming toggle.
+        addMenuRow(content, sheet, R.string.mobile_menu_screen_off, stateLabel(screenOffOn), () -> openPlayerOption(R.id.action_screen_dimming, false));
+        // Stats for nerds (debug overlay) toggle.
+        addMenuRow(content, sheet, R.string.mobile_menu_stats, stateLabel(statsOn), () -> openPlayerOption(R.id.action_video_stats, false));
+        // Rotate lock (native screen-orientation lock).
+        addMenuRow(content, sheet, R.string.mobile_menu_rotate_lock, stateLabel(mOrientationLocked), this::toggleRotateLock);
+        // Add to playlist.
+        addMenuRow(content, sheet, R.string.mobile_menu_playlist_add, null, () -> openPlayerOption(R.id.action_playlist_add, false));
+        // Playback queue.
+        addMenuRow(content, sheet, R.string.mobile_menu_queue, null, () -> openPlayerOption(R.id.action_playback_queue, false));
+
+        sheet.setContentView(content);
+        sheet.setOnDismissListener(d -> armAutoHide());
+        sheet.show();
+    }
+
+    private void addMenuRow(LinearLayout container, BottomSheetDialog sheet, int labelRes,
+                            String trailing, Runnable action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setBackgroundResource(resolveSelectableItemBackground());
+        row.setPadding(dp(20), dp(14), dp(20), dp(14));
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        TextView label = new TextView(this);
+        label.setText(labelRes);
+        label.setTextColor(getColorInt(R.color.mobile_color_on_surface));
+        label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        label.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(label);
+
+        if (trailing != null) {
+            TextView state = new TextView(this);
+            state.setText(trailing);
+            state.setTextColor(getColorInt(R.color.mobile_color_on_surface_secondary));
+            state.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            row.addView(state);
+        }
+
+        row.setOnClickListener(v -> {
+            sheet.dismiss();
+            action.run();
+        });
+
+        container.addView(row);
+    }
+
+    private String stateLabel(boolean on) {
+        return getString(on ? R.string.mobile_menu_on : R.string.mobile_menu_off);
+    }
+
+    private int resolveSelectableItemBackground() {
+        TypedValue tv = new TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
+        return tv.resourceId;
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    /** Toggle the SmartTube playback mode between Shuffle and All (default). Persisted in PlayerData. */
+    private void toggleShuffleMode() {
+        PlayerData pd = PlayerData.instance(this);
+        boolean wasShuffle = pd.getPlaybackMode() == PlayerConstants.PLAYBACK_MODE_SHUFFLE;
+        int mode = wasShuffle ? PlayerConstants.PLAYBACK_MODE_ALL : PlayerConstants.PLAYBACK_MODE_SHUFFLE;
+        pd.setPlaybackMode(mode);
+        // Reflect on the (hidden) repeat button state so the menu shows the right On/Off next time.
+        setButtonState(R.id.action_repeat, mode);
+    }
+
+    /** Open the Play-in-background / audio-mode option dialog via the reused AppDialog path. */
+    private void openBackgroundModeDialog() {
+        cancelAutoHide();
+        AppDialogPresenter dialog = AppDialogPresenter.instance(this);
+        OptionCategory category = AppDialogUtil.createBackgroundPlaybackCategory(
+                this, PlayerData.instance(this), GeneralData.instance(this));
+        dialog.appendRadioCategory(category.title, category.options);
+        dialog.showDialog(getString(R.string.mobile_menu_background));
+    }
+
+    /** Native screen-orientation lock (mobile equivalent of "rotate lock"). */
+    private void toggleRotateLock() {
+        mOrientationLocked = !mOrientationLocked;
+        setRequestedOrientation(mOrientationLocked
+                ? ActivityInfo.SCREEN_ORIENTATION_LOCKED
+                : ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+    }
+
     private void updateFullscreenIcon(int orientation) {
         if (mFullscreenButton == null) {
             return;
@@ -1086,8 +1309,12 @@ public class MobilePlaybackActivity extends MobileActivity
                 case Player.STATE_ENDED:
                     showProgressBar(false);
                     mIsEnded = true;
-                    // Surface the replay affordance.
-                    showControlsInternal(true);
+                    // Surface the replay affordance - but NOT while in PiP: full-size controls would
+                    // appear inside the tiny PiP window and onAutoHideTick would keep re-arming them
+                    // (mIsEnded stays true), so they'd never hide. In PiP the RemoteAction handles it.
+                    if (!mIsInPip) {
+                        showControlsInternal(true);
+                    }
                     break;
                 default:
                     break;
@@ -1366,7 +1593,15 @@ public class MobilePlaybackActivity extends MobileActivity
         if (buttonId == R.id.action_thumbs_up
                 || buttonId == R.id.action_thumbs_down
                 || buttonId == R.id.action_subscribe
-                || buttonId == R.id.action_chat) {
+                || buttonId == R.id.action_chat
+                // Overflow-menu toggles: track state so the reused controllers can flip them and
+                // the menu can reflect On/Off. setButtonState() already stores every id it receives.
+                || buttonId == R.id.action_repeat
+                || buttonId == R.id.action_video_stats
+                || buttonId == R.id.action_screen_dimming
+                || buttonId == R.id.action_playlist_add
+                || buttonId == R.id.action_rotate
+                || buttonId == R.id.action_sound_off) {
             return mButtonStates.get(buttonId, BUTTON_OFF);
         }
         return BUTTON_DISABLED;
@@ -1409,14 +1644,55 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     public void showDebugInfo(boolean show) {
-        // TODO Wave N: debug overlay (low priority on touch).
+        // "Stats for nerds" overlay. Mirrors PlaybackFragment.showDebugInfo(): lazily build the
+        // DebugInfoManager over the debug view group and toggle it. Driven by the reused
+        // PlayerUIController (action_video_stats -> onDebugInfoClicked -> showDebugInfo()).
+        createDebugManager();
+        if (mDebugInfoManager != null) {
+            mDebugInfoManager.show(show);
+        }
     }
 
     @Override
     public void showSubtitles(boolean show) {
-        // TODO Wave N: subtitle on/off toggle UI. NOTE: PlayerView already renders whatever
-        // subtitle track ExoPlayerController/TrackSelectorManager has selected via its own
-        // built-in SubtitleView - this only stubs the user-facing toggle, not rendering.
+        // The user's subtitle STYLE (size/color/background/position) is applied by SubtitleManager
+        // over the PlayerView's built-in SubtitleView. This toggles that view's visibility; actual
+        // track selection is done by ExoPlayerController/TrackSelectorManager.
+        createSubtitleManager();
+        if (mSubtitleManager != null) {
+            mSubtitleManager.show(show);
+        }
+    }
+
+    /**
+     * Build the {@link SubtitleManager} over the PlayerView's built-in {@link
+     * com.google.android.exoplayer2.ui.SubtitleView} and register it as a text output, so the user's
+     * stored {@code SubtitleStyle} (from SubtitleSettingsPresenter) actually takes effect. Mirrors
+     * PlaybackFragment.createSubtitleManager(). Idempotent.
+     */
+    private void createSubtitleManager() {
+        if (mSubtitleManager != null || mPlayer == null || mPlayerView == null) {
+            return;
+        }
+
+        com.google.android.exoplayer2.ui.SubtitleView subtitleView = mPlayerView.getSubtitleView();
+        if (subtitleView == null) {
+            return;
+        }
+
+        mSubtitleManager = new SubtitleManager(subtitleView);
+
+        if (mPlayer.getTextComponent() != null) {
+            mPlayer.getTextComponent().addTextOutput(mSubtitleManager);
+        }
+    }
+
+    /** Build the {@link DebugInfoManager} over the debug overlay group. Mirrors the TV fragment. */
+    private void createDebugManager() {
+        if (mDebugInfoManager != null || mDebugViewGroup == null || mPlayer == null) {
+            return;
+        }
+        mDebugInfoManager = new DebugInfoManager(mDebugViewGroup, mPlayer, mPlayerInitializer);
     }
 
     @Override

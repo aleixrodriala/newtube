@@ -60,6 +60,8 @@ public class MobilePlaybackService extends Service {
 
     public static final String CHANNEL_ID = "newtube_playback_channel";
     private static final int NOTIFICATION_ID = 41337;
+    /** Cap the notification/lock-screen art at a sane size instead of decoding the full-res image. */
+    private static final int ART_SIZE_PX = 512;
 
     private final IBinder mBinder = new LocalBinder();
 
@@ -67,11 +69,15 @@ public class MobilePlaybackService extends Service {
     private MediaSessionCompat mMediaSession;
     private MediaSessionConnector mMediaSessionConnector;
     private PlaybackPresenter mPresenter;
+    // Reused player instance (owned by the Activity) - kept for reading the current duration.
+    private SimpleExoPlayer mPlayer;
     private boolean mIsForeground;
 
     // Simple large-icon (album art) cache so the adapter can answer synchronously on repeat calls.
     private String mArtUrl;
     private Bitmap mArtBitmap;
+    // Held so it can be cleared from Glide on release (avoids the leaked SIZE_ORIGINAL target).
+    private CustomTarget<Bitmap> mArtTarget;
 
     public class LocalBinder extends Binder {
         public MobilePlaybackService getService() {
@@ -139,6 +145,7 @@ public class MobilePlaybackService extends Service {
         releaseInternal(false);
 
         mPresenter = presenter;
+        mPlayer = player;
 
         mMediaSession = new MediaSessionCompat(getApplicationContext(), getPackageName());
         mMediaSession.setActive(true);
@@ -271,7 +278,17 @@ public class MobilePlaybackService extends Service {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
             mIsForeground = false;
         }
+        // Release the Glide target so the loaded bitmap + its request can be collected.
+        if (mArtTarget != null) {
+            try {
+                Glide.with(getApplicationContext()).clear(mArtTarget);
+            } catch (Exception e) {
+                // ignore
+            }
+            mArtTarget = null;
+        }
         mPresenter = null;
+        mPlayer = null;
         mArtUrl = null;
         mArtBitmap = null;
     }
@@ -298,6 +315,12 @@ public class MobilePlaybackService extends Service {
         if (mArtBitmap != null) {
             builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, mArtBitmap);
         }
+        // Duration for the lock-screen / media-control scrubber. ExoPlayer returns C.TIME_UNSET
+        // (negative) until the timeline is known, so only publish a real positive duration.
+        long durationMs = mPlayer != null ? mPlayer.getDuration() : 0;
+        if (durationMs > 0) {
+            builder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs);
+        }
         return builder.build();
     }
 
@@ -316,23 +339,33 @@ public class MobilePlaybackService extends Service {
             return mArtBitmap;
         }
 
+        // Cancel any in-flight art load before starting a new one (avoids leaking the target).
+        if (mArtTarget != null) {
+            Glide.with(getApplicationContext()).clear(mArtTarget);
+            mArtTarget = null;
+        }
+
         final String requestedUrl = url;
+        // Bounded target size + .override() so Glide decodes a downscaled bitmap, not SIZE_ORIGINAL.
+        mArtTarget = new CustomTarget<Bitmap>(ART_SIZE_PX, ART_SIZE_PX) {
+            @Override
+            public void onResourceReady(Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
+                mArtUrl = requestedUrl;
+                mArtBitmap = resource;
+                callback.onBitmap(resource);
+            }
+
+            @Override
+            public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
+                // no-op
+            }
+        };
+
         Glide.with(getApplicationContext())
                 .asBitmap()
                 .load(url)
-                .into(new CustomTarget<Bitmap>() {
-                    @Override
-                    public void onResourceReady(Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
-                        mArtUrl = requestedUrl;
-                        mArtBitmap = resource;
-                        callback.onBitmap(resource);
-                    }
-
-                    @Override
-                    public void onLoadCleared(@Nullable android.graphics.drawable.Drawable placeholder) {
-                        // no-op
-                    }
-                });
+                .override(ART_SIZE_PX, ART_SIZE_PX)
+                .into(mArtTarget);
 
         return null;
     }

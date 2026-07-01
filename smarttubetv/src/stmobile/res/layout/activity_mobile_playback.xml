@@ -165,18 +165,64 @@
                         android:scaleType="fitCenter"
                         android:src="@drawable/ic_player_pip" />
 
+                    <!-- Overflow: opens the bottom-sheet menu of the long-tail player actions
+                         (repeat/shuffle/zoom/background/screen-off/stats/rotate-lock/playlist/queue),
+                         each dispatched through PlaybackPresenter.onButtonClicked/onButtonLongClicked. -->
+                    <ImageButton
+                        android:id="@+id/mobile_player_more"
+                        android:layout_width="@dimen/mobile_player_icon_button"
+                        android:layout_height="@dimen/mobile_player_icon_button"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_player_more"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_player_more" />
+
                 </LinearLayout>
 
-                <!-- Large center play / pause / replay -->
-                <ImageButton
-                    android:id="@+id/mobile_player_play_pause"
-                    android:layout_width="@dimen/mobile_player_center_button"
-                    android:layout_height="@dimen/mobile_player_center_button"
+                <!-- Center transport: previous / play-pause-replay / next.
+                     Previous & next dispatch PlaybackPresenter.onPreviousClicked / onNextClicked
+                     (manual skip; auto-advance already works via the controllers). -->
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
                     android:layout_gravity="center"
-                    android:background="@drawable/mobile_player_center_button_bg"
-                    android:contentDescription="@string/mobile_player_pause"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/ic_player_pause" />
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageButton
+                        android:id="@+id/mobile_player_previous"
+                        android:layout_width="@dimen/mobile_player_icon_button"
+                        android:layout_height="@dimen/mobile_player_icon_button"
+                        android:layout_marginEnd="24dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_player_previous"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_player_previous" />
+
+                    <!-- Large center play / pause / replay -->
+                    <ImageButton
+                        android:id="@+id/mobile_player_play_pause"
+                        android:layout_width="@dimen/mobile_player_center_button"
+                        android:layout_height="@dimen/mobile_player_center_button"
+                        android:background="@drawable/mobile_player_center_button_bg"
+                        android:contentDescription="@string/mobile_player_pause"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_player_pause" />
+
+                    <ImageButton
+                        android:id="@+id/mobile_player_next"
+                        android:layout_width="@dimen/mobile_player_icon_button"
+                        android:layout_height="@dimen/mobile_player_icon_button"
+                        android:layout_marginStart="24dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_player_next"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_player_next" />
+
+                </LinearLayout>
 
                 <!-- Bottom seek row -->
                 <LinearLayout
@@ -259,6 +305,19 @@
                 android:layout_gravity="center"
                 android:indeterminateTint="@color/mobile_color_primary"
                 android:indeterminateTintMode="src_in" />
+
+            <!-- "Stats for nerds" debug overlay. DebugInfoManager inflates R.layout.debug_view into
+                 this group and toggles its visibility; it must not eat player taps, so it is not
+                 clickable. Offset below the top scrim so it clears the back button / title. -->
+            <FrameLayout
+                android:id="@+id/mobile_player_debug"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top"
+                android:layout_marginTop="56dp"
+                android:clickable="false"
+                android:focusable="false"
+                android:visibility="gone" />
 
         </FrameLayout>
 

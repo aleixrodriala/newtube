@@ -12,6 +12,23 @@
     <string name="mobile_player_subtitles">Subtitles</string>
     <string name="mobile_player_speed">Playback speed</string>
     <string name="mobile_player_pip">Picture-in-picture</string>
+    <string name="mobile_player_previous">Previous</string>
+    <string name="mobile_player_next">Next</string>
+
+    <!-- Player overflow ("⋮") bottom-sheet menu -->
+    <string name="mobile_player_more">More options</string>
+    <string name="mobile_menu_title">Player options</string>
+    <string name="mobile_menu_repeat">Repeat mode</string>
+    <string name="mobile_menu_shuffle">Shuffle</string>
+    <string name="mobile_menu_zoom">Zoom / aspect ratio</string>
+    <string name="mobile_menu_background">Play in background</string>
+    <string name="mobile_menu_screen_off">Screen off (dimming)</string>
+    <string name="mobile_menu_stats">Stats for nerds</string>
+    <string name="mobile_menu_rotate_lock">Rotate lock</string>
+    <string name="mobile_menu_playlist_add">Save to playlist</string>
+    <string name="mobile_menu_queue">Playback queue</string>
+    <string name="mobile_menu_on">On</string>
+    <string name="mobile_menu_off">Off</string>
 
     <!-- Background playback media notification -->
     <string name="mobile_playback_channel_name">Playback</string>
