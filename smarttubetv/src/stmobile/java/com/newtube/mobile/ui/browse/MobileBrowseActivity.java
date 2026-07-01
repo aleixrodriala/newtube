@@ -10,11 +10,14 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.core.view.GravityCompat;
+import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.navigation.NavigationView;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaGroup;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.BrowseSection;
@@ -64,6 +67,8 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     private static final int SCROLL_END_THRESHOLD_ITEMS = 6;
     /** BottomNavigationView hard-caps at this many items. */
     private static final int MAX_NAV_ITEMS = 5;
+    /** Single checkable group id for the navigation-drawer section list. */
+    private static final int DRAWER_GROUP_ID = 1;
 
     /**
      * Preferred bottom-nav sections, in priority order. Matched primarily by
@@ -92,12 +97,15 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     private GridLayoutManager mLayoutManager;
     private VideoCardAdapter mAdapter;
     private BottomNavigationView mBottomNav;
+    private DrawerLayout mDrawerLayout;
+    private NavigationView mNavView;
     private ProgressBar mProgressBar;
     private View mErrorContainer;
     private TextView mErrorMessage;
     private MaterialButton mErrorAction;
     private ImageButton mSearchButton;
     private ImageButton mSettingsButton;
+    private ImageButton mMenuButton;
 
     private final List<BrowseSection> mSections = new ArrayList<>();
     private final List<Video> mCurrentVideos = new ArrayList<>();
@@ -115,6 +123,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         bindViews();
         setupContentGrid();
         setupBottomNav();
+        setupDrawer();
         setupErrorAction();
         setupSearchButton();
         setupSettingsButton();
@@ -127,12 +136,15 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     private void bindViews() {
         mContentGrid = findViewById(R.id.mobile_content_grid);
         mBottomNav = findViewById(R.id.mobile_bottom_nav);
+        mDrawerLayout = findViewById(R.id.mobile_drawer_layout);
+        mNavView = findViewById(R.id.mobile_nav_view);
         mProgressBar = findViewById(R.id.mobile_progress_bar);
         mErrorContainer = findViewById(R.id.mobile_error_container);
         mErrorMessage = findViewById(R.id.mobile_error_message);
         mErrorAction = findViewById(R.id.mobile_error_action);
         mSearchButton = findViewById(R.id.mobile_search_button);
         mSettingsButton = findViewById(R.id.mobile_settings_button);
+        mMenuButton = findViewById(R.id.mobile_menu_button);
     }
 
     private void setupContentGrid() {
@@ -190,12 +202,69 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
 
     private void setupBottomNav() {
         mBottomNav.setOnItemSelectedListener(item -> {
-            if (!mSuppressNavCallback && mPresenter != null) {
-                mCurrentSectionId = item.getItemId() - ITEM_ID_OFFSET;
-                mPresenter.onSectionFocused(mCurrentSectionId);
+            if (!mSuppressNavCallback) {
+                onSectionChosen(item.getItemId() - ITEM_ID_OFFSET);
             }
             return true;
         });
+    }
+
+    /**
+     * All-sections access (Wave 7a). The bottom nav hard-caps at {@link #MAX_NAV_ITEMS},
+     * but BrowsePresenter can deliver many more sections (Music, Gaming, News, ...) via
+     * {@link #addSection}. The drawer lists EVERY delivered section (icon + title) and
+     * routes a tap through the exact same {@link #onSectionChosen} path the bottom nav
+     * uses, so a drawer-only section loads its content into the same grid.
+     */
+    private void setupDrawer() {
+        mMenuButton.setOnClickListener(v -> mDrawerLayout.openDrawer(GravityCompat.START));
+
+        mNavView.setNavigationItemSelectedListener(item -> {
+            mDrawerLayout.closeDrawer(GravityCompat.START);
+            int sectionId = item.getItemId() - ITEM_ID_OFFSET;
+            onSectionChosen(sectionId);
+            // Return true to keep a browsable section visually selected in the drawer; return
+            // false for Settings so it isn't left highlighted (it opens a dialog, not a grid).
+            return sectionId != MediaGroup.TYPE_SETTINGS;
+        });
+    }
+
+    /**
+     * Single entry point for "user picked section X" - whether from the bottom nav, the
+     * drawer, or (indirectly) the presenter's boot selection. Drives the standard
+     * {@link BrowsePresenter#onSectionFocused} path and keeps both nav surfaces in sync.
+     */
+    private void onSectionChosen(int sectionId) {
+        // The Settings section has no video-grid renderer on the mobile shell (its content
+        // arrives as a SettingsGroup, which updateSection(SettingsGroup) intentionally
+        // ignores). Route it to the working AppDialog settings screen instead of a blank grid.
+        if (sectionId == MediaGroup.TYPE_SETTINGS) {
+            syncNavHighlight(mCurrentSectionId); // keep highlight on the real current section
+            openSettings();
+            return;
+        }
+
+        mCurrentSectionId = sectionId;
+        syncNavHighlight(sectionId);
+
+        if (mPresenter != null) {
+            mPresenter.onSectionFocused(sectionId);
+        }
+    }
+
+    /** Highlight the given section in whichever nav surface(s) contain it (bottom nav + drawer). */
+    private void syncNavHighlight(int sectionId) {
+        int itemId = toMenuItemId(sectionId);
+
+        if (mBottomNav.getMenu().findItem(itemId) != null && mBottomNav.getSelectedItemId() != itemId) {
+            mSuppressNavCallback = true;
+            mBottomNav.setSelectedItemId(itemId);
+            mSuppressNavCallback = false;
+        }
+
+        if (mNavView.getMenu().findItem(itemId) != null) {
+            mNavView.setCheckedItem(itemId);
+        }
     }
 
     private void setupErrorAction() {
@@ -269,6 +338,12 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         return sectionId + ITEM_ID_OFFSET;
     }
 
+    /** Rebuild both nav surfaces (bottom nav = quick access to the main 5; drawer = all). */
+    private void rebuildNavigation() {
+        rebuildBottomNav();
+        rebuildDrawer();
+    }
+
     private void rebuildBottomNav() {
         mSuppressNavCallback = true;
 
@@ -287,7 +362,45 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
             }
         }
 
+        // Re-assert the highlight after clear()/add() wiped it, so the current section stays lit.
+        if (mCurrentSectionId >= 0 && menu.findItem(toMenuItemId(mCurrentSectionId)) != null) {
+            mBottomNav.setSelectedItemId(toMenuItemId(mCurrentSectionId));
+        }
+
         mSuppressNavCallback = false;
+    }
+
+    /**
+     * Rebuild the navigation drawer to list EVERY enabled section BrowsePresenter delivered
+     * (icon via {@link BrowseSection#getResId()} + {@link BrowseSection#getTitle()}) - not just
+     * the up-to-5 shown in the bottom nav. Settings is included so the drawer is a complete
+     * index; {@link #onSectionChosen} routes it to the AppDialog settings screen.
+     */
+    private void rebuildDrawer() {
+        Menu menu = mNavView.getMenu();
+        menu.clear();
+
+        int order = 0;
+        for (BrowseSection section : mSections) {
+            if (!section.isEnabled()) {
+                continue;
+            }
+
+            android.view.MenuItem item =
+                    menu.add(DRAWER_GROUP_ID, toMenuItemId(section.getId()), order++, section.getTitle());
+            item.setCheckable(true);
+
+            if (section.getResId() > 0) {
+                item.setIcon(section.getResId());
+            }
+        }
+
+        // Single-choice highlight: only one section can be the current one.
+        menu.setGroupCheckable(DRAWER_GROUP_ID, true, true);
+
+        if (mCurrentSectionId >= 0 && menu.findItem(toMenuItemId(mCurrentSectionId)) != null) {
+            mNavView.setCheckedItem(toMenuItemId(mCurrentSectionId));
+        }
     }
 
     /**
@@ -392,6 +505,18 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         }
     }
 
+    @Override
+    public void onBackPressed() {
+        // Back closes an open drawer first (standard Material drawer behavior); only then
+        // does it fall through to MobileActivity's finish()/app-exit handling.
+        if (mDrawerLayout != null && mDrawerLayout.isDrawerOpen(GravityCompat.START)) {
+            mDrawerLayout.closeDrawer(GravityCompat.START);
+            return;
+        }
+
+        super.onBackPressed();
+    }
+
     // ---------------------------------------------------------------------------------
     // BrowseView
     // ---------------------------------------------------------------------------------
@@ -411,7 +536,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
                 mSections.add(index, section);
             }
 
-            rebuildBottomNav();
+            rebuildNavigation();
         });
     }
 
@@ -423,7 +548,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
 
         runOnUiThread(() -> {
             Helpers.removeIf(mSections, existing -> existing.getId() == section.getId());
-            rebuildBottomNav();
+            rebuildNavigation();
         });
     }
 
@@ -431,7 +556,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     public void removeAllSections() {
         runOnUiThread(() -> {
             mSections.clear();
-            rebuildBottomNav();
+            rebuildNavigation();
         });
     }
 
@@ -446,14 +571,11 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
             mCurrentSectionId = section.getId();
 
             // The section may not be one of the (up to 5) sections shown in the bottom
-            // nav - e.g. the sign-out boot fallback can select Music, which can be
-            // bumped out by the preferred-5 selection. Still drive the presenter so the
-            // grid loads; just skip the visual nav selection if there's no matching item.
-            if (mBottomNav.getMenu().findItem(toMenuItemId(section.getId())) != null) {
-                mSuppressNavCallback = true;
-                mBottomNav.setSelectedItemId(toMenuItemId(section.getId()));
-                mSuppressNavCallback = false;
-            }
+            // nav - e.g. the sign-out boot fallback can select Music, which can be bumped
+            // out by the preferred-5 selection. It IS always in the drawer, though. Still
+            // drive the presenter so the grid loads; syncNavHighlight lights up whichever
+            // surface(s) contain it and no-ops on the ones that don't.
+            syncNavHighlight(section.getId());
 
             if (mPresenter != null) {
                 mPresenter.onSectionFocused(section.getId());
@@ -474,6 +596,17 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         runOnUiThread(() -> {
             hideError();
 
+            // ACTION_SYNC = an item was MUTATED in place (e.g. DeArrow / unlocalized-title
+            // overrides set video.deArrowTitle / video.altCardImageUrl on the existing Video
+            // instance). submitList()'s DiffUtil can't see in-place mutations (same object
+            // reference on both sides), so force a targeted re-bind instead - that's how the
+            // crowd-sourced titles/thumbnails actually reach the cards.
+            if (group.getAction() == VideoGroup.ACTION_SYNC) {
+                syncVideos(group.getVideos());
+                mAdapter.refreshItems(group.getVideos());
+                return;
+            }
+
             switch (group.getAction()) {
                 case VideoGroup.ACTION_REPLACE:
                     mCurrentVideos.clear();
@@ -487,9 +620,6 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
                     break;
                 case VideoGroup.ACTION_REMOVE_AUTHOR:
                     removeByAuthor(group.getVideos());
-                    break;
-                case VideoGroup.ACTION_SYNC:
-                    syncVideos(group.getVideos());
                     break;
                 case VideoGroup.ACTION_APPEND:
                 default:

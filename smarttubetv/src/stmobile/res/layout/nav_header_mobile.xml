@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Navigation-drawer header: app brand + tagline. Kept intentionally minimal
+     (no account UI yet - that lands with the accounts screen wave). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/mobile_color_surface"
+    android:gravity="bottom"
+    android:orientation="vertical"
+    android:paddingStart="16dp"
+    android:paddingTop="24dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="16dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/app_name"
+        android:textColor="@color/mobile_color_on_surface"
+        android:textSize="22sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="@string/mobile_nav_header_subtitle"
+        android:textColor="@color/mobile_color_on_surface_secondary"
+        android:textSize="13sp" />
+
+</LinearLayout>

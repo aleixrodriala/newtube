@@ -53,6 +53,10 @@
     <string name="mobile_search_button">Search</string>
     <string name="mobile_search_voice">Voice search</string>
 
+    <!-- Navigation drawer (all browse sections) -->
+    <string name="mobile_menu_button">Open sections</string>
+    <string name="mobile_nav_header_subtitle">Browse sections</string>
+
     <!-- Device-code sign-in screen (com.newtube.mobile.ui.signin.MobileSignInActivity) -->
     <string name="mobile_signin_title">Sign in</string>
     <string name="mobile_signin_instructions">On a phone or computer, go to the address below and enter this code:</string>

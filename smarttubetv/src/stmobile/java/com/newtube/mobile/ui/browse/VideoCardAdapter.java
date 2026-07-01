@@ -87,6 +87,28 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
     }
 
     /**
+     * Force a re-bind of the given items in place.
+     *
+     * Needed for {@code VideoGroup.ACTION_SYNC} (e.g. DeArrow / unlocalized-title overrides):
+     * those processors MUTATE the existing {@link Video} instances in place
+     * ({@code video.deArrowTitle} / {@code video.altCardImageUrl}) rather than emitting new
+     * ones, so {@code submitList()} can't detect the change - {@link #DIFF_CALLBACK}'s
+     * {@code areContentsTheSame} sees the same object reference on both sides and skips the
+     * bind. We locate each item by content identity ({@link Video#equals}) in the currently
+     * displayed list and rebind that row so the crowd-sourced title/thumbnail actually shows.
+     */
+    public void refreshItems(java.util.List<Video> items) {
+        java.util.List<Video> current = getCurrentList();
+        for (Video item : items) {
+            for (int i = 0; i < current.size(); i++) {
+                if (current.get(i).equals(item)) {
+                    notifyItemChanged(i);
+                }
+            }
+        }
+    }
+
+    /**
      * Public so the channel page's heterogeneous adapter
      * ({@code com.newtube.mobile.ui.channel.ChannelSectionAdapter}) can reuse the exact same
      * card binding for its video rows (headers are a separate view type there), instead of

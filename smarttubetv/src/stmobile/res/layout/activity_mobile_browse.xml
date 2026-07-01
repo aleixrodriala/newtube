@@ -1,118 +1,151 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
+<!-- Home shell. The DrawerLayout hosts the browse content plus a navigation drawer
+     that exposes EVERY section BrowsePresenter delivers via addSection() (the 5-item
+     bottom nav can only show the main ones). Tapping a drawer item drives the exact
+     same BrowsePresenter.onSectionFocused() path the bottom nav uses. -->
+<androidx.drawerlayout.widget.DrawerLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/mobile_browse_root"
+    android:id="@+id/mobile_drawer_layout"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/mobile_color_background">
+    android:layout_height="match_parent">
 
-    <TextView
-        android:id="@+id/mobile_title_bar"
-        android:layout_width="0dp"
-        android:layout_height="@dimen/mobile_title_bar_height"
-        android:background="@color/mobile_color_surface"
-        android:elevation="4dp"
-        android:gravity="center_vertical|start"
-        android:paddingStart="16dp"
-        android:text="@string/app_name"
-        android:textColor="@color/mobile_color_on_surface"
-        android:textSize="20sp"
-        android:textStyle="bold"
-        app:layout_constraintEnd_toStartOf="@id/mobile_search_button"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/mobile_browse_root"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/mobile_color_background">
 
-    <ImageButton
-        android:id="@+id/mobile_search_button"
-        android:layout_width="48dp"
-        android:layout_height="@dimen/mobile_title_bar_height"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/mobile_search_button"
-        android:elevation="4dp"
-        android:padding="12dp"
-        android:src="@drawable/ic_mobile_search"
-        app:layout_constraintEnd_toStartOf="@id/mobile_settings_button"
-        app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
-
-    <ImageButton
-        android:id="@+id/mobile_settings_button"
-        android:layout_width="48dp"
-        android:layout_height="@dimen/mobile_title_bar_height"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/mobile_settings_button"
-        android:elevation="4dp"
-        android:padding="12dp"
-        android:src="@drawable/ic_mobile_settings"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/mobile_content_grid"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:clipToPadding="false"
-        android:paddingHorizontal="@dimen/mobile_card_spacing"
-        android:paddingBottom="@dimen/mobile_card_spacing"
-        android:scrollbars="vertical"
-        app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/mobile_title_bar"
-        tools:listitem="@layout/item_video_card" />
-
-    <ProgressBar
-        android:id="@+id/mobile_progress_bar"
-        style="?android:attr/progressBarStyle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:visibility="gone"
-        app:layout_constraintBottom_toBottomOf="@id/mobile_content_grid"
-        app:layout_constraintEnd_toEndOf="@id/mobile_content_grid"
-        app:layout_constraintStart_toStartOf="@id/mobile_content_grid"
-        app:layout_constraintTop_toTopOf="@id/mobile_content_grid" />
-
-    <LinearLayout
-        android:id="@+id/mobile_error_container"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:gravity="center"
-        android:orientation="vertical"
-        android:padding="24dp"
-        android:visibility="gone"
-        app:layout_constraintBottom_toBottomOf="@id/mobile_content_grid"
-        app:layout_constraintEnd_toEndOf="@id/mobile_content_grid"
-        app:layout_constraintStart_toStartOf="@id/mobile_content_grid"
-        app:layout_constraintTop_toTopOf="@id/mobile_content_grid">
+        <ImageButton
+            android:id="@+id/mobile_menu_button"
+            android:layout_width="48dp"
+            android:layout_height="@dimen/mobile_title_bar_height"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/mobile_menu_button"
+            android:elevation="4dp"
+            android:padding="12dp"
+            android:src="@drawable/ic_mobile_menu"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
 
         <TextView
-            android:id="@+id/mobile_error_message"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:gravity="center"
+            android:id="@+id/mobile_title_bar"
+            android:layout_width="0dp"
+            android:layout_height="@dimen/mobile_title_bar_height"
+            android:background="@color/mobile_color_surface"
+            android:elevation="4dp"
+            android:gravity="center_vertical|start"
+            android:paddingStart="8dp"
+            android:text="@string/app_name"
             android:textColor="@color/mobile_color_on_surface"
-            android:textSize="16sp" />
+            android:textSize="20sp"
+            android:textStyle="bold"
+            app:layout_constraintEnd_toStartOf="@id/mobile_search_button"
+            app:layout_constraintStart_toEndOf="@id/mobile_menu_button"
+            app:layout_constraintTop_toTopOf="parent" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/mobile_error_action"
+        <ImageButton
+            android:id="@+id/mobile_search_button"
+            android:layout_width="48dp"
+            android:layout_height="@dimen/mobile_title_bar_height"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/mobile_search_button"
+            android:elevation="4dp"
+            android:padding="12dp"
+            android:src="@drawable/ic_mobile_search"
+            app:layout_constraintEnd_toStartOf="@id/mobile_settings_button"
+            app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
+
+        <ImageButton
+            android:id="@+id/mobile_settings_button"
+            android:layout_width="48dp"
+            android:layout_height="@dimen/mobile_title_bar_height"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/mobile_settings_button"
+            android:elevation="4dp"
+            android:padding="12dp"
+            android:src="@drawable/ic_mobile_settings"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/mobile_content_grid"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:clipToPadding="false"
+            android:paddingHorizontal="@dimen/mobile_card_spacing"
+            android:paddingBottom="@dimen/mobile_card_spacing"
+            android:scrollbars="vertical"
+            app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/mobile_title_bar"
+            tools:listitem="@layout/item_video_card" />
+
+        <ProgressBar
+            android:id="@+id/mobile_progress_bar"
+            style="?android:attr/progressBarStyle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:visibility="gone" />
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="@id/mobile_content_grid"
+            app:layout_constraintEnd_toEndOf="@id/mobile_content_grid"
+            app:layout_constraintStart_toStartOf="@id/mobile_content_grid"
+            app:layout_constraintTop_toTopOf="@id/mobile_content_grid" />
 
-    </LinearLayout>
+        <LinearLayout
+            android:id="@+id/mobile_error_container"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="24dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="@id/mobile_content_grid"
+            app:layout_constraintEnd_toEndOf="@id/mobile_content_grid"
+            app:layout_constraintStart_toStartOf="@id/mobile_content_grid"
+            app:layout_constraintTop_toTopOf="@id/mobile_content_grid">
 
-    <com.google.android.material.bottomnavigation.BottomNavigationView
-        android:id="@+id/mobile_bottom_nav"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
+            <TextView
+                android:id="@+id/mobile_error_message"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="@color/mobile_color_on_surface"
+                android:textSize="16sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/mobile_error_action"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
+        <com.google.android.material.bottomnavigation.BottomNavigationView
+            android:id="@+id/mobile_bottom_nav"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:background="@color/mobile_color_surface"
+            app:itemIconTint="@color/mobile_color_on_surface"
+            app:itemTextColor="@color/mobile_color_on_surface"
+            app:labelVisibilityMode="auto"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <com.google.android.material.navigation.NavigationView
+        android:id="@+id/mobile_nav_view"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
         android:background="@color/mobile_color_surface"
-        app:itemIconTint="@color/mobile_color_on_surface"
-        app:itemTextColor="@color/mobile_color_on_surface"
-        app:labelVisibilityMode="auto"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
+        app:headerLayout="@layout/nav_header_mobile"
+        app:itemIconTint="@null"
+        app:itemTextColor="@color/mobile_color_on_surface" />
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+</androidx.drawerlayout.widget.DrawerLayout>
