@@ -36,6 +36,9 @@ import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory;
 import com.google.android.exoplayer2.upstream.HttpDataSource;
 import com.google.android.exoplayer2.upstream.HttpDataSource.BaseFactory;
+import com.google.android.exoplayer2.upstream.cache.Cache;
+import com.google.android.exoplayer2.upstream.cache.CacheDataSource;
+import com.google.android.exoplayer2.upstream.cache.CacheDataSourceFactory;
 import com.google.android.exoplayer2.util.Util;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.sharedutils.cronet.CronetManager;
@@ -69,9 +72,29 @@ public class ExoMediaSourceFactory {
     private static final boolean USE_BANDWIDTH_METER = false;
     private TrackErrorFixer mTrackErrorFixer;
     private Factory mMediaDataSourceFactory;
+    private Factory mUncachedMediaDataSourceFactory;
+
+    // NEWTUBE(mobile-cache): optional on-disk media cache, enabled only by the touch (stmobile)
+    // flavor via setMediaCache() from MobileMainApplication. When non-null, GET-based media
+    // sources (progressive / DASH / HLS / SmoothStreaming) are served through a CacheDataSource
+    // so already-downloaded bytes are read back from disk on a backward seek instead of being
+    // re-downloaded from the network. Left null on the TV builds, where getMediaDataSourceFactory()
+    // returns exactly the same plain factory as before -> TV behavior is byte-for-byte unchanged.
+    // NOTE: SABR is deliberately NOT cached (see getSabrChunkSourceFactory) because it streams via
+    // HTTP POST request bodies that CacheDataSource can neither key nor replay.
+    private static volatile Cache sMediaCache;
 
     public ExoMediaSourceFactory(Context context) {
         mContext = context;
+    }
+
+    /**
+     * NEWTUBE(mobile-cache): install a process-wide {@link Cache} used to persist already-downloaded
+     * media segments to disk. Must be a singleton per cache directory (SimpleCache locks the folder).
+     * Call once (e.g. from the Application) before any player is created. Pass {@code null} to disable.
+     */
+    public static void setMediaCache(Cache cache) {
+        sMediaCache = cache;
     }
 
     public MediaSource fromSabrFormatInfo(MediaItemFormatInfo formatInfo) {
@@ -141,7 +164,7 @@ public class ExoMediaSourceFactory {
                 SsMediaSource ssSource =
                         new SsMediaSource.Factory(
                                 getSsChunkSourceFactory(),
-                                getMediaDataSourceFactory()
+                                getNonCachedMediaDataSourceFactory() // NEWTUBE(mobile-cache): manifest must not be cached
                         )
                                 .createMediaSource(uri);
                 if (mTrackErrorFixer != null) {
@@ -152,7 +175,7 @@ public class ExoMediaSourceFactory {
                 DashMediaSource dashSource =
                         new DashMediaSource.Factory(
                                 getDashChunkSourceFactory(),
-                                getMediaDataSourceFactory()
+                                getNonCachedMediaDataSourceFactory() // NEWTUBE(mobile-cache): live/dynamic manifest must not be cached
                         )
                                 .setManifestParser(new LiveDashManifestParser()) // Don't make static! Need state reset for each live source.
                                 .setLoadErrorHandlingPolicy(new DashDefaultLoadErrorHandlingPolicy())
@@ -162,7 +185,9 @@ public class ExoMediaSourceFactory {
                 }
                 return dashSource;
             case C.TYPE_HLS:
-                HlsMediaSource hlsSource = new HlsMediaSource.Factory(getMediaDataSourceFactory()).createMediaSource(uri);
+                // NEWTUBE(mobile-cache): HlsMediaSource uses one factory for BOTH the (live-refreshed)
+                // playlist and the segments, so it must bypass the cache to keep live HLS correct.
+                HlsMediaSource hlsSource = new HlsMediaSource.Factory(getNonCachedMediaDataSourceFactory()).createMediaSource(uri);
                 if (mTrackErrorFixer != null) {
                     hlsSource.addEventListener(Utils.sHandler, mTrackErrorFixer);
                 }
@@ -354,6 +379,7 @@ public class ExoMediaSourceFactory {
 
     public void release() {
         mMediaDataSourceFactory = null;
+        mUncachedMediaDataSourceFactory = null;
     }
 
     @NonNull
@@ -363,7 +389,10 @@ public class ExoMediaSourceFactory {
 
     @NonNull
     private SabrChunkSource.Factory getSabrChunkSourceFactory() {
-        return new DefaultSabrChunkSource.Factory(getMediaDataSourceFactory(), MAX_SEGMENTS_PER_LOAD);
+        // NEWTUBE(mobile-cache): SABR must never go through the disk cache. It uses HTTP POST with a
+        // per-request body; CacheDataSource keys purely by URI and drops the body when fetching
+        // upstream, which would corrupt SABR playback.
+        return new DefaultSabrChunkSource.Factory(getNonCachedMediaDataSourceFactory(), MAX_SEGMENTS_PER_LOAD);
     }
 
     @NonNull
@@ -373,10 +402,43 @@ public class ExoMediaSourceFactory {
 
     private Factory getMediaDataSourceFactory() {
         if (mMediaDataSourceFactory == null) {
-            mMediaDataSourceFactory = buildDataSourceFactory(USE_BANDWIDTH_METER);
+            Factory factory = buildDataSourceFactory(USE_BANDWIDTH_METER);
+
+            // NEWTUBE(mobile-cache): when the mobile flavor installed a media cache, serve GET-based
+            // sources through it so backward seeks read already-downloaded bytes from disk. Cache
+            // read/write errors fall back to the network for that request (FLAG_IGNORE_CACHE_ON_ERROR).
+            Cache cache = sMediaCache;
+            if (cache != null) {
+                factory = new CacheDataSourceFactory(cache, factory, CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
+            }
+
+            mMediaDataSourceFactory = factory;
         }
 
         return mMediaDataSourceFactory;
+    }
+
+    /**
+     * NEWTUBE(mobile-cache): a plain, never-cached data source factory (only instantiated on the
+     * mobile build). See {@link #getNonCachedMediaDataSourceFactory()}.
+     */
+    private Factory getUncachedMediaDataSourceFactory() {
+        if (mUncachedMediaDataSourceFactory == null) {
+            mUncachedMediaDataSourceFactory = buildDataSourceFactory(USE_BANDWIDTH_METER);
+        }
+
+        return mUncachedMediaDataSourceFactory;
+    }
+
+    /**
+     * NEWTUBE(mobile-cache): the data source that must bypass the disk cache. Used for things that are
+     * NOT immutable media segments: live/dynamic manifests + playlists (DASH-URL, HLS, SmoothStreaming
+     * — caching a dynamic manifest would serve a stale copy on refresh and stall live playback) and
+     * SABR (HTTP POST). On TV (cache off) this returns exactly the same shared factory as before, so
+     * TV playback is unchanged; only the mobile build (cache on) diverges to the uncached factory.
+     */
+    private Factory getNonCachedMediaDataSourceFactory() {
+        return sMediaCache != null ? getUncachedMediaDataSourceFactory() : getMediaDataSourceFactory();
     }
 
     // EXO: 2.10 - 2.12

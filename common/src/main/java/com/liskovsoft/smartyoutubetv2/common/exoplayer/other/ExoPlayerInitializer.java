@@ -36,6 +36,32 @@ public class ExoPlayerInitializer {
     private SimpleExoPlayer mPlayer;
     private static AudioAttributes sAudioAttributes;
 
+    // NEWTUBE(mobile-seek): optional back-buffer widening installed by the touch (stmobile) flavor
+    // via setBackBufferOverride() from MobileMainApplication. SmartTube keeps only ~50s behind the
+    // playhead (BUFFER_HIGH -> setBackBuffer(50s)), so a backward seek further than that re-buffers
+    // and re-downloads. On the real streams here (SABR = HTTP POST) the on-disk media cache can't
+    // help (POST bodies aren't cacheable), so widening the *in-memory* back-buffer is the only way
+    // to make far backward seeks instant regardless of stream type. When set (>0) this overrides the
+    // LoadControl back-buffer for every player created in this process; the target buffer-bytes
+    // budget is raised alongside it so a full back-buffer never gates the forward buffer. Left unset
+    // (-1) on the TV builds -> createLoadControl() is byte-for-byte unchanged there.
+    private static volatile int sBackBufferMsOverride = -1;
+    private static volatile int sTargetBufferBytesOverride = -1;
+
+    /**
+     * NEWTUBE(mobile-seek): widen the in-memory back-buffer (and raise the buffer-bytes budget to
+     * match) for every {@link SimpleExoPlayer} created afterwards. Call once from the Application.
+     * A {@code backBufferMs <= 0} disables the override (TV default). See field docs above.
+     *
+     * @param backBufferMs      how much already-played media to retain behind the playhead, in ms.
+     * @param targetBufferBytes soft cap on total buffered bytes so the enlarged back-buffer does not
+     *                          starve forward buffering; ignored when {@code <= 0}.
+     */
+    public static void setBackBufferOverride(int backBufferMs, int targetBufferBytes) {
+        sBackBufferMsOverride = backBufferMs;
+        sTargetBufferBytesOverride = targetBufferBytes;
+    }
+
     public ExoPlayerInitializer(Context context) {
         mPlayerData = PlayerData.instance(context);
         mPlayerTweaksData = PlayerTweaksData.instance(context);
@@ -141,6 +167,20 @@ public class ExoPlayerInitializer {
 
         baseBuilder
                 .setBufferDurationsMs(minBufferMs, maxBufferMs, bufferForPlaybackMs, bufferForPlaybackAfterRebufferMs);
+
+        // NEWTUBE(mobile-seek): apply the touch flavor's back-buffer override LAST so it wins over the
+        // buffer-type default above (BUFFER_HIGH sets only 50s). retainBackBufferFromKeyframe=true so a
+        // backward seek lands on a retained keyframe. The back-buffer is retained purely by
+        // getBackBufferDurationUs() (the player discards to positionUs - backBufferDurationUs every
+        // work cycle), independent of maxBufferMs; we raise targetBufferBytes only so the full
+        // back-buffer never trips the size gate in shouldContinueLoading and starves forward loading.
+        // No-op on TV (override unset), so TV LoadControl is unchanged.
+        if (sBackBufferMsOverride > 0) {
+            baseBuilder.setBackBuffer(sBackBufferMsOverride, true);
+            if (sTargetBufferBytesOverride > 0) {
+                baseBuilder.setTargetBufferBytes(sTargetBufferBytesOverride);
+            }
+        }
 
         // Decrease buffer size?
         //baseBuilder.setAllocator(new DefaultAllocator(true, 16 * 1024));

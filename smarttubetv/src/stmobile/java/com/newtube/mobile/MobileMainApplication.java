@@ -10,6 +10,8 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.SearchView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SignInView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.common.app.views.WebBrowserView;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.ExoMediaSourceFactory;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.ExoPlayerInitializer;
 import com.liskovsoft.smartyoutubetv2.tv.ui.main.MainApplication;
 import com.newtube.mobile.ui.adddevice.MobileAddDeviceActivity;
 import com.newtube.mobile.ui.browse.MobileBrowseActivity;
@@ -17,6 +19,7 @@ import com.newtube.mobile.ui.channel.MobileChannelActivity;
 import com.newtube.mobile.ui.channel.MobileChannelUploadsActivity;
 import com.newtube.mobile.ui.dialog.MobileAppDialogActivity;
 import com.newtube.mobile.ui.playback.MobilePlaybackActivity;
+import com.newtube.mobile.ui.playback.MobilePlayerCache;
 import com.newtube.mobile.ui.search.MobileSearchActivity;
 import com.newtube.mobile.ui.signin.MobileSignInActivity;
 import com.newtube.mobile.ui.webbrowser.MobileWebBrowserActivity;
@@ -54,11 +57,46 @@ import com.newtube.mobile.ui.webbrowser.MobileWebBrowserActivity;
  */
 public class MobileMainApplication extends MainApplication {
 
+    /**
+     * SEEK-BACK FIX: how much already-played media to keep resident behind the playhead. 3 minutes
+     * comfortably covers the "minute 10 -> minute 8" (~120s) backward-seek repro with margin, while
+     * staying bounded (see byte budget below) so memory does not run away on a phone.
+     */
+    private static final int BACK_BUFFER_MS = 180_000; // 3 min
+
+    /**
+     * SEEK-BACK FIX: soft cap on total buffered bytes (back + forward) so the enlarged back-buffer
+     * never trips the LoadControl size gate and starves forward buffering. This is a threshold, not a
+     * pre-allocation; the real memory bound is (back 180s + forward 50s) worth of media. A few
+     * hundred MB is acceptable on a phone with largeHeap; this stays comfortably under that.
+     */
+    private static final int TARGET_BUFFER_BYTES = 192 * 1024 * 1024; // 192 MB
+
     @Override
     public void onCreate() {
         // Keep ALL existing TV init: Conscrypt, GlobalPreferences, multidex, the
         // global exception handler and every other View->Activity mapping.
         super.onCreate();
+
+        // SEEK-BACK FIX (primary): widen the in-memory back-buffer for the touch player.
+        // The real streams here are SABR (HTTP POST bodies), which the on-disk cache below cannot
+        // touch, so the ONLY thing retained behind the playhead is ExoPlayer's in-memory back-buffer.
+        // SmartTube's BUFFER_HIGH keeps just ~50s, so seeking back further re-buffers/re-downloads.
+        // Retain 3 minutes instead (retainBackBufferFromKeyframe=true), which makes backward seeks
+        // within that window instant regardless of stream type. The back-buffer is retained purely by
+        // the LoadControl's back-buffer duration (independent of maxBufferMs), so memory stays bounded
+        // at roughly (back 180s + forward 50s) worth of media; the raised byte budget only keeps the
+        // full back-buffer from starving forward buffering. TV builds never call this -> TV unchanged.
+        ExoPlayerInitializer.setBackBufferOverride(BACK_BUFFER_MS, TARGET_BUFFER_BYTES);
+
+        // SEEK-BACK FIX (secondary, defense-in-depth): install a bounded on-disk media cache. It does
+        // NOT help the SABR path (POST bodies aren't cacheable), but it makes the progressive /
+        // URL-list fallback path (openUrlList, LQ) and any future non-SABR/DASH stream serve
+        // already-downloaded bytes from disk on a backward seek instead of re-downloading. Harmless
+        // when inert: guarded, mobile-only, falls back cleanly. Live manifests/playlists and SABR stay
+        // uncached (see ExoMediaSourceFactory). Registered once, before any player is created, because
+        // SimpleCache must be a per-directory singleton. TV builds never call this -> TV unchanged.
+        ExoMediaSourceFactory.setMediaCache(MobilePlayerCache.get(this));
 
         ViewManager viewManager = ViewManager.instance(this);
 
