@@ -40,6 +40,16 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
     public static final int SEEK_PREVIEW_CAROUSEL_FAST = 3;
     @SuppressLint("StaticFieldLeak")
     private static PlayerData sInstance;
+    // NEWTUBE(mobile-ttff): mobile-only cap on the DEFAULT video quality. When the touch flavor turns
+    // this on (see MobileMainApplication), getDefaultVideoFormat() caps its ceiling at 1080p instead of
+    // the fixed ~4K rung, so the first media segment + decode is <=1080p (a 4K VP9 first frame dominates
+    // click-to-play time) and never 1440p/2160p. In SmartTube the DEFAULT is a *preset* whose resolution
+    // acts as a strict upper bound in VideoTrack.inBoundsPreset / TrackSelectorManager.findBestMatch
+    // (that IS the real selection path - RestoreTrackSelector.selectVideoTrack always uses the app's own
+    // single-track Definition, so ExoPlayer's native ABR / maxVideoSize params never run for video).
+    // TV never sets this -> TV keeps its original fixed default byte-for-byte. Only affects the DEFAULT
+    // (unset) value; a resolution the user explicitly picks is still persisted and honored.
+    private static boolean sDefaultVideoFormatMax1080;
     private final AppPrefs mPrefs;
     private int mOKButtonBehavior;
     private int mUiHideTimeoutSec;
@@ -717,6 +727,14 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
         return DeviceHelpers.isVP9ResolutionSupported(2160) ? FormatItem.AUDIO_51_AC3 : FormatItem.AUDIO_HQ_MP4A;
     }
 
+    /**
+     * NEWTUBE(mobile-ttff): let the mobile flavor cap the DEFAULT video quality at 1080p.
+     * TV never calls this, so its default stays unchanged.
+     */
+    public static void setDefaultVideoFormatMax1080(boolean enable) {
+        sDefaultVideoFormatMax1080 = enable;
+    }
+
     public FormatItem getDefaultVideoFormat() {
         FormatItem formatItem = mDefaultVideoFormats.get(Build.MODEL);
 
@@ -732,7 +750,16 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
             }
         }
 
-        return formatItem != null ? formatItem : FormatItem.VIDEO_HD_AVC_30;
+        FormatItem result = formatItem != null ? formatItem : FormatItem.VIDEO_HD_AVC_30;
+
+        // NEWTUBE(mobile-ttff): cap the mobile DEFAULT ceiling at 1080p (see setDefaultVideoFormatMax1080).
+        // Only downgrades a 4K/2160p default to a 1080p60 preset; everything <=1080p is left untouched, so
+        // the per-device / codec logic above is preserved. TV never sets the flag -> TV default unchanged.
+        if (sDefaultVideoFormatMax1080 && result.getHeight() > 1080) {
+            result = FormatItem.VIDEO_FHD_VP9_60;
+        }
+
+        return result;
     }
 
     public FormatItem getDefaultSubtitleFormat() {

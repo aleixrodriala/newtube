@@ -522,6 +522,20 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private void createPlayerObjects() {
         DefaultTrackSelector trackSelector = new RestoreTrackSelector(new AdaptiveTrackSelection.Factory());
+
+        // TTFF FIX (mobile-only): 1080p ceiling, secondary safety net. The PRIMARY 1080p cap is the
+        // mobile DEFAULT video preset (see MobileMainApplication -> PlayerData.setDefaultVideoFormatMax1080),
+        // enforced in TrackSelectorManager.findBestMatch - that is the path SmartTube actually uses, because
+        // RestoreTrackSelector.selectVideoTrack always returns the app's own single-track Definition and
+        // never calls super.selectVideoTrack, so this maxVideoSize param does NOT constrain the normal
+        // video path. It is set anyway as defense-in-depth: it only takes effect if the base DefaultTrackSelector
+        // selection path ever runs for video (e.g. future adaptive work), and it costs nothing otherwise.
+        // buildUponParameters() copies current params and both ExoPlayerInitializer.createPlayer and
+        // TrackSelectorManager reuse buildUponParameters(), so it survives later setParameters calls. This
+        // DefaultTrackSelector is built only here on the touch player, so TV (PlaybackFragment /
+        // EmbedPlayerView build their own, uncapped) is untouched.
+        trackSelector.setParameters(trackSelector.buildUponParameters().setMaxVideoSize(1920, 1080));
+
         mExoPlayerController.setTrackSelector(trackSelector);
 
         DefaultRenderersFactory renderersFactory = new CustomOverridesRenderersFactory(this);

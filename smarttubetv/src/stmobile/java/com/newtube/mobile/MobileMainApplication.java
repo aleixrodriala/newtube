@@ -12,6 +12,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.common.app.views.WebBrowserView;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.ExoMediaSourceFactory;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.ExoPlayerInitializer;
+import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.tv.ui.main.MainApplication;
 import com.liskovsoft.youtubeapi.videoinfo.V2.VideoInfoService;
 import com.newtube.mobile.ui.adddevice.MobileAddDeviceActivity;
@@ -85,6 +86,18 @@ public class MobileMainApplication extends MainApplication {
 
     @Override
     public void onCreate() {
+        // TTFF FIX (mobile-only, biggest click-to-play win): cap the DEFAULT video quality at 1080p
+        // instead of the fixed high rung (~4K/FHD). The first media segment + decode is then <=1080p
+        // (a 4K VP9 first frame dominates click-to-play time) and never 1440p/2160p, and phones only
+        // display ~1080p anyway. In SmartTube the default is a *preset* whose resolution is a strict
+        // ceiling inside TrackSelectorManager.findBestMatch (the real selection path), so a 1080p preset
+        // reliably caps selection on every device - unlike a DefaultTrackSelector maxVideoSize param,
+        // which RestoreTrackSelector.selectVideoTrack bypasses for video. Set BEFORE super.onCreate() so
+        // it's in place before PlayerData first restores state. Only changes the DEFAULT (unset) value -
+        // a resolution the user explicitly picks is still persisted and honored. TV never calls this ->
+        // TV default unchanged.
+        PlayerData.setDefaultVideoFormatMax1080(true);
+
         // Keep ALL existing TV init: Conscrypt, GlobalPreferences, multidex, the
         // global exception handler and every other View->Activity mapping.
         super.onCreate();
