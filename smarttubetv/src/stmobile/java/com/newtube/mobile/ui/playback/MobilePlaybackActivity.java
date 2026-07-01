@@ -38,8 +38,13 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.google.android.material.button.MaterialButton;
+import com.liskovsoft.mediaserviceinterfaces.LiveChatService;
+import com.liskovsoft.mediaserviceinterfaces.MediaItemService;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemMetadata;
-import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
+import com.liskovsoft.sharedutils.rx.RxHelper;
+import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
+import io.reactivex.Observable;
+import io.reactivex.disposables.Disposable;
 
 import com.github.vkay94.dtpv.DoubleTapPlayerView;
 import com.github.vkay94.dtpv.DoubleTapPlayerViewImpl;
@@ -54,6 +59,7 @@ import com.google.android.exoplayer2.ui.TimeBar;
 import com.google.android.exoplayer2.util.Util;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.sharedutils.helpers.Helpers;
+import com.liskovsoft.mediaserviceinterfaces.data.ChatItem;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.ChatReceiver;
@@ -99,7 +105,7 @@ import java.util.Locale;
  * is wired straight to {@link ExoPlayerController}.
  */
 public class MobilePlaybackActivity extends MobileActivity
-        implements PlaybackView, PlayerContainerLayout.DragListener {
+        implements PlaybackView, PlayerContainerLayout.DragListener, LiveChatSheet.Host {
 
     private static final long AUTO_HIDE_MS = 3_500;
     private static final long PROGRESS_UPDATE_MS = 500;
@@ -146,6 +152,23 @@ public class MobilePlaybackActivity extends MobileActivity
     private TextView mWatchRelatedLabel;
     private RecyclerView mWatchRelated;
     private RelatedVideoAdapter mRelatedAdapter;
+
+    // Comments + live chat entries (open bottom sheets). Keys come from the loaded metadata.
+    private View mWatchCommentsEntry;
+    private View mWatchChatEntry;
+    private String mCommentsKey;
+    private String mLiveChatKey;
+
+    // Live chat stream: the reused ChatController pushes a ChatReceiver here; incoming messages
+    // accumulate into a bounded buffer that the LiveChatSheet seeds from and observes live.
+    private static final int MAX_CHAT_ITEMS = 250;
+    private final List<ChatItem> mChatItems = new ArrayList<>();
+    private ChatReceiver mChatReceiver;
+    private LiveChatSheet.Observer mChatObserver;
+    private Disposable mLiveChatAction;
+    // Dedicated metadata load for the watch header + comments/chat keys. Kept independent of the
+    // shared MediaServiceManager singleton (whose single Disposable the player's own loads clobber).
+    private Disposable mMetadataAction;
 
     // Suggestions store: id -> accumulated videos (LinkedHashMap keeps delivery/row order).
     private final LinkedHashMap<Integer, List<Video>> mSuggestionVideos = new LinkedHashMap<>();
@@ -269,6 +292,8 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchSubscribe = findViewById(R.id.mobile_watch_subscribe);
         mWatchRelatedLabel = findViewById(R.id.mobile_watch_related_label);
         mWatchRelated = findViewById(R.id.mobile_watch_related);
+        mWatchCommentsEntry = findViewById(R.id.mobile_watch_comments_entry);
+        mWatchChatEntry = findViewById(R.id.mobile_watch_chat_entry);
     }
 
     private void setupControls() {
@@ -363,6 +388,14 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchDislike.setOnClickListener(v -> onActionButtonClicked(R.id.action_thumbs_down));
         mWatchSubscribe.setOnClickListener(v -> onActionButtonClicked(R.id.action_subscribe));
         mWatchShare.setOnClickListener(v -> shareCurrentVideo());
+
+        // Comments / live-chat entries open their respective bottom sheets.
+        if (mWatchCommentsEntry != null) {
+            mWatchCommentsEntry.setOnClickListener(v -> onCommentsEntryClicked());
+        }
+        if (mWatchChatEntry != null) {
+            mWatchChatEntry.setOnClickListener(v -> onChatEntryClicked());
+        }
 
         // Related-list paging: when the content is scrolled near the bottom, page the last row.
         mWatchScroll.setOnScrollChangeListener((NestedScrollView.OnScrollChangeListener)
@@ -525,6 +558,8 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     protected void onDestroy() {
         cancelAutoHide();
+
+        RxHelper.disposeActions(mMetadataAction, mLiveChatAction);
 
         // Fix situations when the engine wasn't properly destroyed (mirrors PlaybackFragment).
         destroyPlayerObjects();
@@ -1330,7 +1365,8 @@ public class MobilePlaybackActivity extends MobileActivity
     public int getButtonState(int buttonId) {
         if (buttonId == R.id.action_thumbs_up
                 || buttonId == R.id.action_thumbs_down
-                || buttonId == R.id.action_subscribe) {
+                || buttonId == R.id.action_subscribe
+                || buttonId == R.id.action_chat) {
             return mButtonStates.get(buttonId, BUTTON_OFF);
         }
         return BUTTON_DISABLED;
@@ -1406,7 +1442,93 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     public void setChatReceiver(ChatReceiver chatReceiver) {
-        // TODO Wave N: live chat panel.
+        // The reused ChatController pushes a receiver when live chat is enabled for a live stream
+        // (and null when it is torn down). Subscribe to it: each incoming ChatItem is buffered and
+        // forwarded to an open LiveChatSheet. Best-effort - if the video isn't live this is never
+        // called and the chat panel stays hidden.
+        runOnUiThread(() -> {
+            mChatReceiver = chatReceiver;
+
+            if (chatReceiver == null) {
+                return;
+            }
+
+            chatReceiver.setCallback(this::onChatItemReceived);
+
+            // Chat is now streaming; make sure the entry is reachable even if metadata was slow.
+            if (mWatchChatEntry != null) {
+                mWatchChatEntry.setVisibility(View.VISIBLE);
+            }
+        });
+    }
+
+    private void onChatItemReceived(ChatItem item) {
+        if (item == null) {
+            return;
+        }
+        runOnUiThread(() -> {
+            mChatItems.add(item);
+            while (mChatItems.size() > MAX_CHAT_ITEMS) {
+                mChatItems.remove(0);
+            }
+            if (mChatObserver != null) {
+                mChatObserver.onChatItem(item);
+            }
+        });
+    }
+
+    private void onCommentsEntryClicked() {
+        if (mCommentsKey == null) {
+            return;
+        }
+        Video video = getVideo();
+        CharSequence title = video != null ? video.getTitleFull() : getString(R.string.mobile_comments_title);
+        CommentsSheet.show(getSupportFragmentManager(), mCommentsKey, title);
+    }
+
+    private void onChatEntryClicked() {
+        // If the reused ChatController already pushed a receiver (live chat auto-enabled in settings),
+        // messages already flow through setChatReceiver(); just open the panel. Otherwise open our own
+        // subscription to the same LiveChatService the controller uses, keyed by the live-chat key
+        // from the metadata (live chat defaults to off, so the controller won't have started it).
+        if (mChatReceiver == null && mLiveChatAction == null) {
+            startLiveChatStream();
+        }
+        LiveChatSheet.show(getSupportFragmentManager());
+    }
+
+    private void startLiveChatStream() {
+        if (mLiveChatKey == null) {
+            return;
+        }
+        RxHelper.disposeActions(mLiveChatAction);
+        LiveChatService chatService = YouTubeServiceManager.instance().getLiveChatService();
+        mLiveChatAction = chatService.openLiveChatObserve(mLiveChatKey)
+                .subscribe(
+                        this::onChatItemReceived,
+                        error -> { /* stream error - panel keeps last messages */ },
+                        () -> { /* live chat session closed */ });
+    }
+
+    // ---------------------------------------------------------------------------------
+    // LiveChatSheet.Host - expose the buffered chat stream to the open sheet.
+    // ---------------------------------------------------------------------------------
+
+    @Override
+    public List<ChatItem> getChatSnapshot() {
+        return new ArrayList<>(mChatItems);
+    }
+
+    @Override
+    public void registerChatObserver(LiveChatSheet.Observer observer) {
+        mChatObserver = observer;
+    }
+
+    @Override
+    public void unregisterChatObserver(LiveChatSheet.Observer observer) {
+        if (mChatObserver == observer) {
+            mChatObserver = null;
+        }
     }
 
     // ---------------------------------------------------------------------------------
@@ -1461,8 +1583,25 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         if (isNewVideo) {
-            MediaServiceManager.instance().loadMetadata(item, this::onWatchMetadata);
+            loadWatchMetadata(item);
         }
+    }
+
+    /**
+     * Load the current video's metadata for the watch header and the comments/live-chat keys. Uses a
+     * private Disposable + the {@link MediaItemService} directly rather than the shared
+     * {@link MediaServiceManager} singleton, whose single metadata Disposable is disposed by the
+     * player's own concurrent loads (which was silently cancelling this callback).
+     */
+    private void loadWatchMetadata(Video item) {
+        RxHelper.disposeActions(mMetadataAction);
+
+        MediaItemService itemService = YouTubeServiceManager.instance().getMediaItemService();
+        Observable<MediaItemMetadata> observable = item.mediaItem != null
+                ? itemService.getMetadataObserve(item.mediaItem)
+                : itemService.getMetadataObserve(item.videoId, item.getPlaylistId(), item.playlistIndex, item.playlistParams);
+
+        mMetadataAction = observable.subscribe(this::onWatchMetadata, error -> { /* header stays on fallback */ });
     }
 
     private void resetWatchHeader() {
@@ -1475,6 +1614,20 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchSubs.setText(null);
         mWatchSubs.setVisibility(View.GONE);
         mWatchAvatar.setImageResource(R.drawable.ic_watch_channel_placeholder);
+
+        // New video: clear comments/chat availability and any buffered chat until metadata returns.
+        mCommentsKey = null;
+        mLiveChatKey = null;
+        if (mWatchCommentsEntry != null) {
+            mWatchCommentsEntry.setVisibility(View.GONE);
+        }
+        if (mWatchChatEntry != null) {
+            mWatchChatEntry.setVisibility(View.GONE);
+        }
+        mChatItems.clear();
+        RxHelper.disposeActions(mLiveChatAction);
+        mLiveChatAction = null;
+        mChatReceiver = null;
     }
 
     private void onWatchMetadata(MediaItemMetadata metadata) {
@@ -1528,6 +1681,17 @@ public class MobilePlaybackActivity extends MobileActivity
             setButtonState(R.id.action_thumbs_down,
                     metadata.getLikeStatus() == MediaItemMetadata.LIKE_STATUS_DISLIKE ? BUTTON_ON : BUTTON_OFF);
             setButtonState(R.id.action_subscribe, metadata.isSubscribed() ? BUTTON_ON : BUTTON_OFF);
+
+            // Comments / live-chat availability. A non-null comments key = comments enabled; a
+            // non-null live-chat key = live stream. Reuse the same keys the TV controllers use.
+            mCommentsKey = metadata.getCommentsKey();
+            mLiveChatKey = metadata.getLiveChatKey();
+            if (mWatchCommentsEntry != null) {
+                mWatchCommentsEntry.setVisibility(mCommentsKey != null ? View.VISIBLE : View.GONE);
+            }
+            if (mWatchChatEntry != null && mLiveChatKey != null) {
+                mWatchChatEntry.setVisibility(View.VISIBLE);
+            }
         });
     }
 

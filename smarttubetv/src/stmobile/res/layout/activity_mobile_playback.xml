@@ -519,6 +519,93 @@
                     android:layout_height="1dp"
                     android:background="@color/mobile_color_divider" />
 
+                <!-- Comments entry: opens the comments bottom sheet. Hidden until the loaded
+                     metadata reports that comments are enabled (a non-null comments key). -->
+                <LinearLayout
+                    android:id="@+id/mobile_watch_comments_entry"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="@dimen/mobile_watch_content_padding"
+                    android:paddingVertical="14dp"
+                    android:visibility="gone"
+                    tools:visibility="visible">
+
+                    <ImageView
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_watch_comment" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1"
+                        android:text="@string/mobile_comments_entry"
+                        android:textColor="@color/mobile_color_on_surface"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:contentDescription="@null"
+                        android:rotation="270"
+                        android:src="@drawable/ic_watch_expand" />
+
+                </LinearLayout>
+
+                <!-- Live chat entry: opens the live-chat bottom sheet. Hidden unless the current
+                     video is a live stream (a non-null live-chat key). -->
+                <LinearLayout
+                    android:id="@+id/mobile_watch_chat_entry"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="@dimen/mobile_watch_content_padding"
+                    android:paddingVertical="14dp"
+                    android:visibility="gone"
+                    tools:visibility="visible">
+
+                    <ImageView
+                        android:layout_width="22dp"
+                        android:layout_height="22dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_watch_chat" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1"
+                        android:text="@string/mobile_live_chat_entry"
+                        android:textColor="@color/mobile_color_on_surface"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:contentDescription="@null"
+                        android:rotation="270"
+                        android:src="@drawable/ic_watch_expand" />
+
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/mobile_color_divider" />
+
                 <!-- Related / up next -->
                 <TextView
                     android:id="@+id/mobile_watch_related_label"

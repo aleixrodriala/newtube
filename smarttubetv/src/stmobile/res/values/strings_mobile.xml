@@ -28,6 +28,25 @@
     <string name="mobile_watch_count_placeholder">&#8211;</string>
     <string name="mobile_watch_share_subject">Watch this video</string>
 
+    <!-- Comments panel (bottom sheet) -->
+    <string name="mobile_comments_entry">Comments</string>
+    <string name="mobile_comments_title">Comments</string>
+    <string name="mobile_comments_empty">No comments</string>
+    <string name="mobile_comments_disabled">Comments are turned off</string>
+    <string name="mobile_comments_loading">Loading&#8230;</string>
+    <string name="mobile_comments_view_replies">View replies</string>
+    <string name="mobile_comments_view_replies_count">View %1$s</string>
+    <string name="mobile_comments_hide_replies">Hide replies</string>
+    <string name="mobile_comments_loading_replies">Loading replies&#8230;</string>
+    <string name="mobile_comments_more_replies">Show more replies</string>
+
+    <!-- Live chat panel (bottom sheet) -->
+    <string name="mobile_live_chat_entry">Live chat</string>
+    <string name="mobile_live_chat_title">Live chat</string>
+    <string name="mobile_live_chat_empty">Waiting for messages&#8230;</string>
+
+    <string name="mobile_sheet_close">Close</string>
+
     <string name="mobile_dialog_back">Back</string>
     <string name="mobile_settings_button">Settings</string>
     <string name="mobile_back">Back</string>
