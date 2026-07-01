@@ -37,9 +37,23 @@
         <item name="android:activityCloseExitAnimation">@anim/player_close_exit</item>
     </style>
 
+    <!--
+      PLAYER LAYOUT POLISH: the player must NOT inherit the app surface's solid status-bar colour
+      (which draws a coloured band across the top of the video/title). Draw our own system-bar
+      backgrounds with a TRANSPARENT status bar so the video + the top gradient scrim show through;
+      the navigation bar takes the watch-page background so the portrait content column reads cleanly.
+      windowTranslucentStatus=false is required so the transparent statusBarColor actually applies
+      (a translucent status bar would draw a system scrim instead). The runtime code in
+      MobilePlaybackActivity.applyPortraitTransparentBars() re-asserts this per-orientation because
+      MotherActivity.makeActivityFullscreen2() sets FLAG_TRANSLUCENT_STATUS on every resume.
+    -->
     <style name="Theme.NewTube.Player" parent="Theme.NewTube">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:windowAnimationStyle">@style/PlayerWindowAnimation</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/mobile_color_background</item>
     </style>
 
     <!--

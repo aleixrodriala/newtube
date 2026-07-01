@@ -91,6 +91,9 @@
                     android:scaleType="fitCenter"
                     android:src="@drawable/ic_mobile_back_arrow" />
 
+                <!-- paddingEnd must clear the full top-right options row (mobile_player_options):
+                     up to 5 icon buttons * 40dp + 4dp end margin = 204dp. Otherwise the wrapped
+                     title runs under the leftmost option (quality/settings) icon. -->
                 <TextView
                     android:id="@+id/mobile_player_title"
                     android:layout_width="match_parent"
@@ -100,7 +103,7 @@
                     android:maxLines="2"
                     android:paddingStart="56dp"
                     android:paddingTop="12dp"
-                    android:paddingEnd="144dp"
+                    android:paddingEnd="208dp"
                     android:paddingBottom="12dp"
                     android:shadowColor="#80000000"
                     android:shadowDx="0"

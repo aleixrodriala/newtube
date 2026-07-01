@@ -11,6 +11,7 @@ import android.content.ServiceConnection;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
 import android.app.PendingIntent;
+import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.drawable.Icon;
 import android.os.Build;
@@ -23,6 +24,10 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -156,6 +161,7 @@ public class MobilePlaybackActivity extends MobileActivity
     private boolean mOrientationLocked;
 
     // Watch page (portrait content column under the video).
+    private View mWatchRoot;
     private NestedScrollView mWatchScroll;
     private TextView mWatchTitle;
     private TextView mWatchMeta;
@@ -296,6 +302,7 @@ public class MobilePlaybackActivity extends MobileActivity
         mDebugViewGroup = findViewById(R.id.mobile_player_debug);
 
         // Watch page content column.
+        mWatchRoot = findViewById(R.id.mobile_watch_root);
         mWatchScroll = findViewById(R.id.mobile_watch_scroll);
         mWatchTitle = findViewById(R.id.mobile_watch_title);
         mWatchMeta = findViewById(R.id.mobile_watch_meta);
@@ -324,16 +331,36 @@ public class MobilePlaybackActivity extends MobileActivity
         // Only let a swipe-to-dismiss begin over the video box, so the watch content scrolls freely.
         mContainer.setDragStartBoundView(mVideoArea);
 
-        // The window is edge-to-edge (MotherActivity.makeActivityFullscreen2 sets translucent
-        // status/nav flags, so the video fills behind the bars). Pad ONLY the controls overlay by
-        // the system-bar insets so the back/title and the seek row never hide under, or get their
-        // taps eaten by, the status/navigation bars. In landscape immersive the bars are hidden so
-        // the insets are 0 and the controls go full-bleed.
+        // PLAYER LAYOUT POLISH. The controls overlay fills the video box.
+        //  * LANDSCAPE/fullscreen: the video is full-bleed to the screen edges, so inset the whole
+        //    overlay by the system bars (notch/status/nav) so the back/title and the seek row never
+        //    hide under, or get their taps eaten by, the status/navigation bars.
+        //  * PORTRAIT: the 16:9 video box is NOT at the screen edges - the scrollable watch content
+        //    sits below it, and the video is drawn under a transparent status bar at the top. So the
+        //    controls must anchor FLUSH to the video box: any system-bar inset here would push the
+        //    bottom seek row UP off the video's bottom edge (leaving a strip of video beneath it) and
+        //    push the title down. Hence no inset padding in portrait (the nav-bar inset is instead
+        //    applied to the watch content via mWatchRoot below, so nothing is hidden behind the bar).
         ViewCompat.setOnApplyWindowInsetsListener(mControlsRoot, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            if (isLandscape()) {
+                v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            } else {
+                v.setPadding(0, 0, 0, 0);
+            }
             return insets;
         });
+
+        // PLAYER LAYOUT POLISH: in portrait the window is drawn edge-to-edge, so lift the scrollable
+        // watch content above the navigation bar (the video box itself stays flush to the very top).
+        // In landscape the content column is GONE and the bars are hidden, so no padding is applied.
+        if (mWatchRoot != null) {
+            ViewCompat.setOnApplyWindowInsetsListener(mWatchRoot, (v, insets) -> {
+                Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+                v.setPadding(0, 0, 0, isLandscape() ? 0 : bars.bottom);
+                return insets;
+            });
+        }
 
         // Single tap on the video surface toggles the overlay. DoubleTapPlayerViewImpl routes a
         // single (non-double) tap to performClick() on the view captured at construction (itself,
@@ -704,13 +731,65 @@ public class MobilePlaybackActivity extends MobileActivity
             // Immersive full-bleed video (PLAYER POLISH behaviour).
             Helpers.makeActivityFullscreen2(this);
         } else {
-            // Watch page: keep the status/navigation bars; the video sits below the status bar and
-            // the content column lays out inside the safe area (decor fits system windows).
-            showSystemBars();
+            // Watch page (PLAYER LAYOUT POLISH): keep the system bars visible, but draw the video
+            // edge-to-edge BEHIND a fully transparent status bar - the player's own top gradient
+            // scrim + title shadow keep the title legible - instead of the inherited solid,
+            // surface-coloured status-bar band. See applyPortraitTransparentBars().
+            applyPortraitTransparentBars();
         }
 
         if (mControlsRoot != null) {
             ViewCompat.requestApplyInsets(mControlsRoot);
+        }
+        if (mWatchRoot != null) {
+            ViewCompat.requestApplyInsets(mWatchRoot);
+        }
+    }
+
+    private boolean isLandscape() {
+        return getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+    }
+
+    /**
+     * PLAYER LAYOUT POLISH (portrait watch page). Show the system bars but make the STATUS bar
+     * transparent and draw the window edge-to-edge, so the top of the player is the video + its
+     * gradient scrim - not a solid status-bar-coloured band inherited from the app surface theme.
+     *
+     * <p>{@link Helpers#makeActivityFullscreen2(android.app.Activity)} (called from
+     * {@code MotherActivity.onResume()} on every resume because fullscreen mode is on by default)
+     * sets {@code FLAG_TRANSLUCENT_STATUS}/{@code FLAG_TRANSLUCENT_NAVIGATION} and hides the bars; we
+     * undo exactly that here for portrait. The bottom navigation-bar inset is applied to the watch
+     * content (mWatchRoot), not to the video/controls, so the seek row stays flush to the video box.</p>
+     */
+    private void applyPortraitTransparentBars() {
+        Window window = getWindow();
+
+        // Undo the translucent-status/nav scrim set by makeActivityFullscreen2, then draw our own
+        // transparent status bar over the video and a solid watch-page-coloured navigation bar.
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        window.setStatusBarColor(Color.TRANSPARENT);
+        window.setNavigationBarColor(ContextCompat.getColor(this, R.color.mobile_color_background));
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false);
+            WindowInsetsController controller = window.getInsetsController();
+            if (controller != null) {
+                controller.show(WindowInsets.Type.systemBars());
+                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_DEFAULT);
+                // Dark video/scrim + dark watch background -> light (white) status & nav icons.
+                controller.setSystemBarsAppearance(
+                        0,
+                        WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                                | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+            }
+        } else {
+            // Pre-R: draw behind the (visible) status bar; the transparent status bar colour above
+            // then lets the video/scrim show through.
+            window.getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
         }
     }
 
