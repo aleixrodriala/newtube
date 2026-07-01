@@ -26,8 +26,8 @@ features) belongs to SmartTube.
 ## Relationship to SmartTube & license
 
 NewTube is a fork/derivative of **SmartTube by Yuri Liskov (@yuliskov)** and is
-distributed under the **GNU General Public License v3** — the same license as
-SmartTube. The original SmartTube README is preserved at
+distributed under the **MIT License** — the same license as SmartTube
+(MIT © 2020–present yuliskov). The original SmartTube README is preserved at
 [`docs/UPSTREAM_README_SmartTube.md`](docs/UPSTREAM_README_SmartTube.md), the
 license is in [`LICENSE`](LICENSE), and SmartTube is tracked as the `upstream`
 git remote.
