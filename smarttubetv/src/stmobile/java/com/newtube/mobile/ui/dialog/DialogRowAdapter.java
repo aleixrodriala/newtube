@@ -1,5 +1,6 @@
 package com.newtube.mobile.ui.dialog;
 
+import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -99,9 +100,11 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     private List<Row> mRows = new ArrayList<>();
+    private final Context mContext;
     private final Listener mListener;
 
-    DialogRowAdapter(Listener listener) {
+    DialogRowAdapter(Context context, Listener listener) {
+        mContext = context;
         mListener = listener;
     }
 
@@ -119,7 +122,7 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         notifyDataSetChanged();
     }
 
-    private static List<Row> build(List<OptionCategory> categories, Map<OptionCategory, OptionItem> radioOverrides) {
+    private List<Row> build(List<OptionCategory> categories, Map<OptionCategory, OptionItem> radioOverrides) {
         List<Row> rows = new ArrayList<>();
 
         if (categories == null) {
@@ -172,7 +175,7 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     if (category.title != null) {
                         rows.add(Row.header(category.title));
                     }
-                    rows.add(Row.text("Not available on mobile yet."));
+                    rows.add(Row.text(mContext.getString(R.string.mobile_dialog_unavailable)));
                     break;
                 }
             }

@@ -79,8 +79,7 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         private final TextView mBadge;
         private final ProgressBar mWatchProgress;
         private final TextView mTitle;
-        private final TextView mChannel;
-        private final TextView mMeta;
+        private final TextView mSubtitle;
         private Video mVideo;
 
         RelatedViewHolder(@NonNull View itemView, OnRelatedClickListener clickListener) {
@@ -90,8 +89,7 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
             mBadge = itemView.findViewById(R.id.related_badge);
             mWatchProgress = itemView.findViewById(R.id.related_watch_progress);
             mTitle = itemView.findViewById(R.id.related_title);
-            mChannel = itemView.findViewById(R.id.related_channel);
-            mMeta = itemView.findViewById(R.id.related_meta);
+            mSubtitle = itemView.findViewById(R.id.related_subtitle);
 
             itemView.setOnClickListener(v -> {
                 if (mVideo != null && clickListener != null) {
@@ -105,14 +103,21 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
             Context context = itemView.getContext();
 
             mTitle.setText(video.getTitle());
-            mChannel.setText(video.getAuthor());
 
-            CharSequence meta = video.getSecondTitle();
-            if (meta != null && meta.length() > 0) {
-                mMeta.setText(meta);
-                mMeta.setVisibility(View.VISIBLE);
+            // Single subtitle line = "Channel • views • date" (Video.getSecondTitle()). Previously the
+            // channel showed twice - once as its own byline (getAuthor(), which is just the channel token
+            // extracted from the very same secondTitle) and again at the head of this metadata line, so
+            // the two lines were identical whenever views/date were absent. Fall back to the bare channel
+            // name when no secondTitle is available.
+            CharSequence subtitle = video.getSecondTitle();
+            if (subtitle == null || subtitle.length() == 0) {
+                subtitle = video.getAuthor();
+            }
+            if (subtitle != null && subtitle.length() > 0) {
+                mSubtitle.setText(subtitle);
+                mSubtitle.setVisibility(View.VISIBLE);
             } else {
-                mMeta.setVisibility(View.GONE);
+                mSubtitle.setVisibility(View.GONE);
             }
 
             bindBadge(video);

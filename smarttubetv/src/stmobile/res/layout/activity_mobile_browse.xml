@@ -9,7 +9,15 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/mobile_drawer_layout"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true"><!--
+    fitsSystemWindows: MotherActivity.onResume() leaves FLAG_TRANSLUCENT_STATUS set on the window
+    (via Helpers.makeActivityFullscreen2), so the window draws behind the status bar. Unlike the
+    other screens' plain View roots (which the decor insets automatically), a DrawerLayout handles
+    window insets itself and only pushes its content below the status bar when it is marked
+    fitsSystemWindows - without this the top toolbar rendered under the clock/battery. The status-bar
+    strip is painted with the toolbar surface color in code (setStatusBarBackgroundColor) so the top
+    reads as one solid bar. -->
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/mobile_browse_root"

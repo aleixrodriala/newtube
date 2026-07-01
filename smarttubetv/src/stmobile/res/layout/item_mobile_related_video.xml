@@ -76,8 +76,11 @@
             android:textSize="14sp"
             tools:text="A related video title that can wrap onto two lines" />
 
+        <!-- Single subtitle line: "Channel • views • date" (Video.getSecondTitle()). The former
+             separate channel byline was dropped - it duplicated the channel token already at the
+             head of this line (see RelatedVideoAdapter.bind). -->
         <TextView
-            android:id="@+id/related_channel"
+            android:id="@+id/related_subtitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
@@ -85,18 +88,7 @@
             android:maxLines="1"
             android:textColor="@color/mobile_color_on_surface_secondary"
             android:textSize="12sp"
-            tools:text="Channel name" />
-
-        <TextView
-            android:id="@+id/related_meta"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="@color/mobile_color_on_surface_secondary"
-            android:textSize="12sp"
-            android:visibility="gone"
-            tools:text="1.2M views" />
+            tools:text="Channel name • 1.2M views • 2 days ago" />
 
     </LinearLayout>
 

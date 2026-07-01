@@ -1,5 +1,6 @@
 package com.newtube.mobile;
 
+import com.liskovsoft.smartyoutubetv2.common.app.views.AddDeviceView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.AppDialogView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelUploadsView;
@@ -8,7 +9,9 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SearchView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SignInView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
+import com.liskovsoft.smartyoutubetv2.common.app.views.WebBrowserView;
 import com.liskovsoft.smartyoutubetv2.tv.ui.main.MainApplication;
+import com.newtube.mobile.ui.adddevice.MobileAddDeviceActivity;
 import com.newtube.mobile.ui.browse.MobileBrowseActivity;
 import com.newtube.mobile.ui.channel.MobileChannelActivity;
 import com.newtube.mobile.ui.channel.MobileChannelUploadsActivity;
@@ -16,6 +19,7 @@ import com.newtube.mobile.ui.dialog.MobileAppDialogActivity;
 import com.newtube.mobile.ui.playback.MobilePlaybackActivity;
 import com.newtube.mobile.ui.search.MobileSearchActivity;
 import com.newtube.mobile.ui.signin.MobileSignInActivity;
+import com.newtube.mobile.ui.webbrowser.MobileWebBrowserActivity;
 
 /**
  * stmobile flavor application class.
@@ -85,6 +89,14 @@ public class MobileMainApplication extends MainApplication {
         // SignInActivity on a touch phone. The auth backend (YTSignInPresenter / SignInService /
         // token storage) is reused unchanged - only the View is re-skinned.
         viewManager.register(SignInView.class, MobileSignInActivity.class, MobileBrowseActivity.class);
+
+        // Parity gaps: re-point the two remaining inherited Leanback screens at touch equivalents.
+        //  * WebBrowserView (About / SponsorBlock / DeArrow "open link"): the TV WebBrowserActivity
+        //    shows an in-app QR web page; MobileWebBrowserActivity hands the URL to the device browser.
+        //  * AddDeviceView (Settings -> Remote control pairing): the TV AddDeviceActivity is a
+        //    GuidedStep; MobileAddDeviceActivity is a touch pairing-code screen.
+        viewManager.register(WebBrowserView.class, MobileWebBrowserActivity.class, MobileBrowseActivity.class);
+        viewManager.register(AddDeviceView.class, MobileAddDeviceActivity.class, MobileBrowseActivity.class);
 
         viewManager.setRoot(MobileBrowseActivity.class);
     }

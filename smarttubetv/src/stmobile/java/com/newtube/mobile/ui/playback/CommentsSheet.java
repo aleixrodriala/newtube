@@ -24,6 +24,7 @@ import com.liskovsoft.sharedutils.rx.RxHelper;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
 
+import io.reactivex.disposables.CompositeDisposable;
 import io.reactivex.disposables.Disposable;
 
 /**
@@ -55,7 +56,9 @@ public class CommentsSheet extends BottomSheetDialogFragment implements Comments
     private ProgressBar mProgress;
     private TextView mEmpty;
 
-    private Disposable mCommentsAction;
+    /** Holds every comments-page subscription (first page + each continuation) so an in-flight page
+     *  load is never leaked when the next one is kicked off, and all are cut on teardown. */
+    private final CompositeDisposable mCommentsActions = new CompositeDisposable();
     private Disposable mRepliesAction;
     private String mNextKey;
     private boolean mLoading;
@@ -141,8 +144,8 @@ public class CommentsSheet extends BottomSheetDialogFragment implements Comments
 
     @Override
     public void onDestroyView() {
-        RxHelper.disposeActions(mCommentsAction, mRepliesAction);
-        mCommentsAction = null;
+        mCommentsActions.clear(); // dispose all page subscriptions (clear, not dispose, so the sheet can be reused)
+        RxHelper.disposeActions(mRepliesAction);
         mRepliesAction = null;
         super.onDestroyView();
     }
@@ -158,8 +161,8 @@ public class CommentsSheet extends BottomSheetDialogFragment implements Comments
         }
         mLoading = true;
         setProgress(true);
-        mCommentsAction = mCommentsService.getCommentsObserve(mCommentsKey)
-                .subscribe(this::onFirstPage, this::onLoadError);
+        mCommentsActions.add(mCommentsService.getCommentsObserve(mCommentsKey)
+                .subscribe(this::onFirstPage, this::onLoadError));
     }
 
     private void onFirstPage(CommentGroup group) {
@@ -195,7 +198,7 @@ public class CommentsSheet extends BottomSheetDialogFragment implements Comments
         final String key = mNextKey;
         mLoading = true;
         mNextKey = null; // guard against re-entrancy until this page resolves
-        mCommentsAction = mCommentsService.getCommentsObserve(key)
+        mCommentsActions.add(mCommentsService.getCommentsObserve(key)
                 .subscribe(
                         group -> {
                             mLoading = false;
@@ -204,7 +207,7 @@ public class CommentsSheet extends BottomSheetDialogFragment implements Comments
                                 mAdapter.addComments(group.getComments());
                             }
                         },
-                        error -> mLoading = false); // keep pagination error non-fatal
+                        error -> mLoading = false)); // keep pagination error non-fatal
     }
 
     private void onLoadError(Throwable error) {

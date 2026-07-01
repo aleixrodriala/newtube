@@ -141,6 +141,12 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         mDrawerLayout = findViewById(R.id.mobile_drawer_layout);
         mNavView = findViewById(R.id.mobile_nav_view);
         mProgressBar = findViewById(R.id.mobile_progress_bar);
+
+        // Paint the status-bar strip (DrawerLayout draws it while fitsSystemWindows insets the toolbar
+        // below the bar - see the layout comment) with the toolbar surface color so the top reads as
+        // one solid bar rather than the theme's default colorPrimaryDark.
+        mDrawerLayout.setStatusBarBackgroundColor(
+                androidx.core.content.ContextCompat.getColor(this, R.color.mobile_color_surface));
         mErrorContainer = findViewById(R.id.mobile_error_container);
         mErrorIcon = findViewById(R.id.mobile_error_icon);
         mErrorMessage = findViewById(R.id.mobile_error_message);
@@ -165,18 +171,6 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     }
 
     /**
-     * Settings entry point (Wave 3). Reuses the Wave 3 AppDialog renderer directly instead of
-     * a separate settings screen: {@link AppDataSourceManager#getSettingItems} returns the same
-     * {@code List<SettingsItem>} (title + onClick + icon) that the TV {@code SettingsGridFragment}
-     * renders as a grid - each item's {@code onClick} already calls e.g.
-     * {@code GeneralSettingsPresenter.instance(context).show()}, which itself just builds
-     * {@code OptionCategory} lists and calls {@code AppDialogPresenter.showDialog()}. So the
-     * cleanest reuse is to render the top-level Settings list as one more
-     * {@code AppDialogPresenter} button category screen: tapping a row runs the real
-     * {@code SettingsItem.onClick}, which opens its own nested AppDialog screen on top (the
-     * same "push a new level" mechanism described in {@code MobileAppDialogActivity}).
-     */
-    /**
      * Search entry point (Wave 4b). Mirrors the gear button's "drive the presenter" approach
      * (the TV Home does the exact same thing - {@code BrowseFragment} wires its search affordance
      * to {@code SearchPresenter.instance(ctx).startSearch(null)}): the presenter calls
@@ -192,6 +186,18 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         mSettingsButton.setOnClickListener(v -> openSettings());
     }
 
+    /**
+     * Settings entry point (Wave 3). Reuses the Wave 3 AppDialog renderer directly instead of
+     * a separate settings screen: {@link AppDataSourceManager#getSettingItems} returns the same
+     * {@code List<SettingsItem>} (title + onClick + icon) that the TV {@code SettingsGridFragment}
+     * renders as a grid - each item's {@code onClick} already calls e.g.
+     * {@code GeneralSettingsPresenter.instance(context).show()}, which itself just builds
+     * {@code OptionCategory} lists and calls {@code AppDialogPresenter.showDialog()}. So the
+     * cleanest reuse is to render the top-level Settings list as one more
+     * {@code AppDialogPresenter} button category screen: tapping a row runs the real
+     * {@code SettingsItem.onClick}, which opens its own nested AppDialog screen on top (the
+     * same "push a new level" mechanism described in {@code MobileAppDialogActivity}).
+     */
     private void openSettings() {
         AppDialogPresenter dialogPresenter = AppDialogPresenter.instance(this);
         dialogPresenter.clearBackstack();
@@ -400,6 +406,13 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
             if (section.getResId() > 0) {
                 item.setIcon(section.getResId());
             }
+
+            // Per-row "..." overflow = the touch equivalent of the TV D-pad section long-press.
+            // NavigationView menu rows don't expose a long-press, so hang the section-management menu
+            // (Refresh / Rename / Move / Unpin / Mark watched / Create playlist / Toggle-Clear history)
+            // off an actionView button that drives BrowsePresenter.onSectionLongPressed(sectionId) ->
+            // SectionMenuPresenter -> AppDialogPresenter (rendered by MobileAppDialogActivity).
+            addSectionOverflow(item, section.getId());
         }
 
         // Single-choice highlight: only one section can be the current one.
@@ -408,6 +421,26 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         if (mCurrentSectionId >= 0 && menu.findItem(toMenuItemId(mCurrentSectionId)) != null) {
             mNavView.setCheckedItem(toMenuItemId(mCurrentSectionId));
         }
+    }
+
+    /**
+     * Attach a trailing "..." overflow button to a drawer row that opens the section-management
+     * menu - the touch replacement for SmartTube's TV D-pad section long-press. Tapping it closes
+     * the drawer and calls {@link BrowsePresenter#onSectionLongPressed(int)}, which builds the menu
+     * via {@code SectionMenuPresenter} and shows it through {@code AppDialogPresenter} (rendered by
+     * {@code MobileAppDialogActivity}). If the resulting menu is empty for a given section,
+     * {@code SectionMenuPresenter} simply shows nothing (it guards on {@code !isEmpty()}).
+     */
+    private void addSectionOverflow(android.view.MenuItem item, int sectionId) {
+        ImageButton overflow = (ImageButton) android.view.LayoutInflater.from(this)
+                .inflate(R.layout.item_mobile_section_overflow, mNavView, false);
+        overflow.setOnClickListener(v -> {
+            mDrawerLayout.closeDrawer(GravityCompat.START);
+            if (mPresenter != null) {
+                mPresenter.onSectionLongPressed(sectionId);
+            }
+        });
+        item.setActionView(overflow);
     }
 
     /**
@@ -575,6 +608,17 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
             }
 
             BrowseSection section = mSections.get(index);
+
+            // Same guard as onSectionChosen(): Settings has no video-grid renderer on the mobile
+            // shell (its content arrives as a SettingsGroup, which updateSection(SettingsGroup)
+            // ignores). If the presenter's boot/fallback selection lands on Settings, route it to
+            // the working AppDialog settings screen instead of driving an empty grid.
+            if (section.getId() == MediaGroup.TYPE_SETTINGS) {
+                syncNavHighlight(mCurrentSectionId); // keep highlight on the real current section
+                openSettings();
+                return;
+            }
+
             mCurrentSectionId = section.getId();
 
             // The section may not be one of the (up to 5) sections shown in the bottom

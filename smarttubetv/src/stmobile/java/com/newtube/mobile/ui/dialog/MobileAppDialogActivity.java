@@ -190,7 +190,7 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
     }
 
     private void setupRecyclerView() {
-        mAdapter = new DialogRowAdapter(mRowListener);
+        mAdapter = new DialogRowAdapter(this, mRowListener);
         mRecyclerView.setLayoutManager(new LinearLayoutManager(this));
         mRecyclerView.setAdapter(mAdapter);
     }

@@ -147,6 +147,34 @@
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
 
+        <!--
+          External-link handoff (parity gap). Implements WebBrowserView by launching the device
+          browser via ACTION_VIEW and finishing immediately (no UI of its own), so About /
+          SponsorBlock / DeArrow "open link" actions leave the app instead of showing the TV QR
+          web page. Translucent dialog theme avoids a black flash on this finish-in-onCreate screen.
+        -->
+        <activity
+            android:name="com.newtube.mobile.ui.webbrowser.MobileWebBrowserActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:screenOrientation="unspecified"
+            android:theme="@style/Theme.NewTube.Dialog" />
+
+        <!--
+          Companion-device / remote-control pairing (parity gap). Touch replacement for the Leanback
+          AddDeviceActivity (GuidedStep); implements AddDeviceView. Same singleInstance +
+          configChanges pattern as the other touch Activities - surviving rotation keeps the live
+          pairing-code Rx subscription and the already-rendered code.
+        -->
+        <activity
+            android:name="com.newtube.mobile.ui.adddevice.MobileAddDeviceActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:screenOrientation="unspecified"
+            android:theme="@style/Theme.NewTube" />
+
     </application>
 
 </manifest>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Trailing "..." overflow button used as the actionView on each navigation-drawer section row
+  (see MobileBrowseActivity.addSectionOverflow). Tapping it opens the section-management menu -
+  the touch replacement for the TV D-pad section long-press.
+-->
+<ImageButton xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="48dp"
+    android:layout_height="48dp"
+    android:background="?attr/selectableItemBackgroundBorderless"
+    android:contentDescription="@string/mobile_section_menu"
+    android:padding="12dp"
+    android:scaleType="fitCenter"
+    android:src="@drawable/ic_player_more"
+    android:tint="@color/mobile_color_on_surface_secondary" />

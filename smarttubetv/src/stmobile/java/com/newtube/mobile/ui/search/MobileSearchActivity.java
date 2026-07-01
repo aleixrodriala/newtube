@@ -315,14 +315,9 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
         super.onDestroy();
     }
 
-    @Override
-    public void onBackPressed() {
-        if (mPresenter != null && mPresenter.getView() == this) {
-            mPresenter.onFinish();
-        }
-
-        super.onBackPressed();
-    }
+    // NOTE: no onBackPressed() override. Back -> Activity.onBackPressed() -> MobileActivity.finish()
+    // -> finishReally() below, which is the single place SearchPresenter.onFinish() is invoked.
+    // (Previously it was also called here on back, so onFinish() ran twice per back press.)
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
@@ -490,7 +485,8 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
 
     @Override
     public void finishReally() {
-        if (mPresenter != null) {
+        // Single call site for SearchPresenter.onFinish() (see the onBackPressed note above).
+        if (mPresenter != null && mPresenter.getView() == this) {
             mPresenter.onFinish();
         }
         super.finishReally();
