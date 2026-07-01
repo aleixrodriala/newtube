@@ -48,6 +48,15 @@ public class ExoPlayerInitializer {
     private static volatile int sBackBufferMsOverride = -1;
     private static volatile int sTargetBufferBytesOverride = -1;
 
+    // NEWTUBE(mobile-ttff): optional start-buffer gate override installed by the touch (stmobile)
+    // flavor via setStartBufferOverride() from MobileMainApplication. ExoPlayer will not start (or
+    // resume after a rebuffer) rendering until bufferForPlaybackMs (/ ...AfterRebufferMs) of media is
+    // buffered. SmartTube's defaults (2500ms / 5000ms) delay the very first frame; lowering them on
+    // mobile lets playback start sooner. Left unset (-1) on the TV builds -> createLoadControl() start
+    // gate is byte-for-byte unchanged there. The steady-state min/max buffer is NOT touched.
+    private static volatile int sBufferForPlaybackMsOverride = -1;
+    private static volatile int sBufferForPlaybackAfterRebufferMsOverride = -1;
+
     /**
      * NEWTUBE(mobile-seek): widen the in-memory back-buffer (and raise the buffer-bytes budget to
      * match) for every {@link SimpleExoPlayer} created afterwards. Call once from the Application.
@@ -60,6 +69,19 @@ public class ExoPlayerInitializer {
     public static void setBackBufferOverride(int backBufferMs, int targetBufferBytes) {
         sBackBufferMsOverride = backBufferMs;
         sTargetBufferBytesOverride = targetBufferBytes;
+    }
+
+    /**
+     * NEWTUBE(mobile-ttff): lower the first-frame / after-rebuffer start gate for every
+     * {@link SimpleExoPlayer} created afterwards (touch flavor only). Values {@code <= 0} disable the
+     * override (TV default). Only the start gate changes; the steady-state min/max buffer is untouched.
+     *
+     * @param bufferForPlaybackMs              media to buffer before the FIRST frame renders, in ms.
+     * @param bufferForPlaybackAfterRebufferMs media to buffer before resuming after a rebuffer, in ms.
+     */
+    public static void setStartBufferOverride(int bufferForPlaybackMs, int bufferForPlaybackAfterRebufferMs) {
+        sBufferForPlaybackMsOverride = bufferForPlaybackMs;
+        sBufferForPlaybackAfterRebufferMsOverride = bufferForPlaybackAfterRebufferMs;
     }
 
     public ExoPlayerInitializer(Context context) {
@@ -165,6 +187,16 @@ public class ExoPlayerInitializer {
                 break;
         }
 
+        // NEWTUBE(mobile-ttff): lower ONLY the start gate on the touch flavor so the first frame
+        // renders sooner (both stay well under the 30s+ minBuffer, so DefaultLoadControl's
+        // buffer-duration assertions hold). No-op on TV (override unset) -> TV start gate unchanged.
+        if (sBufferForPlaybackMsOverride > 0) {
+            bufferForPlaybackMs = sBufferForPlaybackMsOverride;
+        }
+        if (sBufferForPlaybackAfterRebufferMsOverride > 0) {
+            bufferForPlaybackAfterRebufferMs = sBufferForPlaybackAfterRebufferMsOverride;
+        }
+
         baseBuilder
                 .setBufferDurationsMs(minBufferMs, maxBufferMs, bufferForPlaybackMs, bufferForPlaybackAfterRebufferMs);
 
@@ -178,7 +210,10 @@ public class ExoPlayerInitializer {
         if (sBackBufferMsOverride > 0) {
             baseBuilder.setBackBuffer(sBackBufferMsOverride, true);
             if (sTargetBufferBytesOverride > 0) {
-                baseBuilder.setTargetBufferBytes(sTargetBufferBytesOverride);
+                // NEWTUBE(mobile-mem): never exceed the device-RAM budget (deviceRam/18). On a
+                // low-RAM phone the override (e.g. 192MB) could OOM; clamp so the enlarged
+                // back-buffer stays within what the device can afford. min(override, mMaxBufferBytes).
+                baseBuilder.setTargetBufferBytes(Math.min(sTargetBufferBytesOverride, mMaxBufferBytes));
             }
         }
 

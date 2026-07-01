@@ -58,11 +58,21 @@ import com.newtube.mobile.ui.webbrowser.MobileWebBrowserActivity;
 public class MobileMainApplication extends MainApplication {
 
     /**
-     * SEEK-BACK FIX: how much already-played media to keep resident behind the playhead. 3 minutes
-     * comfortably covers the "minute 10 -> minute 8" (~120s) backward-seek repro with margin, while
-     * staying bounded (see byte budget below) so memory does not run away on a phone.
+     * SEEK-BACK FIX: how much already-played media to keep resident behind the playhead. 2 minutes
+     * covers the "minute 10 -> minute 8" (~120s) backward-seek repro, while staying bounded (see byte
+     * budget below) so memory does not run away on a phone. Reduced from 180s -> 120s (~33% less
+     * back-buffer memory) since the repro only needs ~2 min behind the playhead.
      */
-    private static final int BACK_BUFFER_MS = 180_000; // 3 min
+    private static final int BACK_BUFFER_MS = 120_000; // 2 min
+
+    /**
+     * TTFF FIX: lower the first-frame start gate on the touch flavor. ExoPlayer won't render the first
+     * frame until this much media is buffered; SmartTube's default is 2500ms. 1000ms lets playback
+     * start sooner. The after-rebuffer gate is lowered to 2500ms (default 5000ms) too. Steady-state
+     * min/max buffering is unchanged. TV never calls this -> TV start gate unchanged.
+     */
+    private static final int START_BUFFER_MS = 1_000;
+    private static final int START_BUFFER_AFTER_REBUFFER_MS = 2_500;
 
     /**
      * SEEK-BACK FIX: soft cap on total buffered bytes (back + forward) so the enlarged back-buffer
@@ -88,6 +98,10 @@ public class MobileMainApplication extends MainApplication {
         // at roughly (back 180s + forward 50s) worth of media; the raised byte budget only keeps the
         // full back-buffer from starving forward buffering. TV builds never call this -> TV unchanged.
         ExoPlayerInitializer.setBackBufferOverride(BACK_BUFFER_MS, TARGET_BUFFER_BYTES);
+
+        // TTFF FIX (mobile-only): lower the first-frame / after-rebuffer start gate so playback starts
+        // sooner. Steady-state buffering is untouched. TV never calls this -> TV start gate unchanged.
+        ExoPlayerInitializer.setStartBufferOverride(START_BUFFER_MS, START_BUFFER_AFTER_REBUFFER_MS);
 
         // SEEK-BACK FIX (secondary, defense-in-depth): install a bounded on-disk media cache. It does
         // NOT help the SABR path (POST bodies aren't cacheable), but it makes the progressive /

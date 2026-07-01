@@ -48,11 +48,9 @@ import com.bumptech.glide.Glide;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
 import com.liskovsoft.mediaserviceinterfaces.LiveChatService;
-import com.liskovsoft.mediaserviceinterfaces.MediaItemService;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemMetadata;
 import com.liskovsoft.sharedutils.rx.RxHelper;
 import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
-import io.reactivex.Observable;
 import io.reactivex.disposables.Disposable;
 
 import com.github.vkay94.dtpv.DoubleTapPlayerView;
@@ -196,9 +194,13 @@ public class MobilePlaybackActivity extends MobileActivity
     private ChatReceiver mChatReceiver;
     private LiveChatSheet.Observer mChatObserver;
     private Disposable mLiveChatAction;
-    // Dedicated metadata load for the watch header + comments/chat keys. Kept independent of the
-    // shared MediaServiceManager singleton (whose single Disposable the player's own loads clobber).
-    private Disposable mMetadataAction;
+    // NEWTUBE(mobile-ttff): the watch header binds from the SINGLE metadata document that
+    // SuggestionsController already loads (delivered via PlaybackView.onWatchMetadata), instead of a
+    // 2nd getMetadataObserve. Header binding is deferred until the first frame has rendered so it never
+    // competes with first-frame render: metadata arriving early is stashed here and applied on first
+    // STATE_READY. Accessed on the UI thread only.
+    private MediaItemMetadata mPendingMetadata;
+    private boolean mFirstFrameReady;
 
     // Suggestions store: id -> accumulated videos (LinkedHashMap keeps delivery/row order).
     private final LinkedHashMap<Integer, List<Video>> mSuggestionVideos = new LinkedHashMap<>();
@@ -598,7 +600,14 @@ public class MobilePlaybackActivity extends MobileActivity
             bindPlaybackService();
         }
 
-        startProgressUpdates();
+        // NEWTUBE(perf): the 500ms progress loop only feeds the overlay time bar / labels, so it runs
+        // ONLY while the controls are visible (started in showControlsInternal, stopped in
+        // hideControls). Kick it here only if the controls are still up from open; otherwise it stays
+        // idle until the user shows the controls. The buffering spinner is driven separately by
+        // mUiPlayerListener, so it keeps working while the loop is idle.
+        if (mControlsVisible) {
+            startProgressUpdates();
+        }
         updatePlayPauseIcon();
     }
 
@@ -660,7 +669,7 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onDestroy() {
         cancelAutoHide();
 
-        RxHelper.disposeActions(mMetadataAction, mLiveChatAction);
+        RxHelper.disposeActions(mLiveChatAction);
 
         // Fix situations when the engine wasn't properly destroyed (mirrors PlaybackFragment).
         destroyPlayerObjects();
@@ -1030,6 +1039,10 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         updatePlayPauseIcon();
 
+        // NEWTUBE(perf): drive the 500ms progress loop only while controls are visible. startProgress
+        // ticks once immediately (refresh on show) then reschedules every 500ms.
+        startProgressUpdates();
+
         if (mPresenter != null) {
             mPresenter.onControlsShown(true);
         }
@@ -1044,6 +1057,8 @@ public class MobilePlaybackActivity extends MobileActivity
 
         mControlsVisible = false;
         cancelAutoHide();
+        // NEWTUBE(perf): controls hidden -> stop the 500ms progress loop (nothing visible to update).
+        stopProgressUpdates();
         mControlsRoot.animate().cancel();
         mControlsRoot.animate().alpha(0f).setDuration(150)
                 .withEndAction(() -> {
@@ -1384,6 +1399,15 @@ public class MobilePlaybackActivity extends MobileActivity
                 case Player.STATE_READY:
                     showProgressBar(false);
                     mIsEnded = false;
+                    // NEWTUBE(mobile-ttff): first frame has rendered. Now (and only now) apply any
+                    // watch-header metadata that arrived early, so the bind stays off the first-frame
+                    // path. Runs on the UI thread (ExoPlayer callbacks post here).
+                    if (!mFirstFrameReady) {
+                        mFirstFrameReady = true;
+                        if (mPendingMetadata != null) {
+                            bindWatchMetadata(mPendingMetadata);
+                        }
+                    }
                     break;
                 case Player.STATE_ENDED:
                     showProgressBar(false);
@@ -1938,25 +1962,11 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         if (isNewVideo) {
-            loadWatchMetadata(item);
+            // NEWTUBE(mobile-ttff): a new video resets the header to its fallback and clears any stale
+            // stashed metadata. The real header data now arrives via onWatchMetadata (the single
+            // metadata document SuggestionsController loads), not a 2nd getMetadataObserve here.
+            mPendingMetadata = null;
         }
-    }
-
-    /**
-     * Load the current video's metadata for the watch header and the comments/live-chat keys. Uses a
-     * private Disposable + the {@link MediaItemService} directly rather than the shared
-     * {@link MediaServiceManager} singleton, whose single metadata Disposable is disposed by the
-     * player's own concurrent loads (which was silently cancelling this callback).
-     */
-    private void loadWatchMetadata(Video item) {
-        RxHelper.disposeActions(mMetadataAction);
-
-        MediaItemService itemService = YouTubeServiceManager.instance().getMediaItemService();
-        Observable<MediaItemMetadata> observable = item.mediaItem != null
-                ? itemService.getMetadataObserve(item.mediaItem)
-                : itemService.getMetadataObserve(item.videoId, item.getPlaylistId(), item.playlistIndex, item.playlistParams);
-
-        mMetadataAction = observable.subscribe(this::onWatchMetadata, error -> { /* header stays on fallback */ });
     }
 
     private void resetWatchHeader() {
@@ -1985,12 +1995,29 @@ public class MobilePlaybackActivity extends MobileActivity
         mChatReceiver = null;
     }
 
-    private void onWatchMetadata(MediaItemMetadata metadata) {
+    @Override
+    public void onWatchMetadata(MediaItemMetadata metadata) {
         if (metadata == null) {
             return;
         }
 
+        // NEWTUBE(mobile-ttff): delivered on the metadata load thread by SuggestionsController. Marshal
+        // to the UI thread, then either bind now (first frame already rendered) or stash and bind on
+        // the first STATE_READY, so the header bind never competes with first-frame render.
         runOnUiThread(() -> {
+            mPendingMetadata = metadata;
+            if (mFirstFrameReady) {
+                bindWatchMetadata(metadata);
+            }
+        });
+    }
+
+    private void bindWatchMetadata(MediaItemMetadata metadata) {
+        if (metadata == null) {
+            return;
+        }
+
+        {
             // Clean "views • date" line.
             String views = metadata.getViewCount();
             String date = metadata.getPublishedDate();
@@ -2047,7 +2074,7 @@ public class MobilePlaybackActivity extends MobileActivity
             if (mWatchChatEntry != null && mLiveChatKey != null) {
                 mWatchChatEntry.setVisibility(View.VISIBLE);
             }
-        });
+        }
     }
 
     private boolean isCountUnset(TextView view) {

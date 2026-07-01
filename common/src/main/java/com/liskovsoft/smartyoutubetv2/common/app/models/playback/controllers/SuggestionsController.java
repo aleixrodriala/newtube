@@ -354,6 +354,14 @@ public class SuggestionsController extends BasePlayerController {
 
         // After video suggestions
         callListener(mediaItemMetadata);
+
+        // NEWTUBE(mobile-ttff): hand the SAME metadata document to the View so the touch watch-header
+        // can bind from it instead of issuing a duplicate getMetadataObserve. No-op on TV (default
+        // View method). Delivered via this callback (not MediaServiceManager's shared Disposable), so
+        // the earlier watch-header race fix is preserved.
+        if (getPlayer() != null) {
+            getPlayer().onWatchMetadata(mediaItemMetadata);
+        }
     }
 
     private void appendSuggestions(Video video, MediaItemMetadata mediaItemMetadata) {
