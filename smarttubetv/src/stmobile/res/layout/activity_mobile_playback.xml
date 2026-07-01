@@ -1,29 +1,171 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Touch player - Wave 2 vertical slice.
+  Touch player - PLAYER POLISH wave.
 
-  A single com.google.android.exoplayer2.ui.PlayerView filling the screen with
-  use_controller="true" so play/pause, seek bar + position/duration text and
-  rewind/fast-forward come for free from ExoPlayer's built-in PlaybackControlView.
-  Back and the loading spinner are the only pieces this layout adds on top, since
-  PlayerView's stock controller has neither.
+  A polished, fully-custom control surface replaces ExoPlayer's stock PlaybackControlView
+  (use_controller="false"). Hierarchy, bottom (behind) to top (front):
+
+    1. DoubleTapPlayerView  - the video surface. Consumes touches itself: single tap toggles
+       our controls overlay, double tap on the left/right third drives YouTubeOverlay seek.
+    2. YouTubeOverlay       - the YouTube-style ripple + "+10s / -10s" seconds animation, wired
+       to the live player in code (playerView()/player()). Sits above the video, below controls.
+    3. mobile_controls_root - our custom overlay: top bar (back + title), large center
+       play/pause, bottom seek row (current time + DefaultTimeBar + total time + fullscreen).
+       Animated in/out and auto-hidden; clickable so a tap on empty space hides it.
+    4. mobile_player_progress - buffering spinner, shown immediately on open and on rebuffer.
+
+  The root is a PlayerContainerLayout (custom FrameLayout) that recognises a downward drag
+  anywhere on the video and forwards it to the Activity for swipe-down-to-dismiss.
 -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<com.newtube.mobile.ui.playback.PlayerContainerLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/mobile_player_container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/black"
     android:keepScreenOn="true">
 
-    <com.google.android.exoplayer2.ui.PlayerView
+    <com.github.vkay94.dtpv.DoubleTapPlayerViewImpl
         android:id="@+id/mobile_player_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:layout_gravity="center"
         app:resize_mode="fit"
-        app:show_buffering="when_playing"
-        app:show_timeout="4000"
-        app:use_controller="true" />
+        app:show_buffering="never"
+        app:use_controller="false" />
+
+    <com.github.vkay94.dtpv.youtube.YouTubeOverlay
+        android:id="@+id/mobile_player_yt_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        app:yt_animationDuration="500"
+        app:yt_seekSeconds="10" />
+
+    <!-- Custom controls overlay. clickable so taps on empty space hide it. -->
+    <FrameLayout
+        android:id="@+id/mobile_controls_root"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="true"
+        android:focusable="true">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/mobile_player_top_scrim_height"
+            android:layout_gravity="top"
+            android:background="@drawable/mobile_player_top_scrim" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/mobile_player_bottom_scrim_height"
+            android:layout_gravity="bottom"
+            android:background="@drawable/mobile_player_bottom_scrim" />
+
+        <!-- Top bar: back + title -->
+        <ImageButton
+            android:id="@+id/mobile_player_back"
+            android:layout_width="@dimen/mobile_player_icon_button"
+            android:layout_height="@dimen/mobile_player_icon_button"
+            android:layout_gravity="top|start"
+            android:layout_marginStart="8dp"
+            android:layout_marginTop="20dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/mobile_player_back"
+            android:padding="8dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_mobile_back_arrow" />
+
+        <TextView
+            android:id="@+id/mobile_player_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:paddingStart="56dp"
+            android:paddingTop="24dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="12dp"
+            android:shadowColor="#80000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="3"
+            android:textColor="@android:color/white"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            tools:text="Video title goes here and may wrap onto a second line" />
+
+        <!-- Large center play / pause / replay -->
+        <ImageButton
+            android:id="@+id/mobile_player_play_pause"
+            android:layout_width="@dimen/mobile_player_center_button"
+            android:layout_height="@dimen/mobile_player_center_button"
+            android:layout_gravity="center"
+            android:background="@drawable/mobile_player_center_button_bg"
+            android:contentDescription="@string/mobile_player_pause"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_player_pause" />
+
+        <!-- Bottom seek row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="4dp"
+            android:paddingBottom="6dp">
+
+            <TextView
+                android:id="@+id/mobile_player_position"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFeatureSettings="tnum"
+                android:text="@string/mobile_player_time_default"
+                android:textColor="@android:color/white"
+                android:textSize="@dimen/mobile_player_time_text" />
+
+            <com.google.android.exoplayer2.ui.DefaultTimeBar
+                android:id="@+id/mobile_player_time_bar"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                app:bar_height="3dp"
+                app:buffered_color="#80FFFFFF"
+                app:played_color="@color/mobile_color_primary"
+                app:scrubber_color="@color/mobile_color_primary"
+                app:scrubber_enabled_size="14dp"
+                app:scrubber_dragged_size="18dp"
+                app:unplayed_color="#4DFFFFFF" />
+
+            <TextView
+                android:id="@+id/mobile_player_duration"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFeatureSettings="tnum"
+                android:text="@string/mobile_player_time_default"
+                android:textColor="@android:color/white"
+                android:textSize="@dimen/mobile_player_time_text" />
+
+            <ImageButton
+                android:id="@+id/mobile_player_fullscreen"
+                android:layout_width="@dimen/mobile_player_icon_button"
+                android:layout_height="@dimen/mobile_player_icon_button"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/mobile_player_fullscreen"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_player_fullscreen" />
+
+        </LinearLayout>
+
+    </FrameLayout>
 
     <ProgressBar
         android:id="@+id/mobile_player_progress"
@@ -31,35 +173,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:visibility="gone" />
+        android:indeterminateTint="@color/mobile_color_primary"
+        android:indeterminateTintMode="src_in" />
 
-    <TextView
-        android:id="@+id/mobile_player_title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top"
-        android:background="@drawable/mobile_player_title_scrim"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:paddingStart="64dp"
-        android:paddingTop="32dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="12dp"
-        android:textColor="@android:color/white"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        tools:text="Video title" />
-
-    <ImageButton
-        android:id="@+id/mobile_player_back"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:layout_gravity="top|start"
-        android:layout_marginStart="12dp"
-        android:layout_marginTop="24dp"
-        android:background="@drawable/mobile_player_back_background"
-        android:contentDescription="@string/mobile_player_back"
-        android:padding="8dp"
-        android:src="@drawable/ic_mobile_back_arrow" />
-
-</FrameLayout>
+</com.newtube.mobile.ui.playback.PlayerContainerLayout>

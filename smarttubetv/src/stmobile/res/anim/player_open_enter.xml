@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Player opens: fade in + a subtle scale-up so the video grows into place
+     (YouTube-like "pop") instead of a hard cut. Kept short so playback starts ASAP. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:anim/decelerate_interpolator">
+    <alpha
+        android:fromAlpha="0.0"
+        android:toAlpha="1.0"
+        android:duration="200" />
+    <scale
+        android:fromXScale="0.94"
+        android:toXScale="1.0"
+        android:fromYScale="0.94"
+        android:toYScale="1.0"
+        android:pivotX="50%"
+        android:pivotY="50%"
+        android:duration="220" />
+</set>

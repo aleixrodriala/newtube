@@ -22,4 +22,23 @@
         <item name="colorOnSurface">@color/mobile_color_on_surface</item>
         <item name="android:windowBackground">@color/mobile_color_background</item>
     </style>
+
+    <!--
+      Window open/close transitions for the touch player. Set via android:windowAnimationStyle
+      on Theme.NewTube.Player so the player fades+scales in when launched from a card and
+      fades+slides down when closed - without having to touch the (shared, presenter-driven)
+      ViewManager.startActivity() launch site. windowBackground stays opaque black to avoid a
+      white/black flash on the cold open before the first decoded frame.
+    -->
+    <style name="PlayerWindowAnimation">
+        <item name="android:activityOpenEnterAnimation">@anim/player_open_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/player_open_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/player_close_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/player_close_exit</item>
+    </style>
+
+    <style name="Theme.NewTube.Player" parent="Theme.NewTube">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowAnimationStyle">@style/PlayerWindowAnimation</item>
+    </style>
 </resources>

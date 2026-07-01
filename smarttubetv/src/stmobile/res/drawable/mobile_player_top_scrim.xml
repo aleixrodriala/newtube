@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Top-down gradient scrim behind the player's top bar (back + title) so white
+     glyphs/text stay legible over bright video frames. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#A6000000"
+        android:endColor="#00000000" />
+</shape>

@@ -1,19 +1,32 @@
 package com.newtube.mobile.ui.playback;
 
+import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
+import com.github.vkay94.dtpv.DoubleTapPlayerView;
+import com.github.vkay94.dtpv.DoubleTapPlayerViewImpl;
+import com.github.vkay94.dtpv.youtube.YouTubeOverlay;
 import com.google.android.exoplayer2.DefaultRenderersFactory;
+import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
-import com.google.android.exoplayer2.ui.PlayerView;
+import com.google.android.exoplayer2.ui.DefaultTimeBar;
+import com.google.android.exoplayer2.ui.TimeBar;
+import com.google.android.exoplayer2.util.Util;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
@@ -27,34 +40,54 @@ import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.ExoPlayerInitialize
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.versions.renderer.CustomOverridesRenderersFactory;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.versions.selector.RestoreTrackSelector;
+import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
+import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.common.MobileActivity;
 
 import java.io.InputStream;
+import java.util.Formatter;
 import java.util.List;
+import java.util.Locale;
 
 /**
- * Touch player - Wave 2 vertical slice.
+ * Touch player - PLAYER POLISH wave.
  *
- * Built the same way as the {@code EmbedPlayerView} template (ARCHITECTURE.md, section 6): a
- * plain {@link PlayerView} (no Leanback) wired straight to {@link ExoPlayerController} and
- * {@link ExoPlayerInitializer}, with this Activity itself implementing {@link PlaybackView}
- * and being handed to {@link PlaybackPresenter#setView}. The 11 playback controllers owned by
- * {@code PlaybackPresenter} (VideoLoader, VideoState, Suggestions, ErrorFixer, PlayerUI, ...)
- * are reused completely unchanged; this class is only the touch View layer.
+ * <p>Built the same way as the {@code EmbedPlayerView} template (ARCHITECTURE.md, section 6): a
+ * plain ExoPlayer {@code PlayerView} (here the {@link DoubleTapPlayerViewImpl} subclass, still no
+ * Leanback) wired straight to {@link ExoPlayerController} and {@link ExoPlayerInitializer}, with
+ * this Activity itself implementing {@link PlaybackView} and being handed to
+ * {@link PlaybackPresenter#setView}. The 11 playback controllers owned by {@code PlaybackPresenter}
+ * (VideoLoader, VideoState, Suggestions, ErrorFixer, PlayerUI, ...) are reused completely unchanged;
+ * this class is only the touch View layer. The engine (open calls, position, duration, play-pause,
+ * speed, formats, resize) is untouched - this wave adds a polished custom control surface, open/close
+ * transitions, swipe-down-to-dismiss and buffer tuning on top.</p>
  *
- * Engine-critical methods (open calls, position, duration, play-pause, speed, formats, resize)
- * are real, delegating to {@link ExoPlayerController} exactly like {@code EmbedPlayerView} and
- * {@code PlaybackFragment} do. UI-only methods with no touch surface yet (suggestions panel,
- * per-button on/off state, debug overlay, live chat, seek-bar segments, storyboard) are stubbed
- * with sane no-op/empty defaults - see the "// TODO Wave N" comments below - mirroring exactly
- * what {@code EmbedPlayerView} already stubs for the same reasons.
+ * <h3>Controls</h3>
+ * The stock {@code PlaybackControlView} is disabled ({@code use_controller="false"}); instead a
+ * custom overlay (top back + title, large center play/pause/replay, bottom {@link DefaultTimeBar}
+ * with current/total time + fullscreen toggle) is shown/hidden on a single tap and auto-hidden after
+ * {@link #AUTO_HIDE_MS}. Double-tap left/right seeks +/-10s via the {@code doubletapplayerview}
+ * module's {@link YouTubeOverlay}, wired to the live player. Position/buffer are polled and seeking
+ * is wired straight to {@link ExoPlayerController}.
  */
-public class MobilePlaybackActivity extends MobileActivity implements PlaybackView {
+public class MobilePlaybackActivity extends MobileActivity
+        implements PlaybackView, PlayerContainerLayout.DragListener {
 
-    private PlayerView mPlayerView;
+    private static final long AUTO_HIDE_MS = 3_500;
+    private static final long PROGRESS_UPDATE_MS = 500;
+
+    private PlayerContainerLayout mContainer;
+    private DoubleTapPlayerViewImpl mPlayerView;
+    private YouTubeOverlay mYouTubeOverlay;
+    private View mControlsRoot;
     private TextView mTitleView;
     private ImageButton mBackButton;
+    private ImageButton mPlayPauseButton;
+    private ImageButton mFullscreenButton;
+    private TextView mPositionView;
+    private TextView mDurationView;
+    private DefaultTimeBar mTimeBar;
     private ProgressBar mProgressBar;
 
     private PlaybackPresenter mPresenter;
@@ -62,6 +95,16 @@ public class MobilePlaybackActivity extends MobileActivity implements PlaybackVi
     private ExoPlayerController mExoPlayerController;
     private SimpleExoPlayer mPlayer;
     private boolean mIsEngineBlocked;
+
+    private boolean mControlsVisible;
+    private boolean mScrubbing;
+    private boolean mIsEnded;
+
+    private final StringBuilder mFormatBuilder = new StringBuilder();
+    private final Formatter mFormatter = new Formatter(mFormatBuilder, Locale.getDefault());
+
+    private final Runnable mHideControlsRunnable = this::onAutoHideTick;
+    private final Runnable mProgressUpdateRunnable = this::onProgressTick;
 
     // ---------------------------------------------------------------------------------
     // Lifecycle
@@ -71,10 +114,21 @@ public class MobilePlaybackActivity extends MobileActivity implements PlaybackVi
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // Buffer/cache tuning (see class doc / report). Must be set BEFORE the player is created:
+        // ExoPlayerInitializer.createLoadControl() reads PlayerData.getVideoBufferType() when
+        // createPlayer() runs. BUFFER_HIGH = 50s min/max + 50s back-buffer, while ExoPlayer's
+        // bufferForPlaybackMs stays at the engine default (2.5s) so the first frame still starts
+        // fast - a quick start with a generous cushion against mid-stream stutter on mobile data.
+        // (No on-disk SimpleCache: wiring CacheDataSource would require editing common/'s
+        // ExoMediaSourceFactory, which this wave must not touch, so we tune buffers only.)
+        PlayerData.instance(this).setVideoBufferType(PlayerData.BUFFER_HIGH);
+
         setContentView(R.layout.activity_mobile_playback);
 
         bindViews();
+        setupControls();
         applySystemBarsForOrientation(getResources().getConfiguration().orientation);
+        updateFullscreenIcon(getResources().getConfiguration().orientation);
 
         // NOTE: position matters! Mirrors EmbedPlayerView.initPlayer()/PlaybackFragment.onCreate():
         // create the controller objects and hand the presenter our view BEFORE building the actual
@@ -90,12 +144,75 @@ public class MobilePlaybackActivity extends MobileActivity implements PlaybackVi
     }
 
     private void bindViews() {
+        mContainer = findViewById(R.id.mobile_player_container);
         mPlayerView = findViewById(R.id.mobile_player_view);
+        mYouTubeOverlay = findViewById(R.id.mobile_player_yt_overlay);
+        mControlsRoot = findViewById(R.id.mobile_controls_root);
         mTitleView = findViewById(R.id.mobile_player_title);
         mBackButton = findViewById(R.id.mobile_player_back);
+        mPlayPauseButton = findViewById(R.id.mobile_player_play_pause);
+        mFullscreenButton = findViewById(R.id.mobile_player_fullscreen);
+        mPositionView = findViewById(R.id.mobile_player_position);
+        mDurationView = findViewById(R.id.mobile_player_duration);
+        mTimeBar = findViewById(R.id.mobile_player_time_bar);
         mProgressBar = findViewById(R.id.mobile_player_progress);
+    }
+
+    private void setupControls() {
+        mContainer.setDragListener(this);
+
+        // The window is edge-to-edge (MotherActivity.makeActivityFullscreen2 sets translucent
+        // status/nav flags, so the video fills behind the bars). Pad ONLY the controls overlay by
+        // the system-bar insets so the back/title and the seek row never hide under, or get their
+        // taps eaten by, the status/navigation bars. In landscape immersive the bars are hidden so
+        // the insets are 0 and the controls go full-bleed.
+        ViewCompat.setOnApplyWindowInsetsListener(mControlsRoot, (v, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            return insets;
+        });
+
+        // Single tap on the video surface toggles the overlay. DoubleTapPlayerViewImpl routes a
+        // single (non-double) tap to performClick() on the view captured at construction (itself,
+        // since it isn't attached yet), so an OnClickListener here is exactly that single tap.
+        mPlayerView.setOnClickListener(v -> toggleControls());
+
+        // Tap on empty overlay space hides the controls (buttons/seek bar consume their own taps).
+        mControlsRoot.setOnClickListener(v -> hideControls());
 
         mBackButton.setOnClickListener(v -> onBackPressed());
+        mPlayPauseButton.setOnClickListener(v -> togglePlayPause());
+        mFullscreenButton.setOnClickListener(v -> toggleFullscreen());
+
+        mTimeBar.addListener(new TimeBar.OnScrubListener() {
+            @Override
+            public void onScrubStart(TimeBar timeBar, long position) {
+                mScrubbing = true;
+                cancelAutoHide();
+                mPositionView.setText(formatTime(position));
+            }
+
+            @Override
+            public void onScrubMove(TimeBar timeBar, long position) {
+                mPositionView.setText(formatTime(position));
+            }
+
+            @Override
+            public void onScrubStop(TimeBar timeBar, long position, boolean canceled) {
+                mScrubbing = false;
+                if (!canceled && mExoPlayerController != null) {
+                    mExoPlayerController.setPositionMs(position);
+                }
+                armAutoHide();
+            }
+        });
+
+        // Start with the controls visible so the back button / title are immediately reachable on
+        // open; the auto-hide timer takes them away once playback is actually running.
+        mControlsVisible = true;
+        mControlsRoot.setVisibility(View.VISIBLE);
+        mControlsRoot.setAlpha(1f);
+        armAutoHide();
     }
 
     private void createPlayerObjects() {
@@ -109,13 +226,58 @@ public class MobilePlaybackActivity extends MobileActivity implements PlaybackVi
         mExoPlayerController.setPlayer(mPlayer);
         mPlayerView.setPlayer(mPlayer);
 
+        // Wire the YouTube-style double-tap seek overlay to the live player.
+        // NOTE: PerformListener.shouldForward() compiles to an abstract method (the Kotlin default
+        // body lives in DefaultImpls, invisible to Java), so it must be implemented here. We use the
+        // ExoPlayer-correct version: left third rewinds, right third forwards, middle is ignored.
+        mYouTubeOverlay
+                .performListener(new YouTubeOverlay.PerformListener() {
+                    @Override
+                    public void onAnimationStart() {
+                        mYouTubeOverlay.setVisibility(View.VISIBLE);
+                    }
+
+                    @Override
+                    public void onAnimationEnd() {
+                        mYouTubeOverlay.setVisibility(View.GONE);
+                    }
+
+                    @Override
+                    public Boolean shouldForward(Player player, DoubleTapPlayerView playerView, float posX) {
+                        int state = player.getPlaybackState();
+                        if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
+                            return null;
+                        }
+                        if (player.getCurrentPosition() > 500 && posX < playerView.getPlayerWidth() * 0.35f) {
+                            return false;
+                        }
+                        if (posX > playerView.getPlayerWidth() * 0.65f) {
+                            return true;
+                        }
+                        return null;
+                    }
+                })
+                .player(mPlayer)
+                .playerView(mPlayerView);
+        mPlayerView.controller(mYouTubeOverlay);
+
+        // Our own lightweight UI listener (separate from ExoPlayerController's): drives the
+        // buffering spinner, the play/pause/replay icon and the end-of-video state.
+        mPlayer.addListener(mUiPlayerListener);
+
         mPresenter.onEngineInitialized(); // VideoLoaderController picks up the pending video here
+
+        startProgressUpdates();
+        updatePlayPauseIcon();
     }
 
     private void destroyPlayerObjects() {
         if (mPlayer == null) {
             return;
         }
+
+        stopProgressUpdates();
+        mPlayer.removeListener(mUiPlayerListener);
 
         // Don't release a different (e.g. embed) player's engine state.
         if (mPresenter.getView() == null || mPresenter.getView() == this) {
@@ -150,6 +312,8 @@ public class MobilePlaybackActivity extends MobileActivity implements PlaybackVi
 
     @Override
     protected void onDestroy() {
+        cancelAutoHide();
+
         // Fix situations when the engine wasn't properly destroyed (mirrors PlaybackFragment).
         destroyPlayerObjects();
 
@@ -165,6 +329,7 @@ public class MobilePlaybackActivity extends MobileActivity implements PlaybackVi
         super.onConfigurationChanged(newConfig);
 
         applySystemBarsForOrientation(newConfig.orientation);
+        updateFullscreenIcon(newConfig.orientation);
     }
 
     @Override
@@ -177,40 +342,318 @@ public class MobilePlaybackActivity extends MobileActivity implements PlaybackVi
     }
 
     /**
-     * Touch "rotation/fullscreen" control (v1). Actual rotation is handled by the system
-     * (manifest {@code android:screenOrientation="unspecified"} + {@code configChanges} so the
-     * Activity isn't recreated, hence playback isn't interrupted) - this only follows it: go
-     * edge-to-edge immersive in landscape, restore the normal status/nav bars in portrait.
+     * Landscape = edge-to-edge immersive fullscreen; portrait = normal with the status bar back.
+     * Actual rotation is handled by the system (manifest {@code configChanges} keeps the live
+     * ExoPlayer instance across rotation); this only follows it.
      */
     private void applySystemBarsForOrientation(int orientation) {
         if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
             Helpers.makeActivityFullscreen2(this);
         } else {
-            showSystemBars();
+            showSystemBarsEdgeToEdge();
+        }
+
+        if (mControlsRoot != null) {
+            ViewCompat.requestApplyInsets(mControlsRoot);
+        }
+    }
+
+    /**
+     * Portrait: show the status + navigation bars but keep the window edge-to-edge (decor does NOT
+     * fit system windows) so the video stays full-bleed behind them AND window insets are still
+     * dispatched to the controls overlay's listener (which pads itself out of the bars). This is
+     * deliberately different from {@code MobileActivity.showSystemBars()}, whose
+     * {@code setDecorFitsSystemWindows(true)} would consume the insets before the controls see them.
+     */
+    private void showSystemBarsEdgeToEdge() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            getWindow().setDecorFitsSystemWindows(false);
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                controller.show(WindowInsets.Type.systemBars());
+                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_DEFAULT);
+            }
+        } else {
+            // Layout flags only (no FULLSCREEN/HIDE_NAVIGATION) -> edge-to-edge with bars visible.
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         }
     }
 
     // ---------------------------------------------------------------------------------
-    // PlayerUI - touch surface implemented (overlay show/hide drives PlayerView's own
-    // built-in controller, which already renders play/pause + seek bar + position/duration).
+    // Custom touch controls
+    // ---------------------------------------------------------------------------------
+
+    private void toggleControls() {
+        if (mControlsVisible) {
+            hideControls();
+        } else {
+            showControlsInternal(true);
+        }
+    }
+
+    private void showControlsInternal(boolean animate) {
+        mControlsVisible = true;
+        mControlsRoot.setVisibility(View.VISIBLE);
+        mControlsRoot.animate().cancel();
+        if (animate) {
+            mControlsRoot.setAlpha(0f);
+            mControlsRoot.animate().alpha(1f).setDuration(150).start();
+        } else {
+            mControlsRoot.setAlpha(1f);
+        }
+        updatePlayPauseIcon();
+
+        if (mPresenter != null) {
+            mPresenter.onControlsShown(true);
+        }
+
+        armAutoHide();
+    }
+
+    private void hideControls() {
+        if (!mControlsVisible) {
+            return;
+        }
+
+        mControlsVisible = false;
+        cancelAutoHide();
+        mControlsRoot.animate().cancel();
+        mControlsRoot.animate().alpha(0f).setDuration(150)
+                .withEndAction(() -> {
+                    if (!mControlsVisible) {
+                        mControlsRoot.setVisibility(View.GONE);
+                    }
+                }).start();
+
+        if (mPresenter != null) {
+            mPresenter.onControlsShown(false);
+        }
+    }
+
+    private void armAutoHide() {
+        cancelAutoHide();
+        Utils.postDelayed(mHideControlsRunnable, AUTO_HIDE_MS);
+    }
+
+    private void cancelAutoHide() {
+        Utils.removeCallbacks(mHideControlsRunnable);
+    }
+
+    private void onAutoHideTick() {
+        if (!mControlsVisible) {
+            return;
+        }
+
+        // Keep the controls up while the user is scrubbing or while paused/buffering/ended;
+        // re-check shortly. Only auto-hide during steady playback (matches YouTube/PlayerUIController).
+        if (mScrubbing || mIsEnded || mPlayer == null || !isPlaying()) {
+            armAutoHide();
+            return;
+        }
+
+        hideControls();
+    }
+
+    private void togglePlayPause() {
+        if (mExoPlayerController == null) {
+            return;
+        }
+
+        if (mIsEnded) {
+            // Replay from the start.
+            mIsEnded = false;
+            mExoPlayerController.setPositionMs(0);
+            mExoPlayerController.setPlayWhenReady(true);
+            if (mPresenter != null) {
+                mPresenter.onPlayClicked();
+            }
+        } else {
+            boolean play = !mExoPlayerController.getPlayWhenReady();
+            mExoPlayerController.setPlayWhenReady(play);
+            if (mPresenter != null) {
+                if (play) {
+                    mPresenter.onPlayClicked();
+                } else {
+                    mPresenter.onPauseClicked();
+                }
+            }
+        }
+
+        updatePlayPauseIcon();
+        armAutoHide();
+    }
+
+    private void toggleFullscreen() {
+        if (getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        } else {
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        }
+        armAutoHide();
+    }
+
+    private void updateFullscreenIcon(int orientation) {
+        if (mFullscreenButton == null) {
+            return;
+        }
+
+        mFullscreenButton.setImageResource(orientation == Configuration.ORIENTATION_LANDSCAPE
+                ? R.drawable.ic_player_fullscreen_exit
+                : R.drawable.ic_player_fullscreen);
+    }
+
+    private void updatePlayPauseIcon() {
+        if (mPlayPauseButton == null) {
+            return;
+        }
+
+        if (mIsEnded) {
+            mPlayPauseButton.setImageResource(R.drawable.ic_player_replay);
+            mPlayPauseButton.setContentDescription(getString(R.string.mobile_player_replay));
+        } else if (mExoPlayerController != null && mExoPlayerController.getPlayWhenReady()) {
+            mPlayPauseButton.setImageResource(R.drawable.ic_player_pause);
+            mPlayPauseButton.setContentDescription(getString(R.string.mobile_player_pause));
+        } else {
+            mPlayPauseButton.setImageResource(R.drawable.ic_player_play);
+            mPlayPauseButton.setContentDescription(getString(R.string.mobile_player_play));
+        }
+    }
+
+    private void startProgressUpdates() {
+        stopProgressUpdates();
+        Utils.postDelayed(mProgressUpdateRunnable, 0);
+    }
+
+    private void stopProgressUpdates() {
+        Utils.removeCallbacks(mProgressUpdateRunnable);
+    }
+
+    private void onProgressTick() {
+        if (mPlayer == null || mExoPlayerController == null) {
+            return;
+        }
+
+        if (!mScrubbing) {
+            long position = mExoPlayerController.getPositionMs();
+            long duration = getDurationMs();
+            long buffered = mPlayer.getBufferedPosition();
+
+            if (duration < 0) {
+                duration = 0;
+            }
+            if (position < 0) {
+                position = 0;
+            }
+
+            mTimeBar.setDuration(duration);
+            mTimeBar.setPosition(position);
+            mTimeBar.setBufferedPosition(buffered);
+            mPositionView.setText(formatTime(position));
+            mDurationView.setText(formatTime(duration));
+        }
+
+        updatePlayPauseIcon();
+
+        Utils.postDelayed(mProgressUpdateRunnable, PROGRESS_UPDATE_MS);
+    }
+
+    private String formatTime(long timeMs) {
+        if (timeMs < 0) {
+            timeMs = 0;
+        }
+        return Util.getStringForTime(mFormatBuilder, mFormatter, timeMs);
+    }
+
+    private final Player.EventListener mUiPlayerListener = new Player.EventListener() {
+        @Override
+        public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
+            switch (playbackState) {
+                case Player.STATE_BUFFERING:
+                    showProgressBar(true);
+                    break;
+                case Player.STATE_READY:
+                    showProgressBar(false);
+                    mIsEnded = false;
+                    break;
+                case Player.STATE_ENDED:
+                    showProgressBar(false);
+                    mIsEnded = true;
+                    // Surface the replay affordance.
+                    showControlsInternal(true);
+                    break;
+                default:
+                    break;
+            }
+            updatePlayPauseIcon();
+        }
+    };
+
+    // ---------------------------------------------------------------------------------
+    // Swipe-down-to-dismiss (PlayerContainerLayout.DragListener)
+    // ---------------------------------------------------------------------------------
+
+    @Override
+    public boolean canStartDismissDrag() {
+        return !mScrubbing && mPlayer != null;
+    }
+
+    @Override
+    public void onDismissDrag(float dy) {
+        mContainer.setTranslationY(dy);
+        int height = Math.max(1, mContainer.getHeight());
+        float fraction = Math.min(1f, dy / (height * 0.5f));
+        mContainer.setAlpha(1f - 0.5f * fraction);
+    }
+
+    @Override
+    public void onDismissDragReleased(float dy, float yVelocity) {
+        int height = Math.max(1, mContainer.getHeight());
+        boolean dismiss = dy > height * 0.22f || (yVelocity > 2200f && dy > height * 0.08f);
+
+        if (dismiss) {
+            mContainer.animate()
+                    .translationY(height)
+                    .alpha(0f)
+                    .setDuration(180)
+                    .withEndAction(this::closeByDrag)
+                    .start();
+        } else {
+            mContainer.animate()
+                    .translationY(0f)
+                    .alpha(1f)
+                    .setDuration(180)
+                    .start();
+        }
+    }
+
+    private void closeByDrag() {
+        if (mPresenter != null) {
+            mPresenter.onFinish();
+        }
+        finish();
+        // We already animated the slide-out; skip the window close animation to avoid double motion.
+        overridePendingTransition(0, 0);
+    }
+
+    // ---------------------------------------------------------------------------------
+    // PlayerUI - touch surface implemented (drives the custom overlay above).
     // ---------------------------------------------------------------------------------
 
     @Override
     public void showOverlay(boolean show) {
-        if (mPlayerView == null) {
-            return;
-        }
-
         if (show) {
-            mPlayerView.showController();
+            showControlsInternal(true);
         } else {
-            mPlayerView.hideController();
+            hideControls();
         }
     }
 
     @Override
     public boolean isOverlayShown() {
-        return mPlayerView != null && mPlayerView.isControllerVisible();
+        return mControlsVisible;
     }
 
     @Override
@@ -220,7 +663,7 @@ public class MobilePlaybackActivity extends MobileActivity implements PlaybackVi
 
     @Override
     public boolean isControlsShown() {
-        return isOverlayShown();
+        return mControlsVisible;
     }
 
     @Override

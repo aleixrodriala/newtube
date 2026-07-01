@@ -9,4 +9,11 @@
     <dimen name="mobile_card_spacing">8dp</dimen>
     <dimen name="mobile_card_corner_radius">8dp</dimen>
     <dimen name="mobile_title_bar_height">56dp</dimen>
+
+    <!-- Touch player controls -->
+    <dimen name="mobile_player_center_button">64dp</dimen>
+    <dimen name="mobile_player_icon_button">40dp</dimen>
+    <dimen name="mobile_player_top_scrim_height">112dp</dimen>
+    <dimen name="mobile_player_bottom_scrim_height">128dp</dimen>
+    <dimen name="mobile_player_time_text">13sp</dimen>
 </resources>

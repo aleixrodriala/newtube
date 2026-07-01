@@ -57,7 +57,7 @@
             android:launchMode="singleInstance"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
             android:screenOrientation="unspecified"
-            android:theme="@style/Theme.NewTube" />
+            android:theme="@style/Theme.NewTube.Player" />
 
         <!--
           Touch AppDialog renderer (Wave 3). configChanges/launchMode mirror the other

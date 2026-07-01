@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Screen left behind (Browse) while the player opens: gentle fade so it doesn't
+     just blink out under the incoming player. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:anim/accelerate_interpolator">
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="0.85"
+        android:duration="200" />
+</set>
