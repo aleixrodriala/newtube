@@ -8,6 +8,9 @@
     <string name="mobile_player_replay">Replay</string>
     <string name="mobile_player_fullscreen">Toggle fullscreen</string>
     <string name="mobile_player_time_default">0:00</string>
+    <string name="mobile_player_quality">Quality</string>
+    <string name="mobile_player_subtitles">Subtitles</string>
+    <string name="mobile_player_speed">Playback speed</string>
 
     <!-- Watch page (portrait content area under the video) -->
     <string name="mobile_watch_like">Like</string>

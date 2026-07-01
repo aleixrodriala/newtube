@@ -103,7 +103,11 @@ public class MobilePlaybackActivity extends MobileActivity
     private TextView mPositionView;
     private TextView mDurationView;
     private DefaultTimeBar mTimeBar;
+    private SeekBarSegmentsView mSegmentsView;
     private ProgressBar mProgressBar;
+    private ImageButton mQualityButton;
+    private ImageButton mSubtitlesButton;
+    private ImageButton mSpeedButton;
 
     // Watch page (portrait content column under the video).
     private NestedScrollView mWatchScroll;
@@ -210,7 +214,11 @@ public class MobilePlaybackActivity extends MobileActivity
         mPositionView = findViewById(R.id.mobile_player_position);
         mDurationView = findViewById(R.id.mobile_player_duration);
         mTimeBar = findViewById(R.id.mobile_player_time_bar);
+        mSegmentsView = findViewById(R.id.mobile_player_segments);
         mProgressBar = findViewById(R.id.mobile_player_progress);
+        mQualityButton = findViewById(R.id.mobile_player_quality);
+        mSubtitlesButton = findViewById(R.id.mobile_player_subtitles);
+        mSpeedButton = findViewById(R.id.mobile_player_speed);
 
         // Watch page content column.
         mWatchScroll = findViewById(R.id.mobile_watch_scroll);
@@ -261,6 +269,13 @@ public class MobilePlaybackActivity extends MobileActivity
         mBackButton.setOnClickListener(v -> onBackPressed());
         mPlayPauseButton.setOnClickListener(v -> togglePlayPause());
         mFullscreenButton.setOnClickListener(v -> toggleFullscreen());
+
+        // Player options row (Quality / Subtitles / Speed). Each dispatches an R.id.action_* through
+        // the presenter so the existing controllers open their AppDialog option lists (rendered by
+        // MobileAppDialogActivity). See openPlayerOption() for why some use the long-click path.
+        mQualityButton.setOnClickListener(v -> openPlayerOption(R.id.lb_control_high_quality, false));
+        mSubtitlesButton.setOnClickListener(v -> openPlayerOption(R.id.lb_control_closed_captioning, true));
+        mSpeedButton.setOnClickListener(v -> openPlayerOption(R.id.action_video_speed, true));
 
         mTimeBar.addListener(new TimeBar.OnScrubListener() {
             @Override
@@ -617,6 +632,40 @@ public class MobilePlaybackActivity extends MobileActivity
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         }
         armAutoHide();
+    }
+
+    /**
+     * Open one of the player option sheets by dispatching its {@code R.id.action_*} through the
+     * presenter, which fans it out to the reused SmartTube controllers; the matching controller
+     * builds an {@code AppDialog} option list and shows it via {@link MobileAppDialogActivity}.
+     *
+     * <ul>
+     *   <li>Quality → {@code R.id.lb_control_high_quality} (onButtonClicked): HQDialogController's
+     *       playback-settings sheet (video formats/resolutions, audio formats/language, presets, ...).</li>
+     *   <li>Subtitles/CC → {@code R.id.lb_control_closed_captioning} (onButtonLongClicked): the full
+     *       subtitle-track picker. The plain click path only toggles the last track, so we use the
+     *       long-click path to always open the list.</li>
+     *   <li>Speed → {@code R.id.action_video_speed} (onButtonLongClicked): the speed list
+     *       (0.25x..2x+). Same reasoning - the plain click can just toggle the remembered speed.</li>
+     * </ul>
+     */
+    private void openPlayerOption(int actionId, boolean asLongClick) {
+        if (mPresenter == null) {
+            return;
+        }
+
+        cancelAutoHide();
+
+        int state = getButtonState(actionId);
+        if (state == BUTTON_DISABLED) {
+            state = BUTTON_OFF;
+        }
+
+        if (asLongClick) {
+            mPresenter.onButtonLongClicked(actionId, state);
+        } else {
+            mPresenter.onButtonClicked(actionId, state);
+        }
     }
 
     private void updateFullscreenIcon(int orientation) {
@@ -1042,7 +1091,13 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     public void setSeekBarSegments(List<SeekBarSegment> segments) {
-        // TODO Wave N: SponsorBlock colored ranges on the seek bar.
+        // SponsorBlock colored ranges on the seek bar. SponsorBlockController resolves each range to
+        // start/end progress fractions + an ARGB color and pushes them here (null to reset); the
+        // overlay draws them on the scrubber track. Skipping itself is done by the controller.
+        if (mSegmentsView == null) {
+            return;
+        }
+        runOnUiThread(() -> mSegmentsView.setSegments(segments));
     }
 
     @Override

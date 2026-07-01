@@ -100,7 +100,7 @@
                     android:maxLines="2"
                     android:paddingStart="56dp"
                     android:paddingTop="12dp"
-                    android:paddingEnd="16dp"
+                    android:paddingEnd="144dp"
                     android:paddingBottom="12dp"
                     android:shadowColor="#80000000"
                     android:shadowDx="0"
@@ -110,6 +110,52 @@
                     android:textSize="15sp"
                     android:textStyle="bold"
                     tools:text="Video title goes here and may wrap onto a second line" />
+
+                <!-- Top-right player options: Quality, Subtitles/CC, Speed. Each dispatches an
+                     R.id.action_* through PlaybackPresenter.onButtonClicked/onButtonLongClicked so
+                     the existing controllers open their AppDialog option lists (rendered by the
+                     touch MobileAppDialogActivity). -->
+                <LinearLayout
+                    android:id="@+id/mobile_player_options"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top|end"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginEnd="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageButton
+                        android:id="@+id/mobile_player_quality"
+                        android:layout_width="@dimen/mobile_player_icon_button"
+                        android:layout_height="@dimen/mobile_player_icon_button"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_player_quality"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_player_quality" />
+
+                    <ImageButton
+                        android:id="@+id/mobile_player_subtitles"
+                        android:layout_width="@dimen/mobile_player_icon_button"
+                        android:layout_height="@dimen/mobile_player_icon_button"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_player_subtitles"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_player_cc" />
+
+                    <ImageButton
+                        android:id="@+id/mobile_player_speed"
+                        android:layout_width="@dimen/mobile_player_icon_button"
+                        android:layout_height="@dimen/mobile_player_icon_button"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_player_speed"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_player_speed" />
+
+                </LinearLayout>
 
                 <!-- Large center play / pause / replay -->
                 <ImageButton
@@ -142,20 +188,35 @@
                         android:textColor="@android:color/white"
                         android:textSize="@dimen/mobile_player_time_text" />
 
-                    <com.google.android.exoplayer2.ui.DefaultTimeBar
-                        android:id="@+id/mobile_player_time_bar"
+                    <!-- Time bar + SponsorBlock segment overlay share one cell so the colored
+                         ranges line up exactly with the scrubber track underneath. -->
+                    <FrameLayout
                         android:layout_width="0dp"
                         android:layout_height="32dp"
                         android:layout_marginStart="8dp"
                         android:layout_marginEnd="8dp"
-                        android:layout_weight="1"
-                        app:bar_height="3dp"
-                        app:buffered_color="#80FFFFFF"
-                        app:played_color="@color/mobile_color_primary"
-                        app:scrubber_color="@color/mobile_color_primary"
-                        app:scrubber_enabled_size="14dp"
-                        app:scrubber_dragged_size="18dp"
-                        app:unplayed_color="#4DFFFFFF" />
+                        android:layout_weight="1">
+
+                        <com.google.android.exoplayer2.ui.DefaultTimeBar
+                            android:id="@+id/mobile_player_time_bar"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            app:bar_height="3dp"
+                            app:buffered_color="#80FFFFFF"
+                            app:played_color="@color/mobile_color_primary"
+                            app:scrubber_color="@color/mobile_color_primary"
+                            app:scrubber_enabled_size="14dp"
+                            app:scrubber_dragged_size="18dp"
+                            app:unplayed_color="#4DFFFFFF" />
+
+                        <com.newtube.mobile.ui.playback.SeekBarSegmentsView
+                            android:id="@+id/mobile_player_segments"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:clickable="false"
+                            android:focusable="false" />
+
+                    </FrameLayout>
 
                     <TextView
                         android:id="@+id/mobile_player_duration"
