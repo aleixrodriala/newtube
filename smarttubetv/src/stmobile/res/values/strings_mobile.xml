@@ -11,6 +11,11 @@
     <string name="mobile_player_quality">Quality</string>
     <string name="mobile_player_subtitles">Subtitles</string>
     <string name="mobile_player_speed">Playback speed</string>
+    <string name="mobile_player_pip">Picture-in-picture</string>
+
+    <!-- Background playback media notification -->
+    <string name="mobile_playback_channel_name">Playback</string>
+    <string name="mobile_playback_channel_desc">Media controls for background playback</string>
 
     <!-- Watch page (portrait content area under the video) -->
     <string name="mobile_watch_like">Like</string>

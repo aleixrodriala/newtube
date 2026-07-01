@@ -30,6 +30,13 @@
         android:required="true"
         tools:replace="android:required" />
 
+    <!-- Background audio: a media-playback foreground service (MobilePlaybackService) keeps the
+         reused ExoPlayer alive + posts the media notification when the app is backgrounded / screen
+         off. FOREGROUND_SERVICE (API 28+) and FOREGROUND_SERVICE_MEDIA_PLAYBACK (API 34+) are both
+         normal, auto-granted permissions. POST_NOTIFICATIONS is already declared in the main manifest. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
     <application
         android:name="com.newtube.mobile.MobileMainApplication"
         android:theme="@style/Theme.NewTube"
@@ -55,9 +62,22 @@
             android:name="com.newtube.mobile.ui.playback.MobilePlaybackActivity"
             android:exported="false"
             android:launchMode="singleInstance"
+            android:supportsPictureInPicture="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube.Player" />
+
+        <!--
+          Background-playback foreground service (Background Audio + PiP wave). Reuses the single
+          ExoPlayer instance owned by MobilePlaybackActivity - it does NOT create a second player.
+          Holds the MediaSessionCompat + MediaSessionConnector + PlayerNotificationManager and
+          promotes itself to the foreground (type mediaPlayback) while audio is playing so playback
+          survives backgrounding / screen-off on API 34+.
+        -->
+        <service
+            android:name="com.newtube.mobile.ui.playback.MobilePlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!--
           Touch AppDialog renderer (Wave 3). configChanges/launchMode mirror the other

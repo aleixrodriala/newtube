@@ -1,10 +1,23 @@
 package com.newtube.mobile.ui.playback;
 
+import android.app.PictureInPictureParams;
+import android.app.RemoteAction;
+import android.content.BroadcastReceiver;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
+import android.app.PendingIntent;
+import android.graphics.Rect;
+import android.graphics.drawable.Icon;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.text.TextUtils;
+import android.util.Rational;
 import android.util.SparseIntArray;
 import android.view.View;
 import android.widget.ImageButton;
@@ -14,6 +27,8 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -108,6 +123,7 @@ public class MobilePlaybackActivity extends MobileActivity
     private ImageButton mQualityButton;
     private ImageButton mSubtitlesButton;
     private ImageButton mSpeedButton;
+    private ImageButton mPipButton;
 
     // Watch page (portrait content column under the video).
     private NestedScrollView mWatchScroll;
@@ -153,6 +169,16 @@ public class MobilePlaybackActivity extends MobileActivity
     private boolean mControlsVisible;
     private boolean mScrubbing;
     private boolean mIsEnded;
+    private boolean mIsInPip;
+
+    // Background-playback foreground service (reuses THIS Activity's player; see MobilePlaybackService).
+    private MobilePlaybackService mPlaybackService;
+    private boolean mServiceBound;
+
+    // Picture-in-Picture play/pause RemoteAction wiring.
+    private static final String ACTION_PIP_TOGGLE = "com.newtube.mobile.action.PIP_TOGGLE";
+    private static final int PIP_REQUEST_TOGGLE = 700;
+    private BroadcastReceiver mPipReceiver;
 
     private final StringBuilder mFormatBuilder = new StringBuilder();
     private final Formatter mFormatter = new Formatter(mFormatBuilder, Locale.getDefault());
@@ -199,6 +225,8 @@ public class MobilePlaybackActivity extends MobileActivity
         mPresenter.onViewInitialized();
 
         createPlayerObjects();
+
+        registerPipReceiver();
     }
 
     private void bindViews() {
@@ -219,6 +247,7 @@ public class MobilePlaybackActivity extends MobileActivity
         mQualityButton = findViewById(R.id.mobile_player_quality);
         mSubtitlesButton = findViewById(R.id.mobile_player_subtitles);
         mSpeedButton = findViewById(R.id.mobile_player_speed);
+        mPipButton = findViewById(R.id.mobile_player_pip);
 
         // Watch page content column.
         mWatchScroll = findViewById(R.id.mobile_watch_scroll);
@@ -276,6 +305,15 @@ public class MobilePlaybackActivity extends MobileActivity
         mQualityButton.setOnClickListener(v -> openPlayerOption(R.id.lb_control_high_quality, false));
         mSubtitlesButton.setOnClickListener(v -> openPlayerOption(R.id.lb_control_closed_captioning, true));
         mSpeedButton.setOnClickListener(v -> openPlayerOption(R.id.action_video_speed, true));
+
+        // Picture-in-Picture control button. Only offered when the device supports PiP.
+        if (mPipButton != null) {
+            if (Helpers.isPictureInPictureSupported(this)) {
+                mPipButton.setOnClickListener(v -> enterPipMode());
+            } else {
+                mPipButton.setVisibility(View.GONE);
+            }
+        }
 
         mTimeBar.addListener(new TimeBar.OnScrubListener() {
             @Override
@@ -426,6 +464,15 @@ public class MobilePlaybackActivity extends MobileActivity
 
         mPresenter.onEngineInitialized(); // VideoLoaderController picks up the pending video here
 
+        // Attach the reused player to the background-playback service (media session + notification).
+        // If already bound (e.g. after restartEngine) re-attach directly; otherwise start+bind now
+        // while this Activity is in the foreground so startForeground is reached from the foreground.
+        if (mServiceBound && mPlaybackService != null) {
+            mPlaybackService.attachPlayer(mPlayer, mPresenter, buildContentIntent());
+        } else {
+            bindPlaybackService();
+        }
+
         startProgressUpdates();
         updatePlayPauseIcon();
     }
@@ -437,6 +484,12 @@ public class MobilePlaybackActivity extends MobileActivity
 
         stopProgressUpdates();
         mPlayer.removeListener(mUiPlayerListener);
+
+        // Detach the player from the media session/notification BEFORE releasing it, so the service
+        // never references a released player. The service (and any audio) stops here on real finish.
+        if (mPlaybackService != null) {
+            mPlaybackService.detachPlayer();
+        }
 
         // Don't release a different (e.g. embed) player's engine state.
         if (mPresenter.getView() == null || mPresenter.getView() == this) {
@@ -476,11 +529,42 @@ public class MobilePlaybackActivity extends MobileActivity
         // Fix situations when the engine wasn't properly destroyed (mirrors PlaybackFragment).
         destroyPlayerObjects();
 
+        // Real finish: tear down the background-playback service and the PiP receiver.
+        unbindPlaybackService();
+        unregisterPipReceiver();
+
         if (mPresenter != null && mPresenter.getView() == this) {
             mPresenter.onViewDestroyed();
         }
 
         super.onDestroy();
+    }
+
+    /**
+     * HOME pressed (or the app is otherwise being sent to the background) while a video is playing:
+     * slip into Picture-in-Picture so the video keeps playing in a floating window. If PiP isn't
+     * available the background-playback service keeps the audio going instead (see MobilePlaybackService).
+     */
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || mIsInPip || isFinishing()) {
+            return;
+        }
+        if (!Helpers.isPictureInPictureSupported(this)) {
+            return;
+        }
+        // Only auto-enter PiP while actually playing (matches YouTube; avoids PiP on a paused pre-roll).
+        if (mPlayer == null || !isPlaying()) {
+            return;
+        }
+        // Don't hijack navigation to one of our own screens (e.g. opening a dialog / channel).
+        if (getViewManager() != null && getViewManager().isNewViewPending()) {
+            return;
+        }
+
+        enterPipMode();
     }
 
     @Override
@@ -519,6 +603,219 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mControlsRoot != null) {
             ViewCompat.requestApplyInsets(mControlsRoot);
         }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Picture-in-Picture
+    // ---------------------------------------------------------------------------------
+
+    /** Enter PiP: shrink the video into a floating window that keeps playing, with a play/pause action. */
+    private void enterPipMode() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O
+                || !Helpers.isPictureInPictureSupported(this)
+                || mIsInPip) {
+            return;
+        }
+
+        try {
+            enterPictureInPictureMode(buildPipParams());
+        } catch (Exception e) {
+            // Device reported PiP support but refused (e.g. OEM restriction) - ignore, stay full-screen.
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private PictureInPictureParams buildPipParams() {
+        PictureInPictureParams.Builder builder = new PictureInPictureParams.Builder();
+
+        builder.setAspectRatio(getVideoAspectRatio());
+
+        // Smooth expand/collapse animation anchored on the current video box.
+        if (mVideoArea != null) {
+            Rect sourceRect = new Rect();
+            mVideoArea.getGlobalVisibleRect(sourceRect);
+            if (!sourceRect.isEmpty()) {
+                builder.setSourceRectHint(sourceRect);
+            }
+        }
+
+        builder.setActions(java.util.Collections.singletonList(buildPlayPauseAction()));
+
+        return builder.build();
+    }
+
+    /** Video aspect ratio for the PiP window, clamped to the range Android accepts (~0.42..2.39). */
+    private Rational getVideoAspectRatio() {
+        int width = 16;
+        int height = 9;
+
+        if (mPlayer != null && mPlayer.getVideoFormat() != null && mPlayer.getVideoFormat().height > 0) {
+            width = mPlayer.getVideoFormat().width;
+            height = mPlayer.getVideoFormat().height;
+        }
+
+        float ratio = (float) width / height;
+        if (ratio < 0.5f) {
+            return new Rational(1, 2);
+        }
+        if (ratio > 2.3f) {
+            return new Rational(23, 10);
+        }
+        return new Rational(width, height);
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private RemoteAction buildPlayPauseAction() {
+        boolean playing = mExoPlayerController != null && mExoPlayerController.getPlayWhenReady() && !mIsEnded;
+
+        int iconRes = playing ? R.drawable.ic_player_pause : R.drawable.ic_player_play;
+        int labelRes = playing ? R.string.mobile_player_pause : R.string.mobile_player_play;
+
+        int piFlags = PendingIntent.FLAG_UPDATE_CURRENT
+                | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+
+        PendingIntent intent = PendingIntent.getBroadcast(
+                this,
+                PIP_REQUEST_TOGGLE,
+                new Intent(ACTION_PIP_TOGGLE).setPackage(getPackageName()),
+                piFlags);
+
+        Icon icon = Icon.createWithResource(this, iconRes);
+        return new RemoteAction(icon, getString(labelRes), getString(labelRes), intent);
+    }
+
+    /** Refresh the PiP window's play/pause action to reflect the current state (icon swap). */
+    private void updatePipActions() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !mIsInPip) {
+            return;
+        }
+        try {
+            setPictureInPictureParams(buildPipParams());
+        } catch (Exception e) {
+            // ignore
+        }
+    }
+
+    private void registerPipReceiver() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || mPipReceiver != null) {
+            return;
+        }
+
+        mPipReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (intent != null && ACTION_PIP_TOGGLE.equals(intent.getAction())) {
+                    togglePlayPause();
+                    updatePipActions();
+                }
+            }
+        };
+
+        // Internal-only broadcast; must be flagged not-exported on API 34+.
+        ContextCompat.registerReceiver(this, mPipReceiver,
+                new IntentFilter(ACTION_PIP_TOGGLE), ContextCompat.RECEIVER_NOT_EXPORTED);
+    }
+
+    private void unregisterPipReceiver() {
+        if (mPipReceiver != null) {
+            try {
+                unregisterReceiver(mPipReceiver);
+            } catch (Exception e) {
+                // not registered
+            }
+            mPipReceiver = null;
+        }
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
+
+        mIsInPip = isInPictureInPictureMode;
+
+        if (isInPictureInPictureMode) {
+            // Video only: hide the controls overlay and the watch-page content, fill with the video.
+            cancelAutoHide();
+            hideControls();
+            if (mControlsRoot != null) {
+                mControlsRoot.setVisibility(View.GONE);
+            }
+            if (mWatchScroll != null) {
+                mWatchScroll.setVisibility(View.GONE);
+            }
+            if (mVideoArea != null) {
+                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) mVideoArea.getLayoutParams();
+                lp.height = LinearLayout.LayoutParams.MATCH_PARENT;
+                lp.weight = 0;
+                mVideoArea.setLayoutParams(lp);
+            }
+            updatePipActions();
+        } else {
+            // Restore the normal layout for the current orientation; controls come back on tap.
+            int orientation = newConfig != null ? newConfig.orientation
+                    : getResources().getConfiguration().orientation;
+            applyWatchLayoutForOrientation(orientation);
+            applySystemBarsForOrientation(orientation);
+            updatePlayPauseIcon();
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Background-playback service (media session + notification; reuses THIS player)
+    // ---------------------------------------------------------------------------------
+
+    private final ServiceConnection mServiceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder binder) {
+            mPlaybackService = ((MobilePlaybackService.LocalBinder) binder).getService();
+            mServiceBound = true;
+            if (mPlayer != null) {
+                mPlaybackService.attachPlayer(mPlayer, mPresenter, buildContentIntent());
+            }
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            mPlaybackService = null;
+            mServiceBound = false;
+        }
+    };
+
+    private void bindPlaybackService() {
+        Intent intent = new Intent(this, MobilePlaybackService.class);
+        // startService keeps it alive independently of the binding so audio survives backgrounding;
+        // safe to call here because the player is created while this Activity is in the foreground.
+        try {
+            startService(intent);
+        } catch (Exception e) {
+            // Background start restrictions - fall back to bind-only (audio still survives while bound).
+        }
+        bindService(intent, mServiceConnection, Context.BIND_AUTO_CREATE);
+    }
+
+    private void unbindPlaybackService() {
+        if (mServiceBound) {
+            try {
+                unbindService(mServiceConnection);
+            } catch (Exception e) {
+                // not bound
+            }
+            mServiceBound = false;
+        }
+        try {
+            stopService(new Intent(this, MobilePlaybackService.class));
+        } catch (Exception e) {
+            // ignore
+        }
+        mPlaybackService = null;
+    }
+
+    private PendingIntent buildContentIntent() {
+        Intent intent = new Intent(this, MobilePlaybackActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        int piFlags = PendingIntent.FLAG_UPDATE_CURRENT
+                | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+        return PendingIntent.getActivity(this, 0, intent, piFlags);
     }
 
     // ---------------------------------------------------------------------------------
@@ -761,6 +1058,8 @@ public class MobilePlaybackActivity extends MobileActivity
                     break;
             }
             updatePlayPauseIcon();
+            // Keep the PiP play/pause action icon in sync with the real playback state.
+            updatePipActions();
         }
     };
 
@@ -1487,8 +1786,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     public boolean isInPIPMode() {
-        // TODO Wave N: Picture-in-Picture (dropped for v1 per ARCHITECTURE.md ?6).
-        return false;
+        return mIsInPip;
     }
 
     @Override
