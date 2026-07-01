@@ -83,6 +83,14 @@ public class MobilePlaybackService extends Service {
      * Context that forces {@link Context#RECEIVER_NOT_EXPORTED} on the 2-arg
      * {@code registerReceiver} the vendored {@link PlayerNotificationManager} uses internally, so it
      * doesn't crash on API 34+ (targetSdk 34). All other calls delegate to the base Service context.
+     *
+     * <p>Crucially, {@link PlayerNotificationManager}'s constructor immediately does
+     * {@code context = context.getApplicationContext()} (exoplayer-ui PlayerNotificationManager.java),
+     * then later calls {@code registerReceiver} on THAT stored context. A plain wrapper is therefore
+     * discarded before the receiver is ever registered - which is why the flag was being lost and the
+     * spurious {@code SecurityException: RECEIVER_EXPORTED...} surfaced on every video start (caught by
+     * ErrorFixerController and shown as a false "no internet" toast). So {@link #getApplicationContext()}
+     * is overridden to keep returning a flag-forcing wrapper, ensuring the override survives the unwrap.
      */
     private static class NotificationContextWrapper extends ContextWrapper {
         NotificationContextWrapper(Context base) {
@@ -90,8 +98,17 @@ public class MobilePlaybackService extends Service {
         }
 
         @Override
+        public Context getApplicationContext() {
+            Context appContext = super.getApplicationContext();
+            // Keep the registerReceiver override alive even after PlayerNotificationManager unwraps
+            // us via getApplicationContext(). If the base already IS the app context, reuse this.
+            return appContext == getBaseContext() ? this : new NotificationContextWrapper(appContext);
+        }
+
+        @Override
         public Intent registerReceiver(@Nullable BroadcastReceiver receiver, IntentFilter filter) {
-            // Register against the base context (not this wrapper) to avoid recursion.
+            // Register against the base context (not this wrapper) to avoid recursion. ContextCompat
+            // uses the flag-aware 4-arg registerReceiver on API 33+, which bypasses this override.
             return ContextCompat.registerReceiver(
                     getBaseContext(), receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
         }
