@@ -2641,10 +2641,20 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchTitle.setText(item.getTitleFull());
         mWatchChannelName.setText(item.getAuthor());
 
-        // Fallback meta line until the metadata load returns a clean "views • date".
+        // Fallback meta line until the metadata load returns a clean "views • date". The
+        // second-title leads with the channel name, which the channel row right below repeats -
+        // strip it so the line reads "1.4M views • 10 months ago" like YouTube's.
         CharSequence second = item.getSecondTitleFull();
         if (mWatchMeta.length() == 0 && !TextUtils.isEmpty(second)) {
-            mWatchMeta.setText(second);
+            String line = second.toString();
+            String author = item.getAuthor();
+            if (!TextUtils.isEmpty(author) && line.startsWith(author)) {
+                String stripped = line.substring(author.length()).replaceFirst("^\\s*[•·]\\s*", "");
+                if (!stripped.isEmpty()) {
+                    line = stripped;
+                }
+            }
+            mWatchMeta.setText(line);
         }
 
         if (!TextUtils.isEmpty(item.likeCount)) {
@@ -2718,9 +2728,13 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         {
-            // Clean "views • date" line.
+            // Clean "views • date" line. YouTube's raw date string arrives as "Published on
+            // Jan 14, 2024" / "Premiered ..." - drop the wordy prefix, keep just the date.
             String views = metadata.getViewCount();
             String date = metadata.getPublishedDate();
+            if (date != null) {
+                date = date.replaceFirst("(?i)^(published|premiered|streamed live) on ", "");
+            }
             String meta;
             if (!TextUtils.isEmpty(views) && !TextUtils.isEmpty(date)) {
                 meta = views + "  •  " + date;
@@ -2788,8 +2802,15 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         mDescriptionExpanded = !mDescriptionExpanded;
+        // Smooth expand/collapse: animate the content column's layout change and spin the
+        // chevron, instead of the block just popping in.
+        ViewGroup content = (ViewGroup) mWatchDescription.getParent();
+        if (content != null) {
+            androidx.transition.TransitionManager.beginDelayedTransition(content,
+                    new androidx.transition.AutoTransition().setDuration(180));
+        }
         mWatchDescription.setVisibility(mDescriptionExpanded ? View.VISIBLE : View.GONE);
-        mWatchExpand.setRotation(mDescriptionExpanded ? 180f : 0f);
+        mWatchExpand.animate().rotation(mDescriptionExpanded ? 180f : 0f).setDuration(180).start();
     }
 
     /** Route Like / Dislike / Subscribe through the presenter's onButtonClicked vocabulary. */

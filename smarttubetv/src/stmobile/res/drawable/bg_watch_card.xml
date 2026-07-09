@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Rounded surface card with ripple for tappable watch-page rows (Comments / Live chat),
+     matching YouTube's raised comment-entry card. minSdk for the mobile flavors is 21+. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#33FFFFFF">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/mobile_color_surface" />
+            <corners android:radius="12dp" />
+        </shape>
+    </item>
+</ripple>
