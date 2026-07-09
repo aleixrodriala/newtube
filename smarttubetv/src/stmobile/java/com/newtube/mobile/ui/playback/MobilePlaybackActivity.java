@@ -366,13 +366,16 @@ public class MobilePlaybackActivity extends MobileActivity
         //    starts below a solid status bar, YouTube-style, so the window insets are already
         //    consumed and the controls just anchor FLUSH to the video box (no extra padding).
         ViewCompat.setOnApplyWindowInsetsListener(mControlsRoot, (v, insets) -> {
-            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            if (isLandscape()) {
-                v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
-            } else {
-                v.setPadding(0, 0, 0, 0);
-            }
+            applyControlsInsets();
             return insets;
+        });
+        // Re-run on every size change too: the insets pass alone proved unreliable across the
+        // fullscreen rotation (it can fire before the window has its landscape size, leaving the
+        // controls pinned to the far screen corners).
+        mControlsRoot.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or_, ob) -> {
+            if ((r - l) != (or_ - ol) || (b - t) != (ob - ot)) {
+                applyControlsInsets();
+            }
         });
 
         // PLAYER LAYOUT POLISH: in portrait the decor already fits the system windows, so the bars
@@ -874,6 +877,38 @@ public class MobilePlaybackActivity extends MobileActivity
      * Actual rotation is handled by the system (manifest {@code configChanges} keeps the live
      * ExoPlayer instance across rotation); this only follows it.
      */
+    /**
+     * PLAYER LAYOUT POLISH + REACH FIX. Portrait: the decor fits the system windows, controls
+     * anchor flush to the video box (no padding). Landscape/fullscreen: inset by the system bars
+     * AND by the pillarbox strip of a 16:9 video, so the whole overlay - especially the
+     * fullscreen-exit button in the bottom-right - aligns with the video content edges ("where
+     * the black strips start", like YouTube) instead of the far screen corners.
+     */
+    private void applyControlsInsets() {
+        if (mControlsRoot == null) {
+            return;
+        }
+        int left = 0, top = 0, right = 0, bottom = 0;
+        if (isLandscape()) {
+            WindowInsetsCompat rootInsets = ViewCompat.getRootWindowInsets(mControlsRoot);
+            Insets bars = rootInsets != null
+                    ? rootInsets.getInsets(WindowInsetsCompat.Type.systemBars()) : Insets.NONE;
+            int width = mControlsRoot.getWidth() > 0
+                    ? mControlsRoot.getWidth() : getResources().getDisplayMetrics().widthPixels;
+            int height = mControlsRoot.getHeight() > 0
+                    ? mControlsRoot.getHeight() : getResources().getDisplayMetrics().heightPixels;
+            int strip = Math.max(0, Math.round((width - height * 16f / 9f) / 2f));
+            left = Math.max(bars.left, strip);
+            right = Math.max(bars.right, strip);
+            top = bars.top;
+            bottom = bars.bottom;
+        }
+        if (mControlsRoot.getPaddingLeft() != left || mControlsRoot.getPaddingTop() != top
+                || mControlsRoot.getPaddingRight() != right || mControlsRoot.getPaddingBottom() != bottom) {
+            mControlsRoot.setPadding(left, top, right, bottom);
+        }
+    }
+
     private void applySystemBarsForOrientation(int orientation) {
         if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
             // Immersive full-bleed video (PLAYER POLISH behaviour).

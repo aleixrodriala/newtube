@@ -124,13 +124,17 @@ android {
     applicationVariants.all { variant ->
         variant.outputs.all { output ->
             def project = "SmartTube"
-            def flavor = variant.productFlavors[-1].name.substring(2) // remove st prefix
+            def flavorName = variant.productFlavors[-1].name
+            def flavor = flavorName.substring(2) // remove st prefix
             def buildType = variant.buildType.name.take(1)
             def version = variant.versionName
             def arch = output.getFilter(com.android.build.OutputFile.ABI)
             arch = arch != null ? arch : "universal"
 
-            def newApkName = sprintf("%s_%s_%s_%s.apk", [project, flavor, version, arch])
+            // The phone port ships under its own name + versioning: NewTube_1.0.0_universal.apk
+            def newApkName = flavorName == "stmobile"
+                    ? sprintf("NewTube_%s_%s.apk", [version, arch])
+                    : sprintf("%s_%s_%s_%s.apk", [project, flavor, version, arch])
 
             // gradle 4.6 migration
             output.outputFileName = new File(newApkName)
@@ -181,6 +185,12 @@ android {
             minSdkVersion 21
             targetSdkVersion project.properties.compileSdkVersion
             matchingFallbacks = ['ststable']
+            // NewTube versions independently of upstream SmartTube (defaultConfig carries the
+            // fork-point 31.97/2387). versionCode starts at 10000 - above upstream's code so
+            // existing test installs upgrade in place - and encodes the version:
+            // 1.0.0 -> 10000, 1.0.1 -> 10001, 1.1.0 -> 10100, 2.0.0 -> 20000.
+            versionCode 10000
+            versionName "1.0.0"
         }
     }
 }
