@@ -3,7 +3,7 @@
     <color name="mobile_color_primary">#FF0000</color>
     <color name="mobile_color_primary_dark">#CC0000</color>
     <color name="mobile_color_accent">#FF4081</color>
-    <color name="mobile_color_background">#121212</color>
+    <color name="mobile_color_background">#0F0F0F</color>
     <color name="mobile_color_surface">#1E1E1E</color>
     <color name="mobile_color_on_surface">#FFFFFF</color>
     <color name="mobile_color_on_surface_secondary">#B3FFFFFF</color>

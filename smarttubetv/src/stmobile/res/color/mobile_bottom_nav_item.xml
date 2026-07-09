@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bottom-nav icon/label tint: white when selected, dimmed otherwise (YouTube-style). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/mobile_color_on_surface" android:state_checked="true" />
+    <item android:color="@color/mobile_color_on_surface_secondary" />
+</selector>

@@ -20,6 +20,7 @@ import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.navigation.NavigationView;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaGroup;
+import com.liskovsoft.mediaserviceinterfaces.oauth.Account;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.BrowseSection;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.SettingsGroup;
@@ -31,8 +32,11 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.BrowsePresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.SearchPresenter;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.YTSignInPresenter;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.AccountSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.misc.AppDataSourceManager;
+import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.common.MobileActivity;
 
@@ -100,6 +104,8 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     private BottomNavigationView mBottomNav;
     private DrawerLayout mDrawerLayout;
     private NavigationView mNavView;
+    /** Drawer-header account row label (sign-in entry / current account name). */
+    private TextView mNavAccountText;
     private ProgressBar mProgressBar;
     private View mErrorContainer;
     private ImageView mErrorIcon;
@@ -142,11 +148,6 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         mNavView = findViewById(R.id.mobile_nav_view);
         mProgressBar = findViewById(R.id.mobile_progress_bar);
 
-        // Paint the status-bar strip (DrawerLayout draws it while fitsSystemWindows insets the toolbar
-        // below the bar - see the layout comment) with the toolbar surface color so the top reads as
-        // one solid bar rather than the theme's default colorPrimaryDark.
-        mDrawerLayout.setStatusBarBackgroundColor(
-                androidx.core.content.ContextCompat.getColor(this, R.color.mobile_color_surface));
         mErrorContainer = findViewById(R.id.mobile_error_container);
         mErrorIcon = findViewById(R.id.mobile_error_icon);
         mErrorMessage = findViewById(R.id.mobile_error_message);
@@ -236,6 +237,25 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
      */
     private void setupDrawer() {
         mMenuButton.setOnClickListener(v -> mDrawerLayout.openDrawer(GravityCompat.START));
+
+        // Account row in the drawer header: the one always-visible sign-in entry point (the other
+        // is the signed-out Subscriptions/Playlists "Sign in" button). Signed out -> device-code
+        // sign-in; signed in -> accounts dialog (switch / add / sign out).
+        View headerView = mNavView.getHeaderView(0);
+        if (headerView != null) {
+            View accountRow = headerView.findViewById(R.id.mobile_nav_account_row);
+            mNavAccountText = headerView.findViewById(R.id.mobile_nav_account_text);
+            if (accountRow != null) {
+                accountRow.setOnClickListener(v -> {
+                    mDrawerLayout.closeDrawer(GravityCompat.START);
+                    if (MediaServiceManager.instance().getSelectedAccount() != null) {
+                        AccountSettingsPresenter.instance(this).show();
+                    } else {
+                        YTSignInPresenter.instance(this).start();
+                    }
+                });
+            }
+        }
 
         mNavView.setNavigationItemSelectedListener(item -> {
             mDrawerLayout.closeDrawer(GravityCompat.START);
@@ -518,9 +538,22 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
             mPresenter.onViewResumed();
         }
 
-        // Wave-1 wart fix (ARCHITECTURE.md / ROADMAP Wave 2): MotherActivity goes
-        // immersive-sticky by default - see MobileActivity.showSystemBars() for why.
-        showSystemBars();
+        updateAccountRow();
+    }
+
+    /** Drawer-header account row label: account name when signed in, "Sign in" otherwise. */
+    private void updateAccountRow() {
+        if (mNavAccountText == null) {
+            return;
+        }
+
+        Account account = MediaServiceManager.instance().getSelectedAccount();
+        if (account != null) {
+            String label = account.getName() != null ? account.getName() : account.getEmail();
+            mNavAccountText.setText(label != null ? label : getString(R.string.settings_accounts));
+        } else {
+            mNavAccountText.setText(R.string.dialog_add_account);
+        }
     }
 
     @Override

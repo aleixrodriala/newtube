@@ -206,8 +206,6 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
         if (mPresenter != null) {
             mPresenter.onViewResumed();
         }
-
-        showSystemBars();
     }
 
     @Override

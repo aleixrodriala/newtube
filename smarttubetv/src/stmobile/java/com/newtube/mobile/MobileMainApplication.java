@@ -11,6 +11,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.SignInView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.common.app.views.WebBrowserView;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.YTSignInPresenter;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.ExoMediaSourceFactory;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.ExoPlayerInitializer;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
@@ -171,6 +172,14 @@ public class MobileMainApplication extends MainApplication {
         // the two heaviest cold-start fetches skip together. Self-healing (persisted copy is nulled when
         // its playerUrl stops validating). TV never calls this -> TV fetch behavior unchanged.
         AppServiceIntCached.setPersistedAppInfoEnabled(true);
+
+        // SIGN-IN FIX (mobile-only): on a phone the device-code approval happens in a browser on
+        // the SAME device, so the sign-in poll completes while NewTube is backgrounded and the TV
+        // flow's follow-up account-picker startActivity is silently blocked by Android 10+
+        // background-start rules - the app looked like sign-in did nothing. Skip the picker (the
+        // account is auto-selected on token persist) and toast instead; Home refreshes itself via
+        // the account-change listener chain. TV keeps the picker.
+        YTSignInPresenter.setSilentSuccessEnabled(true);
 
         // SEEK-BACK FIX (secondary, defense-in-depth): install a bounded on-disk media cache. It does
         // NOT help the SABR path (POST bodies aren't cacheable), but it makes the progressive /

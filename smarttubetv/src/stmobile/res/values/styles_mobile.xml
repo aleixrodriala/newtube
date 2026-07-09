@@ -21,6 +21,11 @@
         <item name="colorSurface">@color/mobile_color_surface</item>
         <item name="colorOnSurface">@color/mobile_color_on_surface</item>
         <item name="android:windowBackground">@color/mobile_color_background</item>
+        <!-- Solid app-colored system bars from the first frame (otherwise colorPrimaryDark red
+             flashes in the status bar until the runtime chrome in MobileActivity lands). -->
+        <item name="android:statusBarColor">@color/mobile_color_background</item>
+        <item name="android:navigationBarColor">@color/mobile_color_background</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
     <!--
@@ -52,7 +57,7 @@
         <item name="android:windowAnimationStyle">@style/PlayerWindowAnimation</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:windowTranslucentStatus">false</item>
-        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:statusBarColor">@color/mobile_color_background</item>
         <item name="android:navigationBarColor">@color/mobile_color_background</item>
     </style>
 

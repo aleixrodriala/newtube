@@ -293,8 +293,6 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
         if (mPresenter != null) {
             mPresenter.onViewResumed();
         }
-
-        showSystemBars();
     }
 
     @Override

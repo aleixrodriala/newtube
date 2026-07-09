@@ -60,6 +60,8 @@
     <string name="dialog_account_none">None</string>
     <string name="dialog_remove_account">Sign out</string>
     <string name="dialog_add_account">Sign in</string>
+    <!-- NEWTUBE(mobile): toast after device-code sign-in completes (mobile skips the account picker). -->
+    <string name="signed_in_success">Signed in</string>
     <string name="default_lang">Default</string>
     <string name="original_lang">Original</string>
     <string name="dialog_select_language">Language</string>

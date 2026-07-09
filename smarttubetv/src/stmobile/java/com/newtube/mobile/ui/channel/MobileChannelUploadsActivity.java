@@ -166,8 +166,6 @@ public class MobileChannelUploadsActivity extends MobileActivity implements Chan
         if (mPresenter != null) {
             mPresenter.onViewResumed();
         }
-
-        showSystemBars();
     }
 
     @Override

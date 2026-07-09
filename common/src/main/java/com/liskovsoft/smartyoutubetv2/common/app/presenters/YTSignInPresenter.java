@@ -6,6 +6,8 @@ import android.content.Context;
 import com.liskovsoft.mediaserviceinterfaces.ServiceManager;
 import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.sharedutils.rx.RxHelper;
+import com.liskovsoft.sharedutils.helpers.MessageHelpers;
+import com.liskovsoft.smartyoutubetv2.common.R;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.AccountSelectionPresenter;
 import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
 
@@ -19,6 +21,13 @@ public class YTSignInPresenter extends SignInPresenter {
     //private static final String SIGN_IN_URL = "https://youtube.com/activate"; // age restricted, supports search history
     @SuppressLint("StaticFieldLeak")
     private static YTSignInPresenter sInstance;
+    // NEWTUBE(mobile): on phones the user approves the device code in a browser on the SAME device,
+    // so success lands while this app is backgrounded - a background startActivity for the account
+    // picker is silently blocked on Android 10+ and the app looks like nothing happened. The mobile
+    // flavor enables this to skip the picker (the fresh account is auto-selected by
+    // YouTubeAccountManager.fixSelectedAccount) and show a toast instead (toasts are allowed from
+    // the background). Default OFF = TV behavior unchanged.
+    private static boolean sSilentSuccessEnabled;
     private final ServiceManager mService;
     private Disposable mSignInAction;
 
@@ -35,6 +44,10 @@ public class YTSignInPresenter extends SignInPresenter {
         sInstance.setContext(context);
 
         return sInstance;
+    }
+
+    public static void setSilentSuccessEnabled(boolean enabled) {
+        sSilentSuccessEnabled = enabled;
     }
 
     public void unhold() {
@@ -79,7 +92,13 @@ public class YTSignInPresenter extends SignInPresenter {
                                 getView().close();
                             }
 
-                            AccountSelectionPresenter.instance(getContext()).show(true);
+                            if (sSilentSuccessEnabled) {
+                                // See sSilentSuccessEnabled: account already auto-selected; Home
+                                // refreshes through the account-change listener chain.
+                                MessageHelpers.showMessage(getContext(), R.string.signed_in_success);
+                            } else {
+                                AccountSelectionPresenter.instance(getContext()).show(true);
+                            }
                         }
                  );
     }

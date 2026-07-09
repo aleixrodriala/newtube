@@ -289,11 +289,17 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
             mPresenter.onViewResumed();
         }
 
-        // Full-screen settings: restore the normal system bars like every other mobile screen.
-        // Bottom-sheet overlays: leave the caller's system-bar state untouched (so a sheet opened
-        // over the immersive landscape player doesn't pop the status bar in over the video).
+    }
+
+    /**
+     * Bottom-sheet overlays must leave the caller's system-bar state untouched (a sheet opened
+     * over the immersive landscape player must not pop the status bar in over the video), so the
+     * standard mobile chrome is only applied in full-screen (settings-tree) mode.
+     */
+    @Override
+    protected void applyFullscreenModeIfNeeded() {
         if (mFullScreen) {
-            showSystemBars();
+            applyMobileSystemBars();
         }
     }
 

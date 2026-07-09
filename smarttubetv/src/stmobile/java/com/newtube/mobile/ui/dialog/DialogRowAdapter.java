@@ -230,6 +230,36 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
     }
 
+    /**
+     * Account rows (AccountSelectionPresenter/AccountSettingsPresenter) embed the avatar as an
+     * inline {@code ImageSpan} whose drawable keeps its intrinsic bitmap size - full-resolution
+     * on a phone, which blew the row up to the avatar's pixel height. Clamp any inline icon to
+     * ~1.4x the row's text size (roughly the line box, like an emoji). TV renders these rows with
+     * Leanback (which sizes icons itself), so this stays a mobile-renderer concern.
+     */
+    private static CharSequence sizeInlineIcons(CharSequence text, TextView target) {
+        if (!(text instanceof android.text.Spanned)) {
+            return text;
+        }
+
+        android.text.Spanned spanned = (android.text.Spanned) text;
+        android.text.style.ImageSpan[] spans =
+                spanned.getSpans(0, spanned.length(), android.text.style.ImageSpan.class);
+        if (spans.length == 0) {
+            return text;
+        }
+
+        int size = Math.round(target.getTextSize() * 1.4f);
+        for (android.text.style.ImageSpan span : spans) {
+            android.graphics.drawable.Drawable drawable = span.getDrawable();
+            if (drawable != null) {
+                drawable.setBounds(0, 0, size, size);
+            }
+        }
+
+        return text;
+    }
+
     private static class RowViewHolder extends RecyclerView.ViewHolder {
         private final TextView title;
         private final TextView subtitle;
@@ -247,7 +277,7 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         void bind(Row row, Listener listener) {
-            title.setText(row.title);
+            title.setText(sizeInlineIcons(row.title, title));
 
             if (row.subtitle != null && row.subtitle.length() > 0) {
                 subtitle.setText(row.subtitle);

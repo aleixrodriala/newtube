@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Home-grid video card, YouTube-style: a flat (no box, no elevation) cell whose thumbnail is
+  clipped to rounded corners by the inner MaterialCardView, with title/channel text sitting
+  directly on the window background. The outer card is only the click/ripple container.
+-->
 <com.google.android.material.card.MaterialCardView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -6,23 +11,28 @@
     android:id="@+id/video_card_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="4dp"
+    android:layout_margin="@dimen/mobile_card_spacing"
     android:checkable="false"
     android:clickable="true"
     android:focusable="true"
     android:foreground="?attr/selectableItemBackground"
-    app:cardBackgroundColor="@color/mobile_color_surface"
-    app:cardCornerRadius="@dimen/mobile_card_corner_radius"
-    app:cardElevation="2dp">
+    app:cardBackgroundColor="@android:color/transparent"
+    app:cardCornerRadius="0dp"
+    app:cardElevation="0dp">
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
-        <FrameLayout
+        <!-- MaterialCardView (a FrameLayout) clips the thumbnail + badge + progress to rounded
+             corners; the watched-progress bar stays inside the rounded shape like YouTube. -->
+        <com.google.android.material.card.MaterialCardView
             android:id="@+id/video_thumbnail_frame"
             android:layout_width="0dp"
             android:layout_height="0dp"
+            app:cardBackgroundColor="@color/mobile_color_placeholder"
+            app:cardCornerRadius="@dimen/mobile_card_corner_radius"
+            app:cardElevation="0dp"
             app:layout_constraintDimensionRatio="16:9"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
@@ -32,7 +42,6 @@
                 android:id="@+id/video_thumbnail"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:background="@color/mobile_color_placeholder"
                 android:contentDescription="@null"
                 android:scaleType="centerCrop" />
 
@@ -41,12 +50,12 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="bottom|end"
-                android:layout_margin="4dp"
-                android:background="@color/mobile_color_badge_bg"
-                android:paddingHorizontal="4dp"
-                android:paddingVertical="1dp"
+                android:layout_margin="6dp"
+                android:background="@drawable/bg_video_badge"
+                android:paddingHorizontal="5dp"
+                android:paddingVertical="2dp"
                 android:textColor="@android:color/white"
-                android:textSize="11sp"
+                android:textSize="12sp"
                 android:textStyle="bold"
                 android:visibility="gone"
                 tools:text="12:34" />
@@ -64,19 +73,20 @@
                 tools:progress="40"
                 tools:visibility="visible" />
 
-        </FrameLayout>
+        </com.google.android.material.card.MaterialCardView>
 
         <TextView
             android:id="@+id/video_title"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_marginTop="6dp"
-            android:layout_marginEnd="8dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginEnd="4dp"
             android:ellipsize="end"
+            android:lineSpacingExtra="2sp"
             android:maxLines="2"
             android:textColor="@color/mobile_color_on_surface"
-            android:textSize="14sp"
+            android:textSize="15sp"
             android:textStyle="bold"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
@@ -87,14 +97,15 @@
             android:id="@+id/video_channel"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_marginTop="2dp"
-            android:layout_marginEnd="8dp"
-            android:layout_marginBottom="8dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginTop="3dp"
+            android:layout_marginEnd="4dp"
+            android:layout_marginBottom="10dp"
             android:ellipsize="end"
             android:maxLines="1"
             android:textColor="@color/mobile_color_on_surface_secondary"
-            android:textSize="12sp"
+            android:textSize="13sp"
+            app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/video_title"

@@ -7,7 +7,7 @@
          TV helper assumes landscape, which is wrong for a portrait phone). -->
     <dimen name="mobile_card_target_width">168dp</dimen>
     <dimen name="mobile_card_spacing">8dp</dimen>
-    <dimen name="mobile_card_corner_radius">8dp</dimen>
+    <dimen name="mobile_card_corner_radius">12dp</dimen>
     <dimen name="mobile_title_bar_height">56dp</dimen>
 
     <!-- Touch player controls -->

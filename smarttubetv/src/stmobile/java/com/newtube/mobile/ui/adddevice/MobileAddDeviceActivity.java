@@ -73,9 +73,6 @@ public class MobileAddDeviceActivity extends MobileActivity implements AddDevice
     @Override
     protected void onResume() {
         super.onResume();
-
-        // Keep the status bar visible - this is not the player.
-        showSystemBars();
     }
 
     @Override

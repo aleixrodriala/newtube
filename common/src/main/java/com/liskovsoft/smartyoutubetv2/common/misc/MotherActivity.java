@@ -287,7 +287,14 @@ public class MotherActivity extends FragmentActivity {
         initDpi();
     }
 
-    private void applyFullscreenModeIfNeeded() {
+    /**
+     * NEWTUBE(mobile): window-chrome hook, called from onResume. TV default = immersive fullscreen
+     * (hide system bars). The touch flavor overrides this to apply standard phone system bars
+     * instead - the TV immersive/translucent flags left on the window were fighting the mobile
+     * screens' inset handling (status bar ended up overlapping content after the player's
+     * fullscreen round-trip).
+     */
+    protected void applyFullscreenModeIfNeeded() {
         if (mIsFullscreenModeEnabled) {
             // Most of the fullscreen tweaks could be performed in styles but not all.
             // E.g. Hide bottom navigation bar (couldn't be done in styles).

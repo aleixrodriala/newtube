@@ -9,15 +9,10 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/mobile_drawer_layout"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:fitsSystemWindows="true"><!--
-    fitsSystemWindows: MotherActivity.onResume() leaves FLAG_TRANSLUCENT_STATUS set on the window
-    (via Helpers.makeActivityFullscreen2), so the window draws behind the status bar. Unlike the
-    other screens' plain View roots (which the decor insets automatically), a DrawerLayout handles
-    window insets itself and only pushes its content below the status bar when it is marked
-    fitsSystemWindows - without this the top toolbar rendered under the clock/battery. The status-bar
-    strip is painted with the toolbar surface color in code (setStatusBarBackgroundColor) so the top
-    reads as one solid bar. -->
+    android:layout_height="match_parent"><!--
+    No fitsSystemWindows needed: MobileActivity.applyMobileSystemBars() keeps the decor fitting
+    the system windows (solid app-colored status/nav bars), so the DrawerLayout never renders
+    under the bars regardless of what the player did to the display in between. -->
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/mobile_browse_root"
@@ -31,7 +26,6 @@
             android:layout_height="@dimen/mobile_title_bar_height"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/mobile_menu_button"
-            android:elevation="4dp"
             android:padding="12dp"
             android:src="@drawable/ic_mobile_menu"
             app:layout_constraintStart_toStartOf="parent"
@@ -41,8 +35,7 @@
             android:id="@+id/mobile_title_bar"
             android:layout_width="0dp"
             android:layout_height="@dimen/mobile_title_bar_height"
-            android:background="@color/mobile_color_surface"
-            android:elevation="4dp"
+            android:background="@color/mobile_color_background"
             android:gravity="center_vertical|start"
             android:paddingStart="8dp"
             android:text="@string/app_name"
@@ -59,7 +52,6 @@
             android:layout_height="@dimen/mobile_title_bar_height"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/mobile_search_button"
-            android:elevation="4dp"
             android:padding="12dp"
             android:src="@drawable/ic_mobile_search"
             app:layout_constraintEnd_toStartOf="@id/mobile_settings_button"
@@ -71,7 +63,6 @@
             android:layout_height="@dimen/mobile_title_bar_height"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/mobile_settings_button"
-            android:elevation="4dp"
             android:padding="12dp"
             android:src="@drawable/ic_mobile_settings"
             app:layout_constraintEnd_toEndOf="parent"
@@ -153,10 +144,10 @@
             android:id="@+id/mobile_bottom_nav"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:background="@color/mobile_color_surface"
-            app:itemIconTint="@color/mobile_color_on_surface"
-            app:itemTextColor="@color/mobile_color_on_surface"
-            app:labelVisibilityMode="auto"
+            android:background="@color/mobile_color_background"
+            app:itemIconTint="@color/mobile_bottom_nav_item"
+            app:itemTextColor="@color/mobile_bottom_nav_item"
+            app:labelVisibilityMode="labeled"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent" />

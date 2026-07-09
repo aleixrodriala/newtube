@@ -3,12 +3,17 @@ package com.newtube.mobile.ui.common;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+import android.view.WindowManager;
+
+import androidx.core.content.ContextCompat;
 
 import com.liskovsoft.smartyoutubetv2.common.misc.MotherActivity;
 import com.liskovsoft.smartyoutubetv2.common.misc.ScreensaverManager;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
+import com.liskovsoft.smartyoutubetv2.tv.R;
 
 /**
  * Mobile base Activity. Mirrors the lifecycle wiring that the TV base activity
@@ -35,6 +40,18 @@ public abstract class MobileActivity extends MotherActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+    }
+
+    /**
+     * Keep the manifest theme. The TV base applies MainUIData's color-scheme theme here
+     * (App.Theme.Leanback.*), which sets {@code android:windowFullscreen=true} +
+     * {@code windowTranslucentNavigation=true} on EVERY window - that theme-level fullscreen flag
+     * is what kept hiding the status bar on mobile no matter what the runtime calls requested.
+     * Mobile screens use Theme.NewTube (Material, normal system bars) from the manifest.
+     */
+    @Override
+    protected void initTheme() {
+        // No TV color-scheme overlay on the touch flavor.
     }
 
     /**
@@ -88,22 +105,52 @@ public abstract class MobileActivity extends MotherActivity {
     }
 
     /**
-     * Inverse of {@code Helpers.makeActivityFullscreen2()}. {@code MotherActivity.onResume()}
-     * unconditionally calls that whenever {@code GeneralData.isFullscreenModeEnabled()} (which
-     * defaults to {@code true}) - i.e. on every mobile screen, not just the player - which goes
-     * immersive-sticky and hides the status bar. On a cold launch that also triggers Android's
-     * "now viewing in full screen" system toast on Home, which reads as a bug on a touch app
-     * where the status bar (clock/battery/notifications) is expected to stay visible outside the
-     * player. Subclasses call this after {@code super.onResume()}/on rotation to opt back in to
-     * normal system bars; {@code MobilePlaybackActivity} calls it for portrait only and keeps
-     * landscape immersive (that's the one screen where hiding the bars is actually desirable).
+     * Replaces the TV window chrome wholesale. {@code MotherActivity.onResume()} used to call
+     * {@code Helpers.makeActivityFullscreen2()} on every mobile screen (immersive-sticky, hidden
+     * status bar, translucent flags, {@code decorFits=false}); subclasses then partially undid it,
+     * and whichever call won the race decided whether content rendered under the clock - that's
+     * exactly the "whole app merges with the status bar after player fullscreen" bug. Overriding
+     * the hook means TV immersive state is never applied to a mobile screen in the first place.
+     *
+     * <p>{@code MobilePlaybackActivity} overrides this again: landscape keeps the true immersive
+     * fullscreen (the one screen where hiding the bars is desirable), portrait uses this recipe.</p>
      */
-    protected void showSystemBars() {
+    @Override
+    protected void applyFullscreenModeIfNeeded() {
+        applyMobileSystemBars();
+    }
+
+    /**
+     * Standard phone window chrome: status + navigation bars visible, painted with the app
+     * background, white icons (dark theme), and the decor fitting system windows so layouts
+     * never end up under the bars. Idempotent - safe to call on resume/rotation.
+     */
+    protected void applyMobileSystemBars() {
+        Window window = getWindow();
+
+        // Undo anything makeActivityFullscreen2 or a TV theme might have left on this window -
+        // FLAG_FULLSCREEN (theme windowFullscreen) requests a hidden status bar, and translucent
+        // bars force layout-behind regardless of decorFits.
+        window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+
+        int barColor = ContextCompat.getColor(this, R.color.mobile_color_background);
+        window.setStatusBarColor(barColor);
+        window.setNavigationBarColor(barColor);
+
         if (Build.VERSION.SDK_INT >= 30) {
-            getWindow().setDecorFitsSystemWindows(true);
-            WindowInsetsController controller = getWindow().getInsetsController();
+            window.setDecorFitsSystemWindows(true);
+            WindowInsetsController controller = window.getInsetsController();
             if (controller != null) {
                 controller.show(WindowInsets.Type.systemBars());
+                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_DEFAULT);
+                // Dark backgrounds -> keep light (white) status/navigation icons.
+                controller.setSystemBarsAppearance(
+                        0,
+                        WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                                | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
             }
         } else {
             getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);

@@ -115,10 +115,6 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
     @Override
     protected void onResume() {
         super.onResume();
-
-        // Keep the status bar (clock/battery/notifications) visible - this is not the player.
-        // MotherActivity.onResume() goes immersive when fullscreen mode is on (default true).
-        showSystemBars();
     }
 
     @Override

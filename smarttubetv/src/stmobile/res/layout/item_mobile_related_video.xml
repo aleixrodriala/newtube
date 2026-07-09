@@ -18,15 +18,18 @@
     android:paddingHorizontal="@dimen/mobile_watch_content_padding"
     android:paddingVertical="6dp">
 
-    <FrameLayout
+    <!-- MaterialCardView clips thumbnail + badge + progress to rounded corners (YouTube-style). -->
+    <com.google.android.material.card.MaterialCardView
         android:layout_width="@dimen/mobile_watch_related_thumb_width"
-        android:layout_height="@dimen/mobile_watch_related_thumb_height">
+        android:layout_height="@dimen/mobile_watch_related_thumb_height"
+        app:cardBackgroundColor="@color/mobile_color_placeholder"
+        app:cardCornerRadius="10dp"
+        app:cardElevation="0dp">
 
         <ImageView
             android:id="@+id/related_thumbnail"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="@color/mobile_color_placeholder"
             android:contentDescription="@null"
             android:scaleType="centerCrop" />
 
@@ -35,10 +38,10 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|end"
-            android:layout_margin="4dp"
-            android:background="@color/mobile_color_badge_bg"
-            android:paddingHorizontal="4dp"
-            android:paddingVertical="1dp"
+            android:layout_margin="5dp"
+            android:background="@drawable/bg_video_badge"
+            android:paddingHorizontal="5dp"
+            android:paddingVertical="2dp"
             android:textColor="@android:color/white"
             android:textSize="11sp"
             android:textStyle="bold"
@@ -57,7 +60,7 @@
             android:progressTint="@color/mobile_color_progress"
             android:visibility="gone" />
 
-    </FrameLayout>
+    </com.google.android.material.card.MaterialCardView>
 
     <LinearLayout
         android:layout_width="0dp"
