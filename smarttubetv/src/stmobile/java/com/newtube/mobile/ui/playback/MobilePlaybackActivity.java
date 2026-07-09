@@ -428,6 +428,10 @@ public class MobilePlaybackActivity extends MobileActivity
             @Override
             public void onScrubStart(TimeBar timeBar, long position) {
                 mScrubbing = true;
+                // Grabbing the bar definitively ends any double-tap seek burst: make sure the
+                // release seek below resolves with the bounded default, not a leaked directional
+                // NEXT/PREVIOUS_SYNC (see the seek-burst watchdog doc).
+                endUserSeekBurst();
                 cancelAutoHide();
                 mPositionView.setText(formatTime(position));
                 updateScrubChapterLabel(position);
@@ -446,10 +450,9 @@ public class MobilePlaybackActivity extends MobileActivity
                     mScrubChapterView.setVisibility(View.GONE);
                 }
                 if (!canceled && mExoPlayerController != null) {
-                    // EXACT seek (player default), like YouTube's scrubber: the playhead lands
-                    // where the finger released. The earlier CLOSEST_SYNC fast-seek here could
-                    // snap SECONDS behind the target on sparse-keyframe streams, which read as
-                    // "I skipped ahead and it jumped back" (user-reported on device).
+                    // Plain seek -> the player's mobile default, the bounded 5s/1s tolerance
+                    // set at player creation (see that comment for the EXACT-vs-PREVIOUS_SYNC
+                    // measurements this replaces).
                     mExoPlayerController.setPositionMs(position);
                 }
                 armAutoHide();
@@ -574,6 +577,11 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         mPlayer.setPlayWhenReady(true);
 
+        // Bounded-tolerance seeking as the player-wide default (scrub release, position restore -
+        // every plain seekTo); see MOBILE_SEEK_PARAMETERS for the measurements behind it.
+        // Double-tap bursts override per-direction (setUserSeekDirection) and restore to this.
+        mPlayer.setSeekParameters(MOBILE_SEEK_PARAMETERS);
+
         mExoPlayerController.setPlayer(mPlayer);
         mPlayerView.setPlayer(mPlayer);
 
@@ -585,9 +593,8 @@ public class MobilePlaybackActivity extends MobileActivity
                 .performListener(new YouTubeOverlay.PerformListener() {
                     @Override
                     public void onAnimationStart() {
-                        // FAST-SEEK: the overlay seeks the raw player between animation start/end;
-                        // per-tap directional keyframe-snap for the burst, restored on end.
-                        beginUserSeekBurst();
+                        // FAST-SEEK: the overlay seeks the raw player during the animation; the
+                        // directional keyframe-snap is installed per tap in shouldForward.
                         mYouTubeOverlay.setVisibility(View.VISIBLE);
                     }
 
@@ -1083,38 +1090,56 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     /**
+     * The mobile default seek resolution: snap to a known sync point when it is within 5s before /
+     * 1s after the target, otherwise land at the window edge. Measured on the Norway repro video
+     * (bnQI3v_MpOs, 1080p60 VP9):
+     *  - EXACT everywhere froze the player in "buffering" ~5-7s per seek (decode from the previous
+     *    keyframe up to the requested frame; sw-decode emulator numbers - shorter on hw decode but
+     *    still a visible freeze), 13.5s after a rapid tap-around burst.
+     *  - PREVIOUS_SYNC everywhere resumed in &lt;1s but could land up to 52s BEFORE the finger:
+     *    ExoPlayer 2.10's seek adjustment sometimes consults a much coarser index than the ~5s
+     *    container keyframes its own loader uses ("jumped back" feel).
+     * With the bounded window, seeks resolved in ~0.9s and landed at most ~5s early - scrubbing
+     * feels like YouTube's keyframe-aligned bar. 5s is ~2px on the portrait seekbar of a 30-min
+     * video, well under scrub aim precision.
+     */
+    private static final SeekParameters MOBILE_SEEK_PARAMETERS =
+            new SeekParameters(/* toleranceBeforeUs= */ 5_000_000, /* toleranceAfterUs= */ 1_000_000);
+
+    /**
      * FAST-SEEK, scoped to the double-tap gesture only. Each +10s/-10s tap seeks with a
      * DIRECTIONAL keyframe snap - NEXT_SYNC going forward, PREVIOUS_SYNC going back - so a tap
      * always makes progress in the tapped direction at keyframe speed. The earlier CLOSEST_SYNC
      * could snap BACKWARD past a forward target: on sparse-keyframe streams repeated forward taps
      * kept landing on the same keyframe (video "stuck"/jumping - user-reported on device).
-     * The prior parameters are saved once per burst and restored when the overlay animation ends,
-     * so programmatic seeks (SponsorBlock, state restore, media session, scrub release) keep the
-     * player's EXACT default. setSeekParameters/seekTo post FIFO to the player's internal handler,
-     * so save -> per-tap set -> seek -> restore brackets exactly the burst's own seeks.
+     *
+     * <p>Restoring the default must NOT rely on the overlay's onAnimationEnd alone: shouldForward
+     * installs the directional parameters on every double-tap detection, and a skipped animation
+     * cycle used to leak PREVIOUS_SYNC as the permanent default (observed: later scrubs landing
+     * ~20s early). Three layers now restore MOBILE_SEEK_PARAMETERS: onAnimationEnd (normal path),
+     * a watchdog re-armed on every directional tap (covers missed/skipped animation ends), and
+     * onScrubStart (a scrub definitively ends any double-tap burst).
+     * setSeekParameters/seekTo post FIFO to the player's internal handler, so per-tap set -> seek
+     * -> restore brackets exactly the burst's own seeks.</p>
      */
-    private SeekParameters mPreUserSeekParameters;
+    private static final long SEEK_BURST_WATCHDOG_MS = 1_500;
 
-    /** Save the pre-burst parameters once (first callback of a double-tap burst wins). */
-    private void beginUserSeekBurst() {
-        if (mPlayer != null && mPreUserSeekParameters == null) {
-            mPreUserSeekParameters = mPlayer.getSeekParameters();
-        }
-    }
+    private final Runnable mSeekBurstWatchdog = this::endUserSeekBurst;
 
     /** Per-tap: snap to the next keyframe in the tapped direction. */
     private void setUserSeekDirection(boolean forward) {
         if (mPlayer != null) {
-            beginUserSeekBurst(); // ordering safety: shouldForward can run before onAnimationStart
             mPlayer.setSeekParameters(forward ? SeekParameters.NEXT_SYNC : SeekParameters.PREVIOUS_SYNC);
+            Utils.removeCallbacks(mSeekBurstWatchdog);
+            Utils.postDelayed(mSeekBurstWatchdog, SEEK_BURST_WATCHDOG_MS);
         }
     }
 
     private void endUserSeekBurst() {
-        if (mPlayer != null && mPreUserSeekParameters != null) {
-            mPlayer.setSeekParameters(mPreUserSeekParameters);
+        Utils.removeCallbacks(mSeekBurstWatchdog);
+        if (mPlayer != null) {
+            mPlayer.setSeekParameters(MOBILE_SEEK_PARAMETERS);
         }
-        mPreUserSeekParameters = null;
     }
 
     private void cancelAutoHide() {
