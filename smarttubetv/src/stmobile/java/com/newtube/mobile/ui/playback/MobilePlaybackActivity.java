@@ -186,6 +186,11 @@ public class MobilePlaybackActivity extends MobileActivity
 
     // Comments + live chat entries (open bottom sheets). Keys come from the loaded metadata.
     private View mWatchCommentsEntry;
+    private View mWatchChaptersEntry;
+    private TextView mWatchChaptersCurrent;
+    /** Chapters of the current video (Video.isChapter items from the suggestions pipeline). */
+    private final List<Video> mChapterVideos = new ArrayList<>();
+    private final Runnable mChapterTick = this::updateCurrentChapter;
     private View mWatchChatEntry;
     private String mCommentsKey;
     private String mLiveChatKey;
@@ -330,6 +335,8 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchRelated = findViewById(R.id.mobile_watch_related);
         mWatchCommentsEntry = findViewById(R.id.mobile_watch_comments_entry);
         mWatchChatEntry = findViewById(R.id.mobile_watch_chat_entry);
+        mWatchChaptersEntry = findViewById(R.id.mobile_watch_chapters_entry);
+        mWatchChaptersCurrent = findViewById(R.id.mobile_watch_chapters_current);
     }
 
     private void setupControls() {
@@ -433,9 +440,11 @@ public class MobilePlaybackActivity extends MobileActivity
             public void onScrubStop(TimeBar timeBar, long position, boolean canceled) {
                 mScrubbing = false;
                 if (!canceled && mExoPlayerController != null) {
-                    beginUserSeek();
+                    // EXACT seek (player default), like YouTube's scrubber: the playhead lands
+                    // where the finger released. The earlier CLOSEST_SYNC fast-seek here could
+                    // snap SECONDS behind the target on sparse-keyframe streams, which read as
+                    // "I skipped ahead and it jumped back" (user-reported on device).
                     mExoPlayerController.setPositionMs(position);
-                    endUserSeek();
                 }
                 armAutoHide();
             }
@@ -467,12 +476,15 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchSubscribe.setOnClickListener(v -> onActionButtonClicked(R.id.action_subscribe));
         mWatchShare.setOnClickListener(v -> shareCurrentVideo());
 
-        // Comments / live-chat entries open their respective bottom sheets.
+        // Comments / live-chat / chapters entries open their respective bottom sheets.
         if (mWatchCommentsEntry != null) {
             mWatchCommentsEntry.setOnClickListener(v -> onCommentsEntryClicked());
         }
         if (mWatchChatEntry != null) {
             mWatchChatEntry.setOnClickListener(v -> onChatEntryClicked());
+        }
+        if (mWatchChaptersEntry != null) {
+            mWatchChaptersEntry.setOnClickListener(v -> onChaptersEntryClicked());
         }
 
         // Related-list paging: when the content is scrolled near the bottom, page the last row.
@@ -571,14 +583,14 @@ public class MobilePlaybackActivity extends MobileActivity
                     @Override
                     public void onAnimationStart() {
                         // FAST-SEEK: the overlay seeks the raw player between animation start/end;
-                        // keyframe-snap for the whole double-tap burst, restored on end.
-                        beginUserSeek();
+                        // per-tap directional keyframe-snap for the burst, restored on end.
+                        beginUserSeekBurst();
                         mYouTubeOverlay.setVisibility(View.VISIBLE);
                     }
 
                     @Override
                     public void onAnimationEnd() {
-                        endUserSeek();
+                        endUserSeekBurst();
                         mYouTubeOverlay.setVisibility(View.GONE);
                     }
 
@@ -589,9 +601,11 @@ public class MobilePlaybackActivity extends MobileActivity
                             return null;
                         }
                         if (player.getCurrentPosition() > 500 && posX < playerView.getPlayerWidth() * 0.35f) {
+                            setUserSeekDirection(false);
                             return false;
                         }
                         if (posX > playerView.getPlayerWidth() * 0.65f) {
+                            setUserSeekDirection(true);
                             return true;
                         }
                         return null;
@@ -690,6 +704,7 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onDestroy() {
         cancelAutoHide();
         hideRelatedSkeleton(); // cancels the pulse animator + pending timeout
+        Utils.removeCallbacks(mChapterTick);
 
         RxHelper.disposeActions(mLiveChatAction);
 
@@ -1066,30 +1081,38 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     /**
-     * FAST-SEEK: switch to keyframe-snap seeks (CLOSEST_SYNC) for USER gestures only (scrub bar,
-     * double-tap), then restore the player's prior mode. EXACT seeks decode from the previous
-     * keyframe up to the exact frame - the sluggishness you feel while scrubbing. Scoped per-gesture
-     * because upstream disabled CLOSEST_SYNC globally for a reason: SponsorBlock's programmatic
-     * skip-to-segment-end can land on a keyframe still inside the segment and re-trigger forever.
-     * Programmatic seeks (SponsorBlock, state restore, media session) keep their exact behavior:
-     * they funnel through the PlaybackView.setPositionMs interface method, which does NOT use this.
-     * Both setSeekParameters and seekTo post to the player's internal handler in FIFO order, so
-     * begin -> seek -> end brackets exactly the gesture's own seeks.
+     * FAST-SEEK, scoped to the double-tap gesture only. Each +10s/-10s tap seeks with a
+     * DIRECTIONAL keyframe snap - NEXT_SYNC going forward, PREVIOUS_SYNC going back - so a tap
+     * always makes progress in the tapped direction at keyframe speed. The earlier CLOSEST_SYNC
+     * could snap BACKWARD past a forward target: on sparse-keyframe streams repeated forward taps
+     * kept landing on the same keyframe (video "stuck"/jumping - user-reported on device).
+     * The prior parameters are saved once per burst and restored when the overlay animation ends,
+     * so programmatic seeks (SponsorBlock, state restore, media session, scrub release) keep the
+     * player's EXACT default. setSeekParameters/seekTo post FIFO to the player's internal handler,
+     * so save -> per-tap set -> seek -> restore brackets exactly the burst's own seeks.
      */
     private SeekParameters mPreUserSeekParameters;
 
-    private void beginUserSeek() {
-        if (mPlayer != null) {
+    /** Save the pre-burst parameters once (first callback of a double-tap burst wins). */
+    private void beginUserSeekBurst() {
+        if (mPlayer != null && mPreUserSeekParameters == null) {
             mPreUserSeekParameters = mPlayer.getSeekParameters();
-            mPlayer.setSeekParameters(SeekParameters.CLOSEST_SYNC);
         }
     }
 
-    private void endUserSeek() {
+    /** Per-tap: snap to the next keyframe in the tapped direction. */
+    private void setUserSeekDirection(boolean forward) {
         if (mPlayer != null) {
-            mPlayer.setSeekParameters(mPreUserSeekParameters != null ? mPreUserSeekParameters : SeekParameters.DEFAULT);
-            mPreUserSeekParameters = null;
+            beginUserSeekBurst(); // ordering safety: shouldForward can run before onAnimationStart
+            mPlayer.setSeekParameters(forward ? SeekParameters.NEXT_SYNC : SeekParameters.PREVIOUS_SYNC);
         }
+    }
+
+    private void endUserSeekBurst() {
+        if (mPlayer != null && mPreUserSeekParameters != null) {
+            mPlayer.setSeekParameters(mPreUserSeekParameters);
+        }
+        mPreUserSeekParameters = null;
     }
 
     private void cancelAutoHide() {
@@ -1556,8 +1579,10 @@ public class MobilePlaybackActivity extends MobileActivity
             return;
         }
 
-        // Skip chapter rows - they aren't related videos and would play as odd seek points.
+        // Chapter rows aren't related videos: route them to the YouTube-style "Chapters" entry
+        // (titled list + tap-to-seek) instead of the Up-next list.
         if (group.isChapters()) {
+            runOnUiThread(() -> setChapters(group.getVideos()));
             return;
         }
 
@@ -1689,6 +1714,7 @@ public class MobilePlaybackActivity extends MobileActivity
             mSuggestionGroups.clear();
             mRelatedVideos.clear();
             mLastPagedVideo = null;
+            setChapters(null);
             if (mRelatedAdapter != null) {
                 mRelatedAdapter.submitList(new ArrayList<>());
             }
@@ -1919,6 +1945,80 @@ public class MobilePlaybackActivity extends MobileActivity
             }
             if (mChatObserver != null) {
                 mChatObserver.onChatItem(item);
+            }
+        });
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Chapters (YouTube-style titled segments; data = the isChapters() suggestions group)
+    // ---------------------------------------------------------------------------------
+
+    /** Show/hide the "Chapters" watch-page entry and (re)start the current-chapter ticker. */
+    private void setChapters(List<Video> chapters) {
+        mChapterVideos.clear();
+        Utils.removeCallbacks(mChapterTick);
+
+        if (chapters != null && !chapters.isEmpty()) {
+            mChapterVideos.addAll(chapters);
+        }
+
+        if (mWatchChaptersEntry != null) {
+            mWatchChaptersEntry.setVisibility(mChapterVideos.isEmpty() ? View.GONE : View.VISIBLE);
+        }
+
+        if (!mChapterVideos.isEmpty()) {
+            updateCurrentChapter();
+        }
+    }
+
+    /** Index of the chapter the playhead is currently inside, or -1. */
+    private int currentChapterIndex() {
+        if (mChapterVideos.isEmpty() || mPlayer == null) {
+            return -1;
+        }
+
+        long positionMs = mPlayer.getCurrentPosition();
+        int index = -1;
+        for (int i = 0; i < mChapterVideos.size(); i++) {
+            if (mChapterVideos.get(i).startTimeMs <= positionMs) {
+                index = i;
+            } else {
+                break;
+            }
+        }
+        return index;
+    }
+
+    /**
+     * 1s ticker while chapters exist: keeps the entry's "current chapter" line in sync with the
+     * playhead (the entry is visible in the scroll content even when the controls overlay isn't,
+     * so it can't ride the controls-only 500ms progress loop). setText only fires on change.
+     */
+    private void updateCurrentChapter() {
+        if (mChapterVideos.isEmpty()) {
+            return;
+        }
+
+        if (mWatchChaptersCurrent != null) {
+            int index = currentChapterIndex();
+            CharSequence current = index >= 0 ? mChapterVideos.get(index).title : "";
+            if (!TextUtils.equals(mWatchChaptersCurrent.getText(), current)) {
+                mWatchChaptersCurrent.setText(current);
+            }
+        }
+
+        Utils.postDelayed(mChapterTick, 1_000);
+    }
+
+    private void onChaptersEntryClicked() {
+        if (mChapterVideos.isEmpty()) {
+            return;
+        }
+
+        ChaptersSheet.show(this, mChapterVideos, currentChapterIndex(), chapter -> {
+            if (mExoPlayerController != null) {
+                // EXACT programmatic seek - chapter starts are exact positions (YouTube behavior).
+                mExoPlayerController.setPositionMs(chapter.startTimeMs);
             }
         });
     }

@@ -55,6 +55,17 @@ public abstract class MobileActivity extends MotherActivity {
     }
 
     /**
+     * No Slidr on mobile. The TV base wires a left-edge "slide away to close" gesture (Slidr,
+     * grabbing the leftmost 18% of the screen) meant for cars/TV boxes without a back button.
+     * On a phone it swallowed the drawer's edge swipe on Home (and would slide the whole app
+     * away). DrawerLayout handles the left edge itself (incl. the gesture-nav exclusion rect).
+     */
+    @Override
+    protected void initEdgeSlide() {
+        // Left edge = navigation drawer / system back on the touch flavor.
+    }
+
+    /**
      * No screensaver on mobile - it's TV burn-in protection that reads as "the screen randomly goes
      * dark" on a phone. Returning null means no dim overlay is ever added to the view hierarchy and
      * no idle timers run; every {@code MotherActivity}/controller usage is null-guarded (no-op).

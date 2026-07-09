@@ -40,7 +40,7 @@
             android:paddingStart="8dp"
             android:text="@string/app_name"
             android:textColor="@color/mobile_color_on_surface"
-            android:textSize="20sp"
+            android:textSize="22sp"
             android:textStyle="bold"
             app:layout_constraintEnd_toStartOf="@id/mobile_search_button"
             app:layout_constraintStart_toEndOf="@id/mobile_menu_button"

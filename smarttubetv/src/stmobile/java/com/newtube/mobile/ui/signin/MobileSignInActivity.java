@@ -43,10 +43,10 @@ import com.newtube.mobile.ui.common.MobileActivity;
  * Unlike the TV path (which shows a QR meant to be scanned from a second device), this is a phone,
  * so there is nothing to scan: the activation page is opened right here in the device browser.
  * <ul>
- *   <li>When the first code arrives it AUTO-OPENS the code-prefilled activation page
- *       ({@code https://youtube.com/qr/activate/<code>}) in the system browser / Custom Tab via
- *       {@link Utils#openLinkExt}, so the user can approve the request on this same device. This
- *       happens once per launch (guarded by {@link #mAutoOpenAllowed}) - not on every rotation.</li>
+ *   <li>When the first code arrives the screen explains the flow; "Continue with Google" opens
+ *       the code-prefilled activation page ({@code https://youtube.com/qr/activate/<code>}) via
+ *       {@link Utils#openLinkExt} so the user approves on this same device. Deliberately NOT
+ *       auto-opened: bouncing into the browser with no context read as clunky (user feedback).</li>
  *   <li>The <b>user code</b> large + monospace, in a card that copies it to the clipboard on tap
  *       (fallback for entering it manually).</li>
  *   <li>The <b>verification URL</b> ({@code https://yt.be/activate}) as a tappable link.</li>
@@ -78,14 +78,12 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
      * ({@code savedInstanceState == null}); a config change / rotation recreates the Activity with a
      * non-null bundle, so we do NOT re-launch the browser on the user - the button is there for that.
      */
-    private boolean mAutoOpenAllowed;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         // Only auto-open the browser on the very first launch of this screen, never on rotation.
-        mAutoOpenAllowed = savedInstanceState == null;
 
         setContentView(R.layout.activity_mobile_signin);
 
@@ -160,12 +158,9 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
             mCodeView.setText(userCode);
             mUrlView.setText(signInUrl);
 
-            // Auto-open the code-prefilled activation page in the browser, once per launch, so the
-            // user can approve on this device. The code + URL + button remain as a fallback.
-            if (mAutoOpenAllowed) {
-                mAutoOpenAllowed = false;
-                openSignInUrl();
-            }
+            // No auto-open: bouncing straight into the browser with zero context read as clunky
+            // (user feedback). This screen explains what's about to happen; "Open sign-in page"
+            // launches the code-prefilled approval page when the user is ready.
         });
     }
 

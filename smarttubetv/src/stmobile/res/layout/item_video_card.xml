@@ -86,7 +86,7 @@
             android:lineSpacingExtra="2sp"
             android:maxLines="2"
             android:textColor="@color/mobile_color_on_surface"
-            android:textSize="15sp"
+            android:textSize="16sp"
             android:textStyle="bold"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"

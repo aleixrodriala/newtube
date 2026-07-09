@@ -1,6 +1,8 @@
 package com.newtube.mobile.ui.browse;
 
 import android.content.res.Configuration;
+import android.graphics.Rect;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.DisplayMetrics;
 import android.view.Menu;
@@ -237,6 +239,23 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
      */
     private void setupDrawer() {
         mMenuButton.setOnClickListener(v -> mDrawerLayout.openDrawer(GravityCompat.START));
+
+        // Gesture-nav: the system back gesture owns the screen edges, so a left-edge swipe never
+        // reached the DrawerLayout (user expectation: it opens the drawer, like most drawer apps).
+        // Claim a strip of the left edge back via a gesture-exclusion rect. Android hard-caps app
+        // exclusions at 200dp per edge, so a single 200dp strip - vertically centered over the
+        // content grid, the natural thumb zone - is the most the platform allows; the hamburger
+        // button remains the always-working entry.
+        if (Build.VERSION.SDK_INT >= 29) {
+            final float density = getResources().getDisplayMetrics().density;
+            final int edgeWidthPx = Math.round(32 * density);
+            final int stripHeightPx = Math.round(200 * density);
+            mDrawerLayout.addOnLayoutChangeListener((v, left, top, right, bottom, ol, ot, or, ob) -> {
+                int centerY = (bottom - top) / 2;
+                Rect strip = new Rect(0, centerY - stripHeightPx / 2, edgeWidthPx, centerY + stripHeightPx / 2);
+                v.setSystemGestureExclusionRects(java.util.Collections.singletonList(strip));
+            });
+        }
 
         // Account row in the drawer header: the one always-visible sign-in entry point (the other
         // is the signed-out Subscriptions/Playlists "Sign in" button). Signed out -> device-code

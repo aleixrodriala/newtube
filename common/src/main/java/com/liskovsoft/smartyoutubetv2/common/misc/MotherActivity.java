@@ -427,7 +427,12 @@ public class MotherActivity extends FragmentActivity {
         return MediaServiceData.instance();
     }
 
-    private void initEdgeSlide() {
+    /**
+     * NEWTUBE(mobile): overridable. Slidr's left-edge slide-away is TV/car back-navigation; on the
+     * touch flavor the left edge belongs to the navigation drawer / system back gesture, so the
+     * mobile base disables this entirely.
+     */
+    protected void initEdgeSlide() {
         if (VERSION.SDK_INT < 21 || !Helpers.isTouchSupported(this) || Utils.isSystemGestureArrowEnabled(this)) {
             return;
         }
