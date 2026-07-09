@@ -16,6 +16,7 @@ import androidx.recyclerview.widget.ListAdapter;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
@@ -188,16 +189,50 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
             }
         }
 
+        /**
+         * SCROLL-JANK FIX: decode thumbnails downsampled to the card's real display size (not the
+         * layout-determined size Glide would otherwise wait a measure pass for) and in RGB_565.
+         * Thumbnails are opaque JPEGs, so 565 halves both decode work and the GPU texture upload
+         * per card - the biggest per-frame cost while fling-scrolling the grid. Sized for the
+         * portrait 2-column grid (the largest card); landscape has more, smaller columns, so this
+         * stays a correct downsample bound there too.
+         */
+        private static int sThumbW;
+        private static int sThumbH;
+
+        private static int thumbWidth(Context context) {
+            if (sThumbW == 0) {
+                android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
+                sThumbW = Math.min(dm.widthPixels, dm.heightPixels) / 2;
+                sThumbH = sThumbW * 9 / 16;
+            }
+            return sThumbW;
+        }
+
         private void bindThumbnail(Context context, Video video) {
             int thumbQuality = MainUIData.instance(context).getThumbQuality();
             String thumbnailUrl = ClickbaitRemover.updateThumbnail(video, thumbQuality);
 
-            Glide.with(context)
+            int w = thumbWidth(context);
+            com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable> request = Glide.with(context)
                     .load(thumbnailUrl)
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
-                    .centerCrop()
-                    .error(Glide.with(context).load(video.getCardImageUrl()).centerCrop())
-                    .into(mThumbnail);
+                    .format(DecodeFormat.PREFER_RGB_565)
+                    .override(w, sThumbH)
+                    .centerCrop();
+
+            // At the default thumb quality the primary URL IS the card URL, so a fallback request
+            // would be identical - only pay the second RequestBuilder when it can actually differ.
+            String fallbackUrl = video.getCardImageUrl();
+            if (fallbackUrl != null && !fallbackUrl.equals(thumbnailUrl)) {
+                request = request.error(Glide.with(context)
+                        .load(fallbackUrl)
+                        .format(DecodeFormat.PREFER_RGB_565)
+                        .override(w, sThumbH)
+                        .centerCrop());
+            }
+
+            request.into(mThumbnail);
         }
 
         public void unbind() {

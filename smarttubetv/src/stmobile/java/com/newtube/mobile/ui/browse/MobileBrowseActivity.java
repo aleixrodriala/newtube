@@ -162,6 +162,11 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
 
         mContentGrid.setLayoutManager(mLayoutManager);
         mContentGrid.setAdapter(mAdapter);
+        // SCROLL-JANK FIX: the grid's own bounds never depend on item content (cards size themselves
+        // to the fixed column width), so skip the full requestLayout on every adapter change; and keep
+        // more offscreen holders around (default 2) so a fling-back rebinds/redecodes far fewer cards.
+        mContentGrid.setHasFixedSize(true);
+        mContentGrid.setItemViewCacheSize(8);
         mContentGrid.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {

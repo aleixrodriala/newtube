@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.ListAdapter;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
@@ -156,12 +157,24 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
             int thumbQuality = MainUIData.instance(context).getThumbQuality();
             String thumbnailUrl = ClickbaitRemover.updateThumbnail(video, thumbQuality);
 
-            Glide.with(context)
+            // SCROLL-JANK FIX: opaque JPEG thumbs -> RGB_565 halves decode + GPU upload. The thumb view
+            // is fixed-dp-sized, so Glide already downsamples to it (no override needed). Only build the
+            // fallback request when its URL can actually differ from the primary (never at default quality).
+            com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable> request = Glide.with(context)
                     .load(thumbnailUrl)
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
-                    .centerCrop()
-                    .error(Glide.with(context).load(video.getCardImageUrl()).centerCrop())
-                    .into(mThumbnail);
+                    .format(DecodeFormat.PREFER_RGB_565)
+                    .centerCrop();
+
+            String fallbackUrl = video.getCardImageUrl();
+            if (fallbackUrl != null && !fallbackUrl.equals(thumbnailUrl)) {
+                request = request.error(Glide.with(context)
+                        .load(fallbackUrl)
+                        .format(DecodeFormat.PREFER_RGB_565)
+                        .centerCrop());
+            }
+
+            request.into(mThumbnail);
         }
 
         void unbind() {
