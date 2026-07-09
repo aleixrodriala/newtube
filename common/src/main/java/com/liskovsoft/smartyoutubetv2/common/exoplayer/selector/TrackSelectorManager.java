@@ -43,6 +43,15 @@ public class TrackSelectorManager implements TrackSelectorCallback {
     public static final int RENDERER_INDEX_SUBTITLE = 2;
     private static final String TAG = TrackSelectorManager.class.getSimpleName();
     private static final String DEFAULT_LANGUAGE = "original"; // original, descriptive, dubbed, secondary
+    // NEWTUBE(mobile): default the audio of multi-track (dubbed) videos to the ORIGINAL track
+    // instead of the device-locale dub. Only applies while the user has never explicitly chosen
+    // an audio language (PlayerData.getLastAudioLanguages() empty); an explicitly picked dub is
+    // still honored via the saved track's own language. Default OFF = TV behavior unchanged.
+    private static boolean sPreferOriginalAudioDefault;
+
+    public static void setPreferOriginalAudioDefault(boolean prefer) {
+        sPreferOriginalAudioDefault = prefer;
+    }
     private final Map<String, Integer> mBlacklist = new HashMap<>();
 
     private DefaultTrackSelector mTrackSelector;
@@ -609,8 +618,16 @@ public class TrackSelectorManager implements TrackSelectorCallback {
         }
 
         if (originTrack.isSaved) {
-            resultLanguage = TextUtils.isEmpty(audioLanguage) ? null : audioLanguage; // None/Default selection ("")
-            originLanguage = null; // fallback to the default language
+            if (sPreferOriginalAudioDefault && PlayerData.instance(mContext).getLastAudioLanguages().isEmpty()) {
+                // NEWTUBE(mobile): no explicit user language choice -> don't let the device-locale
+                // default pick a dub. resultLanguage stays null so selection falls through to the
+                // existing "original" bucket below; originLanguage keeps the SAVED track's own
+                // language, so a dub the user explicitly picked from the player keeps winning.
+                resultLanguage = null;
+            } else {
+                resultLanguage = TextUtils.isEmpty(audioLanguage) ? null : audioLanguage; // None/Default selection ("")
+                originLanguage = null; // fallback to the default language
+            }
         }
 
         List<MediaTrack[]> resultTracks = null;

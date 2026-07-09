@@ -84,6 +84,10 @@
     <string name="mobile_add_device_done">Done</string>
 
     <!-- Device-code sign-in screen (com.newtube.mobile.ui.signin.MobileSignInActivity) -->
+    <string name="mobile_quality_title">Quality</string>
+    <string name="mobile_audio_title">Audio</string>
+    <string name="mobile_quality_auto">Auto (recommended)</string>
+    <string name="mobile_audio_default">Default</string>
     <string name="mobile_signin_title">Sign in</string>
     <string name="mobile_signin_instructions">Tap the button below to open Google\'s sign-in page in your browser. Approve NewTube there, then come back \u2014 you\'ll be signed in automatically. Your device code (already filled in for you):</string>
     <string name="mobile_signin_copy_hint">Tap the code to copy it</string>

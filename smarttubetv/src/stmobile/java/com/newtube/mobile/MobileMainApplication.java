@@ -13,6 +13,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.WebBrowserView;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.YTSignInPresenter;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.ExoMediaSourceFactory;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.TrackSelectorManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.ExoPlayerInitializer;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.tv.ui.main.MainApplication;
@@ -180,6 +181,12 @@ public class MobileMainApplication extends MainApplication {
         // account is auto-selected on token persist) and toast instead; Home refreshes itself via
         // the account-change listener chain. TV keeps the picker.
         YTSignInPresenter.setSilentSuccessEnabled(true);
+
+        // AUDIO DEFAULT (mobile-only): multi-audio (dubbed) videos default to the ORIGINAL track,
+        // not the device-locale dub (YouTube's own default). The gate only acts while the user has
+        // never explicitly chosen an audio language; any explicit pick (player audio sheet or the
+        // settings audio-language dialog) takes over from then on. TV never calls this.
+        TrackSelectorManager.setPreferOriginalAudioDefault(true);
 
         // SEEK-BACK FIX (secondary, defense-in-depth): install a bounded on-disk media cache. It does
         // NOT help the SABR path (POST bodies aren't cacheable), but it makes the progressive /

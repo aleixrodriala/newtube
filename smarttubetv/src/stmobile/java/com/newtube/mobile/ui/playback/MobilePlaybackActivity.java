@@ -408,7 +408,10 @@ public class MobilePlaybackActivity extends MobileActivity
         // Player options row (Quality / Subtitles / Speed). Each dispatches an R.id.action_* through
         // the presenter so the existing controllers open their AppDialog option lists (rendered by
         // MobileAppDialogActivity). See openPlayerOption() for why some use the long-click path.
-        mQualityButton.setOnClickListener(v -> openPlayerOption(R.id.lb_control_high_quality, false));
+        // Simple YouTube-style picker (Auto + resolutions, plus audio language when dubbed).
+        // The exhaustive TV HQ dialog (every codec/fps variant) stays reachable via the overflow
+        // menu for power users; this button is the everyday path and had to stop being scary.
+        mQualityButton.setOnClickListener(v -> showQualitySheet());
         mSubtitlesButton.setOnClickListener(v -> openPlayerOption(R.id.lb_control_closed_captioning, true));
         mSpeedButton.setOnClickListener(v -> openPlayerOption(R.id.action_video_speed, true));
 
@@ -1995,6 +1998,129 @@ public class MobilePlaybackActivity extends MobileActivity
             }
             mScrubChapterView.setVisibility(View.VISIBLE);
         }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Simple quality / audio-language sheet (the quality button's everyday picker)
+    // ---------------------------------------------------------------------------------
+
+    /** Distinct resolution rung of the current video: "1080p" / "1080p60" style. */
+    private static String qualityLabel(FormatItem item) {
+        int height = item.getHeight();
+        boolean highFps = item.getFrameRate() > 40;
+        return height + "p" + (highFps ? "60" : "");
+    }
+
+    private void showQualitySheet() {
+        List<FormatItem> videoFormats = getVideoFormats();
+        if (videoFormats == null) {
+            videoFormats = new ArrayList<>();
+        }
+
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        View content = getLayoutInflater().inflate(R.layout.sheet_mobile_quality, null);
+        dialog.setContentView(content);
+
+        LinearLayout qualityList = content.findViewById(R.id.quality_sheet_quality_list);
+        LinearLayout audioList = content.findViewById(R.id.quality_sheet_audio_list);
+
+        // ---- Quality: Auto + one row per distinct resolution rung (best track of each rung). ----
+        PlayerData playerData = PlayerData.instance(this);
+        FormatItem persisted = playerData.getFormat(FormatItem.TYPE_VIDEO);
+        boolean autoActive = persisted == null || persisted.isPreset();
+
+        // Rung -> representative track. Formats arrive quality-descending; the first of each rung
+        // is its best variant. An explicitly selected non-preset track marks its rung instead.
+        java.util.LinkedHashMap<String, FormatItem> rungs = new java.util.LinkedHashMap<>();
+        String selectedRung = null;
+        for (FormatItem item : videoFormats) {
+            if (item.getHeight() <= 0) {
+                continue;
+            }
+            String label = qualityLabel(item);
+            if (!rungs.containsKey(label)) {
+                rungs.put(label, item);
+            }
+            if (!autoActive && item.isSelected()) {
+                selectedRung = label;
+            }
+        }
+
+        addQualityRow(qualityList, getString(R.string.mobile_quality_auto), autoActive, () -> {
+            // Back to the smart default: ABR under the mobile 1080p ceiling.
+            FormatItem auto = playerData.getDefaultVideoFormat();
+            setFormat(auto);
+            playerData.setFormat(auto);
+            dialog.dismiss();
+        });
+        for (java.util.Map.Entry<String, FormatItem> rung : rungs.entrySet()) {
+            FormatItem item = rung.getValue();
+            addQualityRow(qualityList, rung.getKey(), rung.getKey().equals(selectedRung), () -> {
+                // Mirrors HQDialogController.selectFormatOption: while the preset (Auto) is the
+                // persisted default, an explicit rung is a per-session override, like YouTube.
+                setFormat(item);
+                if (playerData.getFormat(FormatItem.TYPE_VIDEO).isPreset()) {
+                    playerData.setTempVideoFormat(item);
+                } else {
+                    playerData.setFormat(item);
+                }
+                dialog.dismiss();
+            });
+        }
+
+        // ---- Audio: only when the video actually ships multiple languages (dubs). ----
+        List<FormatItem> audioFormats = getAudioFormats();
+        java.util.LinkedHashMap<String, FormatItem> languages = new java.util.LinkedHashMap<>();
+        String selectedLanguage = null;
+        if (audioFormats != null) {
+            for (FormatItem item : audioFormats) {
+                String language = item.getLanguage();
+                String label = TextUtils.isEmpty(language)
+                        ? getString(R.string.mobile_audio_default) : capitalize(language);
+                if (!languages.containsKey(label)) {
+                    languages.put(label, item);
+                }
+                if (item.isSelected()) {
+                    selectedLanguage = label;
+                }
+            }
+        }
+
+        if (languages.size() > 1) {
+            for (java.util.Map.Entry<String, FormatItem> language : languages.entrySet()) {
+                FormatItem item = language.getValue();
+                addQualityRow(audioList, language.getKey(), language.getKey().equals(selectedLanguage), () -> {
+                    setFormat(item);
+                    playerData.setFormat(item);
+                    dialog.dismiss();
+                });
+            }
+        } else {
+            // Single-language video: hide the whole audio section.
+            content.findViewById(R.id.quality_sheet_divider).setVisibility(View.GONE);
+            content.findViewById(R.id.quality_sheet_audio_title).setVisibility(View.GONE);
+            audioList.setVisibility(View.GONE);
+        }
+
+        dialog.show();
+    }
+
+    private void addQualityRow(LinearLayout parent, CharSequence label, boolean selected, Runnable onClick) {
+        View row = getLayoutInflater().inflate(R.layout.item_mobile_quality_row, parent, false);
+        TextView labelView = row.findViewById(R.id.quality_row_label);
+        labelView.setText(label);
+        if (selected) {
+            labelView.setTypeface(null, android.graphics.Typeface.BOLD);
+            row.findViewById(R.id.quality_row_check).setVisibility(View.VISIBLE);
+        }
+        row.setOnClickListener(v -> onClick.run());
+        parent.addView(row);
+    }
+
+    private static String capitalize(String text) {
+        return TextUtils.isEmpty(text) ? text
+                : Character.toUpperCase(text.charAt(0)) + text.substring(1);
     }
 
     private void onCommentsEntryClicked() {

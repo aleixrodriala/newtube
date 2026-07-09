@@ -84,13 +84,23 @@
         <item name="android:windowAnimationStyle">@null</item>
     </style>
 
-    <!-- Nav text sizes (user feedback: drawer/bottom-bar text & icons read too small). -->
-    <style name="MobileDrawerItemText" parent="TextAppearance.MaterialComponents.Body1">
-        <item name="android:textSize">16sp</item>
+    <!-- Material 3 nav metrics (matches YouTube/Gmail): drawer rows = Label Large (14sp medium)
+         with a pill-shaped selected highlight; navigation bar = 80dp tall, 24dp icons, 12sp
+         medium labels. The "bigger" feel of Google apps comes from bar HEIGHT + spacing, not
+         oversized glyphs. -->
+    <style name="MobileDrawerItemText" parent="TextAppearance.MaterialComponents.Subtitle2">
+        <item name="android:textSize">14sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+
+    <style name="MobileDrawerItemShape" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">28dp</item>
     </style>
 
     <style name="MobileBottomNavText" parent="TextAppearance.MaterialComponents.Caption">
-        <item name="android:textSize">13sp</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
     </style>
 
     <!-- Watch-page loading skeleton (alpha-pulsed from code while related videos load). -->
