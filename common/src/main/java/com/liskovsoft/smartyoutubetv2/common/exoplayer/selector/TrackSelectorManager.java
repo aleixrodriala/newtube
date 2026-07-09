@@ -126,7 +126,13 @@ public class TrackSelectorManager implements TrackSelectorCallback {
      * @param parameters supplied externally from {@link RestoreTrackSelector}
      */
     private void initRenderer(int rendererIndex, TrackGroupArray groups, Parameters parameters) {
-        if (mRenderers[rendererIndex] != null && mRenderers[rendererIndex].mediaTracks != null) {
+        // Reuse the cached structures ONLY while they describe the same track groups. A reload of
+        // the same video can come back with a different group layout (e.g. a 403-triggered url
+        // regen dropping an audio group); matching against the stale cache then produced
+        // out-of-bounds group indexes and killed the player with ArrayIndexOutOfBoundsException
+        // inside createSelection (groups.get(staleIndex)).
+        if (mRenderers[rendererIndex] != null && mRenderers[rendererIndex].mediaTracks != null
+                && groups.equals(mRenderers[rendererIndex].trackGroups)) {
             return;
         }
 
@@ -327,10 +333,14 @@ public class TrackSelectorManager implements TrackSelectorCallback {
 
         MediaTrack matchedTrack = findBestMatch(selectedTrack);
 
-        if (matchedTrack.groupIndex != -1) {
+        if (matchedTrack.groupIndex >= 0 && matchedTrack.groupIndex < groups.length) {
             Definition definition = new Definition(groups.get(matchedTrack.groupIndex), matchedTrack.trackIndex);
             definitionPair = new Pair<>(definition, matchedTrack);
             setSelection(matchedTrack.rendererIndex, matchedTrack.groupIndex, matchedTrack.trackIndex);
+        } else if (matchedTrack.groupIndex >= groups.length) {
+            // Stale match (index built against a previous incarnation of the groups): fall back to
+            // the default selection instead of letting groups.get() crash the whole player.
+            Log.e(TAG, "Can't create selection. Match is stale for the track %s", selectedTrack);
         } else {
             Log.e(TAG, "Can't create selection. No match for the track %s", selectedTrack);
         }

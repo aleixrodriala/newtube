@@ -95,6 +95,18 @@ public class SuggestionsController extends BasePlayerController {
 
     @Override
     public void onNewVideo(Video video) {
+        // NEWTUBE(mobile): an error-recovery reload re-enters here with the SAME video (see
+        // VideoLoaderController.mReloadVideo: 403 url-regen, engine restarts...). Its metadata is
+        // already delivered and rendered - a re-fetch would visibly wipe and repopulate the related
+        // list in the middle of the recovery, for identical data. Keep the suggestions; the engine
+        // reload path doesn't need them repeated (position restore runs off the state service).
+        // If the metadata never arrived (mEagerDelivered false) this doesn't trigger and the
+        // classic dispose+reload below runs as always. TV (flag off) is untouched.
+        if (sEagerSuggestionsEnabled && video != null && mEagerDelivered
+                && Helpers.equals(video.videoId, mEagerVideoId)) {
+            return;
+        }
+
         // Remote control fix. Slow network fix. Suggestions may still be loading.
         // This could lead to changing current video info (title, id etc) to wrong one.
         disposeActions();

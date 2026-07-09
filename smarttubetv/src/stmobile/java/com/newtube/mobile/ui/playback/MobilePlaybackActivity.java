@@ -726,6 +726,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
         // In the foreground again: auto-PiP behaves normally from here on.
         mSuppressAutoPip = false;
+        updatePipActions(); // re-arm the Android 12+ auto-enter flag cleared by the minimize hand-off
 
         // Back from the mini-player (expand tap, new video, notification, recents): the Browse
         // card displayed the session texture until Browse's onPause detached it (guaranteed to
@@ -969,7 +970,30 @@ public class MobilePlaybackActivity extends MobileActivity
 
         builder.setActions(java.util.Collections.singletonList(buildPlayPauseAction()));
 
+        // Android 12+ gesture navigation does NOT deliver onUserLeaveHint in time for the home
+        // gesture, so the manual enterPipMode() path never fires there (observed on the emulator:
+        // KEYCODE_HOME entered PiP, the swipe-home gesture didn't). The modern mechanism - and the
+        // one the official YouTube app uses for its seamless shrink-into-PiP - is auto-enter: the
+        // params carry a standing "PiP me when the user leaves" flag, kept in sync with the play
+        // state by updatePipActions() so a paused/ended video doesn't PiP (matches YouTube).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setAutoEnterEnabled(shouldAutoEnterPip());
+        }
+
         return builder.build();
+    }
+
+    /**
+     * Auto-enter PiP is armed only while something is actually playing (or about to resume after a
+     * rebuffer: playWhenReady covers both, so a home-press during buffering still PiPs, like
+     * YouTube) and we're not mid-hand-off to the in-app mini-player.
+     */
+    private boolean shouldAutoEnterPip() {
+        return !mSuppressAutoPip
+                && !isFinishing()
+                && !mIsEnded
+                && mExoPlayerController != null
+                && mExoPlayerController.getPlayWhenReady();
     }
 
     /** Video aspect ratio for the PiP window, clamped to the range Android accepts (~0.42..2.39). */
@@ -1012,9 +1036,14 @@ public class MobilePlaybackActivity extends MobileActivity
         return new RemoteAction(icon, getString(labelRes), getString(labelRes), intent);
     }
 
-    /** Refresh the PiP window's play/pause action to reflect the current state (icon swap). */
+    /**
+     * Push fresh PiP params to the system. In PiP this updates the play/pause action icon; OUTSIDE
+     * PiP it keeps the standing auto-enter flag + aspect ratio + source rect current, which is what
+     * makes the Android 12+ home-gesture auto-PiP fire (the system reads these params at leave time
+     * - they must already be set, there is no callback to set them in).
+     */
     private void updatePipActions() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !mIsInPip) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !Helpers.isPictureInPictureSupported(this)) {
             return;
         }
         try {
@@ -1968,8 +1997,10 @@ public class MobilePlaybackActivity extends MobileActivity
         // Launching Browse over ourselves delivers onUserLeaveHint to this activity, and the
         // isNewViewPending() guard there is NOT reliable for this hand-off (observed: minimize
         // put the player into a system PiP window floating over the mini card). Suppress
-        // explicitly; cleared on the next onResume.
+        // explicitly; cleared on the next onResume. The param push disarms the Android 12+
+        // auto-enter flag too - same failure mode, system-initiated instead of leave-hint.
         mSuppressAutoPip = true;
+        updatePipActions();
         getViewManager().startView(BrowseView.class);
         overridePendingTransition(0, 0);
     }
