@@ -18,6 +18,9 @@ import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.android.exoplayer2.Player;
+import com.google.android.exoplayer2.SimpleExoPlayer;
+import com.google.android.exoplayer2.ui.PlayerView;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.navigation.NavigationView;
@@ -39,8 +42,10 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.AccountSett
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.misc.AppDataSourceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
+import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.common.MobileActivity;
+import com.newtube.mobile.ui.playback.MiniPlayerBridge;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -117,6 +122,18 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     private ImageButton mSettingsButton;
     private ImageButton mMenuButton;
 
+    // In-app mini-player bar (docked above the bottom nav; renders the playback activity's live
+    // player after a swipe-down minimize - see MiniPlayerBridge).
+    private View mMiniPlayerBar;
+    private PlayerView mMiniPlayerView;
+    private TextView mMiniPlayerTitle;
+    private TextView mMiniPlayerAuthor;
+    private ImageButton mMiniPlayPause;
+    private ProgressBar mMiniProgress;
+    /** 500ms UI ticker while the bar is visible: progress line, play/pause icon, liveness check. */
+    private final Runnable mMiniPlayerTick = this::onMiniPlayerTick;
+    private static final long MINI_TICK_MS = 500;
+
     private final List<BrowseSection> mSections = new ArrayList<>();
     private final List<Video> mCurrentVideos = new ArrayList<>();
     private int mCurrentSectionId = -1;
@@ -157,6 +174,98 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         mSearchButton = findViewById(R.id.mobile_search_button);
         mSettingsButton = findViewById(R.id.mobile_settings_button);
         mMenuButton = findViewById(R.id.mobile_menu_button);
+
+        mMiniPlayerBar = findViewById(R.id.mobile_mini_player);
+        mMiniPlayerView = findViewById(R.id.mobile_mini_player_view);
+        mMiniPlayerTitle = findViewById(R.id.mobile_mini_player_title);
+        mMiniPlayerAuthor = findViewById(R.id.mobile_mini_player_author);
+        mMiniPlayPause = findViewById(R.id.mobile_mini_play_pause);
+        mMiniProgress = findViewById(R.id.mobile_mini_progress);
+        setupMiniPlayerBar();
+    }
+
+    // ---------------------------------------------------------------------------------
+    // In-app mini-player bar
+    // ---------------------------------------------------------------------------------
+
+    private void setupMiniPlayerBar() {
+        // Tap anywhere on the bar (except its buttons) = expand back to the watch screen. The
+        // playback activity is still alive behind us; its onResume re-claims the video surface,
+        // so the surface must be freed FIRST.
+        mMiniPlayerBar.setOnClickListener(v -> {
+            hideMiniPlayer();
+            MiniPlayerBridge.expand(this);
+        });
+
+        mMiniPlayPause.setOnClickListener(v -> {
+            SimpleExoPlayer player = MiniPlayerBridge.getPlayer();
+            if (player != null) {
+                player.setPlayWhenReady(!player.getPlayWhenReady());
+                updateMiniPlayPauseIcon(player);
+            }
+        });
+
+        findViewById(R.id.mobile_mini_close).setOnClickListener(v -> {
+            hideMiniPlayer();
+            MiniPlayerBridge.close();
+        });
+    }
+
+    /** Show the bar and attach the live player if a mini session is active; hide otherwise. */
+    private void syncMiniPlayer() {
+        SimpleExoPlayer player = MiniPlayerBridge.getPlayer();
+        if (player == null) {
+            hideMiniPlayer();
+            return;
+        }
+
+        Video video = MiniPlayerBridge.getVideo();
+        // getTitleFull: falls back to the metadata title - deep-linked videos never get the plain
+        // card `title` field (same getter the playback notification uses).
+        mMiniPlayerTitle.setText(video != null ? video.getTitleFull() : "");
+        mMiniPlayerAuthor.setText(video != null ? video.getAuthor() : "");
+        mMiniPlayerView.setPlayer(player);
+        mMiniPlayerBar.setVisibility(View.VISIBLE);
+        updateMiniPlayPauseIcon(player);
+
+        Utils.removeCallbacks(mMiniPlayerTick);
+        Utils.postDelayed(mMiniPlayerTick, MINI_TICK_MS);
+    }
+
+    /** Detach the bar's surface + stop the ticker. Safe to call repeatedly / when never shown. */
+    private void hideMiniPlayer() {
+        Utils.removeCallbacks(mMiniPlayerTick);
+        if (mMiniPlayerView != null) {
+            mMiniPlayerView.setPlayer(null);
+        }
+        if (mMiniPlayerBar != null) {
+            mMiniPlayerBar.setVisibility(View.GONE);
+        }
+    }
+
+    private void onMiniPlayerTick() {
+        if (mMiniPlayerBar.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        SimpleExoPlayer player = MiniPlayerBridge.getPlayer();
+        if (player == null) {
+            // The hidden playback activity died (system kill / finished elsewhere): fold the bar.
+            hideMiniPlayer();
+            return;
+        }
+        long duration = player.getDuration();
+        if (duration > 0) {
+            mMiniProgress.setProgress((int) (player.getCurrentPosition() * 1000 / duration));
+        }
+        updateMiniPlayPauseIcon(player);
+        Utils.postDelayed(mMiniPlayerTick, MINI_TICK_MS);
+    }
+
+    private void updateMiniPlayPauseIcon(SimpleExoPlayer player) {
+        boolean playing = player.getPlayWhenReady()
+                && player.getPlaybackState() != Player.STATE_ENDED
+                && player.getPlaybackState() != Player.STATE_IDLE;
+        mMiniPlayPause.setImageResource(playing ? R.drawable.ic_player_pause : R.drawable.ic_player_play);
     }
 
     private void setupContentGrid() {
@@ -558,6 +667,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         }
 
         updateAccountRow();
+        syncMiniPlayer();
     }
 
     /** Drawer-header account row label: account name when signed in, "Sign in" otherwise. */
@@ -582,6 +692,11 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         if (mPresenter != null) {
             mPresenter.onViewPaused();
         }
+
+        // Free the mini bar's video surface whenever this screen leaves the foreground - the
+        // playback activity may be about to re-claim it (expand / new video), and a paused
+        // Browse must never hold a stale TextureView on the live player. Audio is unaffected.
+        hideMiniPlayer();
     }
 
     @Override

@@ -76,6 +76,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionCatego
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.SeekBarSegment;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
+import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.controller.ExoPlayerController;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.DebugInfoManager;
@@ -694,6 +695,14 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onResume() {
         super.onResume();
 
+        // Back from the mini bar (expand tap, new video, notification, recents): the bar's
+        // PlayerView was detached by Browse, take the video surface back. Idempotent when no
+        // mini session was involved.
+        MiniPlayerBridge.deactivate();
+        if (mPlayer != null && mPlayerView.getPlayer() != mPlayer) {
+            mPlayerView.setPlayer(mPlayer);
+        }
+
         if (mPresenter != null) {
             mPresenter.onViewResumed();
         }
@@ -711,11 +720,27 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     @Override
+    protected void onStop() {
+        super.onStop();
+
+        // The minimize drag left the container slid off-screen/faded. Reset it once this window
+        // is no longer visible (here, not in minimizeByDrag - resetting while our window still
+        // shows behind Browse's enter transition would flash the player back for a frame).
+        if (mContainer != null && mContainer.getTranslationY() != 0f) {
+            mContainer.setTranslationY(0f);
+            mContainer.setAlpha(1f);
+        }
+    }
+
+    @Override
     protected void onDestroy() {
         cancelAutoHide();
         hideRelatedSkeleton(); // cancels the pulse animator + pending timeout
 
         RxHelper.disposeActions(mLiveChatAction);
+
+        // The only playback activity (singleInstance) is going away: no mini session can outlive it.
+        MiniPlayerBridge.deactivate();
 
         // Fix situations when the engine wasn't properly destroyed (mirrors PlaybackFragment).
         destroyPlayerObjects();
@@ -1527,7 +1552,7 @@ public class MobilePlaybackActivity extends MobileActivity
                     .translationY(height)
                     .alpha(0f)
                     .setDuration(180)
-                    .withEndAction(this::closeByDrag)
+                    .withEndAction(this::minimizeByDrag)
                     .start();
         } else {
             mContainer.animate()
@@ -1538,13 +1563,46 @@ public class MobilePlaybackActivity extends MobileActivity
         }
     }
 
-    private void closeByDrag() {
+    /**
+     * Swipe-down now MINIMIZES like the YouTube app (playback continues in the Browse mini bar)
+     * instead of closing. This activity stays alive behind Browse - it still owns the player -
+     * it only gives up its video surface so the bar's PlayerView can take it. Audio never stops
+     * (MobilePlaybackService). If there is no live player (e.g. an error screen), fall back to
+     * the old close-by-drag behavior.
+     */
+    private void minimizeByDrag() {
+        if (mPlayer == null) {
+            if (mPresenter != null) {
+                mPresenter.onFinish();
+            }
+            finish();
+            // We already animated the slide-out; skip the window close animation.
+            overridePendingTransition(0, 0);
+            return;
+        }
+
+        // Free the surface for the mini bar's PlayerView (audio keeps running meanwhile).
+        mPlayerView.setPlayer(null);
+        MiniPlayerBridge.activate(this);
+        // startView marks a new view pending, which also makes onUserLeaveHint skip auto-PiP here.
+        getViewManager().startView(BrowseView.class);
+        overridePendingTransition(0, 0);
+    }
+
+    /** X tapped on the Browse mini bar: stop playback and quietly retire this hidden activity. */
+    void closeFromMiniPlayer() {
         if (mPresenter != null) {
             mPresenter.onFinish();
         }
-        finish();
-        // We already animated the slide-out; skip the window close animation to avoid double motion.
-        overridePendingTransition(0, 0);
+        // finishReally() (not finish()): Browse is already in the foreground; finish()'s root-screen
+        // branch would send the whole app to the background when the player was deep-linked (no
+        // parent view), yanking Browse away mid-scroll.
+        finishReally();
+    }
+
+    /** Live player accessor for the mini bar (package-private, see MiniPlayerBridge). */
+    SimpleExoPlayer getSharedPlayer() {
+        return mPlayer;
     }
 
     // ---------------------------------------------------------------------------------

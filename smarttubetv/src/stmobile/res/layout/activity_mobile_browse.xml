@@ -76,7 +76,7 @@
             android:paddingHorizontal="@dimen/mobile_card_spacing"
             android:paddingBottom="@dimen/mobile_card_spacing"
             android:scrollbars="vertical"
-            app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+            app:layout_constraintBottom_toTopOf="@id/mobile_mini_player"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/mobile_title_bar"
@@ -139,6 +139,105 @@
                 android:visibility="gone" />
 
         </LinearLayout>
+
+        <!-- YouTube-style in-app mini-player: shows the LIVE player (rendered into the small
+             PlayerView via MiniPlayerBridge) docked above the bottom nav after a swipe-down on
+             the watch screen. GONE by default; the grid's bottom constraint collapses onto the
+             bottom nav when hidden. TextureView surface: composites like a normal view inside
+             this scrolling UI (no SurfaceView punch-through), and keeps the main player's own
+             SurfaceView free for the handoff back. -->
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/mobile_mini_player"
+            android:layout_width="0dp"
+            android:layout_height="64dp"
+            android:background="@color/mobile_color_surface"
+            android:visibility="gone"
+            app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            tools:visibility="visible">
+
+            <com.google.android.exoplayer2.ui.PlayerView
+                android:id="@+id/mobile_mini_player_view"
+                android:layout_width="110dp"
+                android:layout_height="0dp"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:resize_mode="zoom"
+                app:surface_type="texture_view"
+                app:use_controller="false" />
+
+            <TextView
+                android:id="@+id/mobile_mini_player_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_marginBottom="1dp"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:maxLines="1"
+                android:textColor="@color/mobile_color_on_surface"
+                android:textSize="14sp"
+                app:layout_constraintBottom_toTopOf="@id/mobile_mini_player_author"
+                app:layout_constraintEnd_toStartOf="@id/mobile_mini_play_pause"
+                app:layout_constraintStart_toEndOf="@id/mobile_mini_player_view"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintVertical_chainStyle="packed"
+                tools:text="A video title" />
+
+            <TextView
+                android:id="@+id/mobile_mini_player_author"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/mobile_color_on_surface_secondary"
+                android:textSize="12sp"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="@id/mobile_mini_player_title"
+                app:layout_constraintStart_toStartOf="@id/mobile_mini_player_title"
+                app:layout_constraintTop_toBottomOf="@id/mobile_mini_player_title"
+                tools:text="Channel" />
+
+            <ImageButton
+                android:id="@+id/mobile_mini_play_pause"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/mobile_mini_play_pause"
+                android:padding="12dp"
+                android:src="@drawable/ic_player_pause"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toStartOf="@id/mobile_mini_close"
+                app:layout_constraintTop_toTopOf="parent" />
+
+            <ImageButton
+                android:id="@+id/mobile_mini_close"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/mobile_mini_close"
+                android:padding="12dp"
+                android:src="@drawable/ic_sheet_close"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toTopOf="parent" />
+
+            <ProgressBar
+                android:id="@+id/mobile_mini_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="0dp"
+                android:layout_height="2dp"
+                android:max="1000"
+                android:progressBackgroundTint="@color/mobile_color_progress_track"
+                android:progressTint="@color/mobile_color_progress"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                tools:progress="400" />
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
 
         <com.google.android.material.bottomnavigation.BottomNavigationView
             android:id="@+id/mobile_bottom_nav"
