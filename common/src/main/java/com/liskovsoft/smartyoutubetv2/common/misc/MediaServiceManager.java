@@ -276,10 +276,7 @@ public class MediaServiceManager implements OnAccountChange {
 
         mPrefetchAction = mItemService.getFormatInfoObserve(item.videoId)
                 .subscribe(
-                        // Cached by the service. Additionally (mobile, gated internally): start pulling
-                        // the head of the predicted streams into the shared disk cache so ExoPlayer's
-                        // first segment requests become local reads.
-                        com.liskovsoft.smartyoutubetv2.common.exoplayer.MediaSegmentPrefetcher::prefetch,
+                        info -> { /* cached by the service; nothing to do here */ },
                         error -> Log.e(TAG, "prefetchFormatInfo error: %s", error.getMessage())
                 );
     }

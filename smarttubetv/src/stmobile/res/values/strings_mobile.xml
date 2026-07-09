@@ -22,7 +22,6 @@
     <string name="mobile_menu_shuffle">Shuffle</string>
     <string name="mobile_menu_zoom">Zoom / aspect ratio</string>
     <string name="mobile_menu_background">Play in background</string>
-    <string name="mobile_menu_screen_off">Screen off (dimming)</string>
     <string name="mobile_menu_stats">Stats for nerds</string>
     <string name="mobile_menu_rotate_lock">Rotate lock</string>
     <string name="mobile_menu_playlist_add">Save to playlist</string>

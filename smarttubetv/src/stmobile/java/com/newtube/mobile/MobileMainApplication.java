@@ -158,18 +158,11 @@ public class MobileMainApplication extends MainApplication {
         // funnel through the same choke point). TV never calls this.
         YouTubeMediaItemService.setPreconnectMediaHost(true);
 
-        // TTFF FIX (mobile-only, media network): when the tap-time format-info prefetch completes,
-        // start pulling the head of the PREDICTED video+audio streams (1080p-capped VP9 + opus) into
-        // the shared disk cache, so ExoPlayer's first segment requests are local disk reads. A wrong
-        // prediction costs nothing on the critical path (bounded bytes, LRU-evicted; playback's
-        // CacheDataSource is non-blocking so span contention just bypasses to network). TV never
-        // calls this.
-        com.liskovsoft.smartyoutubetv2.common.exoplayer.MediaSegmentPrefetcher.setEnabled(true);
-
-        // MOBILE UX: kill the TV screensaver's AUTOMATIC idle dim (burn-in protection that reads as
-        // "the screen randomly goes dark" on a phone). The system display timeout + the player's own
-        // keep-screen-on-while-playing handle everything; the manual screen-off button still works.
-        com.liskovsoft.smartyoutubetv2.common.misc.ScreensaverManager.setAutoDisabled(true);
+        // NOTE(perf history): a head-of-stream segment prefetch into the disk cache was tried here
+        // and REMOVED - a cold-cache A/B showed no TTFF win (median +339ms WORSE with it on: the
+        // starting player bypasses cache spans the prefetcher still holds and re-downloads the same
+        // bytes). The screensaver is also absent on mobile entirely: MobileActivity's
+        // createScreensaverManager() returns null (no idle dim, no dim overlay in the hierarchy).
 
         // TTFF FIX (mobile-only, cold-start network): reuse the persisted, extractor-validated app info
         // (playerUrl/clientUrl/visitorData) at cold process start while it's inside the 10h refresh

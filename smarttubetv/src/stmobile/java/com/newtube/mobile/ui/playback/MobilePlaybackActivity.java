@@ -1264,7 +1264,6 @@ public class MobilePlaybackActivity extends MobileActivity
 
         boolean shuffleOn = PlayerData.instance(this).getPlaybackMode() == PlayerConstants.PLAYBACK_MODE_SHUFFLE;
         boolean statsOn = getButtonState(R.id.action_video_stats) == BUTTON_ON;
-        boolean screenOffOn = getButtonState(R.id.action_screen_dimming) == BUTTON_ON;
 
         // Repeat mode -> playback-mode dialog (long-click path always opens the picker; the plain
         // click just cycles). The dialog includes Shuffle among its radio options too.
@@ -1275,8 +1274,8 @@ public class MobilePlaybackActivity extends MobileActivity
         addMenuRow(content, sheet, R.string.mobile_menu_zoom, null, () -> openPlayerOption(R.id.action_video_zoom, false));
         // Play as audio / background mode (PiP-on-home etc.).
         addMenuRow(content, sheet, R.string.mobile_menu_background, null, this::openBackgroundModeDialog);
-        // Screen off / dimming toggle.
-        addMenuRow(content, sheet, R.string.mobile_menu_screen_off, stateLabel(screenOffOn), () -> openPlayerOption(R.id.action_screen_dimming, false));
+        // (No screen-off/dimming row: the TV screensaver doesn't exist on mobile - power button +
+        // background playback cover that use case.)
         // Stats for nerds (debug overlay) toggle.
         addMenuRow(content, sheet, R.string.mobile_menu_stats, stateLabel(statsOn), () -> openPlayerOption(R.id.action_video_stats, false));
         // Rotate lock (native screen-orientation lock).
@@ -1807,7 +1806,6 @@ public class MobilePlaybackActivity extends MobileActivity
                 // the menu can reflect On/Off. setButtonState() already stores every id it receives.
                 || buttonId == R.id.action_repeat
                 || buttonId == R.id.action_video_stats
-                || buttonId == R.id.action_screen_dimming
                 || buttonId == R.id.action_playlist_add
                 || buttonId == R.id.action_rotate
                 || buttonId == R.id.action_sound_off) {

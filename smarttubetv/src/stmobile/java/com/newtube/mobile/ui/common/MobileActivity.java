@@ -7,6 +7,7 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 
 import com.liskovsoft.smartyoutubetv2.common.misc.MotherActivity;
+import com.liskovsoft.smartyoutubetv2.common.misc.ScreensaverManager;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 
 /**
@@ -34,6 +35,18 @@ public abstract class MobileActivity extends MotherActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+    }
+
+    /**
+     * No screensaver on mobile - it's TV burn-in protection that reads as "the screen randomly goes
+     * dark" on a phone. Returning null means no dim overlay is ever added to the view hierarchy and
+     * no idle timers run; every {@code MotherActivity}/controller usage is null-guarded (no-op).
+     * The system display timeout rules the screen, and the player holds KEEP_SCREEN_ON while
+     * actively playing.
+     */
+    @Override
+    protected ScreensaverManager createScreensaverManager() {
+        return null;
     }
 
     @Override

@@ -94,16 +94,25 @@ public class MotherActivity extends FragmentActivity {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         }
 
-        mScreensaverManager = new ScreensaverManager(this); // moved below the theme to fix side effects
+        mScreensaverManager = createScreensaverManager(); // moved below the theme to fix side effects
 
         //Helpers.addFullscreenListener(this);
 
         initEdgeSlide();
     }
 
+    /**
+     * NEWTUBE(mobile): creation hook so the touch flavor can opt OUT of the screensaver entirely
+     * (return null) - the idle dim is TV burn-in protection; phones rely on the system display
+     * timeout instead. TV keeps the default. All usages below are null-guarded (no-op when absent).
+     */
+    protected ScreensaverManager createScreensaverManager() {
+        return new ScreensaverManager(this);
+    }
+
     @Override
     public boolean dispatchGenericMotionEvent(MotionEvent event) {
-        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN && mScreensaverManager != null) {
             mScreensaverManager.enable();
         }
 
@@ -112,7 +121,7 @@ public class MotherActivity extends FragmentActivity {
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
-        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN && mScreensaverManager != null) {
             mScreensaverManager.enable();
         }
 
@@ -134,7 +143,7 @@ public class MotherActivity extends FragmentActivity {
             return true;
         }
 
-        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN && mScreensaverManager != null) {
             boolean isKeepScreenOff = mScreensaverManager.isScreenOff() && Helpers.equalsAny(event.getKeyCode(),
                     new int[]{KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN});
             if (!isKeepScreenOff) {
@@ -208,7 +217,9 @@ public class MotherActivity extends FragmentActivity {
 
         // Remove screensaver from the previous activity when closing current one.
         // Called on player's next track. Reason unknown.
-        mScreensaverManager.enable();
+        if (mScreensaverManager != null) {
+            mScreensaverManager.enable();
+        }
     }
 
     @Override
@@ -217,7 +228,9 @@ public class MotherActivity extends FragmentActivity {
 
         // Remove screensaver from the previous activity when closing current one.
         // Called on player's next track. Reason unknown.
-        mScreensaverManager.disable();
+        if (mScreensaverManager != null) {
+            mScreensaverManager.disable();
+        }
     }
 
     @Override

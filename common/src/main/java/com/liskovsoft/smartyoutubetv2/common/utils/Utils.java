@@ -856,6 +856,9 @@ public class Utils {
     public static void enableScreensaver(Context activity, boolean enable) {
         if (activity instanceof MotherActivity) {
             ScreensaverManager screensaver = ((MotherActivity) activity).getScreensaverManager();
+            if (screensaver == null) { // mobile: no screensaver machinery at all
+                return;
+            }
             if (enable) {
                 screensaver.enable();
             } else {
