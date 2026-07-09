@@ -97,6 +97,17 @@ public class ExoMediaSourceFactory {
         sMediaCache = cache;
     }
 
+    /** NEWTUBE(mobile-cache): the installed media cache (null when disabled). Playback CacheDataSource
+     *  keys purely by URI, so anything written here under a stream URL is served to the player. */
+    public static Cache getMediaCache() {
+        return sMediaCache;
+    }
+
+    /** NEWTUBE(mobile-cache): UA the player's own media requests use - prefetch must match it. */
+    public static String getMediaUserAgent() {
+        return USER_AGENT;
+    }
+
     public MediaSource fromSabrFormatInfo(MediaItemFormatInfo formatInfo) {
         return buildSabrMediaSource(formatInfo);
     }

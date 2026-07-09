@@ -681,6 +681,10 @@
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
+                <include
+                    layout="@layout/mobile_watch_related_skeleton"
+                    android:visibility="gone" />
+
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/mobile_watch_related"
                     android:layout_width="match_parent"

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Animated (alpha-pulsed from code) loading skeleton shown under "Up next" while related
+     videos are still being fetched. Mirrors item_mobile_related_video's geometry so the real
+     rows replace it without layout shift. -->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/mobile_watch_related_skeleton"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="@dimen/mobile_watch_content_padding"
+    tools:visibility="visible">
+
+    <LinearLayout style="@style/MobileSkeletonRelatedRow">
+        <View style="@style/MobileSkeletonRelatedThumb" />
+        <LinearLayout style="@style/MobileSkeletonRelatedTextColumn">
+            <View style="@style/MobileSkeletonRelatedLineWide" />
+            <View style="@style/MobileSkeletonRelatedLineNarrow" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout style="@style/MobileSkeletonRelatedRow">
+        <View style="@style/MobileSkeletonRelatedThumb" />
+        <LinearLayout style="@style/MobileSkeletonRelatedTextColumn">
+            <View style="@style/MobileSkeletonRelatedLineWide" />
+            <View style="@style/MobileSkeletonRelatedLineNarrow" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout style="@style/MobileSkeletonRelatedRow">
+        <View style="@style/MobileSkeletonRelatedThumb" />
+        <LinearLayout style="@style/MobileSkeletonRelatedTextColumn">
+            <View style="@style/MobileSkeletonRelatedLineWide" />
+            <View style="@style/MobileSkeletonRelatedLineNarrow" />
+        </LinearLayout>
+    </LinearLayout>
+
+</LinearLayout>

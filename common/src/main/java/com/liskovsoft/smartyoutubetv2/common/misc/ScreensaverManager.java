@@ -25,6 +25,15 @@ public class ScreensaverManager {
     private static final String TAG = ScreensaverManager.class.getSimpleName();
     private static final int MODE_SCREENSAVER = 0;
     private static final int MODE_SCREEN_OFF = 1;
+
+    // NEWTUBE(mobile): kill the AUTOMATIC idle dim/screensaver - a TV burn-in feature that makes no
+    // sense on a phone (the system manages its own display timeout). Only auto-scheduling is gated;
+    // the user-invoked screen-off button (doScreenOff) keeps working. Off by default -> TV unchanged.
+    private static volatile boolean sAutoDisabled;
+
+    public static void setAutoDisabled(boolean disabled) {
+        sAutoDisabled = disabled;
+    }
     private static final WeakHashSet<ScreensaverManager> sInstances = new WeakHashSet<>();
     private static boolean sLockInstance;
     private final WeakReference<Activity> mActivity;
@@ -106,6 +115,10 @@ public class ScreensaverManager {
     }
 
     public void enable() {
+        if (sAutoDisabled) {
+            return; // mobile: no automatic idle dim; system display timeout rules
+        }
+
         if (mIsBlocked) {
             Log.d(TAG, "Screensaver blocked!");
             return;

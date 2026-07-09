@@ -179,6 +179,8 @@ public class MobilePlaybackActivity extends MobileActivity
     private TextView mWatchSubs;
     private MaterialButton mWatchSubscribe;
     private TextView mWatchRelatedLabel;
+    private View mRelatedSkeleton;
+    private android.animation.ValueAnimator mSkeletonPulse;
     private RecyclerView mWatchRelated;
     private RelatedVideoAdapter mRelatedAdapter;
 
@@ -324,6 +326,7 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchSubs = findViewById(R.id.mobile_watch_subs);
         mWatchSubscribe = findViewById(R.id.mobile_watch_subscribe);
         mWatchRelatedLabel = findViewById(R.id.mobile_watch_related_label);
+        mRelatedSkeleton = findViewById(R.id.mobile_watch_related_skeleton);
         mWatchRelated = findViewById(R.id.mobile_watch_related);
         mWatchCommentsEntry = findViewById(R.id.mobile_watch_comments_entry);
         mWatchChatEntry = findViewById(R.id.mobile_watch_chat_entry);
@@ -689,6 +692,7 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     protected void onDestroy() {
         cancelAutoHide();
+        hideRelatedSkeleton(); // cancels the pulse animator + pending timeout
 
         RxHelper.disposeActions(mLiveChatAction);
 
@@ -1473,6 +1477,14 @@ public class MobilePlaybackActivity extends MobileActivity
             updatePlayPauseIcon();
             // Keep the PiP play/pause action icon in sync with the real playback state.
             updatePipActions();
+
+            // SCREEN-ON: hold the screen awake while actively playing/buffering (like the YouTube
+            // app); paused or ended releases it so the system's own display timeout applies. This
+            // replaces the TV ScreensaverManager dim, which is disabled on mobile.
+            if (mPlayerView != null) {
+                mPlayerView.setKeepScreenOn(playWhenReady
+                        && (playbackState == Player.STATE_READY || playbackState == Player.STATE_BUFFERING));
+            }
         }
     };
 
@@ -1721,7 +1733,53 @@ public class MobilePlaybackActivity extends MobileActivity
             if (mWatchRelatedLabel != null) {
                 mWatchRelatedLabel.setVisibility(View.GONE);
             }
+            // A new video is loading: the video itself starts first (by design), so show the
+            // pulsing "up next" skeleton until the related feed lands.
+            showRelatedSkeleton();
         });
+    }
+
+    /**
+     * LOADING SKELETON: pulsing placeholder rows under "Up next" while the related feed loads.
+     * The video deliberately starts before the page content (all fetches are parallelized), so the
+     * skeleton communicates "this part is on its way" instead of leaving dead space. Hidden the
+     * moment real rows land ({@link #rebuildRelatedList}) or after a safety timeout (no related).
+     */
+    private static final long SKELETON_TIMEOUT_MS = 10_000;
+    private final Runnable mHideSkeletonTimeout = this::hideRelatedSkeleton;
+
+    private void showRelatedSkeleton() {
+        if (mRelatedSkeleton == null) {
+            return;
+        }
+        mRelatedSkeleton.setVisibility(View.VISIBLE);
+        if (mSkeletonPulse == null) {
+            mSkeletonPulse = android.animation.ValueAnimator.ofFloat(1f, 0.45f);
+            mSkeletonPulse.setDuration(700);
+            mSkeletonPulse.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+            mSkeletonPulse.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+            mSkeletonPulse.addUpdateListener(a -> {
+                if (mRelatedSkeleton != null) {
+                    mRelatedSkeleton.setAlpha((float) a.getAnimatedValue());
+                }
+            });
+        }
+        if (!mSkeletonPulse.isStarted()) {
+            mSkeletonPulse.start();
+        }
+        Utils.removeCallbacks(mHideSkeletonTimeout);
+        Utils.postDelayed(mHideSkeletonTimeout, SKELETON_TIMEOUT_MS);
+    }
+
+    private void hideRelatedSkeleton() {
+        Utils.removeCallbacks(mHideSkeletonTimeout);
+        if (mSkeletonPulse != null && mSkeletonPulse.isStarted()) {
+            mSkeletonPulse.cancel();
+        }
+        if (mRelatedSkeleton != null) {
+            mRelatedSkeleton.setVisibility(View.GONE);
+            mRelatedSkeleton.setAlpha(1f);
+        }
     }
 
     @Override
@@ -2225,6 +2283,9 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mWatchRelatedLabel != null) {
             mWatchRelatedLabel.setVisibility(mRelatedVideos.isEmpty() ? View.GONE : View.VISIBLE);
         }
+        if (!mRelatedVideos.isEmpty()) {
+            hideRelatedSkeleton(); // real rows are in; stop pulsing
+        }
     }
 
     // ---------------------------------------------------------------------------------
@@ -2467,6 +2528,12 @@ public class MobilePlaybackActivity extends MobileActivity
 
         setTitle(item != null ? item.getTitleFull() : null);
         bindWatchVideo(item);
+
+        // LOADING SKELETON: a new video is being set on the view and its related feed hasn't landed
+        // yet. Covers the FIRST open too (clearSuggestions only fires on subsequent loads).
+        if (item != null && mRelatedVideos.isEmpty()) {
+            runOnUiThread(this::showRelatedSkeleton);
+        }
     }
 
     @Override
