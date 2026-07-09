@@ -338,14 +338,39 @@
 
             </FrameLayout>
 
-            <ProgressBar
-                android:id="@+id/mobile_player_progress"
-                style="?android:attr/progressBarStyleLarge"
+            <!-- Center loading stack: the spinner plus (fresh installs only) the one-time-setup
+                 hint shown while the first YouTube session is still being established. Both are
+                 toggled from showProgressBar(); the wrapper collapses when they're gone. -->
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:indeterminateTint="@color/mobile_color_primary"
-                android:indeterminateTintMode="src_in" />
+                android:gravity="center_horizontal"
+                android:orientation="vertical">
+
+                <ProgressBar
+                    android:id="@+id/mobile_player_progress"
+                    style="?android:attr/progressBarStyleLarge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:indeterminateTint="@color/mobile_color_primary"
+                    android:indeterminateTintMode="src_in" />
+
+                <TextView
+                    android:id="@+id/mobile_player_setup_hint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center"
+                    android:paddingHorizontal="24dp"
+                    android:shadowColor="#B3000000"
+                    android:shadowRadius="4"
+                    android:text="@string/mobile_first_run_setup"
+                    android:textColor="@android:color/white"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+
+            </LinearLayout>
 
             <!-- "Stats for nerds" debug overlay. DebugInfoManager inflates R.layout.debug_view into
                  this group and toggles its visibility; it must not eat player taps, so it is not
@@ -558,11 +583,14 @@
                 </LinearLayout>
 
                 <!-- Channel row: avatar + name/subs + Subscribe. Sections separate by
-                     whitespace, not hairline dividers (matches current YouTube). -->
+                     whitespace, not hairline dividers (matches current YouTube).
+                     The row itself opens the channel page (Subscribe keeps its own click). -->
                 <LinearLayout
+                    android:id="@+id/mobile_watch_channel_row"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
+                    android:background="?attr/selectableItemBackground"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingHorizontal="@dimen/mobile_watch_content_padding"

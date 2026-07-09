@@ -212,6 +212,13 @@ public class MobileMainApplication extends MainApplication {
         SuggestionsController.setEagerSuggestionsEnabled(true);
         SuggestionsController.setRowContinuationsDisabled(true);
 
+        // FIRST-RUN FIX (mobile-only): run the one-time YouTube session setup (visitor identity,
+        // app info, player-JS de-scrambler parse, client probing - ~15-20s on a fresh install) in
+        // the background at app start, while the user is still browsing Home, instead of inside
+        // their FIRST video tap. See SessionWarmup for the locking/caching guarantees. TV never
+        // calls this -> TV startup unchanged.
+        SessionWarmup.start(this);
+
         ViewManager viewManager = ViewManager.instance(this);
 
         // Override just the Home + Playback mappings (and the cold-launch root) with

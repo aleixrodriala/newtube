@@ -84,6 +84,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.ChatReceiver
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionCategory;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.SeekBarSegment;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.ChannelPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
@@ -94,11 +95,13 @@ import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.versions.renderer.CustomOverridesRenderersFactory;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.versions.selector.RestoreTrackSelector;
+import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.utils.AppDialogUtil;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import com.newtube.mobile.SessionWarmup;
 import com.newtube.mobile.ui.common.MobileActivity;
 
 import java.io.InputStream;
@@ -151,6 +154,8 @@ public class MobilePlaybackActivity extends MobileActivity
     private DefaultTimeBar mTimeBar;
     private SeekBarSegmentsView mSegmentsView;
     private ProgressBar mProgressBar;
+    /** First-run only: "one-time setup" line under the spinner while the session is cold. */
+    private TextView mSetupHint;
     private ImageButton mQualityButton;
     private ImageButton mSubtitlesButton;
     private ImageButton mSpeedButton;
@@ -317,6 +322,7 @@ public class MobilePlaybackActivity extends MobileActivity
         mTimeBar = findViewById(R.id.mobile_player_time_bar);
         mSegmentsView = findViewById(R.id.mobile_player_segments);
         mProgressBar = findViewById(R.id.mobile_player_progress);
+        mSetupHint = findViewById(R.id.mobile_player_setup_hint);
         mQualityButton = findViewById(R.id.mobile_player_quality);
         mSubtitlesButton = findViewById(R.id.mobile_player_subtitles);
         mSpeedButton = findViewById(R.id.mobile_player_speed);
@@ -503,6 +509,14 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchDislike.setOnClickListener(v -> onActionButtonClicked(R.id.action_thumbs_down));
         mWatchSubscribe.setOnClickListener(v -> onActionButtonClicked(R.id.action_subscribe));
         mWatchShare.setOnClickListener(v -> shareCurrentVideo());
+
+        // Channel row (avatar + name/subs) opens the channel page; the Subscribe button inside
+        // the row keeps its own click. ChannelPresenter resolves the channelId from metadata
+        // when the Video doesn't carry one yet, so this works right after a cold open too.
+        View channelRow = findViewById(R.id.mobile_watch_channel_row);
+        if (channelRow != null) {
+            channelRow.setOnClickListener(v -> openCurrentChannel());
+        }
 
         // Comments / live-chat entries open their respective bottom sheets.
         if (mWatchCommentsEntry != null) {
@@ -1613,6 +1627,10 @@ public class MobilePlaybackActivity extends MobileActivity
                 case Player.STATE_READY:
                     showProgressBar(false);
                     mIsEnded = false;
+                    // A stream reached READY = the one-time session setup is complete (whether the
+                    // background warmup or this very load did the work). Persists; kills the
+                    // first-run hint for good.
+                    SessionWarmup.markWarm(MobilePlaybackActivity.this);
                     // LOADING STILL: the NEW stream is ready - the very next rendered frame is the
                     // new video, so let onSurfaceTextureUpdated lift the thumbnail then.
                     if (mStillAwaitReady) {
@@ -2060,6 +2078,11 @@ public class MobilePlaybackActivity extends MobileActivity
     public void showProgressBar(boolean show) {
         if (mProgressBar != null) {
             mProgressBar.setVisibility(show ? View.VISIBLE : View.GONE);
+        }
+        // Fresh installs: while the one-time session setup is still running, tell the user why
+        // this first load is longer than usual. Never shows again once any fetch succeeded.
+        if (mSetupHint != null) {
+            mSetupHint.setVisibility(show && !SessionWarmup.isWarm() ? View.VISIBLE : View.GONE);
         }
     }
 
@@ -2935,6 +2958,17 @@ public class MobilePlaybackActivity extends MobileActivity
             // Loads + plays the tapped video in this same player (VideoLoaderController.openVideoInt).
             mPresenter.onSuggestionItemClicked(video);
         }
+    }
+
+    /** Watch-page channel row tap → the mobile channel screen. Same routing as the card menu's
+     *  "Open channel" entry; playback stays alive behind the channel screen (the pending-view
+     *  flag in onUserLeaveHint keeps auto-PiP from hijacking the in-app navigation). */
+    private void openCurrentChannel() {
+        Video video = getVideo();
+        if (video == null || !ChannelPresenter.canOpenChannel(video)) {
+            return;
+        }
+        MediaServiceManager.chooseChannelPresenter(this, video);
     }
 
     private void maybePageSuggestions() {

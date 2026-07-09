@@ -104,4 +104,8 @@
     <!-- In-app mini-player bar (MobileBrowseActivity + MiniPlayerBridge) -->
     <string name="mobile_mini_play_pause">Play or pause</string>
     <string name="mobile_mini_close">Close player</string>
+
+    <!-- First-run session warmup (SessionWarmup): shown under the player spinner while the
+         one-time YouTube session setup is still running on a fresh install. -->
+    <string name="mobile_first_run_setup">One-time setup — getting YouTube ready…</string>
 </resources>
