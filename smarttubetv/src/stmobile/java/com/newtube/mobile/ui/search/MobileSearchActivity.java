@@ -9,7 +9,6 @@ import android.speech.SpeechRecognizer;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
-import android.util.DisplayMetrics;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
@@ -46,9 +45,11 @@ import java.util.List;
  * <ul>
  *   <li>A toolbar text {@link EditText} (IME action = search) feeds typed text to the
  *       presenter-supplied {@link MediaServiceSearchTagProvider} to fetch tag SUGGESTIONS,
- *       shown as a horizontal chip strip ({@link SearchTagAdapter}) above the results.
- *       Submitting (keyboard search action) or tapping a chip runs the real search via
- *       {@link SearchPresenter#onSearch(String)}.</li>
+ *       shown as a full-height vertical list ({@link SearchTagAdapter}) OVER the results
+ *       while the field is focused — history rows (clock icon) for an empty query, live
+ *       suggestion rows (magnifier) once typing; the trailing NW arrow refines the query
+ *       without submitting. Submitting (keyboard action) or tapping a row runs the real
+ *       search via {@link SearchPresenter#onSearch(String)}.</li>
  *   <li>Results render in a single Material RecyclerView GRID reusing {@link VideoCardAdapter}
  *       (same runtime span-count math + {@code onScrollEnd} pagination as the Home/Channel
  *       grids). {@link #updateSearch(VideoGroup)} applies per-{@code VideoGroup} actions.</li>
@@ -72,6 +73,7 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
 
     private EditText mSearchInput;
     private ImageButton mBackButton;
+    private ImageButton mClearButton;
     private ImageButton mMicButton;
     private RecyclerView mSuggestions;
     private SearchTagAdapter mTagAdapter;
@@ -100,6 +102,12 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
 
         mBackButton.setOnClickListener(v -> onBackPressed());
         mMicButton.setOnClickListener(v -> startVoiceRecognition());
+        // Clear the query, keep editing: focus stays, history rows replace the suggestions.
+        mClearButton.setOnClickListener(v -> {
+            setQueryText("");
+            showKeyboard();
+            loadSearchTags("");
+        });
 
         mPresenter = SearchPresenter.instance(this);
         mPresenter.setView(this);
@@ -109,6 +117,7 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
     private void bindViews() {
         mSearchInput = findViewById(R.id.mobile_search_input);
         mBackButton = findViewById(R.id.mobile_search_back);
+        mClearButton = findViewById(R.id.mobile_search_clear);
         mMicButton = findViewById(R.id.mobile_search_mic);
         mSuggestions = findViewById(R.id.mobile_search_suggestions);
         mGrid = findViewById(R.id.mobile_search_grid);
@@ -116,13 +125,21 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
     }
 
     private void setupSuggestions() {
-        mTagAdapter = new SearchTagAdapter(this::onTagClicked, this::onTagLongClicked);
+        mTagAdapter = new SearchTagAdapter(this::onTagClicked, this::onTagLongClicked, this::onTagInserted);
         mSuggestions.setAdapter(mTagAdapter);
     }
 
     private void setupGrid() {
         mLayoutManager = new GridLayoutManager(this, computeSpanCount());
         mAdapter = new VideoCardAdapter(this::onVideoClicked, this::onVideoLongClicked);
+
+        // Channel results render as full-width rows even when landscape/tablet uses 2+ columns.
+        mLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+            @Override
+            public int getSpanSize(int position) {
+                return mAdapter.isFullSpan(position) ? mLayoutManager.getSpanCount() : 1;
+            }
+        });
 
         mGrid.setLayoutManager(mLayoutManager);
         mGrid.setAdapter(mAdapter);
@@ -144,6 +161,7 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
 
             @Override
             public void afterTextChanged(Editable s) {
+                syncClearButton();
                 if (!mSuppressTextWatcher) {
                     loadSearchTags(s.toString());
                 }
@@ -157,6 +175,14 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
             }
             return false;
         });
+
+        // Tapping back into the field re-opens the suggestion overlay: history when the
+        // field is empty, live suggestions for the current text otherwise (YouTube-style).
+        mSearchInput.setOnFocusChangeListener((v, hasFocus) -> {
+            if (hasFocus) {
+                loadSearchTags(getSearchText());
+            }
+        });
     }
 
     // ---------------------------------------------------------------------------------
@@ -168,9 +194,18 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
             return;
         }
 
+        // Empty query → the suggest endpoint returns the user's search HISTORY (clock rows);
+        // typed query → live suggestions (magnifier rows). The Tag model has no origin flag,
+        // so the mode is decided by what we asked for.
+        final boolean historyMode = TextUtils.isEmpty(query);
+
         mTagsProvider.search(query, results -> runOnUiThread(() -> {
+            mTagAdapter.setHistoryMode(historyMode);
             mTagAdapter.setTags(results);
-            mSuggestions.setVisibility(mTagAdapter.isEmpty() ? View.GONE : View.VISIBLE);
+            // Only surface the overlay while the user is actually editing the query — a slow
+            // suggest response must not cover results that were submitted in the meantime.
+            mSuggestions.setVisibility(mTagAdapter.isEmpty() || !mSearchInput.hasFocus()
+                    ? View.GONE : View.VISIBLE);
         }));
     }
 
@@ -180,6 +215,15 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
         }
         setQueryText(tag.tag);
         submitSearch(tag.tag);
+    }
+
+    /** NW arrow on a row: put the text into the field for refinement, don't search yet. */
+    private void onTagInserted(Tag tag) {
+        if (tag == null || tag.tag == null) {
+            return;
+        }
+        setQueryText(tag.tag);
+        loadSearchTags(tag.tag); // setQueryText suppresses the watcher; refresh suggestions manually
     }
 
     private boolean onTagLongClicked(Tag tag) {
@@ -202,6 +246,15 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
             mSearchInput.setSelection(text.length());
         }
         mSuppressTextWatcher = false;
+        // The watcher still ran (suppressed branch skips only the tag reload) but keep this
+        // explicit: the clear button mirrors "field has text".
+        syncClearButton();
+    }
+
+    private void syncClearButton() {
+        if (mClearButton != null) {
+            mClearButton.setVisibility(TextUtils.isEmpty(mSearchInput.getText()) ? View.GONE : View.VISIBLE);
+        }
     }
 
     private void submitSearch(String query) {
@@ -210,6 +263,7 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
         }
 
         hideKeyboard();
+        mSearchInput.clearFocus();
         mSuggestions.setVisibility(View.GONE);
         mTagAdapter.clearTags();
         mPresenter.onSearch(query);
@@ -254,13 +308,7 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
     }
 
     private int computeSpanCount() {
-        DisplayMetrics metrics = getResources().getDisplayMetrics();
-        float cardWidthPx = getResources().getDimension(R.dimen.mobile_card_target_width);
-        float spacingPx = getResources().getDimension(R.dimen.mobile_card_spacing);
-
-        int span = (int) (metrics.widthPixels / (cardWidthPx + spacingPx));
-
-        return Math.max(2, span);
+        return com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(this);
     }
 
     // ---------------------------------------------------------------------------------
@@ -313,9 +361,21 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
         super.onDestroy();
     }
 
-    // NOTE: no onBackPressed() override. Back -> Activity.onBackPressed() -> MobileActivity.finish()
-    // -> finishReally() below, which is the single place SearchPresenter.onFinish() is invoked.
+    // NOTE: back normally flows Activity.onBackPressed() -> MobileActivity.finish() ->
+    // finishReally() below, which is the single place SearchPresenter.onFinish() is invoked.
     // (Previously it was also called here on back, so onFinish() ran twice per back press.)
+    // The only local back handling: when the suggestion overlay covers existing RESULTS,
+    // the first back dismisses the overlay instead of leaving the screen (YouTube-style).
+    @Override
+    public void onBackPressed() {
+        if (mSuggestions.getVisibility() == View.VISIBLE && !mVideos.isEmpty()) {
+            hideKeyboard();
+            mSearchInput.clearFocus();
+            mSuggestions.setVisibility(View.GONE);
+            return;
+        }
+        super.onBackPressed();
+    }
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
@@ -354,7 +414,7 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
             switch (group.getAction()) {
                 case VideoGroup.ACTION_REPLACE:
                     mVideos.clear();
-                    mVideos.addAll(group.getVideos());
+                    mVideos.addAll(hoistChannels(group.getVideos()));
                     break;
                 case VideoGroup.ACTION_PREPEND:
                     mVideos.addAll(0, group.getVideos());
@@ -367,7 +427,10 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
                     break;
                 case VideoGroup.ACTION_APPEND:
                 default:
-                    appendNew(group.getVideos());
+                    // The FIRST page after clearSearch() arrives as a plain APPEND — that's
+                    // where the channel top-pick lives, so hoist there too. Continuation
+                    // pages (mVideos non-empty) keep API order.
+                    appendNew(mVideos.isEmpty() ? hoistChannels(group.getVideos()) : group.getVideos());
                     break;
             }
 
@@ -382,6 +445,36 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
                 mVideos.add(video);
             }
         }
+    }
+
+    /**
+     * YouTube pins the matching channel above the videos when a query clearly names a
+     * channel; the API expresses that by ranking a channel item near the top of the FIRST
+     * results page. Honor it: channel rows found in the page's top slice move to the very
+     * top (stable order otherwise). Channels ranked deep in the page stay inline — that's
+     * the API saying the match wasn't clear.
+     */
+    private static List<Video> hoistChannels(List<Video> videos) {
+        final int topSlice = 10;
+
+        List<Video> channels = new ArrayList<>(2);
+        List<Video> rest = new ArrayList<>(videos.size());
+        int index = 0;
+        for (Video video : videos) {
+            if (video != null && video.isChannel() && index < topSlice) {
+                channels.add(video);
+            } else {
+                rest.add(video);
+            }
+            index++;
+        }
+
+        if (channels.isEmpty()) {
+            return videos;
+        }
+
+        channels.addAll(rest);
+        return channels;
     }
 
     private void syncVideos(List<Video> videos) {
@@ -434,9 +527,13 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
     public void startSearch(String searchText) {
         runOnUiThread(() -> {
             if (TextUtils.isEmpty(searchText)) {
-                // Opened fresh (no query): clear the field, focus it, surface the keyboard.
+                // Opened fresh (no query): clear the field, focus it, surface the keyboard,
+                // and show the user's search history right away (the focus listener only
+                // fires on focus CHANGES, so ask explicitly too — the load is deduped by
+                // the suggest endpoint being idempotent for the same query).
                 setQueryText("");
                 showKeyboard();
+                loadSearchTags("");
             } else {
                 setQueryText(searchText);
                 submitSearch(searchText);

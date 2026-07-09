@@ -70,6 +70,11 @@
     <string name="mobile_back">Back</string>
     <string name="mobile_search_button">Search</string>
     <string name="mobile_search_voice">Voice search</string>
+    <!-- The NW arrow on a suggestion row: puts the text into the field without searching. -->
+    <string name="mobile_search_insert">Refine this search</string>
+    <string name="mobile_search_clear">Clear search</string>
+    <!-- Fallback tab label for a channel section the API delivered without a title. -->
+    <string name="mobile_channel_tab_videos">Videos</string>
 
     <!-- Navigation drawer (all browse sections) -->
     <string name="mobile_menu_button">Open sections</string>

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One search suggestion/history row (vertical list, replaces the old chip strip).
+  Icon = clock while browsing history (empty query) / magnifier for typed suggestions.
+  The trailing NW arrow inserts the text into the field without submitting.
+  Long-press = remove-entry / clear-history dialog (SearchPresenter.onTagLongClicked).
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/suggestion_root"
+    android:layout_width="match_parent"
+    android:layout_height="48dp"
+    android:background="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="16dp"
+    android:paddingEnd="4dp">
+
+    <ImageView
+        android:id="@+id/suggestion_icon"
+        android:layout_width="22dp"
+        android:layout_height="22dp"
+        android:contentDescription="@null"
+        android:src="@drawable/ic_mobile_search" />
+
+    <TextView
+        android:id="@+id/suggestion_text"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="@color/mobile_color_on_surface"
+        android:textSize="15sp"
+        tools:text="mr bean full episodes" />
+
+    <ImageButton
+        android:id="@+id/suggestion_insert"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/mobile_search_insert"
+        android:padding="13dp"
+        android:src="@drawable/ic_mobile_arrow_insert" />
+
+</LinearLayout>

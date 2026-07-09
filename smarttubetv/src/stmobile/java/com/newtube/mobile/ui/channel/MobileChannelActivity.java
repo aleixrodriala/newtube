@@ -2,7 +2,6 @@ package com.newtube.mobile.ui.channel;
 
 import android.content.res.Configuration;
 import android.os.Bundle;
-import android.util.DisplayMetrics;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
@@ -13,12 +12,14 @@ import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.android.material.tabs.TabLayout;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.ChannelPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelView;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import com.newtube.mobile.ui.browse.VideoCardAdapter;
 import com.newtube.mobile.ui.common.MobileActivity;
 
 import java.util.ArrayList;
@@ -27,26 +28,26 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Touch Channel page (Wave 4a).
+ * Touch Channel page (Wave 4a; tabbed 2026-07-09).
  *
  * <p>The touch replacement for the Leanback {@code ChannelFragment}/{@code ChannelActivity}.
  * {@link ChannelView} delivers MULTIPLE {@link VideoGroup}s (one per channel section:
- * Uploads, Playlists, Live, ...). Per the port's LEAN preference this renders them as ONE
- * vertically-scrolling {@link RecyclerView} (a {@link GridLayoutManager}) interleaving
- * full-span section headers with each section's videos laid out as a grid - NOT the TV's
- * nested horizontal-scroll carousels. See {@link ChannelSectionAdapter}.</p>
+ * Videos, Live, Playlists, Shorts, ...). YouTube-style but pure Material: each section is a
+ * {@link TabLayout} tab, and the selected section renders below as the standard full-width
+ * card feed (the same {@link VideoCardAdapter} as Home/Search) — no nested carousels, no
+ * interleaved mega-list.</p>
  *
  * <p>Drives the unchanged {@link ChannelPresenter} via the standard MVP seam. Routing is
  * fully natural: tapping a plain video plays it ({@code MobilePlaybackActivity}); tapping a
  * playlist/sub-channel item opens {@code MobileChannelUploadsActivity}/this screen again
- * (via {@code VideoActionPresenter.apply()}); long-press shows the context menu through the
- * Wave-3 {@code MobileAppDialogActivity}.</p>
+ * (via {@code VideoActionPresenter.apply()}); long-press/⋮ shows the context menu through
+ * the Wave-3 {@code MobileAppDialogActivity}.</p>
  */
 public class MobileChannelActivity extends MobileActivity implements ChannelView {
     private static final int SCROLL_END_THRESHOLD_ITEMS = 6;
 
     /** A channel section, keyed by its {@link VideoGroup#getId()} so continuations/replacements
-     *  for the same row merge into it instead of creating a duplicate header. */
+     *  for the same row merge into it instead of creating a duplicate tab. */
     private static final class Section {
         final int id;
         String title;
@@ -62,17 +63,19 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
 
     private RecyclerView mGrid;
     private GridLayoutManager mLayoutManager;
-    private ChannelSectionAdapter mAdapter;
+    private VideoCardAdapter mAdapter;
+    private TabLayout mTabs;
     private ProgressBar mProgressBar;
     private TextView mTitleView;
     private ImageButton mBackButton;
 
-    /** Sections in delivery order. */
+    /** Sections in delivery order; iteration order == tab order. */
     private final Map<Integer, Section> mSections = new LinkedHashMap<>();
-    /** Flat positions of each section header in the current display list, for {@link #setPosition}. */
-    private final List<Integer> mHeaderPositions = new ArrayList<>();
-    private Video mLastVideo;
+    /** Group id of the section shown in the grid (its tab is selected). */
+    private int mActiveSectionId = -1;
     private int mLastPaginationTriggerCount = -1;
+    /** Guards against the tab-selected listener reacting to programmatic tab sync. */
+    private boolean mSuppressTabCallback;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -82,6 +85,7 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
 
         bindViews();
         setupGrid();
+        setupTabs();
 
         mBackButton.setOnClickListener(v -> onBackPressed());
 
@@ -101,23 +105,23 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
 
     private void bindViews() {
         mGrid = findViewById(R.id.mobile_channel_grid);
+        mTabs = findViewById(R.id.mobile_channel_tabs);
         mProgressBar = findViewById(R.id.mobile_channel_progress);
         mTitleView = findViewById(R.id.mobile_channel_title);
         mBackButton = findViewById(R.id.mobile_channel_back);
     }
 
     private void setupGrid() {
-        int spanCount = computeSpanCount();
-        mLayoutManager = new GridLayoutManager(this, spanCount);
+        mLayoutManager = new GridLayoutManager(this, computeSpanCount());
+        mAdapter = new VideoCardAdapter(this::onVideoClicked, this::onVideoLongClicked);
+
+        // Channel rows (rare here) span the whole grid width in multi-column layouts.
         mLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
             @Override
             public int getSpanSize(int position) {
-                // Headers occupy a whole row; video cards take a single cell.
-                return mAdapter != null && mAdapter.isHeader(position) ? mLayoutManager.getSpanCount() : 1;
+                return mAdapter.isFullSpan(position) ? mLayoutManager.getSpanCount() : 1;
             }
         });
-
-        mAdapter = new ChannelSectionAdapter(this::onVideoClicked, this::onVideoLongClicked);
 
         mGrid.setLayoutManager(mLayoutManager);
         mGrid.setAdapter(mAdapter);
@@ -125,6 +129,27 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
             @Override
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
                 maybeTriggerPagination();
+            }
+        });
+    }
+
+    private void setupTabs() {
+        mTabs.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override
+            public void onTabSelected(TabLayout.Tab tab) {
+                if (mSuppressTabCallback || !(tab.getTag() instanceof Integer)) {
+                    return;
+                }
+                mActiveSectionId = (Integer) tab.getTag();
+                showActiveSection(true);
+            }
+
+            @Override
+            public void onTabUnselected(TabLayout.Tab tab) { }
+
+            @Override
+            public void onTabReselected(TabLayout.Tab tab) {
+                mGrid.scrollToPosition(0);
             }
         });
     }
@@ -145,7 +170,8 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
     }
 
     private void maybeTriggerPagination() {
-        if (mLastVideo == null || mPresenter == null) {
+        Section active = mSections.get(mActiveSectionId);
+        if (active == null || active.videos.isEmpty() || mPresenter == null) {
             return;
         }
 
@@ -158,41 +184,61 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
 
         if (lastVisible >= itemCount - SCROLL_END_THRESHOLD_ITEMS && itemCount != mLastPaginationTriggerCount) {
             mLastPaginationTriggerCount = itemCount;
-            // Continues the last (bottom-most) section; the continuation arrives as an
-            // ACTION_APPEND VideoGroup with the same id and merges back into it.
-            mPresenter.onScrollEnd(mLastVideo);
+            // Continues the ACTIVE section; the continuation arrives as an ACTION_APPEND
+            // VideoGroup with the same id and merges back into it.
+            mPresenter.onScrollEnd(active.videos.get(active.videos.size() - 1));
         }
     }
 
     private int computeSpanCount() {
-        DisplayMetrics metrics = getResources().getDisplayMetrics();
-        float cardWidthPx = getResources().getDimension(R.dimen.mobile_card_target_width);
-        float spacingPx = getResources().getDimension(R.dimen.mobile_card_spacing);
-
-        int span = (int) (metrics.widthPixels / (cardWidthPx + spacingPx));
-
-        return Math.max(2, span);
+        return com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(this);
     }
 
-    /** Rebuilds the flat header+video display list from the current sections. */
-    private void rebuildList() {
-        List<Object> flat = new ArrayList<>();
-        mHeaderPositions.clear();
-        mLastVideo = null;
+    /** Sync the TabLayout with the current sections (delivery order), keeping the selection. */
+    private void rebuildTabs() {
+        mSuppressTabCallback = true;
 
+        // Add missing tabs / fix titles in place; section order only ever grows by append.
+        int index = 0;
         for (Section section : mSections.values()) {
-            if (section.videos.isEmpty()) {
-                continue;
+            String title = section.title != null && !section.title.isEmpty()
+                    ? section.title : getString(R.string.mobile_channel_tab_videos);
+
+            TabLayout.Tab tab = index < mTabs.getTabCount() ? mTabs.getTabAt(index) : null;
+            if (tab == null) {
+                tab = mTabs.newTab();
+                mTabs.addTab(tab, false);
+            }
+            if (!(tab.getTag() instanceof Integer) || (Integer) tab.getTag() != section.id) {
+                tab.setTag(section.id);
+            }
+            if (!title.contentEquals(tab.getText() != null ? tab.getText() : "")) {
+                tab.setText(title);
             }
 
-            mHeaderPositions.add(flat.size());
-            flat.add(section.title != null ? section.title : "");
-            flat.addAll(section.videos);
-            mLastVideo = section.videos.get(section.videos.size() - 1);
+            if (section.id == mActiveSectionId && !tab.isSelected()) {
+                tab.select();
+            }
+            index++;
+        }
+        while (mTabs.getTabCount() > mSections.size()) {
+            mTabs.removeTabAt(mTabs.getTabCount() - 1);
         }
 
+        // Tab bar only earns its space with 2+ sections; a single section shows as a plain feed.
+        mTabs.setVisibility(mSections.size() > 1 ? View.VISIBLE : View.GONE);
+
+        mSuppressTabCallback = false;
+    }
+
+    /** Push the active section's videos into the grid. */
+    private void showActiveSection(boolean scrollToTop) {
+        Section active = mSections.get(mActiveSectionId);
         mLastPaginationTriggerCount = -1;
-        mAdapter.submit(flat);
+        mAdapter.submitList(active != null ? new ArrayList<>(active.videos) : new ArrayList<>());
+        if (scrollToTop) {
+            mGrid.scrollToPosition(0);
+        }
     }
 
     // ---------------------------------------------------------------------------------
@@ -293,7 +339,23 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
                     break;
             }
 
-            rebuildList();
+            // A SYNC/REMOVE for an unknown section (e.g. the just-watched video's position
+            // sync arriving on resume before any section loaded) must not touch the map —
+            // guard the empty case or iterator().next() throws.
+            if (mSections.isEmpty()) {
+                return;
+            }
+
+            // First section to arrive becomes the visible one.
+            if (mActiveSectionId == -1 || !mSections.containsKey(mActiveSectionId)) {
+                mActiveSectionId = mSections.keySet().iterator().next();
+            }
+
+            rebuildTabs();
+
+            if (id == mActiveSectionId) {
+                showActiveSection(false);
+            }
         });
     }
 
@@ -317,8 +379,11 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
     @Override
     public void setPosition(int index) {
         runOnUiThread(() -> {
-            if (index >= 0 && index < mHeaderPositions.size()) {
-                mGrid.scrollToPosition(mHeaderPositions.get(index));
+            if (index >= 0 && index < mTabs.getTabCount()) {
+                TabLayout.Tab tab = mTabs.getTabAt(index);
+                if (tab != null) {
+                    tab.select(); // routes through the listener -> shows that section
+                }
             }
         });
     }
@@ -327,10 +392,13 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
     public void clear() {
         runOnUiThread(() -> {
             mSections.clear();
-            mHeaderPositions.clear();
-            mLastVideo = null;
+            mActiveSectionId = -1;
             mLastPaginationTriggerCount = -1;
-            mAdapter.submit(new ArrayList<>());
+            mSuppressTabCallback = true;
+            mTabs.removeAllTabs();
+            mTabs.setVisibility(View.GONE);
+            mSuppressTabCallback = false;
+            mAdapter.submitList(new ArrayList<>());
         });
     }
 

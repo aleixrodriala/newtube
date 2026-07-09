@@ -88,13 +88,28 @@
             android:maxLines="2"
             android:textColor="@color/mobile_color_on_surface"
             android:textSize="15sp"
-            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/video_overflow"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/video_thumbnail_frame"
             tools:text="A great video title that may wrap to two lines" />
 
+        <!-- Overflow = same context menu as card long-press (VideoMenuPresenter: Not interested,
+             Open channel, playlists, ...). Low-contrast so full-width cards stay calm. -->
+        <ImageButton
+            android:id="@+id/video_overflow"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginTop="2dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/mobile_player_more"
+            android:padding="8dp"
+            android:src="@drawable/ic_mobile_more_vert"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/video_thumbnail_frame" />
+
+        <!-- One quiet meta line: "Channel · 1.2M views · 3 weeks ago" (falls back to channel). -->
         <TextView
-            android:id="@+id/video_channel"
+            android:id="@+id/video_meta"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="4dp"
@@ -106,10 +121,10 @@
             android:textColor="@color/mobile_color_on_surface_secondary"
             android:textSize="13sp"
             app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintEnd_toStartOf="@id/video_overflow"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/video_title"
-            tools:text="Channel name" />
+            tools:text="Channel name · 1.2M views · 3 weeks ago" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 

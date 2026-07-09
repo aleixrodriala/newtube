@@ -56,6 +56,18 @@
             android:textColorHint="@color/mobile_color_on_surface_secondary"
             android:textSize="16sp" />
 
+        <!-- Clear the query; visible only while the field has text. -->
+        <ImageButton
+            android:id="@+id/mobile_search_clear"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/mobile_search_clear"
+            android:padding="12dp"
+            android:src="@drawable/ic_sheet_close"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
         <ImageButton
             android:id="@+id/mobile_search_mic"
             android:layout_width="48dp"
@@ -66,19 +78,6 @@
             android:src="@drawable/ic_mobile_mic" />
 
     </LinearLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/mobile_search_suggestions"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:clipToPadding="false"
-        android:orientation="horizontal"
-        android:paddingHorizontal="8dp"
-        android:paddingVertical="6dp"
-        android:visibility="gone"
-        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
-        tools:listitem="@layout/item_mobile_search_tag"
-        tools:visibility="visible" />
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -102,6 +101,20 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:visibility="gone" />
+
+        <!-- Suggestions/history: a full-height vertical list OVER the results while the user
+             is editing the query (YouTube-style; was a one-line horizontal chip strip).
+             Empty query = search history (clock rows), typed query = live suggestions. -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/mobile_search_suggestions"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/mobile_color_background"
+            android:paddingTop="4dp"
+            android:visibility="gone"
+            app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+            tools:listitem="@layout/item_mobile_search_suggestion"
+            tools:visibility="visible" />
 
     </FrameLayout>
 

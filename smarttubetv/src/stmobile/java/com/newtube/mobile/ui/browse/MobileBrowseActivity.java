@@ -6,7 +6,6 @@ import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.os.Build;
 import android.os.Bundle;
-import android.util.DisplayMetrics;
 import android.view.Menu;
 import android.view.TextureView;
 import android.view.View;
@@ -342,6 +341,15 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         mLayoutManager = new GridLayoutManager(this, computeSpanCount());
         mAdapter = new VideoCardAdapter(this::onVideoClicked, this::onVideoLongClicked);
 
+        // Channel rows (rare on Home, possible in some sections) span the whole grid width
+        // when landscape/tablet layouts use 2+ columns.
+        mLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+            @Override
+            public int getSpanSize(int position) {
+                return mAdapter.isFullSpan(position) ? mLayoutManager.getSpanCount() : 1;
+            }
+        });
+
         mContentGrid.setLayoutManager(mLayoutManager);
         mContentGrid.setAdapter(mAdapter);
         // SCROLL-JANK FIX: the grid's own bounds never depend on item content (cards size themselves
@@ -561,13 +569,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     }
 
     private int computeSpanCount() {
-        DisplayMetrics metrics = getResources().getDisplayMetrics();
-        float cardWidthPx = getResources().getDimension(R.dimen.mobile_card_target_width);
-        float spacingPx = getResources().getDimension(R.dimen.mobile_card_spacing);
-
-        int span = (int) (metrics.widthPixels / (cardWidthPx + spacingPx));
-
-        return Math.max(2, span);
+        return com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(this);
     }
 
     private static int toMenuItemId(int sectionId) {

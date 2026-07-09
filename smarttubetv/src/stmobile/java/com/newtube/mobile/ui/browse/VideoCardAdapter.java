@@ -29,7 +29,12 @@ import com.liskovsoft.smartyoutubetv2.tv.R;
  * focus-scale/d-pad concerns; ripple/elevation instead via the card's own foreground
  * and {@code MaterialCardView} elevation).
  */
-public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoViewHolder> {
+public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder> {
+    /** Regular video card (full-width thumbnail + title/meta). */
+    private static final int VIEW_TYPE_VIDEO = 0;
+    /** Channel result row (round avatar + name + subs) — e.g. channels in search results. */
+    private static final int VIEW_TYPE_CHANNEL = 1;
+
     public interface OnVideoClickListener {
         void onVideoClick(Video video);
     }
@@ -69,22 +74,43 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
         }
     };
 
+    @Override
+    public int getItemViewType(int position) {
+        return getItem(position).isChannel() ? VIEW_TYPE_CHANNEL : VIEW_TYPE_VIDEO;
+    }
+
+    /** Full-span rows (channel results) for the grid's SpanSizeLookup in multi-column layouts. */
+    public boolean isFullSpan(int position) {
+        return position >= 0 && position < getItemCount() && getItemViewType(position) == VIEW_TYPE_CHANNEL;
+    }
+
     @NonNull
     @Override
-    public VideoViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_video_card, parent, false);
-        return new VideoViewHolder(view, mClickListener);
+    public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        LayoutInflater inflater = LayoutInflater.from(parent.getContext());
+        if (viewType == VIEW_TYPE_CHANNEL) {
+            return new ChannelViewHolder(inflater.inflate(R.layout.item_mobile_channel_card, parent, false), mClickListener);
+        }
+        return new VideoViewHolder(inflater.inflate(R.layout.item_video_card, parent, false), mClickListener);
     }
 
     @Override
-    public void onBindViewHolder(@NonNull VideoViewHolder holder, int position) {
-        holder.bind(getItem(position), mLongClickListener);
+    public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+        if (holder instanceof ChannelViewHolder) {
+            ((ChannelViewHolder) holder).bind(getItem(position), mLongClickListener);
+        } else {
+            ((VideoViewHolder) holder).bind(getItem(position), mLongClickListener);
+        }
     }
 
     @Override
-    public void onViewRecycled(@NonNull VideoViewHolder holder) {
+    public void onViewRecycled(@NonNull RecyclerView.ViewHolder holder) {
         super.onViewRecycled(holder);
-        holder.unbind();
+        if (holder instanceof VideoViewHolder) {
+            ((VideoViewHolder) holder).unbind();
+        } else if (holder instanceof ChannelViewHolder) {
+            ((ChannelViewHolder) holder).unbind();
+        }
     }
 
     /**
@@ -110,18 +136,16 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
     }
 
     /**
-     * Public so the channel page's heterogeneous adapter
-     * ({@code com.newtube.mobile.ui.channel.ChannelSectionAdapter}) can reuse the exact same
-     * card binding for its video rows (headers are a separate view type there), instead of
-     * duplicating the thumbnail/badge/progress binding logic. Inflate {@link R#layout} {@code
-     * item_video_card} and construct one of these for each video row.
+     * Public for reuse by other screens that render the standard video card (kept public
+     * after the channel page's old heterogeneous adapter was replaced by tabs, 2026-07-09).
      */
     public static class VideoViewHolder extends RecyclerView.ViewHolder {
         private final ImageView mThumbnail;
         private final TextView mBadge;
         private final ProgressBar mWatchProgress;
         private final TextView mTitle;
-        private final TextView mChannel;
+        private final TextView mMeta;
+        private final View mOverflow;
         private Video mVideo;
 
         public VideoViewHolder(@NonNull View itemView, OnVideoClickListener clickListener) {
@@ -131,7 +155,8 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
             mBadge = itemView.findViewById(R.id.video_badge);
             mWatchProgress = itemView.findViewById(R.id.video_watch_progress);
             mTitle = itemView.findViewById(R.id.video_title);
-            mChannel = itemView.findViewById(R.id.video_channel);
+            mMeta = itemView.findViewById(R.id.video_meta);
+            mOverflow = itemView.findViewById(R.id.video_overflow);
 
             itemView.setOnClickListener(v -> {
                 if (mVideo != null && clickListener != null) {
@@ -147,8 +172,23 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
             itemView.setOnLongClickListener(v ->
                     mVideo != null && longClickListener != null && longClickListener.onVideoLongClick(mVideo));
 
+            // ⋮ = the exact long-press context menu, just discoverable (Not interested, Open
+            // channel, playlists...). Hidden when the host screen has no menu wired.
+            if (mOverflow != null) {
+                mOverflow.setVisibility(longClickListener == null ? View.GONE : View.VISIBLE);
+                mOverflow.setOnClickListener(v -> {
+                    if (mVideo != null && longClickListener != null) {
+                        longClickListener.onVideoLongClick(mVideo);
+                    }
+                });
+            }
+
             mTitle.setText(video.getTitle());
-            mChannel.setText(video.getAuthor());
+
+            // "Channel · 1.2M views · 3 weeks ago" like YouTube; author-only when the
+            // service didn't build the info line (e.g. some playlist rows).
+            CharSequence meta = video.getSecondTitle();
+            mMeta.setText(meta == null || meta.length() == 0 ? video.getAuthor() : meta);
 
             bindBadge(context, video);
             bindProgress(video);
@@ -194,8 +234,8 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
          * layout-determined size Glide would otherwise wait a measure pass for) and in RGB_565.
          * Thumbnails are opaque JPEGs, so 565 halves both decode work and the GPU texture upload
          * per card - the biggest per-frame cost while fling-scrolling the grid. Sized for the
-         * portrait 2-column grid (the largest card); landscape has more, smaller columns, so this
-         * stays a correct downsample bound there too.
+         * portrait single-column feed (the largest card = full screen width); landscape splits
+         * the wider dimension across 2+ columns, so this stays a correct downsample bound there.
          */
         private static int sThumbW;
         private static int sThumbH;
@@ -203,7 +243,7 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
         private static int thumbWidth(Context context) {
             if (sThumbW == 0) {
                 android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
-                sThumbW = Math.min(dm.widthPixels, dm.heightPixels) / 2;
+                sThumbW = Math.min(dm.widthPixels, dm.heightPixels);
                 sThumbH = sThumbW * 9 / 16;
             }
             return sThumbW;
@@ -238,6 +278,70 @@ public class VideoCardAdapter extends ListAdapter<Video, VideoCardAdapter.VideoV
         public void unbind() {
             mVideo = null;
             Glide.with(itemView.getContext().getApplicationContext()).clear(mThumbnail);
+        }
+    }
+
+    /**
+     * Channel result row: round avatar (the channel item's cardImageUrl IS the avatar) +
+     * name + "subscribers · N videos". Tap routes through the same click listener — the
+     * presenters' onVideoItemClicked already opens the mobile channel screen for
+     * {@code Video.isChannel()} items; long-press/⋮-less row keeps the context menu too.
+     */
+    static class ChannelViewHolder extends RecyclerView.ViewHolder {
+        private final ImageView mAvatar;
+        private final TextView mName;
+        private final TextView mMeta;
+        private Video mVideo;
+
+        ChannelViewHolder(@NonNull View itemView, OnVideoClickListener clickListener) {
+            super(itemView);
+
+            mAvatar = itemView.findViewById(R.id.channel_avatar);
+            mName = itemView.findViewById(R.id.channel_name);
+            mMeta = itemView.findViewById(R.id.channel_meta);
+
+            itemView.setOnClickListener(v -> {
+                if (mVideo != null && clickListener != null) {
+                    clickListener.onVideoClick(mVideo);
+                }
+            });
+        }
+
+        void bind(Video video, OnVideoLongClickListener longClickListener) {
+            mVideo = video;
+
+            itemView.setOnLongClickListener(v ->
+                    mVideo != null && longClickListener != null && longClickListener.onVideoLongClick(mVideo));
+
+            mName.setText(video.getTitle());
+
+            // secondTitle = subscriber count, badge = "N videos" (see MediaItemImpl mapping).
+            CharSequence subs = video.getSecondTitle();
+            String videosCount = video.badge;
+            StringBuilder meta = new StringBuilder();
+            if (subs != null && subs.length() > 0) {
+                meta.append(subs);
+            }
+            if (videosCount != null && !videosCount.isEmpty()) {
+                if (meta.length() > 0) {
+                    meta.append(" · ");
+                }
+                meta.append(videosCount);
+            }
+            mMeta.setText(meta);
+            mMeta.setVisibility(meta.length() == 0 ? View.GONE : View.VISIBLE);
+
+            Glide.with(itemView.getContext())
+                    .load(video.getCardImageUrl())
+                    .circleCrop()
+                    .placeholder(R.drawable.ic_watch_channel_placeholder)
+                    .error(R.drawable.ic_watch_channel_placeholder)
+                    .into(mAvatar);
+        }
+
+        void unbind() {
+            mVideo = null;
+            Glide.with(itemView.getContext().getApplicationContext()).clear(mAvatar);
         }
     }
 }

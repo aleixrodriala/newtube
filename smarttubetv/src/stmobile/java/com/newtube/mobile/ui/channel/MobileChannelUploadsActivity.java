@@ -2,7 +2,6 @@ package com.newtube.mobile.ui.channel;
 
 import android.content.res.Configuration;
 import android.os.Bundle;
-import android.util.DisplayMetrics;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
@@ -146,13 +145,7 @@ public class MobileChannelUploadsActivity extends MobileActivity implements Chan
     }
 
     private int computeSpanCount() {
-        DisplayMetrics metrics = getResources().getDisplayMetrics();
-        float cardWidthPx = getResources().getDimension(R.dimen.mobile_card_target_width);
-        float spacingPx = getResources().getDimension(R.dimen.mobile_card_spacing);
-
-        int span = (int) (metrics.widthPixels / (cardWidthPx + spacingPx));
-
-        return Math.max(2, span);
+        return com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(this);
     }
 
     // ---------------------------------------------------------------------------------

@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Touch Channel page (Wave 4a).
+  Touch Channel page (Wave 4a; tabbed 2026-07-09).
 
-  LEAN rendering per the port's preference: ONE vertically-scrolling RecyclerView (a
-  GridLayoutManager) that interleaves full-span section headers (Uploads / Playlists /
-  Live / ...) with the section's videos laid out as a grid - NOT nested horizontal-scroll
-  carousels like the TV MultipleRowsFragment. See ChannelSectionAdapter for the two
-  view types + MobileChannelActivity's SpanSizeLookup that makes headers span the full row.
+  YouTube-style but pure Material: the channel's sections (Videos / Live / Playlists /
+  Shorts / ...) are Material TABS, and the selected section renders below as the standard
+  full-width card feed (same VideoCardAdapter as Home/Search). No nested horizontal
+  carousels (TV MultipleRowsFragment) and no interleaved mega-list (the pre-tab design).
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -50,6 +49,19 @@
             tools:text="Some Channel" />
 
     </LinearLayout>
+
+    <!-- One tab per channel section, in delivery order. Hidden until sections arrive. -->
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/mobile_channel_tabs"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/mobile_color_background"
+        android:visibility="gone"
+        app:tabIndicatorColor="@color/mobile_color_on_surface"
+        app:tabMode="scrollable"
+        app:tabSelectedTextColor="@color/mobile_color_on_surface"
+        app:tabTextColor="@color/mobile_color_on_surface_secondary"
+        tools:visibility="visible" />
 
     <FrameLayout
         android:layout_width="match_parent"
