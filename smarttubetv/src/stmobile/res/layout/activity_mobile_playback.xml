@@ -40,12 +40,17 @@
             android:layout_height="0dp"
             android:background="@android:color/black">
 
-            <!-- surface_type=texture_view: the swipe-down minimize MORPHS this view (scale +
-                 translate toward the mini-card corner), and a SurfaceView goes BLACK under view
-                 transforms (its surface lives outside the view hierarchy) - the video vanished
-                 for the whole shrink. A TextureView composites like a normal view, so the video
-                 visibly shrinks into the corner (same reason YouTube renders its morphing watch
-                 player on a TextureView). -->
+            <!-- surface_type=none: the video renders on a code-managed TextureView with a
+                 PERSISTENT SurfaceTexture (see MobilePlaybackActivity#setupVideoSurface). A
+                 TextureView (not SurfaceView) because the swipe-down minimize MORPHS this view
+                 and a SurfaceView goes BLACK under view transforms; and code-managed (not
+                 PlayerView-managed) because PlayerView/SimpleExoPlayer detach the surface on
+                 every view/activity hand-off, which forces a full video-codec re-init - seconds
+                 of frozen frames while the audio keeps playing (worst on mini-player minimize/
+                 expand). With one session-long SurfaceTexture the codec's surface NEVER changes;
+                 the texture is simply re-parented between this view and the Browse mini card
+                 (same technique as the YouTube app). PlayerView still does aspect-ratio,
+                 subtitles and the double-tap layer. -->
             <com.github.vkay94.dtpv.DoubleTapPlayerViewImpl
                 android:id="@+id/mobile_player_view"
                 android:layout_width="match_parent"
@@ -53,7 +58,7 @@
                 android:layout_gravity="center"
                 app:resize_mode="fit"
                 app:show_buffering="never"
-                app:surface_type="texture_view"
+                app:surface_type="none"
                 app:use_controller="false" />
 
             <com.github.vkay94.dtpv.youtube.YouTubeOverlay

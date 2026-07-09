@@ -141,12 +141,14 @@
         </LinearLayout>
 
         <!-- YouTube-style FLOATING mini-player: just the live video (no bar), a rounded card
-             hovering over the grid's bottom-right corner above the bottom nav. Rendered from the
-             backgrounded playback activity's player via MiniPlayerBridge. GONE by default; it
-             floats OVER content (like YouTube), so the grid keeps its bottom-nav constraint.
-             TextureView surface: composites like a normal view (clips to the card's rounded
-             corners, no SurfaceView punch-through) and leaves the main player's SurfaceView free
-             for the handoff back. Tap video = expand; overlaid play/pause + X; 2dp progress. -->
+             hovering over the grid's bottom-right corner above the bottom nav. GONE by default;
+             it floats OVER content (like YouTube), so the grid keeps its bottom-nav constraint.
+             The video is NOT a PlayerView: the card re-parents the playback activity's
+             session-long SurfaceTexture into a code-managed TextureView inside the frame below
+             (see MobileBrowseActivity#attachMiniTexture + MiniPlayerBridge.getSessionTexture) -
+             the codec's surface never changes, so the hand-off never freezes playback. The
+             freeze ImageView shows the last captured frame during attach/detach beats.
+             Tap video = expand; overlaid play/pause + X; 2dp progress. -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/mobile_mini_player"
             android:layout_width="180dp"
@@ -167,13 +169,20 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent">
 
-                <com.google.android.exoplayer2.ui.PlayerView
-                    android:id="@+id/mobile_mini_player_view"
+                <FrameLayout
+                    android:id="@+id/mobile_mini_player_frame"
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    app:resize_mode="zoom"
-                    app:surface_type="texture_view"
-                    app:use_controller="false" />
+                    android:layout_height="match_parent">
+
+                    <ImageView
+                        android:id="@+id/mobile_mini_freeze"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:importantForAccessibility="no"
+                        android:scaleType="fitXY"
+                        android:visibility="gone" />
+
+                </FrameLayout>
 
                 <ImageButton
                     android:id="@+id/mobile_mini_play_pause"

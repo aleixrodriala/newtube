@@ -51,6 +51,33 @@ public class SuggestionsController extends BasePlayerController {
     private static final int MAX_PLAYLIST_CONTINUATIONS = 20;
     private static final int CHAPTER_NOTIFICATION_Id = 565;
 
+    // NEWTUBE(mobile): the touch watch page flattens every suggestion row into one scrolling list
+    // that pages itself on scroll (onScrollEnd), so the TV-style "top up small rows right away"
+    // continuations are pure waste there - observed as ~9 parallel continueGroup calls per video
+    // that all fail with "fromNullable result is null" and compete with the stream fetch for
+    // bandwidth right at open. Set from MobileMainApplication only; TV keeps the default (false)
+    // and is byte-for-byte unchanged.
+    private static volatile boolean sRowContinuationsDisabled;
+    // NEWTUBE(mobile): start the metadata/suggestions fetch at onNewVideo (parallel with the video
+    // format fetch + engine load) instead of after onVideoLoaded. The watch page (title, counts,
+    // related list) fills ~1 video-load earlier. The other controllers still get onMetadata at the
+    // usual time (see mPendingListenerMetadata) because some of them touch the engine (e.g.
+    // VideoStateController.onMetadata restores position/speed) and must not run before the new
+    // stream is actually loaded. Set from MobileMainApplication only; TV default false.
+    private static volatile boolean sEagerSuggestionsEnabled;
+    private String mEagerVideoId;
+    private boolean mEagerDelivered;
+    private MediaItemMetadata mPendingListenerMetadata;
+    private String mLoadedVideoId;
+
+    public static void setRowContinuationsDisabled(boolean disabled) {
+        sRowContinuationsDisabled = disabled;
+    }
+
+    public static void setEagerSuggestionsEnabled(boolean enabled) {
+        sEagerSuggestionsEnabled = enabled;
+    }
+
     private interface OnVideoGroup {
         void onVideoGroup(VideoGroup group);
     }
@@ -73,6 +100,20 @@ public class SuggestionsController extends BasePlayerController {
         disposeActions();
         //mCurrentGroup = video.getGroup(); // disable garbage collected
         //appendNextSectionVideoIfNeeded(video); // ConcurrentModificationException error
+
+        // NEWTUBE(mobile): kick the metadata fetch NOW, in parallel with the format fetch and
+        // engine load, instead of waiting for onVideoLoaded. See sEagerSuggestionsEnabled docs.
+        // mMediaItemService null = onInit hasn't run yet (very first open launches the playback
+        // view AFTER this callback) - skip; onVideoLoaded then loads the classic way.
+        mPendingListenerMetadata = null;
+        mLoadedVideoId = null;
+        mEagerDelivered = false;
+        if (sEagerSuggestionsEnabled && video != null && video.hasVideo() && mMediaItemService != null) {
+            mEagerVideoId = video.videoId;
+            loadSuggestions(video);
+        } else {
+            mEagerVideoId = null;
+        }
     }
 
     /**
@@ -80,6 +121,24 @@ public class SuggestionsController extends BasePlayerController {
      */
     @Override
     public void onVideoLoaded(Video item) {
+        // NEWTUBE(mobile): the eager fetch from onNewVideo is either still in flight or already
+        // delivered for this exact video - don't fetch the same document twice. If it FAILED
+        // (not delivered, nothing running) fall through and reload the classic way.
+        if (sEagerSuggestionsEnabled && item != null && Helpers.equals(item.videoId, mEagerVideoId)) {
+            mLoadedVideoId = item.videoId;
+            if (mEagerDelivered || RxHelper.isAnyActionRunning(mActions)) {
+                // Engine is loaded now: release the held-back controller callback (see
+                // updateSuggestions). If metadata is still in flight it's delivered on arrival.
+                MediaItemMetadata pending = mPendingListenerMetadata;
+                mPendingListenerMetadata = null;
+                if (pending != null) {
+                    callListener(pending);
+                }
+                return;
+            }
+        }
+
+        mLoadedVideoId = item != null ? item.videoId : null;
         loadSuggestions(item);
     }
 
@@ -352,8 +411,21 @@ public class SuggestionsController extends BasePlayerController {
 
         appendSuggestions(video, mediaItemMetadata);
 
-        // After video suggestions
-        callListener(mediaItemMetadata);
+        // After video suggestions.
+        // NEWTUBE(mobile): on the eager path the metadata can arrive BEFORE the engine has loaded
+        // the new stream. The UI work above is safe early, but the controller chain is not (e.g.
+        // VideoStateController.onMetadata seeks/sets speed on the engine), so hold the callback
+        // until onVideoLoaded releases it. Classic path (TV / eager off) is unchanged.
+        if (sEagerSuggestionsEnabled && video != null && Helpers.equals(video.videoId, mEagerVideoId)) {
+            mEagerDelivered = true;
+            if (!Helpers.equals(video.videoId, mLoadedVideoId)) {
+                mPendingListenerMetadata = mediaItemMetadata;
+            } else {
+                callListener(mediaItemMetadata);
+            }
+        } else {
+            callListener(mediaItemMetadata);
+        }
 
         // NEWTUBE(mobile-ttff): hand the SAME metadata document to the View so the touch watch-header
         // can bind from it instead of issuing a duplicate getMetadataObserve. No-op on TV (default
@@ -650,6 +722,11 @@ public class SuggestionsController extends BasePlayerController {
             return;
         }
 
+        // NEWTUBE(mobile): the touch related list pages itself on scroll - see field docs.
+        if (sRowContinuationsDisabled) {
+            return;
+        }
+
         if (MediaServiceManager.instance().shouldContinueRowGroup(getContext(), group)) {
             continueGroup(group, getPlayer().isSuggestionsShown());
         }
@@ -849,6 +926,7 @@ public class SuggestionsController extends BasePlayerController {
         RxHelper.disposeActions(mActions);
         mChapters = null;
         mNextSectionVideo = null;
+        mPendingListenerMetadata = null; // NEWTUBE(mobile): never deliver a stale held-back callback
         if (mBrowseProcessor != null) {
             mBrowseProcessor.dispose();
         }

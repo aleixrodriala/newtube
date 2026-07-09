@@ -14,8 +14,10 @@ import android.content.ServiceConnection;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
 import android.app.PendingIntent;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
+import android.graphics.SurfaceTexture;
 import android.graphics.drawable.Icon;
 import android.os.Build;
 import android.os.Bundle;
@@ -25,6 +27,8 @@ import android.util.Rational;
 import android.util.SparseIntArray;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.Surface;
+import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -32,6 +36,7 @@ import android.view.WindowInsets;
 import android.view.animation.DecelerateInterpolator;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -273,6 +278,7 @@ public class MobilePlaybackActivity extends MobileActivity
         setContentView(R.layout.activity_mobile_playback);
 
         bindViews();
+        setupVideoSurface();
         setupControls();
         setupWatchContent();
 
@@ -595,6 +601,17 @@ public class MobilePlaybackActivity extends MobileActivity
         mExoPlayerController.setPlayer(mPlayer);
         mPlayerView.setPlayer(mPlayer);
 
+        // Persistent surface: PlayerView owns no surface (surface_type="none"); hand the
+        // session-long Surface to each new player instance. On the very first open the texture
+        // may not exist yet - the SurfaceTextureListener attaches it on availability.
+        if (mSessionSurface != null) {
+            mPlayer.setVideoSurface(mSessionSurface);
+        }
+        // The stock black shutter only lifts on a "rendered first frame" event tied to
+        // PlayerView-owned surfaces; with the external surface it would sit over the loading
+        // still forever. The still + black video area do its job now.
+        mPlayerView.setShutterBackgroundColor(Color.TRANSPARENT);
+
         // Wire the YouTube-style double-tap seek overlay to the live player.
         // NOTE: PerformListener.shouldForward() compiles to an abstract method (the Kotlin default
         // body lives in DefaultImpls, invisible to Java), so it must be implemented here. We use the
@@ -707,17 +724,22 @@ public class MobilePlaybackActivity extends MobileActivity
         // In the foreground again: auto-PiP behaves normally from here on.
         mSuppressAutoPip = false;
 
-        // Back from the mini-player (expand tap, new video, notification, recents): the card's
-        // TextureView owns the video output right now (Browse's onPause has already run - it
-        // detached the card, but OUR PlayerView still holds a stale player reference from before
-        // the minimize). Force a re-attach cycle so the surface really comes back here; a plain
-        // reference check would see "already attached" and leave the screen black.
+        // Back from the mini-player (expand tap, new video, notification, recents): the Browse
+        // card displayed the session texture until Browse's onPause detached it (guaranteed to
+        // run before this). Re-parent it into our content frame - the codec kept decoding into
+        // it the whole time, so no surface change, no codec re-init, no frozen frames. The card
+        // captured its last frame for us; it covers the 1-2 frames until the texture paints.
         boolean fromMini = MiniPlayerBridge.isActive();
-        MiniPlayerBridge.deactivate();
-        if (fromMini && mPlayer != null) {
-            mPlayerView.setPlayer(null);
-            mPlayerView.setPlayer(mPlayer);
+        if (fromMini) {
+            Bitmap handoff = MiniPlayerBridge.takeHandoffStill();
+            if (handoff != null) {
+                showHandoffStill(handoff);
+            } else {
+                mStillAwaitFrame = true; // minimize-time capture is showing; lift on first frame
+            }
+            reattachVideoTexture();
         }
+        MiniPlayerBridge.deactivate();
 
         // Expanding from the mini card: reverse morph - start the container ON the card's rect
         // and grow it to fullscreen, the mirror image of the swipe-down shrink. The window itself
@@ -771,6 +793,9 @@ public class MobilePlaybackActivity extends MobileActivity
 
         // Fix situations when the engine wasn't properly destroyed (mirrors PlaybackFragment).
         destroyPlayerObjects();
+
+        // The codec is gone (player released above): the session-long surface can die now.
+        releaseSessionTexture();
 
         // Real finish: tear down the background-playback service and the PiP receiver.
         unbindPlaybackService();
@@ -1524,6 +1549,12 @@ public class MobilePlaybackActivity extends MobileActivity
                 case Player.STATE_READY:
                     showProgressBar(false);
                     mIsEnded = false;
+                    // LOADING STILL: the NEW stream is ready - the very next rendered frame is the
+                    // new video, so let onSurfaceTextureUpdated lift the thumbnail then.
+                    if (mStillAwaitReady) {
+                        mStillAwaitReady = false;
+                        mStillAwaitFrame = true;
+                    }
                     // NEWTUBE(mobile-ttff): first frame has rendered. Now (and only now) apply any
                     // watch-header metadata that arrived early, so the bind stays off the first-frame
                     // path. Runs on the UI thread (ExoPlayer callbacks post here).
@@ -1559,7 +1590,182 @@ public class MobilePlaybackActivity extends MobileActivity
                         && (playbackState == Player.STATE_READY || playbackState == Player.STATE_BUFFERING));
             }
         }
+
+        @Override
+        public void onPlayerError(com.google.android.exoplayer2.ExoPlaybackException error) {
+            // Never leave the loading still covering an error state.
+            mStillAwaitReady = false;
+            mStillAwaitFrame = false;
+            hideVideoStill();
+        }
     };
+
+    // ---------------------------------------------------------------------------------
+    // Persistent video surface + loading still
+    //
+    // The video decodes into ONE SurfaceTexture for the whole life of this activity. PlayerView
+    // no longer owns a surface (surface_type="none"): a code-managed TextureView lives inside its
+    // content frame (so aspect-ratio/zoom still apply) and hands its very first SurfaceTexture to
+    // the player as a Surface the player never lets go of. Every hand-off - minimize to the
+    // Browse mini card, expand back, background/return - only RE-PARENTS that texture between
+    // TextureViews. The codec's output surface never changes, so the decoder is never released
+    // and re-initialized: no more "audio keeps playing while the frames are stuck" (a codec
+    // re-init must decode from the previous keyframe back to the position, which takes seconds
+    // on some devices). This is the same technique the YouTube app uses.
+    //
+    // The "loading still" ImageView covers the texture in the two moments a stale frame would
+    // show: a NEW video opening on this reused activity (thumbnail until the new stream's first
+    // frame - see maybeShowLoadingStill) and the mini-player hand-offs (a captured frame bridges
+    // the couple of frames until the re-parented texture paints).
+    // ---------------------------------------------------------------------------------
+
+    private TextureView mVideoTexture;
+    private SurfaceTexture mSessionTexture;
+    private Surface mSessionSurface;
+    private ImageView mVideoStill;
+    /** Loading-still state: waiting for the NEW stream's STATE_READY... */
+    private boolean mStillAwaitReady;
+    /** ...then for the next actually-rendered frame; only then the still lifts. */
+    private boolean mStillAwaitFrame;
+    private String mStillVideoId;
+
+    /** Build the code-managed video texture + still inside the PlayerView's content frame. */
+    private void setupVideoSurface() {
+        ViewGroup contentFrame = mPlayerView.findViewById(com.google.android.exoplayer2.ui.R.id.exo_content_frame);
+
+        mVideoTexture = new TextureView(this);
+        mVideoTexture.setSurfaceTextureListener(mVideoTextureListener);
+        contentFrame.addView(mVideoTexture, 0, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        mVideoStill = new ImageView(this);
+        mVideoStill.setScaleType(ImageView.ScaleType.FIT_XY);
+        mVideoStill.setBackgroundColor(Color.BLACK);
+        mVideoStill.setVisibility(View.GONE);
+        contentFrame.addView(mVideoStill, 1, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    private final TextureView.SurfaceTextureListener mVideoTextureListener = new TextureView.SurfaceTextureListener() {
+        @Override
+        public void onSurfaceTextureAvailable(SurfaceTexture texture, int width, int height) {
+            if (mSessionTexture == null) {
+                // Very first availability: adopt this texture for the whole session.
+                mSessionTexture = texture;
+                mSessionSurface = new Surface(texture);
+                if (mPlayer != null) {
+                    mPlayer.setVideoSurface(mSessionSurface);
+                }
+            } else if (texture != mSessionTexture) {
+                // The view re-created its texture (re-attach after mini / return from background):
+                // swap the session texture back in. The codec kept decoding into it all along, so
+                // the live stream shows within a frame or two. The fresh texture is discarded.
+                mVideoTexture.setSurfaceTexture(mSessionTexture);
+                texture.release();
+            }
+        }
+
+        @Override
+        public void onSurfaceTextureSizeChanged(SurfaceTexture texture, int width, int height) {
+        }
+
+        @Override
+        public boolean onSurfaceTextureDestroyed(SurfaceTexture texture) {
+            // NEVER let a view release the session texture - that would detach the codec's
+            // surface and force the re-init this whole design exists to avoid. Disposable
+            // (never-adopted) textures may be released normally.
+            return texture != mSessionTexture;
+        }
+
+        @Override
+        public void onSurfaceTextureUpdated(SurfaceTexture texture) {
+            // A real frame just rendered behind the still: lift it.
+            if (mStillAwaitFrame && !mStillAwaitReady) {
+                mStillAwaitFrame = false;
+                hideVideoStill();
+            }
+        }
+    };
+
+    /** Session-long video texture, handed to the Browse mini card (see MiniPlayerBridge). */
+    SurfaceTexture getSessionTexture() {
+        return mSessionTexture;
+    }
+
+    /** Detach the TextureView so the session texture is free for another view's GL consumer. */
+    private void detachVideoTexture() {
+        if (mVideoTexture != null && mVideoTexture.getParent() instanceof ViewGroup) {
+            ((ViewGroup) mVideoTexture.getParent()).removeView(mVideoTexture);
+        }
+    }
+
+    /** Re-parent the (still decoding) session texture back into this player's content frame. */
+    private void reattachVideoTexture() {
+        if (mVideoTexture != null && mVideoTexture.getParent() == null) {
+            ViewGroup contentFrame = mPlayerView.findViewById(com.google.android.exoplayer2.ui.R.id.exo_content_frame);
+            contentFrame.addView(mVideoTexture, 0, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+    }
+
+    /** New video on this reused view: thumbnail over the stale frame until the new first frame. */
+    private void maybeShowLoadingStill(Video item) {
+        if (item == null || item.videoId == null || mVideoStill == null
+                || Helpers.equals(item.videoId, mStillVideoId)) {
+            return;
+        }
+        mStillVideoId = item.videoId;
+        mStillAwaitReady = true; // the OLD stream is still READY; wait for the new one
+        mStillAwaitFrame = false;
+        mVideoStill.animate().cancel();
+        mVideoStill.setImageDrawable(null); // solid black until the thumbnail lands
+        mVideoStill.setAlpha(1f);
+        mVideoStill.setVisibility(View.VISIBLE);
+        String thumb = item.getBackgroundUrl();
+        if (thumb != null && !isFinishing() && !isDestroyed()) {
+            Glide.with(this).load(thumb).into(mVideoStill);
+        }
+    }
+
+    /** Mini hand-off: show a captured frame while the re-parented texture paints (1-2 frames). */
+    private void showHandoffStill(Bitmap frame) {
+        if (mVideoStill == null || frame == null) {
+            return;
+        }
+        mStillAwaitReady = false;
+        mStillAwaitFrame = true;
+        mVideoStill.animate().cancel();
+        mVideoStill.setImageBitmap(frame);
+        mVideoStill.setAlpha(1f);
+        mVideoStill.setVisibility(View.VISIBLE);
+    }
+
+    private void hideVideoStill() {
+        if (mVideoStill == null || mVideoStill.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        mVideoStill.animate().alpha(0f).setDuration(120).withEndAction(() -> {
+            mVideoStill.setVisibility(View.GONE);
+            mVideoStill.setAlpha(1f);
+            mVideoStill.setImageDrawable(null);
+        }).start();
+    }
+
+    private void releaseSessionTexture() {
+        if (mSessionSurface != null) {
+            mSessionSurface.release();
+            mSessionSurface = null;
+        }
+        if (mSessionTexture != null) {
+            // If the texture is still displayed by the Browse card (we died while minimized) the
+            // card's own detach releases it again - a double release is tolerated natively.
+            try {
+                mSessionTexture.release();
+            } catch (RuntimeException ignored) {
+            }
+            mSessionTexture = null;
+        }
+    }
 
     // ---------------------------------------------------------------------------------
     // Swipe-down-to-dismiss (PlayerContainerLayout.DragListener)
@@ -1710,11 +1916,19 @@ public class MobilePlaybackActivity extends MobileActivity
      * player. Called at drag RELEASE (the morph tail keeps animating while Browse boots).
      */
     private void minimizeByDrag() {
-        // NOTE: the video surface is NOT detached here - the morphing video keeps rendering in
-        // this window while Browse starts (detaching first blanked the screen for the whole
-        // activity-switch latency: the "black screen between the transitions"). Browse's
-        // onResume moves the output to the mini card's TextureView (its setPlayer() steals the
-        // surface), which Android guarantees happens only once this window is already covered.
+        // Freeze the current frame over the morphing video box, then detach the TextureView so
+        // the session texture is free for the Browse card the moment it resumes (a SurfaceTexture
+        // can feed only one GL consumer at a time). The codec keeps decoding into the briefly
+        // consumer-less texture - audio and playback never hiccup - and the card picks the live
+        // stream up without any surface change on the player.
+        if (mVideoTexture != null && mVideoTexture.isAvailable()) {
+            Bitmap frame = mVideoTexture.getBitmap();
+            if (frame != null) {
+                showHandoffStill(frame);
+                mStillAwaitFrame = false; // keep it until the expand path re-arms the lift
+            }
+        }
+        detachVideoTexture();
         MiniPlayerBridge.activate(this);
         // Launching Browse over ourselves delivers onUserLeaveHint to this activity, and the
         // isNewViewPending() guard there is NOT reliable for this hand-off (observed: minimize
@@ -2908,6 +3122,12 @@ public class MobilePlaybackActivity extends MobileActivity
 
         setTitle(item != null ? item.getTitleFull() : null);
         bindWatchVideo(item);
+
+        // LOADING STILL: a DIFFERENT video was just set on this (reused) view. The texture still
+        // shows the previous video's last frame and the new audio starts as soon as it buffers,
+        // so cover the stale frame with the new video's thumbnail until ITS first frame renders
+        // (YouTube does exactly this). Also gives the very first open a thumbnail instead of black.
+        runOnUiThread(() -> maybeShowLoadingStill(item));
 
         // LOADING SKELETON: a new video is being set on the view and its related feed hasn't landed
         // yet. Covers the FIRST open too (clearSuggestions only fires on subsequent loads).

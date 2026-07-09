@@ -1,6 +1,8 @@
 package com.newtube.mobile.ui.playback;
 
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.SurfaceTexture;
 
 import androidx.annotation.Nullable;
 
@@ -14,15 +16,15 @@ import java.lang.ref.WeakReference;
 /**
  * Hand-off state for the YouTube-style in-app mini-player.
  *
- * <p>The player is a {@code singleInstance} Activity that OWNS the {@link SimpleExoPlayer}
- * (see {@link MobilePlaybackService} - the service only wires the media session/notification,
- * background audio already survives the Activity being covered). Minimizing therefore does NOT
- * move the player anywhere: {@link MobilePlaybackActivity} releases its video surface, stays
- * alive behind {@code MobileBrowseActivity}, and Browse renders the SAME live player into a
- * docked bar through its own small {@code PlayerView}. This class is only the bridge between
- * those two activities: "is a mini session active?" plus lazy access to the live player/video
- * (lazy so an engine restart inside the playback activity never leaves the bar holding a
- * released player).</p>
+ * <p>The playback Activity OWNS the {@link SimpleExoPlayer} (see {@link MobilePlaybackService} -
+ * the service only wires the media session/notification, background audio already survives the
+ * Activity being covered). Minimizing therefore does NOT move the player anywhere:
+ * {@link MobilePlaybackActivity} stays alive behind {@code MobileBrowseActivity}, and the card
+ * simply re-parents the player's session-long {@link SurfaceTexture} into its own TextureView
+ * (see {@link #getSessionTexture()}) - the codec never notices the hand-off. This class is only
+ * the bridge between those two activities: "is a mini session active?" plus lazy access to the
+ * live player/video/texture (lazy so an engine restart inside the playback activity never
+ * leaves the card holding released objects).</p>
  *
  * <p>All access is main-thread (activity lifecycle callbacks + view clicks), so plain statics
  * are safe. The activity is held weakly: if the system destroys the backgrounded player
@@ -32,6 +34,7 @@ public final class MiniPlayerBridge {
 
     private static WeakReference<MobilePlaybackActivity> sActivity = new WeakReference<>(null);
     private static boolean sActive;
+    private static Bitmap sHandoffStill;
 
     private MiniPlayerBridge() {
     }
@@ -46,6 +49,30 @@ public final class MiniPlayerBridge {
     public static void deactivate() {
         sActive = false;
         sActivity = new WeakReference<>(null);
+        sHandoffStill = null;
+    }
+
+    /**
+     * The session-long video {@link SurfaceTexture} (see MobilePlaybackActivity's persistent
+     * surface docs). The Browse card re-parents this into its own TextureView while the mini
+     * session is active - the codec's output surface never changes, so playback never stalls.
+     */
+    @Nullable
+    public static SurfaceTexture getSessionTexture() {
+        return isActive() ? sActivity.get().getSessionTexture() : null;
+    }
+
+    /** Last card frame, captured by Browse when it detaches; shown by the expanding player. */
+    public static void setHandoffStill(@Nullable Bitmap frame) {
+        sHandoffStill = frame;
+    }
+
+    /** Consume the captured card frame (single use). */
+    @Nullable
+    static Bitmap takeHandoffStill() {
+        Bitmap frame = sHandoffStill;
+        sHandoffStill = null;
+        return frame;
     }
 
     /** True while a live, still-alive player session is docked in the mini bar. */

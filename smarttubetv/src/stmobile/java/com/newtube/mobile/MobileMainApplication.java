@@ -10,6 +10,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.SearchView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SignInView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.common.app.views.WebBrowserView;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.controllers.SuggestionsController;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.YTSignInPresenter;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.ExoMediaSourceFactory;
@@ -202,6 +203,14 @@ public class MobileMainApplication extends MainApplication {
         // system slide never plays. This flag makes every ViewManager launch reuse the existing
         // instance (REORDER_TO_FRONT) - the job singleInstance used to do on TV.
         ViewManager.setReorderToFrontEnabled(true);
+
+        // WATCH-PAGE LOAD (mobile-only): start the metadata/suggestions fetch at onNewVideo, in
+        // parallel with the format fetch + engine load, so the watch page (title/counts/related)
+        // fills a whole video-load earlier; and drop the TV-style eager row continuations - the
+        // touch related list is one self-paging list, so those fired ~9 doomed requests per video
+        // that competed with the stream fetch right at open. TV never calls these -> TV unchanged.
+        SuggestionsController.setEagerSuggestionsEnabled(true);
+        SuggestionsController.setRowContinuationsDisabled(true);
 
         ViewManager viewManager = ViewManager.instance(this);
 
