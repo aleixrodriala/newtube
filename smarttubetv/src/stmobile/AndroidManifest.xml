@@ -37,6 +37,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
+    <!-- LAUNCH MODES: every touch activity is singleTop (NOT the TV's singleInstance) so ALL
+         screens share ONE task, like a normal phone app. singleInstance put each screen in its
+         own task, and Android 12+ plays a non-overridable system slide/zoom for every cross-TASK
+         switch - the "brutal sliding transition" on video open/minimize/expand. In-task activity
+         transitions honor the theme animations (PlayerWindowAnimation/BrowseWindowAnimation).
+         Instance reuse (what singleInstance used to provide) comes from
+         FLAG_ACTIVITY_REORDER_TO_FRONT, added by ViewManager on the touch flavor
+         (setReorderToFrontEnabled in MobileMainApplication) and by the notification intent. -->
     <application
         android:name="com.newtube.mobile.MobileMainApplication"
         android:theme="@style/Theme.NewTube"
@@ -45,7 +53,7 @@
         <activity
             android:name="com.newtube.mobile.ui.browse.MobileBrowseActivity"
             android:exported="false"
-            android:launchMode="singleInstance"
+            android:launchMode="singleTop"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
@@ -61,7 +69,7 @@
         <activity
             android:name="com.newtube.mobile.ui.playback.MobilePlaybackActivity"
             android:exported="false"
-            android:launchMode="singleInstance"
+            android:launchMode="singleTop"
             android:supportsPictureInPicture="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
             android:screenOrientation="unspecified"
@@ -89,7 +97,7 @@
         <activity
             android:name="com.newtube.mobile.ui.dialog.MobileAppDialogActivity"
             android:exported="false"
-            android:launchMode="singleInstance"
+            android:launchMode="singleTop"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube.Dialog" />
@@ -103,7 +111,7 @@
         <activity
             android:name="com.newtube.mobile.ui.channel.MobileChannelUploadsActivity"
             android:exported="false"
-            android:launchMode="singleInstance"
+            android:launchMode="singleTop"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
@@ -111,7 +119,7 @@
         <activity
             android:name="com.newtube.mobile.ui.channel.MobileChannelActivity"
             android:exported="false"
-            android:launchMode="singleInstance"
+            android:launchMode="singleTop"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
@@ -126,7 +134,7 @@
         <activity
             android:name="com.newtube.mobile.ui.search.MobileSearchActivity"
             android:exported="false"
-            android:launchMode="singleInstance"
+            android:launchMode="singleTop"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
             android:screenOrientation="unspecified"
             android:windowSoftInputMode="adjustResize"
@@ -142,7 +150,7 @@
         <activity
             android:name="com.newtube.mobile.ui.signin.MobileSignInActivity"
             android:exported="false"
-            android:launchMode="singleInstance"
+            android:launchMode="singleTop"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
@@ -156,7 +164,7 @@
         <activity
             android:name="com.newtube.mobile.ui.webbrowser.MobileWebBrowserActivity"
             android:exported="false"
-            android:launchMode="singleInstance"
+            android:launchMode="singleTop"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube.Dialog" />
@@ -170,7 +178,7 @@
         <activity
             android:name="com.newtube.mobile.ui.adddevice.MobileAddDeviceActivity"
             android:exported="false"
-            android:launchMode="singleInstance"
+            android:launchMode="singleTop"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />

@@ -1,5 +1,8 @@
 package com.newtube.mobile.ui.playback;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
 import android.app.PictureInPictureParams;
 import android.app.RemoteAction;
 import android.content.BroadcastReceiver;
@@ -26,6 +29,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
+import android.view.animation.DecelerateInterpolator;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.ImageButton;
@@ -256,6 +260,11 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Transitions: this activity now lives in the SAME task as Browse (singleTop + reorder,
+        // see the stmobile manifest note), so opening/closing it is an in-task activity
+        // transition that honors the theme's PlayerWindowAnimation (fade+scale in, slide-down
+        // out) on every Android version - no code needed here, and no cross-task system slide.
 
         // NOTE: buffer tuning is applied locally around createPlayer() (see createPlayerObjects),
         // NOT here - forcing PlayerData.setVideoBufferType() on every onCreate permanently
@@ -695,12 +704,30 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onResume() {
         super.onResume();
 
-        // Back from the mini bar (expand tap, new video, notification, recents): the bar's
-        // PlayerView was detached by Browse, take the video surface back. Idempotent when no
-        // mini session was involved.
+        // In the foreground again: auto-PiP behaves normally from here on.
+        mSuppressAutoPip = false;
+
+        // Back from the mini-player (expand tap, new video, notification, recents): the card's
+        // TextureView owns the video output right now (Browse's onPause has already run - it
+        // detached the card, but OUR PlayerView still holds a stale player reference from before
+        // the minimize). Force a re-attach cycle so the surface really comes back here; a plain
+        // reference check would see "already attached" and leave the screen black.
+        boolean fromMini = MiniPlayerBridge.isActive();
         MiniPlayerBridge.deactivate();
-        if (mPlayer != null && mPlayerView.getPlayer() != mPlayer) {
+        if (fromMini && mPlayer != null) {
+            mPlayerView.setPlayer(null);
             mPlayerView.setPlayer(mPlayer);
+        }
+
+        // Expanding from the mini card: reverse morph - start the container ON the card's rect
+        // and grow it to fullscreen, the mirror image of the swipe-down shrink. The window itself
+        // hard-cut in (OVERRIDE_TRANSITION_OPEN = 0), so this is the only motion the user sees.
+        if (fromMini && mContainer != null) {
+            mContainer.post(() -> {
+                computeMorphTarget();
+                applyMorph(1f);
+                animateMorph(0f, 220, this::resetMorph);
+            });
         }
 
         if (mPresenter != null) {
@@ -723,12 +750,12 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onStop() {
         super.onStop();
 
-        // The minimize drag left the container slid off-screen/faded. Reset it once this window
-        // is no longer visible (here, not in minimizeByDrag - resetting while our window still
-        // shows behind Browse's enter transition would flash the player back for a frame).
-        if (mContainer != null && mContainer.getTranslationY() != 0f) {
-            mContainer.setTranslationY(0f);
-            mContainer.setAlpha(1f);
+        // The minimize drag left the container morphed onto the mini-card rect. Reset it once
+        // this window is no longer visible (here, not in minimizeByDrag - resetting while our
+        // window still shows behind the task switch would flash the fullscreen player back).
+        // The expand path immediately re-applies the morph in onResume, so this never fights it.
+        if (mContainer != null && mMorphFraction != 0f) {
+            resetMorph();
         }
     }
 
@@ -761,10 +788,17 @@ public class MobilePlaybackActivity extends MobileActivity
      * slip into Picture-in-Picture so the video keeps playing in a floating window. If PiP isn't
      * available the background-playback service keeps the audio going instead (see MobilePlaybackService).
      */
+    /** Set while minimizing into the in-app mini-player, so auto-PiP keeps its hands off. */
+    private boolean mSuppressAutoPip;
+
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
 
+        if (mSuppressAutoPip) {
+            // Backgrounding into the Browse mini-player, not leaving the app: no system PiP.
+            return;
+        }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || mIsInPip || isFinishing()) {
             return;
         }
@@ -1046,7 +1080,9 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private PendingIntent buildContentIntent() {
         Intent intent = new Intent(this, MobilePlaybackActivity.class);
-        intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        // REORDER_TO_FRONT: the player may sit BELOW Browse in the shared task (mini-player);
+        // a notification tap must surface the existing instance, not stack a duplicate.
+        intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
         int piFlags = PendingIntent.FLAG_UPDATE_CURRENT
                 | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
         return PendingIntent.getActivity(this, 0, intent, piFlags);
@@ -1529,62 +1565,162 @@ public class MobilePlaybackActivity extends MobileActivity
     // Swipe-down-to-dismiss (PlayerContainerLayout.DragListener)
     // ---------------------------------------------------------------------------------
 
+    /**
+     * Swipe-down morph, YouTube-style: instead of sliding the screen away, the drag SHRINKS the
+     * whole container toward the exact spot where Browse's floating mini-player card sits, so the
+     * video visually "becomes" the mini-player. The watch page + controls fade out early in the
+     * drag, leaving only the video during the shrink. Geometry note: both activities fit system
+     * windows, so window coordinates line up across the task switch, and a 16:9 video scaled to
+     * the card's width lands exactly on the 16:9 card - the hard cut to Browse (no window
+     * animation) is then nearly seamless.
+     */
+    private float mMorphScale = 1f;
+    private float mMorphTx;
+    private float mMorphTy;
+    private float mMorphFraction;
+    private ValueAnimator mMorphAnimator;
+
+    /** Compute the container transform (pivot 0,0) that maps the video area onto the mini card. */
+    private void computeMorphTarget() {
+        float density = getResources().getDisplayMetrics().density;
+        float cardW = 180 * density;
+        float margin = 12 * density;
+        float bottomNav = 72 * density;
+
+        Rect video = new Rect();
+        video.set(0, 0, mVideoArea.getWidth(), mVideoArea.getHeight());
+        mContainer.offsetDescendantRectToMyCoords(mVideoArea, video);
+
+        float scale = video.width() > 0 ? cardW / video.width() : 0.44f;
+        float cardH = video.height() * scale; // 16:9 video -> ~the card's 102dp
+        float targetX = mContainer.getWidth() - margin - cardW;
+        float targetY = mContainer.getHeight() - bottomNav - margin - cardH;
+
+        mMorphScale = scale;
+        mMorphTx = targetX - video.left * scale;
+        mMorphTy = targetY - video.top * scale;
+    }
+
+    /** Apply the morph at fraction f (0 = fullscreen player, 1 = sitting on the mini card). */
+    private void applyMorph(float f) {
+        mMorphFraction = f;
+        mContainer.setPivotX(0f);
+        mContainer.setPivotY(0f);
+        float s = 1f + (mMorphScale - 1f) * f;
+        mContainer.setScaleX(s);
+        mContainer.setScaleY(s);
+        mContainer.setTranslationX(mMorphTx * f);
+        mContainer.setTranslationY(mMorphTy * f);
+
+        // Everything that is not the video disappears quickly (gone by f=0.35), so the tail of
+        // the shrink shows only the video flying into the corner - like YouTube.
+        float contentAlpha = Math.max(0f, 1f - f * 3f);
+        if (mWatchRoot != null) {
+            mWatchRoot.setAlpha(contentAlpha);
+        }
+        if (mControlsRoot != null) {
+            mControlsRoot.setAlpha(Math.min(mControlsRoot.getAlpha(), contentAlpha));
+        }
+    }
+
+    private void resetMorph() {
+        if (mMorphAnimator != null) {
+            mMorphAnimator.cancel();
+            mMorphAnimator = null;
+        }
+        mMorphFraction = 0f;
+        mContainer.setScaleX(1f);
+        mContainer.setScaleY(1f);
+        mContainer.setTranslationX(0f);
+        mContainer.setTranslationY(0f);
+        mContainer.setAlpha(1f);
+        if (mWatchRoot != null) {
+            mWatchRoot.setAlpha(1f);
+        }
+    }
+
+    private void animateMorph(float to, long durationMs, @Nullable Runnable endAction) {
+        if (mMorphAnimator != null) {
+            mMorphAnimator.cancel();
+        }
+        mMorphAnimator = ValueAnimator.ofFloat(mMorphFraction, to);
+        mMorphAnimator.setDuration(durationMs);
+        mMorphAnimator.setInterpolator(new DecelerateInterpolator());
+        mMorphAnimator.addUpdateListener(a -> applyMorph((float) a.getAnimatedValue()));
+        mMorphAnimator.addListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                mMorphAnimator = null;
+                if (endAction != null) {
+                    endAction.run();
+                }
+            }
+        });
+        mMorphAnimator.start();
+    }
+
     @Override
     public boolean canStartDismissDrag() {
-        return !mScrubbing && mPlayer != null;
+        return !mScrubbing && mPlayer != null && mMorphAnimator == null;
     }
 
     @Override
     public void onDismissDrag(float dy) {
-        mContainer.setTranslationY(dy);
+        if (mMorphFraction == 0f && dy > 0f) {
+            computeMorphTarget(); // anchor the corner path once per drag
+        }
         int height = Math.max(1, mContainer.getHeight());
-        float fraction = Math.min(1f, dy / (height * 0.5f));
-        mContainer.setAlpha(1f - 0.5f * fraction);
+        applyMorph(Math.min(1f, dy / (height * 0.6f)));
     }
 
     @Override
     public void onDismissDragReleased(float dy, float yVelocity) {
-        int height = Math.max(1, mContainer.getHeight());
-        boolean dismiss = dy > height * 0.22f || (yVelocity > 2200f && dy > height * 0.08f);
+        boolean dismiss = mMorphFraction > 0.3f || (yVelocity > 2200f && mMorphFraction > 0.08f);
 
-        if (dismiss) {
-            mContainer.animate()
-                    .translationY(height)
-                    .alpha(0f)
-                    .setDuration(180)
-                    .withEndAction(this::minimizeByDrag)
-                    .start();
-        } else {
-            mContainer.animate()
-                    .translationY(0f)
-                    .alpha(1f)
-                    .setDuration(180)
-                    .start();
-        }
-    }
-
-    /**
-     * Swipe-down now MINIMIZES like the YouTube app (playback continues in the Browse mini bar)
-     * instead of closing. This activity stays alive behind Browse - it still owns the player -
-     * it only gives up its video surface so the bar's PlayerView can take it. Audio never stops
-     * (MobilePlaybackService). If there is no live player (e.g. an error screen), fall back to
-     * the old close-by-drag behavior.
-     */
-    private void minimizeByDrag() {
-        if (mPlayer == null) {
-            if (mPresenter != null) {
-                mPresenter.onFinish();
-            }
-            finish();
-            // We already animated the slide-out; skip the window close animation.
-            overridePendingTransition(0, 0);
+        if (!dismiss) {
+            animateMorph(0f, 180, this::resetMorph);
             return;
         }
 
-        // Free the surface for the mini bar's PlayerView (audio keeps running meanwhile).
-        mPlayerView.setPlayer(null);
+        if (mPlayer == null) {
+            // Error screen (nothing to dock): old close-by-drag behavior.
+            animateMorph(1f, 150, () -> {
+                if (mPresenter != null) {
+                    mPresenter.onFinish();
+                }
+                finish();
+                overridePendingTransition(0, 0);
+            });
+            return;
+        }
+
+        // Launch Browse IMMEDIATELY and let the rest of the shrink play while it boots behind
+        // the scenes. Sequencing the launch after the animation left the screen sitting on the
+        // morph's final frame (video parked on the card spot over black) for the whole
+        // activity-switch latency - the "black screen between the transitions". This way the
+        // remaining motion covers most of that latency and Browse fades in over the finished
+        // morph.
+        minimizeByDrag();
+        animateMorph(1f, 150, null);
+    }
+
+    /**
+     * Swipe-down now MINIMIZES like the YouTube app (playback continues in the Browse mini
+     * card) instead of closing. This activity stays alive behind Browse - it still owns the
+     * player. Called at drag RELEASE (the morph tail keeps animating while Browse boots).
+     */
+    private void minimizeByDrag() {
+        // NOTE: the video surface is NOT detached here - the morphing video keeps rendering in
+        // this window while Browse starts (detaching first blanked the screen for the whole
+        // activity-switch latency: the "black screen between the transitions"). Browse's
+        // onResume moves the output to the mini card's TextureView (its setPlayer() steals the
+        // surface), which Android guarantees happens only once this window is already covered.
         MiniPlayerBridge.activate(this);
-        // startView marks a new view pending, which also makes onUserLeaveHint skip auto-PiP here.
+        // Launching Browse over ourselves delivers onUserLeaveHint to this activity, and the
+        // isNewViewPending() guard there is NOT reliable for this hand-off (observed: minimize
+        // put the player into a system PiP window floating over the mini card). Suppress
+        // explicitly; cleared on the next onResume.
+        mSuppressAutoPip = true;
         getViewManager().startView(BrowseView.class);
         overridePendingTransition(0, 0);
     }

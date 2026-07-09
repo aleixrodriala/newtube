@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No-op hold for the window on the other side of a transition, sized to match its partner
+     animation so the system doesn't substitute a default animation for this window. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android">
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="1.0"
+        android:duration="160" />
+</set>

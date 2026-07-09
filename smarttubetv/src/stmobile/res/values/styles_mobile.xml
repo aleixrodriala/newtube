@@ -26,6 +26,7 @@
         <item name="android:statusBarColor">@color/mobile_color_background</item>
         <item name="android:navigationBarColor">@color/mobile_color_background</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowAnimationStyle">@style/BrowseWindowAnimation</item>
     </style>
 
     <!--
@@ -40,6 +41,34 @@
         <item name="android:activityOpenExitAnimation">@anim/player_open_exit</item>
         <item name="android:activityCloseEnterAnimation">@anim/player_close_enter</item>
         <item name="android:activityCloseExitAnimation">@anim/player_close_exit</item>
+        <!-- The player is singleInstance = its own TASK, so launching it from Browse (and
+             re-expanding it from the mini-player) is a TASK transition: the activity* items
+             above never fired for it and the system fell back to the stock cross-task zoom -
+             the mismatched "whole transition" feel on device. Same animations, task slots. -->
+        <item name="android:taskOpenEnterAnimation">@anim/player_open_enter</item>
+        <item name="android:taskOpenExitAnimation">@anim/player_open_exit</item>
+        <item name="android:taskToFrontEnterAnimation">@anim/player_open_enter</item>
+        <item name="android:taskToFrontExitAnimation">@anim/player_open_exit</item>
+        <item name="android:taskToBackEnterAnimation">@anim/player_close_enter</item>
+        <item name="android:taskToBackExitAnimation">@anim/player_close_exit</item>
+    </style>
+
+    <!--
+      Browse window animations. With every touch activity in ONE shared task (manifest note),
+      surfacing this screen is a plain in-task "open" - most importantly on MINIMIZE, where the
+      player hand-animates the video shrinking onto the mini-card and Browse then fades in
+      underneath it (160ms), reading as one continuous motion. Applies theme-wide (Theme.NewTube),
+      so Search/Channel/etc. get the same quick fade instead of the stock sideways slide - the
+      YouTube-like "no transitions between screens" feel. task* slots kept as a fallback for any
+      residual cross-task switch (e.g. external deep links).
+    -->
+    <style name="BrowseWindowAnimation" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/browse_to_front_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/mobile_stay</item>
+        <item name="android:activityCloseEnterAnimation">@anim/mobile_stay</item>
+        <item name="android:activityCloseExitAnimation">@anim/mobile_fade_out</item>
+        <item name="android:taskToFrontEnterAnimation">@anim/browse_to_front_enter</item>
+        <item name="android:taskToFrontExitAnimation">@anim/mobile_stay</item>
     </style>
 
     <!--

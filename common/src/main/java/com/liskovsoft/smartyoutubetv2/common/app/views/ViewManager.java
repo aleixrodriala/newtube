@@ -38,6 +38,16 @@ public class ViewManager {
     private static final String TAG = ViewManager.class.getSimpleName();
     @SuppressLint("StaticFieldLeak")
     private static ViewManager sInstance;
+    /**
+     * NEWTUBE(mobile-transitions): add {@link Intent#FLAG_ACTIVITY_REORDER_TO_FRONT} to every
+     * activity launch. The touch flavor declares its activities singleTop in ONE shared task
+     * (in-task transitions = no Android 12+ cross-task system slide); this flag restores the
+     * "reuse the existing instance" behavior that the TV flavor gets from singleInstance -
+     * without it, re-launching a screen that is below another one would stack a DUPLICATE
+     * instance (e.g. a second player with its own ExoPlayer). No-op on TV (flag unset, and
+     * singleInstance ignores it anyway).
+     */
+    private static boolean sReorderToFrontEnabled;
     private final Context mContext;
     private final Map<Class<?>, Class<? extends Activity>> mViewMapping;
     private final Map<Class<? extends Activity>, Class<? extends Activity>> mParentMapping;
@@ -65,6 +75,11 @@ public class ViewManager {
         }
 
         return sInstance;
+    }
+
+    /** NEWTUBE(mobile-transitions): see {@link #sReorderToFrontEnabled}. Call once from the Application. */
+    public static void setReorderToFrontEnabled(boolean enabled) {
+        sReorderToFrontEnabled = enabled;
     }
 
     public void register(Class<?> viewClass, Class<? extends Activity> activityClass) {
@@ -152,6 +167,12 @@ public class ViewManager {
                     Log.d(TAG, "Launching parent activity: " + parentActivity.getSimpleName());
                     Intent intent = new Intent(activity, parentActivity);
 
+                    if (sReorderToFrontEnabled) {
+                        // NEWTUBE(mobile-transitions): surface the existing parent instead of
+                        // stacking a duplicate above the finishing child (see field doc).
+                        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                    }
+
                     safeStartActivity(activity, intent);
                 } catch (ActivityNotFoundException e) {
                     e.printStackTrace();
@@ -195,6 +216,10 @@ public class ViewManager {
 
         // Fix: Calling startActivity() from outside of an Activity  context requires the FLAG_ACTIVITY_NEW_TASK flag
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+        if (sReorderToFrontEnabled) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+        }
 
         safeStartActivity(mContext, intent);
     }

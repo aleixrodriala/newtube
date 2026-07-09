@@ -122,12 +122,11 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     private ImageButton mSettingsButton;
     private ImageButton mMenuButton;
 
-    // In-app mini-player bar (docked above the bottom nav; renders the playback activity's live
-    // player after a swipe-down minimize - see MiniPlayerBridge).
+    // Floating in-app mini-player (YouTube-style video-only card over the grid's bottom-right
+    // corner; renders the playback activity's live player after a swipe-down minimize - see
+    // MiniPlayerBridge).
     private View mMiniPlayerBar;
     private PlayerView mMiniPlayerView;
-    private TextView mMiniPlayerTitle;
-    private TextView mMiniPlayerAuthor;
     private ImageButton mMiniPlayPause;
     private ProgressBar mMiniProgress;
     /** 500ms UI ticker while the bar is visible: progress line, play/pause icon, liveness check. */
@@ -144,6 +143,11 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Transitions: same task as the player now (singleTop + reorder, see the manifest note).
+        // Surfacing this screen (most visibly: the player minimizing) is an in-task transition
+        // that honors BrowseWindowAnimation's quick fade - the swipe-down MORPH is the real
+        // motion, and the fade just swaps the black player window for the grid underneath it.
 
         setContentView(R.layout.activity_mobile_browse);
 
@@ -177,8 +181,6 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
 
         mMiniPlayerBar = findViewById(R.id.mobile_mini_player);
         mMiniPlayerView = findViewById(R.id.mobile_mini_player_view);
-        mMiniPlayerTitle = findViewById(R.id.mobile_mini_player_title);
-        mMiniPlayerAuthor = findViewById(R.id.mobile_mini_player_author);
         mMiniPlayPause = findViewById(R.id.mobile_mini_play_pause);
         mMiniProgress = findViewById(R.id.mobile_mini_progress);
         setupMiniPlayerBar();
@@ -189,13 +191,14 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     // ---------------------------------------------------------------------------------
 
     private void setupMiniPlayerBar() {
-        // Tap anywhere on the bar (except its buttons) = expand back to the watch screen. The
-        // playback activity is still alive behind us; its onResume re-claims the video surface,
-        // so the surface must be freed FIRST.
-        mMiniPlayerBar.setOnClickListener(v -> {
-            hideMiniPlayer();
-            MiniPlayerBridge.expand(this);
-        });
+        // Tap the video (anywhere but the overlay buttons) = expand back to the watch screen.
+        // The card keeps rendering until our onPause detaches it (hideMiniPlayer there) - the
+        // player's onResume then takes the surface back. Detaching HERE blanked the card for
+        // the whole activity-switch latency (black flash). Listener on both the card and the
+        // PlayerView - PlayerView handles touches itself and would otherwise swallow the tap.
+        View.OnClickListener expand = v -> MiniPlayerBridge.expand(this);
+        mMiniPlayerBar.setOnClickListener(expand);
+        mMiniPlayerView.setOnClickListener(expand);
 
         mMiniPlayPause.setOnClickListener(v -> {
             SimpleExoPlayer player = MiniPlayerBridge.getPlayer();
@@ -219,11 +222,6 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
             return;
         }
 
-        Video video = MiniPlayerBridge.getVideo();
-        // getTitleFull: falls back to the metadata title - deep-linked videos never get the plain
-        // card `title` field (same getter the playback notification uses).
-        mMiniPlayerTitle.setText(video != null ? video.getTitleFull() : "");
-        mMiniPlayerAuthor.setText(video != null ? video.getAuthor() : "");
         mMiniPlayerView.setPlayer(player);
         mMiniPlayerBar.setVisibility(View.VISIBLE);
         updateMiniPlayPauseIcon(player);

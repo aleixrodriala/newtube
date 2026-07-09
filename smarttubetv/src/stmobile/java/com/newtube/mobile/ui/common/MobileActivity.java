@@ -112,7 +112,12 @@ public abstract class MobileActivity extends MotherActivity {
         } else {
             getViewManager().startParentView(this);
         }
-        super.finishReally();
+        // NOT super.finishReally(): MotherActivity's version calls finishAndRemoveTask(), which
+        // on TV merely cleaned up the finished screen's own singleInstance task from recents.
+        // The touch flavor keeps EVERY screen in ONE shared task (see the stmobile manifest
+        // note), so removing "the task" nuked Browse along with the player - back/X on a video
+        // closed the whole app to the launcher. Plain finish() pops just this activity.
+        super.finish();
     }
 
     /**

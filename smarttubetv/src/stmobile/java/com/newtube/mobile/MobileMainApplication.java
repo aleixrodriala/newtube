@@ -197,6 +197,12 @@ public class MobileMainApplication extends MainApplication {
         // SimpleCache must be a per-directory singleton. TV builds never call this -> TV unchanged.
         ExoMediaSourceFactory.setMediaCache(MobilePlayerCache.get(this));
 
+        // TRANSITIONS (mobile-only): all touch activities are singleTop in ONE task (see the
+        // stmobile manifest note) so screen switches are in-task and the Android 12+ cross-task
+        // system slide never plays. This flag makes every ViewManager launch reuse the existing
+        // instance (REORDER_TO_FRONT) - the job singleInstance used to do on TV.
+        ViewManager.setReorderToFrontEnabled(true);
+
         ViewManager viewManager = ViewManager.instance(this);
 
         // Override just the Home + Playback mappings (and the cold-launch root) with

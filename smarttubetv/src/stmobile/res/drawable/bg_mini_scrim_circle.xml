@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Semi-transparent circle behind the floating mini-player's overlay buttons so the white
+     glyphs stay readable on any video frame. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#8A000000" />
+</shape>

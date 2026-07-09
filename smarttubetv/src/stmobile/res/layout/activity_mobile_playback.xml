@@ -40,6 +40,12 @@
             android:layout_height="0dp"
             android:background="@android:color/black">
 
+            <!-- surface_type=texture_view: the swipe-down minimize MORPHS this view (scale +
+                 translate toward the mini-card corner), and a SurfaceView goes BLACK under view
+                 transforms (its surface lives outside the view hierarchy) - the video vanished
+                 for the whole shrink. A TextureView composites like a normal view, so the video
+                 visibly shrinks into the corner (same reason YouTube renders its morphing watch
+                 player on a TextureView). -->
             <com.github.vkay94.dtpv.DoubleTapPlayerViewImpl
                 android:id="@+id/mobile_player_view"
                 android:layout_width="match_parent"
@@ -47,6 +53,7 @@
                 android:layout_gravity="center"
                 app:resize_mode="fit"
                 app:show_buffering="never"
+                app:surface_type="texture_view"
                 app:use_controller="false" />
 
             <com.github.vkay94.dtpv.youtube.YouTubeOverlay
