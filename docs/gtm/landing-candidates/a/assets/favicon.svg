@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="NewTube">
+  <rect width="64" height="64" rx="15" fill="#0B0B0D"/>
+  <rect x="8" y="16" width="48" height="34" rx="10" fill="none" stroke="#F4F4F6" stroke-width="4"/>
+  <path d="M27 25 L44 33 L27 41 Z" fill="#FF453A"/>
+</svg>

@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="NewTube — SmartTube, but for your Android phone. Ad-free, open-source YouTube.">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B0B0D"/>
+      <stop offset="1" stop-color="#100b0d"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="82%" cy="8%" r="70%">
+      <stop offset="0" stop-color="#FF2E3F" stop-opacity="0.42"/>
+      <stop offset="55%" stop-color="#FF2E3F" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="6%" cy="100%" r="60%">
+      <stop offset="0" stop-color="#FF2E3F" stop-opacity="0.18"/>
+      <stop offset="60%" stop-color="#FF2E3F" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF5A66"/>
+      <stop offset="1" stop-color="#FF2E3F"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1c1c22"/>
+      <stop offset="1" stop-color="#0d0d10"/>
+    </linearGradient>
+    <clipPath id="scr"><rect x="876" y="150" width="230" height="392" rx="26"/></clipPath>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <rect width="1200" height="630" fill="url(#glow2)"/>
+  <rect x="0.5" y="0.5" width="1199" height="629" fill="none" stroke="#2a2a31" stroke-width="1"/>
+
+  <!-- Brand -->
+  <g transform="translate(84 92)">
+    <rect x="0" y="0" width="46" height="37" rx="11" fill="url(#red)"/>
+    <path d="M19 11 L34 18.5 L19 26 Z" fill="#0B0B0D"/>
+    <text x="62" y="29" font-family="system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="38" font-weight="800" letter-spacing="-1">
+      <tspan fill="#F5F5F7">New</tspan><tspan fill="#FF2E3F">Tube</tspan>
+    </text>
+  </g>
+
+  <!-- Headline -->
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+    <text x="82" y="270" font-size="76" font-weight="900" letter-spacing="-3" fill="#F5F5F7">SmartTube, but</text>
+    <text x="82" y="352" font-size="76" font-weight="900" letter-spacing="-3" fill="#F5F5F7">for your <tspan fill="#FF2E3F">Android phone.</tspan></text>
+    <text x="84" y="416" font-size="30" font-weight="500" fill="#A0A0A8">Free, open-source, ad-free YouTube — no root, no tracking.</text>
+  </g>
+
+  <!-- Chips -->
+  <g font-family="system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="700">
+    <g transform="translate(84 470)">
+      <rect x="0" y="0" width="196" height="46" rx="23" fill="url(#red)"/>
+      <text x="98" y="30" text-anchor="middle" fill="#12060a">Open source (MIT)</text>
+    </g>
+    <g transform="translate(296 470)">
+      <rect x="0" y="0" width="118" height="46" rx="23" fill="#17171A" stroke="#2a2a31"/>
+      <text x="59" y="30" text-anchor="middle" fill="#A0A0A8">No ads</text>
+    </g>
+    <g transform="translate(430 470)">
+      <rect x="0" y="0" width="122" height="46" rx="23" fill="#17171A" stroke="#2a2a31"/>
+      <text x="61" y="30" text-anchor="middle" fill="#A0A0A8">No root</text>
+    </g>
+    <g transform="translate(568 470)">
+      <rect x="0" y="0" width="182" height="46" rx="23" fill="#17171A" stroke="#2a2a31"/>
+      <text x="91" y="30" text-anchor="middle" fill="#A0A0A8">SponsorBlock</text>
+    </g>
+  </g>
+
+  <!-- Phone glyph -->
+  <g>
+    <rect x="866" y="140" width="250" height="412" rx="38" fill="#16161b" stroke="#34343d" stroke-width="2"/>
+    <rect x="876" y="150" width="230" height="392" rx="26" fill="url(#screen)"/>
+    <g clip-path="url(#scr)">
+      <!-- topbar -->
+      <text x="894" y="188" font-family="system-ui, sans-serif" font-size="19" font-weight="900" fill="#F5F5F7">New<tspan fill="#FF2E3F">Tube</tspan></text>
+      <circle cx="1088" cy="182" r="9" fill="none" stroke="#A0A0A8" stroke-width="2"/>
+      <line x1="1094" y1="188" x2="1099" y2="193" stroke="#A0A0A8" stroke-width="2"/>
+      <!-- grid -->
+      <g>
+        <rect x="892" y="206" width="98" height="60" rx="7" fill="#3a2330"/>
+        <rect x="998" y="206" width="98" height="60" rx="7" fill="#1f2a3a"/>
+        <rect x="892" y="300" width="98" height="60" rx="7" fill="#26332a"/>
+        <rect x="998" y="300" width="98" height="60" rx="7" fill="#332c1f"/>
+        <rect x="892" y="394" width="98" height="60" rx="7" fill="#2f2438"/>
+        <rect x="998" y="394" width="98" height="60" rx="7" fill="#203233"/>
+      </g>
+      <g fill="#2a2a31">
+        <rect x="892" y="272" width="90" height="8" rx="4"/><rect x="892" y="284" width="58" height="8" rx="4"/>
+        <rect x="998" y="272" width="90" height="8" rx="4"/><rect x="998" y="284" width="58" height="8" rx="4"/>
+        <rect x="892" y="366" width="90" height="8" rx="4"/><rect x="892" y="378" width="58" height="8" rx="4"/>
+        <rect x="998" y="366" width="90" height="8" rx="4"/><rect x="998" y="378" width="58" height="8" rx="4"/>
+      </g>
+      <!-- bottom nav -->
+      <rect x="876" y="500" width="230" height="42" fill="#17171A"/>
+      <circle cx="912" cy="521" r="4" fill="#FF2E3F"/>
+      <circle cx="962" cy="521" r="4" fill="#74747d"/>
+      <circle cx="1012" cy="521" r="4" fill="#74747d"/>
+      <circle cx="1062" cy="521" r="4" fill="#74747d"/>
+    </g>
+    <rect x="956" y="158" width="70" height="14" rx="7" fill="#050506"/>
+  </g>
+</svg>

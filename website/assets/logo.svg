@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 208 44" width="208" height="44" role="img" aria-label="NewTube">
+  <defs>
+    <linearGradient id="lg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF5A66"/>
+      <stop offset="1" stop-color="#FF2E3F"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="10" width="30" height="24" rx="7" fill="url(#lg)"/>
+  <path d="M14 17.2 L23 22 L14 26.8 Z" fill="#0B0B0D"/>
+  <text x="42" y="31" font-family="system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+        font-size="26" font-weight="800" letter-spacing="-0.5">
+    <tspan fill="#F5F5F7">New</tspan><tspan fill="#FF2E3F">Tube</tspan>
+  </text>
+</svg>

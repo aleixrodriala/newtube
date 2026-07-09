@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>NewTube — OG image template (1200×630)</title>
+<!--
+  Standalone 1200×630 card. Render to og-image.png, e.g.:
+    npx playwright screenshot --viewport-size=1200,630 assets/og-template.html assets/og-image.png
+  (or any headless-Chrome screenshot at 1200×630, no device scaling).
+-->
+<style>
+  :root { --accent:#FF453A; --bg:#0B0B0D; --text:#F4F4F6; --dim:#A0A0A8; }
+  * { margin:0; box-sizing:border-box; }
+  html,body { width:1200px; height:630px; }
+  body {
+    background:#0B0B0D;
+    color:var(--text);
+    font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    position:relative; overflow:hidden;
+    display:flex; align-items:center;
+    padding:0 80px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .glow {
+    position:absolute; top:-160px; right:-120px;
+    width:760px; height:760px; border-radius:50%;
+    background:radial-gradient(circle at 50% 45%, rgba(255,69,58,.30), rgba(255,69,58,.06) 40%, transparent 62%);
+    pointer-events:none;
+  }
+  .copy { position:relative; z-index:2; max-width:640px; }
+  .wordmark { display:flex; align-items:center; gap:16px; }
+  .wordmark svg { display:block; }
+  .wordmark b { font-size:34px; font-weight:600; letter-spacing:-1.4px; }
+  .wordmark b i { color:var(--accent); font-style:normal; }
+  .eyebrow { margin-top:44px; display:flex; align-items:center; gap:14px;
+    font-size:15px; letter-spacing:3px; color:var(--dim); text-transform:uppercase; }
+  .eyebrow::before { content:""; width:26px; height:2px; background:var(--accent); }
+  h1 { margin-top:20px; font-size:72px; line-height:1.05; font-weight:250; letter-spacing:-3px; }
+  p.sub { margin-top:22px; font-size:24px; font-weight:300; color:var(--dim); }
+  .chips { margin-top:30px; display:flex; gap:14px; }
+  .chips span { font-size:17px; color:var(--dim); border:1px solid rgba(255,255,255,.14);
+    border-radius:999px; padding:9px 20px; }
+
+  /* phone */
+  .device { position:absolute; right:80px; top:118px; z-index:2;
+    width:252px; height:410px; border-radius:40px;
+    background:linear-gradient(160deg,#202024,#101013);
+    box-shadow:0 0 0 2px rgba(255,255,255,.08); padding:10px; }
+  .screen { width:100%; height:100%; border-radius:31px; background:#0E0E11; overflow:hidden;
+    display:flex; flex-direction:column; }
+  .stb { display:flex; justify-content:space-between; align-items:center; padding:16px 16px 8px;
+    font-size:14px; font-weight:700; }
+  .stb i { color:var(--accent); font-style:normal; }
+  .stb .s { width:16px; height:16px; border:2px solid var(--dim); border-radius:50%; position:relative; }
+  .stb .s::after { content:""; position:absolute; right:-4px; bottom:-4px; width:8px; height:2px;
+    background:var(--dim); transform:rotate(45deg); }
+  .grid { flex:1; display:grid; grid-template-columns:1fr 1fr; gap:9px; padding:6px 16px; align-content:start; }
+  .card { }
+  .thumb { aspect-ratio:16/9; border-radius:7px; margin-bottom:6px; }
+  .l { height:6px; border-radius:3px; background:rgba(255,255,255,.16); margin-bottom:4px; }
+  .l.s { width:55%; background:rgba(255,255,255,.09); }
+  .t1{background:linear-gradient(135deg,#2a2140,#3a2a58);} .t2{background:linear-gradient(135deg,#123033,#17484a);}
+  .t3{background:linear-gradient(135deg,#3a1f22,#5a2a2f);} .t4{background:linear-gradient(135deg,#1e2a3a,#26405c);}
+  .nav { display:flex; justify-content:space-around; align-items:center; padding:12px 6px;
+    border-top:1px solid rgba(255,255,255,.08); }
+  .nav .i { width:18px; height:18px; border:2px solid #6E6E76; border-radius:4px; }
+  .nav .i.a { background:var(--accent); border-color:var(--accent); }
+</style>
+</head>
+<body>
+  <div class="glow"></div>
+
+  <div class="copy">
+    <div class="wordmark">
+      <svg viewBox="0 0 56 42" width="56" height="42"><rect x="1.7" y="3.7" width="52" height="35" rx="10" fill="none" stroke="#F4F4F6" stroke-width="3.4"/><path d="M20 13 L37 21 L20 29 Z" fill="#FF453A"/></svg>
+      <b>New<i>Tube</i></b>
+    </div>
+    <div class="eyebrow">Ad-free YouTube · Open source</div>
+    <h1>SmartTube, but for<br/>your Android phone.</h1>
+    <p class="sub">Free, open-source, ad-free — no root, no tracking.</p>
+    <div class="chips"><span>Open source (MIT)</span><span>No ads</span><span>No root</span></div>
+  </div>
+
+  <div class="device">
+    <div class="screen">
+      <div class="stb"><span>New<i>Tube</i></span><span class="s"></span></div>
+      <div class="grid">
+        <div class="card"><div class="thumb t1"></div><div class="l"></div><div class="l s"></div></div>
+        <div class="card"><div class="thumb t2"></div><div class="l"></div><div class="l s"></div></div>
+        <div class="card"><div class="thumb t3"></div><div class="l"></div><div class="l s"></div></div>
+        <div class="card"><div class="thumb t4"></div><div class="l"></div><div class="l s"></div></div>
+        <div class="card"><div class="thumb t2"></div><div class="l"></div><div class="l s"></div></div>
+        <div class="card"><div class="thumb t1"></div><div class="l"></div><div class="l s"></div></div>
+      </div>
+      <div class="nav"><span class="i a"></span><span class="i"></span><span class="i"></span><span class="i"></span></div>
+    </div>
+  </div>
+</body>
+</html>
