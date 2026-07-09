@@ -84,6 +84,19 @@ public class ExoPlayerInitializer {
         sBufferForPlaybackAfterRebufferMsOverride = bufferForPlaybackAfterRebufferMs;
     }
 
+    private static volatile int sMaxForwardBufferMsOverride = -1;
+
+    /**
+     * NEWTUBE(mobile-seek): raise the FORWARD buffer ceiling (maxBufferMs) so forward seeks within
+     * that window play instantly from memory instead of re-fetching over the network. Only raises -
+     * never lowers - the buffer-type preset's own value, and leaves minBufferMs alone (loading still
+     * resumes at the preset threshold). Real memory use stays bounded by targetBufferBytes (the
+     * RAM-clamped budget set with the back-buffer override). {@code <= 0} disables (TV default).
+     */
+    public static void setMaxForwardBufferOverride(int maxBufferMs) {
+        sMaxForwardBufferMsOverride = maxBufferMs;
+    }
+
     public ExoPlayerInitializer(Context context) {
         mPlayerData = PlayerData.instance(context);
         mPlayerTweaksData = PlayerTweaksData.instance(context);
@@ -195,6 +208,11 @@ public class ExoPlayerInitializer {
         }
         if (sBufferForPlaybackAfterRebufferMsOverride > 0) {
             bufferForPlaybackAfterRebufferMs = sBufferForPlaybackAfterRebufferMsOverride;
+        }
+
+        // NEWTUBE(mobile-seek): raise-only forward ceiling; see setMaxForwardBufferOverride.
+        if (sMaxForwardBufferMsOverride > 0 && sMaxForwardBufferMsOverride > maxBufferMs) {
+            maxBufferMs = sMaxForwardBufferMsOverride;
         }
 
         baseBuilder

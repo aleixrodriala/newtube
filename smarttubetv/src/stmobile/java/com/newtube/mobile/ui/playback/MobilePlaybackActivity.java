@@ -58,6 +58,7 @@ import com.github.vkay94.dtpv.DoubleTapPlayerViewImpl;
 import com.github.vkay94.dtpv.youtube.YouTubeOverlay;
 import com.google.android.exoplayer2.DefaultRenderersFactory;
 import com.google.android.exoplayer2.Player;
+import com.google.android.exoplayer2.SeekParameters;
 import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
@@ -432,7 +433,9 @@ public class MobilePlaybackActivity extends MobileActivity
             public void onScrubStop(TimeBar timeBar, long position, boolean canceled) {
                 mScrubbing = false;
                 if (!canceled && mExoPlayerController != null) {
+                    beginUserSeek();
                     mExoPlayerController.setPositionMs(position);
+                    endUserSeek();
                 }
                 armAutoHide();
             }
@@ -567,11 +570,15 @@ public class MobilePlaybackActivity extends MobileActivity
                 .performListener(new YouTubeOverlay.PerformListener() {
                     @Override
                     public void onAnimationStart() {
+                        // FAST-SEEK: the overlay seeks the raw player between animation start/end;
+                        // keyframe-snap for the whole double-tap burst, restored on end.
+                        beginUserSeek();
                         mYouTubeOverlay.setVisibility(View.VISIBLE);
                     }
 
                     @Override
                     public void onAnimationEnd() {
+                        endUserSeek();
                         mYouTubeOverlay.setVisibility(View.GONE);
                     }
 
@@ -1089,6 +1096,33 @@ public class MobilePlaybackActivity extends MobileActivity
     private void armAutoHide() {
         cancelAutoHide();
         Utils.postDelayed(mHideControlsRunnable, AUTO_HIDE_MS);
+    }
+
+    /**
+     * FAST-SEEK: switch to keyframe-snap seeks (CLOSEST_SYNC) for USER gestures only (scrub bar,
+     * double-tap), then restore the player's prior mode. EXACT seeks decode from the previous
+     * keyframe up to the exact frame - the sluggishness you feel while scrubbing. Scoped per-gesture
+     * because upstream disabled CLOSEST_SYNC globally for a reason: SponsorBlock's programmatic
+     * skip-to-segment-end can land on a keyframe still inside the segment and re-trigger forever.
+     * Programmatic seeks (SponsorBlock, state restore, media session) keep their exact behavior:
+     * they funnel through the PlaybackView.setPositionMs interface method, which does NOT use this.
+     * Both setSeekParameters and seekTo post to the player's internal handler in FIFO order, so
+     * begin -> seek -> end brackets exactly the gesture's own seeks.
+     */
+    private SeekParameters mPreUserSeekParameters;
+
+    private void beginUserSeek() {
+        if (mPlayer != null) {
+            mPreUserSeekParameters = mPlayer.getSeekParameters();
+            mPlayer.setSeekParameters(SeekParameters.CLOSEST_SYNC);
+        }
+    }
+
+    private void endUserSeek() {
+        if (mPlayer != null) {
+            mPlayer.setSeekParameters(mPreUserSeekParameters != null ? mPreUserSeekParameters : SeekParameters.DEFAULT);
+            mPreUserSeekParameters = null;
+        }
     }
 
     private void cancelAutoHide() {

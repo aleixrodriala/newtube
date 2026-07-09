@@ -15,6 +15,7 @@ import com.liskovsoft.smartyoutubetv2.common.exoplayer.ExoMediaSourceFactory;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.ExoPlayerInitializer;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.tv.ui.main.MainApplication;
+import com.liskovsoft.youtubeapi.app.AppServiceIntCached;
 import com.liskovsoft.youtubeapi.service.YouTubeMediaItemService;
 import com.liskovsoft.youtubeapi.videoinfo.V2.VideoInfoService;
 import com.newtube.mobile.ui.adddevice.MobileAddDeviceActivity;
@@ -79,6 +80,14 @@ public class MobileMainApplication extends MainApplication {
     private static final int START_BUFFER_AFTER_REBUFFER_MS = 2_500;
 
     /**
+     * SEEK FIX: forward-buffer ceiling. The default BUFFER_MEDIUM preset keeps only 30s ahead, so any
+     * forward seek beyond 30s re-fetches over the network. 75s makes typical "skip ahead" jumps play
+     * from memory. Real memory stays bounded by the RAM-clamped byte budget above; at 1080p this is
+     * roughly 45-55MB of forward media, well within it.
+     */
+    private static final int MAX_FORWARD_BUFFER_MS = 75_000;
+
+    /**
      * SEEK-BACK FIX: soft cap on total buffered bytes (back + forward) so the enlarged back-buffer
      * never trips the LoadControl size gate and starves forward buffering. This is a threshold, not a
      * pre-allocation; the real memory bound is (back 180s + forward 50s) worth of media. A few
@@ -119,6 +128,10 @@ public class MobileMainApplication extends MainApplication {
         // sooner. Steady-state buffering is untouched. TV never calls this -> TV start gate unchanged.
         ExoPlayerInitializer.setStartBufferOverride(START_BUFFER_MS, START_BUFFER_AFTER_REBUFFER_MS);
 
+        // SEEK FIX (mobile-only): keep 75s buffered AHEAD (default preset keeps 30s) so forward seeks
+        // within that window play from memory instead of re-fetching. TV never calls this.
+        ExoPlayerInitializer.setMaxForwardBufferOverride(MAX_FORWARD_BUFFER_MS);
+
         // TTFF FIX (mobile-only, biggest cold-start win): make getVideoInfo try a no-PO-token/no-cipher
         // client (ANDROID_VR, then ANDROID_REEL) BEFORE WEB_EMBED. WEB_EMBED (the default first client)
         // requires a synchronous PO token + signature deciphering (~2.7s of self-inflicted latency on
@@ -136,6 +149,22 @@ public class MobileMainApplication extends MainApplication {
         // Both are off on TV -> TV click-to-play path unchanged.
         PlaybackPresenter.setPrefetchOnOpenEnabled(true);
         YouTubeMediaItemService.setSingleFlightEnabled(true);
+
+        // TTFF FIX (mobile-only, media network): the moment format info arrives - while the player is
+        // still inflating / building the manifest - open a throwaway request to the per-video
+        // googlevideo host through the SAME Cronet engine ExoPlayer's media path uses, so the
+        // DNS + TLS/QUIC handshake is already done when the first real segment request goes out.
+        // Covers Home taps (A2 prefetch), related-video taps and queue loads (all format fetches
+        // funnel through the same choke point). TV never calls this.
+        YouTubeMediaItemService.setPreconnectMediaHost(true);
+
+        // TTFF FIX (mobile-only, cold-start network): reuse the persisted, extractor-validated app info
+        // (playerUrl/clientUrl/visitorData) at cold process start while it's inside the 10h refresh
+        // window, instead of re-fetching youtube.com serially inside the FIRST getVideoInfo of every
+        // process. Same playerUrl also means the persisted player-JS/nsig extractor cache stays hot, so
+        // the two heaviest cold-start fetches skip together. Self-healing (persisted copy is nulled when
+        // its playerUrl stops validating). TV never calls this -> TV fetch behavior unchanged.
+        AppServiceIntCached.setPersistedAppInfoEnabled(true);
 
         // SEEK-BACK FIX (secondary, defense-in-depth): install a bounded on-disk media cache. It does
         // NOT help the SABR path (POST bodies aren't cacheable), but it makes the progressive /
