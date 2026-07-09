@@ -186,11 +186,10 @@ public class MobilePlaybackActivity extends MobileActivity
 
     // Comments + live chat entries (open bottom sheets). Keys come from the loaded metadata.
     private View mWatchCommentsEntry;
-    private View mWatchChaptersEntry;
-    private TextView mWatchChaptersCurrent;
     /** Chapters of the current video (Video.isChapter items from the suggestions pipeline). */
     private final List<Video> mChapterVideos = new ArrayList<>();
-    private final Runnable mChapterTick = this::updateCurrentChapter;
+    /** Shown above the seek bar ONLY while scrubbing: the chapter under the scrub position. */
+    private TextView mScrubChapterView;
     private View mWatchChatEntry;
     private String mCommentsKey;
     private String mLiveChatKey;
@@ -335,8 +334,7 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchRelated = findViewById(R.id.mobile_watch_related);
         mWatchCommentsEntry = findViewById(R.id.mobile_watch_comments_entry);
         mWatchChatEntry = findViewById(R.id.mobile_watch_chat_entry);
-        mWatchChaptersEntry = findViewById(R.id.mobile_watch_chapters_entry);
-        mWatchChaptersCurrent = findViewById(R.id.mobile_watch_chapters_current);
+        mScrubChapterView = findViewById(R.id.mobile_player_scrub_chapter);
     }
 
     private void setupControls() {
@@ -429,16 +427,21 @@ public class MobilePlaybackActivity extends MobileActivity
                 mScrubbing = true;
                 cancelAutoHide();
                 mPositionView.setText(formatTime(position));
+                updateScrubChapterLabel(position);
             }
 
             @Override
             public void onScrubMove(TimeBar timeBar, long position) {
                 mPositionView.setText(formatTime(position));
+                updateScrubChapterLabel(position);
             }
 
             @Override
             public void onScrubStop(TimeBar timeBar, long position, boolean canceled) {
                 mScrubbing = false;
+                if (mScrubChapterView != null) {
+                    mScrubChapterView.setVisibility(View.GONE);
+                }
                 if (!canceled && mExoPlayerController != null) {
                     // EXACT seek (player default), like YouTube's scrubber: the playhead lands
                     // where the finger released. The earlier CLOSEST_SYNC fast-seek here could
@@ -476,15 +479,12 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchSubscribe.setOnClickListener(v -> onActionButtonClicked(R.id.action_subscribe));
         mWatchShare.setOnClickListener(v -> shareCurrentVideo());
 
-        // Comments / live-chat / chapters entries open their respective bottom sheets.
+        // Comments / live-chat entries open their respective bottom sheets.
         if (mWatchCommentsEntry != null) {
             mWatchCommentsEntry.setOnClickListener(v -> onCommentsEntryClicked());
         }
         if (mWatchChatEntry != null) {
             mWatchChatEntry.setOnClickListener(v -> onChatEntryClicked());
-        }
-        if (mWatchChaptersEntry != null) {
-            mWatchChaptersEntry.setOnClickListener(v -> onChaptersEntryClicked());
         }
 
         // Related-list paging: when the content is scrolled near the bottom, page the last row.
@@ -704,7 +704,6 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onDestroy() {
         cancelAutoHide();
         hideRelatedSkeleton(); // cancels the pulse animator + pending timeout
-        Utils.removeCallbacks(mChapterTick);
 
         RxHelper.disposeActions(mLiveChatAction);
 
@@ -1950,77 +1949,52 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     // ---------------------------------------------------------------------------------
-    // Chapters (YouTube-style titled segments; data = the isChapters() suggestions group)
+    // Chapters (data = the isChapters() suggestions group; UI = the scrub-time label above the
+    // seek bar - YouTube's subtle "which chapter is this" hover text - plus the shared seek-bar
+    // tick marks that already flow through setSeekBarSegments)
     // ---------------------------------------------------------------------------------
 
-    /** Show/hide the "Chapters" watch-page entry and (re)start the current-chapter ticker. */
+    /** Store the current video's chapters (null/empty clears them). */
     private void setChapters(List<Video> chapters) {
         mChapterVideos.clear();
-        Utils.removeCallbacks(mChapterTick);
 
         if (chapters != null && !chapters.isEmpty()) {
             mChapterVideos.addAll(chapters);
         }
 
-        if (mWatchChaptersEntry != null) {
-            mWatchChaptersEntry.setVisibility(mChapterVideos.isEmpty() ? View.GONE : View.VISIBLE);
-        }
-
-        if (!mChapterVideos.isEmpty()) {
-            updateCurrentChapter();
+        if (mScrubChapterView != null && mChapterVideos.isEmpty()) {
+            mScrubChapterView.setVisibility(View.GONE);
         }
     }
 
-    /** Index of the chapter the playhead is currently inside, or -1. */
-    private int currentChapterIndex() {
-        if (mChapterVideos.isEmpty() || mPlayer == null) {
-            return -1;
+    /** While scrubbing: show the title of the chapter under the scrub position (hidden if none). */
+    private void updateScrubChapterLabel(long positionMs) {
+        if (mScrubChapterView == null) {
+            return;
         }
 
-        long positionMs = mPlayer.getCurrentPosition();
-        int index = -1;
+        if (mChapterVideos.isEmpty()) {
+            mScrubChapterView.setVisibility(View.GONE);
+            return;
+        }
+
+        CharSequence title = null;
         for (int i = 0; i < mChapterVideos.size(); i++) {
             if (mChapterVideos.get(i).startTimeMs <= positionMs) {
-                index = i;
+                title = mChapterVideos.get(i).title;
             } else {
                 break;
             }
         }
-        return index;
-    }
 
-    /**
-     * 1s ticker while chapters exist: keeps the entry's "current chapter" line in sync with the
-     * playhead (the entry is visible in the scroll content even when the controls overlay isn't,
-     * so it can't ride the controls-only 500ms progress loop). setText only fires on change.
-     */
-    private void updateCurrentChapter() {
-        if (mChapterVideos.isEmpty()) {
-            return;
-        }
-
-        if (mWatchChaptersCurrent != null) {
-            int index = currentChapterIndex();
-            CharSequence current = index >= 0 ? mChapterVideos.get(index).title : "";
-            if (!TextUtils.equals(mWatchChaptersCurrent.getText(), current)) {
-                mWatchChaptersCurrent.setText(current);
+        if (TextUtils.isEmpty(title)) {
+            mScrubChapterView.setVisibility(View.GONE);
+        } else {
+            if (!TextUtils.equals(mScrubChapterView.getText(), title)) {
+                mScrubChapterView.setText(title);
             }
+            mScrubChapterView.setVisibility(View.VISIBLE);
         }
-
-        Utils.postDelayed(mChapterTick, 1_000);
-    }
-
-    private void onChaptersEntryClicked() {
-        if (mChapterVideos.isEmpty()) {
-            return;
-        }
-
-        ChaptersSheet.show(this, mChapterVideos, currentChapterIndex(), chapter -> {
-            if (mExoPlayerController != null) {
-                // EXACT programmatic seek - chapter starts are exact positions (YouTube behavior).
-                mExoPlayerController.setPositionMs(chapter.startTimeMs);
-            }
-        });
     }
 
     private void onCommentsEntryClicked() {

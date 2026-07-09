@@ -26,7 +26,7 @@
             android:layout_height="@dimen/mobile_title_bar_height"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/mobile_menu_button"
-            android:padding="12dp"
+            android:padding="10dp"
             android:src="@drawable/ic_mobile_menu"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
@@ -52,7 +52,7 @@
             android:layout_height="@dimen/mobile_title_bar_height"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/mobile_search_button"
-            android:padding="12dp"
+            android:padding="10dp"
             android:src="@drawable/ic_mobile_search"
             app:layout_constraintEnd_toStartOf="@id/mobile_settings_button"
             app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
@@ -63,7 +63,7 @@
             android:layout_height="@dimen/mobile_title_bar_height"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/mobile_settings_button"
-            android:padding="12dp"
+            android:padding="10dp"
             android:src="@drawable/ic_mobile_settings"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
@@ -145,7 +145,10 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:background="@color/mobile_color_background"
+            app:itemIconSize="26dp"
             app:itemIconTint="@color/mobile_bottom_nav_item"
+            app:itemTextAppearanceActive="@style/MobileBottomNavText"
+            app:itemTextAppearanceInactive="@style/MobileBottomNavText"
             app:itemTextColor="@color/mobile_bottom_nav_item"
             app:labelVisibilityMode="labeled"
             app:layout_constraintBottom_toBottomOf="parent"
@@ -161,7 +164,9 @@
         android:layout_gravity="start"
         android:background="@color/mobile_color_surface"
         app:headerLayout="@layout/nav_header_mobile"
+        app:itemIconSize="26dp"
         app:itemIconTint="@null"
+        app:itemTextAppearance="@style/MobileDrawerItemText"
         app:itemTextColor="@color/mobile_color_on_surface" />
 
 </androidx.drawerlayout.widget.DrawerLayout>
