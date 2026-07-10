@@ -12,15 +12,14 @@ import androidx.annotation.Nullable;
 
 /**
  * Root container for {@link MobilePlaybackActivity} that adds YouTube-style
- * swipe-DOWN-to-dismiss without depending on a translucent theme.
+ * swipe-DOWN-to-dismiss while leaving the gesture/animation policy to the Activity.
  *
  * <p>The {@code slidableactivity} (Slidr) module was evaluated first but doesn't integrate cleanly
- * here: it hijacks the decor view and animates an edge swipe assuming a translucent window so the
- * screen behind shows through, whereas the player is an opaque, fullscreen, {@code singleInstance}
- * Activity launched into its own task - there is no live Activity behind it to reveal mid-drag.
- * It would also fight the {@link com.github.vkay94.dtpv.DoubleTapPlayerViewImpl} which consumes all
- * touch events. So we do a small, self-contained vertical drag instead, exactly the fallback the
- * brief allows.</p>
+ * here: it hijacks the decor view and would fight the
+ * {@link com.github.vkay94.dtpv.DoubleTapPlayerViewImpl} which consumes all touch events. The mobile
+ * activities now share one task and the player window is translucent, so this small, self-contained
+ * vertical drag can reveal the already-rendered Activity underneath without delegating the gesture
+ * or its geometry to a window transition.</p>
  *
  * <p>Only a clearly <em>downward, vertically-dominant</em> drag past 2x touch slop is intercepted,
  * so single taps (toggle controls), double taps (seek) and horizontal scrubbing all still reach the

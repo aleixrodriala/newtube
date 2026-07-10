@@ -1,5 +1,6 @@
 package com.newtube.mobile.ui.browse;
 
+import android.animation.ValueAnimator;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
@@ -21,6 +22,7 @@ import androidx.core.view.GravityCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
@@ -47,6 +49,7 @@ import com.liskovsoft.smartyoutubetv2.common.misc.AppDataSourceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import com.newtube.mobile.ui.common.FeedCache;
 import com.newtube.mobile.ui.common.MobileActivity;
 import com.newtube.mobile.ui.playback.MiniPlayerBridge;
 
@@ -109,6 +112,9 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     private BrowsePresenter mPresenter;
 
     private RecyclerView mContentGrid;
+    private SwipeRefreshLayout mContentSwipe;
+    private View mFeedSkeleton;
+    private ValueAnimator mSkeletonPulse;
     private GridLayoutManager mLayoutManager;
     private VideoCardAdapter mAdapter;
     private BottomNavigationView mBottomNav;
@@ -116,7 +122,6 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     private NavigationView mNavView;
     /** Drawer-header account row label (sign-in entry / current account name). */
     private TextView mNavAccountText;
-    private ProgressBar mProgressBar;
     private View mErrorContainer;
     private ImageView mErrorIcon;
     private TextView mErrorMessage;
@@ -144,15 +149,22 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     private boolean mProgressShowing;
     private boolean mSuppressNavCallback;
     private int mLastPaginationTriggerCount = -1;
+    /**
+     * The grid is painting a stale {@link FeedCache} snapshot while the presenter refetches the
+     * section. While set, the presenter's clear-before-load empty REPLACE is skipped (it would
+     * blank the snapshot), and the first fresh group swaps the whole list instead of appending
+     * below the stale items.
+     */
+    private boolean mAwaitingFreshContent;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         // Transitions: same task as the player now (singleTop + reorder, see the manifest note).
-        // Surfacing this screen (most visibly: the player minimizing) is an in-task transition
-        // that honors BrowseWindowAnimation's quick fade - the swipe-down MORPH is the real
-        // motion, and the fade just swaps the black player window for the grid underneath it.
+        // During interactive minimize this already-rendered Activity remains visible through the
+        // translucent player. The final zero-duration reorder only hands the live texture to the
+        // mini card; ordinary navigation still uses BrowseWindowAnimation's quick fade.
 
         setContentView(R.layout.activity_mobile_browse);
 
@@ -171,10 +183,12 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
 
     private void bindViews() {
         mContentGrid = findViewById(R.id.mobile_content_grid);
+        mContentSwipe = findViewById(R.id.mobile_content_swipe);
+        mFeedSkeleton = findViewById(R.id.mobile_feed_skeleton);
+        setupSwipeRefresh();
         mBottomNav = findViewById(R.id.mobile_bottom_nav);
         mDrawerLayout = findViewById(R.id.mobile_drawer_layout);
         mNavView = findViewById(R.id.mobile_nav_view);
-        mProgressBar = findViewById(R.id.mobile_progress_bar);
 
         mErrorContainer = findViewById(R.id.mobile_error_container);
         mErrorIcon = findViewById(R.id.mobile_error_icon);
@@ -190,6 +204,53 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         mMiniPlayPause = findViewById(R.id.mobile_mini_play_pause);
         mMiniProgress = findViewById(R.id.mobile_mini_progress);
         setupMiniPlayerBar();
+    }
+
+    private void setupSwipeRefresh() {
+        mContentSwipe.setColorSchemeColors(getColorInt(R.color.mobile_color_on_surface));
+        mContentSwipe.setProgressBackgroundColorSchemeColor(getColorInt(R.color.mobile_color_surface));
+        mContentSwipe.setOnRefreshListener(() -> {
+            if (mPresenter != null) {
+                mPresenter.refresh(false);
+            } else {
+                mContentSwipe.setRefreshing(false);
+            }
+        });
+    }
+
+    private int getColorInt(int colorRes) {
+        return getResources().getColor(colorRes);
+    }
+
+    /**
+     * First-load skeleton: card ghosts instead of a naked spinner, alpha-pulsed like the
+     * watch page's related-list skeleton. Only ever shown over an EMPTY grid - a section
+     * repainted from {@link FeedCache} keeps its content visible while refreshing.
+     */
+    private void setSkeletonVisible(boolean visible) {
+        if (visible == (mFeedSkeleton.getVisibility() == View.VISIBLE)) {
+            return;
+        }
+
+        if (visible) {
+            mFeedSkeleton.setVisibility(View.VISIBLE);
+            if (mSkeletonPulse == null) {
+                mSkeletonPulse = ValueAnimator.ofFloat(1f, 0.45f);
+                mSkeletonPulse.setDuration(700);
+                mSkeletonPulse.setRepeatMode(ValueAnimator.REVERSE);
+                mSkeletonPulse.setRepeatCount(ValueAnimator.INFINITE);
+                mSkeletonPulse.addUpdateListener(a -> mFeedSkeleton.setAlpha((float) a.getAnimatedValue()));
+            }
+            if (!mSkeletonPulse.isStarted()) {
+                mSkeletonPulse.start();
+            }
+        } else {
+            if (mSkeletonPulse != null) {
+                mSkeletonPulse.cancel();
+            }
+            mFeedSkeleton.setAlpha(1f);
+            mFeedSkeleton.setVisibility(View.GONE);
+        }
     }
 
     // ---------------------------------------------------------------------------------
@@ -489,10 +550,34 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         }
 
         mCurrentSectionId = sectionId;
+        paintCachedSnapshot(sectionId);
         syncNavHighlight(sectionId);
 
         if (mPresenter != null) {
             mPresenter.onSectionFocused(sectionId);
+        }
+    }
+
+    /**
+     * Stale-while-revalidate: repaint the section's last-known content instantly (activity
+     * recreation and section switches otherwise stare at a skeleton while the presenter
+     * refetches - the single biggest "app feels slow" moment). The presenter's refetch is
+     * already on its way; {@link #mAwaitingFreshContent} makes its result replace this.
+     */
+    private void paintCachedSnapshot(int sectionId) {
+        List<Video> cached = FeedCache.get(sectionId);
+
+        mCurrentVideos.clear();
+        mAwaitingFreshContent = cached != null;
+        if (cached != null) {
+            mCurrentVideos.addAll(cached);
+        }
+
+        mLastPaginationTriggerCount = -1;
+        mAdapter.submitList(new ArrayList<>(mCurrentVideos));
+        if (!mCurrentVideos.isEmpty()) {
+            setSkeletonVisible(false);
+            mContentGrid.scrollToPosition(0);
         }
     }
 
@@ -527,6 +612,18 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         }
 
         mPresenter.onVideoItemSelected(video);
+
+        // Cards without a videoId (playlists, mixes, channels) don't open the player - they kick
+        // an async channel-rows fetch (VideoActionPresenter -> chooseChannelPresenter) that can
+        // take seconds before any screen change, and this screen's showProgressBar deliberately
+        // shows nothing over a non-empty grid - the tap read as dead. Use the swipe-refresh
+        // spinner as tap feedback; it clears when the destination opens (onPause) or the fetch
+        // ends/fails (LoadingManager -> showProgressBar(false)). Guarded on the routable shapes
+        // so the "doesn't contain needed data" toast case can't leave it spinning.
+        if (!video.hasVideo()
+                && (video.hasChannel() || video.hasPlaylist() || video.hasNestedItems() || video.hasReloadPageKey())) {
+            mContentSwipe.setRefreshing(true);
+        }
 
         // Wave 2: real route. BrowsePresenter.onVideoItemClicked() -> VideoActionPresenter.apply()
         // -> PlaybackPresenter.openVideo() -> ViewManager.startView(PlaybackView.class) for plain
@@ -769,6 +866,10 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         // playback activity may be about to re-claim it (expand / new video), and a paused
         // Browse must never hold a stale TextureView on the live player. Audio is unaffected.
         hideMiniPlayer();
+
+        // Tap-feedback spinner (see onVideoClicked): the destination screen is opening (or the
+        // user left) - never keep it spinning under the returning grid.
+        mContentSwipe.setRefreshing(false);
     }
 
     @Override
@@ -864,6 +965,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
             }
 
             mCurrentSectionId = section.getId();
+            paintCachedSnapshot(section.getId());
 
             // The section may not be one of the (up to 5) sections shown in the bottom
             // nav - e.g. the sign-out boot fallback can select Music, which can be bumped
@@ -904,8 +1006,17 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
 
             switch (group.getAction()) {
                 case VideoGroup.ACTION_REPLACE:
+                    boolean emptyReplace = group.getVideos() == null || group.getVideos().isEmpty();
+                    if (emptyReplace && mAwaitingFreshContent) {
+                        // The presenter's clear-before-load. The grid is painting a FeedCache
+                        // snapshot - keep it on screen; the fresh result replaces it below.
+                        return;
+                    }
                     mCurrentVideos.clear();
-                    mCurrentVideos.addAll(group.getVideos());
+                    if (!emptyReplace) {
+                        mCurrentVideos.addAll(group.getVideos());
+                    }
+                    mAwaitingFreshContent = false;
                     break;
                 case VideoGroup.ACTION_PREPEND:
                     mCurrentVideos.addAll(0, group.getVideos());
@@ -918,12 +1029,23 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
                     break;
                 case VideoGroup.ACTION_APPEND:
                 default:
+                    if (mAwaitingFreshContent) {
+                        // First fresh group after a cached repaint: swap the stale snapshot
+                        // out instead of appending fresh rows below it.
+                        mCurrentVideos.clear();
+                        mAwaitingFreshContent = false;
+                    }
                     appendNew(group.getVideos());
                     break;
             }
 
             mLastPaginationTriggerCount = -1; // allow pagination to trigger again on the new size
             mAdapter.submitList(new ArrayList<>(mCurrentVideos));
+
+            if (!mCurrentVideos.isEmpty()) {
+                setSkeletonVisible(false);
+                FeedCache.put(mCurrentSectionId, mCurrentVideos);
+            }
         });
     }
 
@@ -1013,12 +1135,22 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     @Override
     public void showError(ErrorFragmentData data) {
         runOnUiThread(() -> {
+            String actionText = data != null ? data.getActionText() : null;
+            boolean hasSignInAction = actionText != null && !actionText.isEmpty();
+
+            setSkeletonVisible(false);
+            mContentSwipe.setRefreshing(false);
+
+            // A failed refresh over a FeedCache repaint: stale content beats a full-screen
+            // error. Keep the grid; pull-to-refresh is the retry. Sign-in gating still takes
+            // the full-screen path - stale rows from another signed-in state would mislead.
+            if (!hasSignInAction && !mCurrentVideos.isEmpty()) {
+                return;
+            }
+
             mContentGrid.setVisibility(View.GONE);
             mErrorContainer.setVisibility(View.VISIBLE);
             mErrorIcon.setVisibility(View.VISIBLE);
-
-            String actionText = data != null ? data.getActionText() : null;
-            boolean hasSignInAction = actionText != null && !actionText.isEmpty();
 
             if (hasSignInAction) {
                 String sectionTitle = getCurrentSectionTitle();
@@ -1058,7 +1190,16 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     @Override
     public void showProgressBar(boolean show) {
         mProgressShowing = show;
-        runOnUiThread(() -> mProgressBar.setVisibility(show ? View.VISIBLE : View.GONE));
+        runOnUiThread(() -> {
+            // Empty grid = first load: card-skeleton ghosts (the old centered spinner over a
+            // black void read as "the app hangs"). Grid with content (FeedCache repaint or
+            // pagination): no overlay at all - the pull-to-refresh indicator covers the
+            // user-initiated case, and background refreshes just swap content in when ready.
+            setSkeletonVisible(show && mCurrentVideos.isEmpty());
+            if (!show) {
+                mContentSwipe.setRefreshing(false);
+            }
+        });
     }
 
     @Override

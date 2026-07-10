@@ -15,6 +15,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -68,6 +69,8 @@ import java.util.List;
 public class MobileSearchActivity extends MobileActivity implements SearchView {
     private static final int SCROLL_END_THRESHOLD_ITEMS = 6;
     private static final int REQUEST_VOICE = 5001;
+    /** Pause after the last keystroke before hitting the suggest endpoint. */
+    private static final long SUGGEST_DEBOUNCE_MS = 200;
 
     private SearchPresenter mPresenter;
 
@@ -81,6 +84,7 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
     private GridLayoutManager mLayoutManager;
     private VideoCardAdapter mAdapter;
     private ProgressBar mProgressBar;
+    private TextView mSearchMessage;
 
     private MediaServiceSearchTagProvider mTagsProvider;
 
@@ -88,6 +92,15 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
     private int mLastPaginationTriggerCount = -1;
     /** Guards against the TextWatcher reacting to programmatic field changes. */
     private boolean mSuppressTextWatcher;
+    /** Debounced suggest reload for the CURRENT field text (one per keystroke burst). */
+    private final Runnable mSuggestReload = () -> loadSearchTags(getSearchText());
+    /**
+     * Suggest responses arrive out of order on slow networks ("ab" landing after the user
+     * backspaced to "a"). Each request takes a ticket; only the latest may render.
+     */
+    private int mSuggestGeneration;
+    /** Last query handed to the presenter - the tap-to-retry target for the empty state. */
+    private String mSubmittedQuery;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -122,6 +135,12 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
         mSuggestions = findViewById(R.id.mobile_search_suggestions);
         mGrid = findViewById(R.id.mobile_search_grid);
         mProgressBar = findViewById(R.id.mobile_search_progress);
+        mSearchMessage = findViewById(R.id.mobile_search_message);
+        mSearchMessage.setOnClickListener(v -> {
+            if (mSubmittedQuery != null) {
+                submitSearch(mSubmittedQuery);
+            }
+        });
     }
 
     private void setupSuggestions() {
@@ -141,6 +160,8 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
             }
         });
 
+        mGrid.setHasFixedSize(true);
+        mGrid.setItemViewCacheSize(8);
         mGrid.setLayoutManager(mLayoutManager);
         mGrid.setAdapter(mAdapter);
         mGrid.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -163,7 +184,15 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
             public void afterTextChanged(Editable s) {
                 syncClearButton();
                 if (!mSuppressTextWatcher) {
-                    loadSearchTags(s.toString());
+                    // Debounce typed text (one suggest call per keystroke burst, not per key);
+                    // an emptied field switches to history immediately - that transition is
+                    // the visible one, and stale in-flight suggestions are generation-gated.
+                    mSearchInput.removeCallbacks(mSuggestReload);
+                    if (TextUtils.isEmpty(s)) {
+                        loadSearchTags("");
+                    } else {
+                        mSearchInput.postDelayed(mSuggestReload, SUGGEST_DEBOUNCE_MS);
+                    }
                 }
             }
         });
@@ -198,8 +227,12 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
         // typed query → live suggestions (magnifier rows). The Tag model has no origin flag,
         // so the mode is decided by what we asked for.
         final boolean historyMode = TextUtils.isEmpty(query);
+        final int generation = ++mSuggestGeneration;
 
         mTagsProvider.search(query, results -> runOnUiThread(() -> {
+            if (generation != mSuggestGeneration) {
+                return; // a newer request is in flight/rendered - this response is stale
+            }
             mTagAdapter.setHistoryMode(historyMode);
             mTagAdapter.setTags(results);
             // Only surface the overlay while the user is actually editing the query — a slow
@@ -262,6 +295,10 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
             return;
         }
 
+        mSearchInput.removeCallbacks(mSuggestReload); // a pending suggest reload is moot now
+        mSuggestGeneration++;                         // and any in-flight response is stale
+        mSubmittedQuery = query;
+        mSearchMessage.setVisibility(View.GONE);
         hideKeyboard();
         mSearchInput.clearFocus();
         mSuggestions.setVisibility(View.GONE);
@@ -436,6 +473,9 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
 
             mLastPaginationTriggerCount = -1; // allow pagination to fire again at the new size
             mAdapter.submitList(new ArrayList<>(mVideos));
+            if (!mVideos.isEmpty()) {
+                mSearchMessage.setVisibility(View.GONE);
+            }
         });
     }
 
@@ -461,7 +501,9 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
         List<Video> rest = new ArrayList<>(videos.size());
         int index = 0;
         for (Video video : videos) {
-            if (video != null && video.isChannel() && index < topSlice) {
+            // isPlaylistAsChannel: playlist results share the channel item shape (null videoId
+            // + browse channelId) but must stay inline as cards, never hoisted as a channel pick.
+            if (video != null && video.isChannel() && !video.isPlaylistAsChannel() && index < topSlice) {
                 channels.add(video);
             } else {
                 rest.add(video);
@@ -520,7 +562,18 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
 
     @Override
     public void showProgressBar(boolean show) {
-        runOnUiThread(() -> mProgressBar.setVisibility(show ? View.VISIBLE : View.GONE));
+        runOnUiThread(() -> {
+            mProgressBar.setVisibility(show ? View.VISIBLE : View.GONE);
+            if (show) {
+                mSearchMessage.setVisibility(View.GONE);
+            } else if (mVideos.isEmpty() && mSubmittedQuery != null
+                    && mSuggestions.getVisibility() != View.VISIBLE) {
+                // SearchView has no error callback: a failed load and a zero-result search
+                // both end exactly here (spinner off, grid empty). Anything beats the old
+                // behavior of silently showing a blank screen.
+                mSearchMessage.setVisibility(View.VISIBLE);
+            }
+        });
     }
 
     @Override

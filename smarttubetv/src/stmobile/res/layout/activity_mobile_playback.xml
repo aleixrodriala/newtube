@@ -24,7 +24,7 @@
     android:id="@+id/mobile_player_container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/black"
+    android:background="@android:color/transparent"
     android:keepScreenOn="true">
 
     <LinearLayout
@@ -398,6 +398,7 @@
             android:scrollbars="vertical">
 
             <LinearLayout
+                android:id="@+id/mobile_watch_content"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"

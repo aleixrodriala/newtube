@@ -50,6 +50,15 @@
         android:theme="@style/Theme.NewTube"
         tools:replace="android:name,android:theme">
 
+        <!-- The TV manifest makes Splash singleInstance, which puts it in a separate task and
+             forces Android's non-overridable cross-task slide when it routes into mobile Home.
+             Keep the launcher and Home in the same normal phone task. -->
+        <activity
+            android:name="com.liskovsoft.smartyoutubetv2.tv.ui.main.SplashActivity"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.NewTube"
+            tools:replace="android:launchMode" />
+
         <activity
             android:name="com.newtube.mobile.ui.browse.MobileBrowseActivity"
             android:exported="false"

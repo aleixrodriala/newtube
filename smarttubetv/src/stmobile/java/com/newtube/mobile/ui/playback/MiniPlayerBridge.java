@@ -2,7 +2,9 @@ package com.newtube.mobile.ui.playback;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
+import android.os.SystemClock;
 
 import androidx.annotation.Nullable;
 
@@ -31,10 +33,15 @@ import java.lang.ref.WeakReference;
  * activity, {@link #isActive()} turns false on its own and the bar simply hides.</p>
  */
 public final class MiniPlayerBridge {
+    private static final long NAVIGATION_PENDING_MS = 30_000;
 
     private static WeakReference<MobilePlaybackActivity> sActivity = new WeakReference<>(null);
+    private static WeakReference<MobilePlaybackActivity> sPendingNavigation = new WeakReference<>(null);
+    private static long sPendingNavigationAtMs;
     private static boolean sActive;
     private static Bitmap sHandoffStill;
+    private static Bitmap sMiniEntryStill;
+    private static Rect sMiniBounds;
 
     private MiniPlayerBridge() {
     }
@@ -45,11 +52,37 @@ public final class MiniPlayerBridge {
         sActive = true;
     }
 
+    /**
+     * Mark a channel route that should become an in-app mini session only if its destination
+     * Activity is actually created. Channel-id resolution can be asynchronous, so activating here
+     * would strand a detached/shrunk player when lookup fails.
+     */
+    static void prepareNavigation(MobilePlaybackActivity activity) {
+        sPendingNavigation = new WeakReference<>(activity);
+        sPendingNavigationAtMs = SystemClock.uptimeMillis();
+    }
+
+    /** Called by the channel Activity once the pending route has succeeded. */
+    public static boolean completePendingNavigation() {
+        MobilePlaybackActivity activity = sPendingNavigation.get();
+        boolean fresh = activity != null
+                && SystemClock.uptimeMillis() - sPendingNavigationAtMs <= NAVIGATION_PENDING_MS;
+        sPendingNavigation = new WeakReference<>(null);
+        sPendingNavigationAtMs = 0;
+
+        return fresh && !activity.isFinishing() && !activity.isDestroyed()
+                && activity.minimizeForNavigation();
+    }
+
     /** Called when the playback activity takes its surface back (expand / new video / destroy). */
     public static void deactivate() {
         sActive = false;
         sActivity = new WeakReference<>(null);
+        sPendingNavigation = new WeakReference<>(null);
+        sPendingNavigationAtMs = 0;
         sHandoffStill = null;
+        sMiniEntryStill = null;
+        sMiniBounds = null;
     }
 
     /**
@@ -65,6 +98,31 @@ public final class MiniPlayerBridge {
     /** Last card frame, captured by Browse when it detaches; shown by the expanding player. */
     public static void setHandoffStill(@Nullable Bitmap frame) {
         sHandoffStill = frame;
+    }
+
+    /** Initial full-size frame shown while a newly-created mini TextureView adopts the session. */
+    static void setMiniEntryStill(@Nullable Bitmap frame) {
+        sMiniEntryStill = frame;
+    }
+
+    /** Consume the initial mini frame (single use by the destination screen). */
+    @Nullable
+    public static Bitmap takeMiniEntryStill() {
+        Bitmap frame = sMiniEntryStill;
+        sMiniEntryStill = null;
+        return frame;
+    }
+
+    /** Exact on-screen mini rectangle, used to reverse the morph without a geometry jump. */
+    public static void setMiniBounds(@Nullable Rect bounds) {
+        sMiniBounds = bounds != null ? new Rect(bounds) : null;
+    }
+
+    @Nullable
+    static Rect takeMiniBounds() {
+        Rect bounds = sMiniBounds;
+        sMiniBounds = null;
+        return bounds;
     }
 
     /** Consume the captured card frame (single use). */

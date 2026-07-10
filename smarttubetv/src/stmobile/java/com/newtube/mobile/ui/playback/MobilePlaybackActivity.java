@@ -54,6 +54,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
 import com.liskovsoft.mediaserviceinterfaces.LiveChatService;
@@ -177,6 +178,7 @@ public class MobilePlaybackActivity extends MobileActivity
     // Watch page (portrait content column under the video).
     private View mWatchRoot;
     private NestedScrollView mWatchScroll;
+    private View mWatchContent;
     private TextView mWatchTitle;
     private TextView mWatchMeta;
     private View mWatchMetaRow;
@@ -271,10 +273,11 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Transitions: this activity now lives in the SAME task as Browse (singleTop + reorder,
-        // see the stmobile manifest note), so opening/closing it is an in-task activity
-        // transition that honors the theme's PlayerWindowAnimation (fade+scale in, slide-down
-        // out) on every Android version - no code needed here, and no cross-task system slide.
+        // A tapped card supplies its own geometry-driven open below. Suppress Android's whole-
+        // window animation so it cannot fade/scale the custom thumbnail morph a second time.
+        if (PlayerTransitionBridge.hasPending()) {
+            overridePendingTransition(0, 0);
+        }
 
         // NOTE: buffer tuning is applied locally around createPlayer() (see createPlayerObjects),
         // NOT here - forcing PlayerData.setVideoBufferType() on every onCreate permanently
@@ -307,6 +310,16 @@ public class MobilePlaybackActivity extends MobileActivity
         registerPipReceiver();
     }
 
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        // REORDER_TO_FRONT reuses this instance after mini mode. The pending card snapshot means
+        // this is a new feed selection, not a plain mini-card expansion.
+        if (PlayerTransitionBridge.hasPending()) {
+            overridePendingTransition(0, 0);
+        }
+    }
+
     private void bindViews() {
         mContainer = findViewById(R.id.mobile_player_container);
         mVideoArea = findViewById(R.id.mobile_video_area);
@@ -335,6 +348,7 @@ public class MobilePlaybackActivity extends MobileActivity
         // Watch page content column.
         mWatchRoot = findViewById(R.id.mobile_watch_root);
         mWatchScroll = findViewById(R.id.mobile_watch_scroll);
+        mWatchContent = findViewById(R.id.mobile_watch_content);
         mWatchTitle = findViewById(R.id.mobile_watch_title);
         mWatchMeta = findViewById(R.id.mobile_watch_meta);
         mWatchMetaRow = findViewById(R.id.mobile_watch_meta_row);
@@ -738,6 +752,8 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onResume() {
         super.onResume();
 
+        PlayerTransitionBridge.LaunchSnapshot launch = PlayerTransitionBridge.take();
+
         // In the foreground again: auto-PiP behaves normally from here on.
         mSuppressAutoPip = false;
         updatePipActions(); // re-arm the Android 12+ auto-enter flag cleared by the minimize hand-off
@@ -748,6 +764,7 @@ public class MobilePlaybackActivity extends MobileActivity
         // it the whole time, so no surface change, no codec re-init, no frozen frames. The card
         // captured its last frame for us; it covers the 1-2 frames until the texture paints.
         boolean fromMini = MiniPlayerBridge.isActive();
+        Rect miniBounds = fromMini ? MiniPlayerBridge.takeMiniBounds() : null;
         if (fromMini) {
             Bitmap handoff = MiniPlayerBridge.takeHandoffStill();
             if (handoff != null) {
@@ -759,14 +776,31 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         MiniPlayerBridge.deactivate();
 
-        // Expanding from the mini card: reverse morph - start the container ON the card's rect
-        // and grow it to fullscreen, the mirror image of the swipe-down shrink. The window itself
-        // hard-cut in (OVERRIDE_TRANSITION_OPEN = 0), so this is the only motion the user sees.
-        if (fromMini && mContainer != null) {
+        if (launch != null) {
+            // A normal feed/search/channel tap: cover the video with the exact tapped thumbnail,
+            // place it over the source rect, then grow it into the watch page while Browse remains
+            // visible through the rest of our window.
+            showHandoffStill(launch.frame);
+            mStillAwaitFrame = false; // do not lift the source image before the morph completes
+            if (fromMini) {
+                // The old stream is still producing frames after its texture was re-parented.
+                // Keep those frames behind the selected video's thumbnail until the new load wins.
+                mStillAwaitReady = true;
+            }
+            startOpenMorph(launch.sourceBounds, 300);
+        } else if (fromMini && mContainer != null) {
+            // Plain mini-card expansion: exact reverse of minimize, from the card rectangle.
+            overridePendingTransition(0, 0);
+            mContainer.setVisibility(View.INVISIBLE);
             mContainer.post(() -> {
-                computeMorphTarget();
+                if (miniBounds != null) {
+                    computeMorphTarget(miniBounds);
+                } else {
+                    computeMorphTarget();
+                }
                 applyMorph(1f);
-                animateMorph(0f, 220, this::resetMorph);
+                mContainer.setVisibility(View.VISIBLE);
+                mContainer.postOnAnimation(() -> animateMorph(0f, 240, this::resetMorph));
             });
         }
 
@@ -790,7 +824,7 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onStop() {
         super.onStop();
 
-        // The minimize drag left the container morphed onto the mini-card rect. Reset it once
+        // The minimize drag left the video morphed onto the mini-card rect. Reset it once
         // this window is no longer visible (here, not in minimizeByDrag - resetting while our
         // window still shows behind the task switch would flash the fullscreen player back).
         // The expand path immediately re-applies the morph in onResume, so this never fights it.
@@ -1464,7 +1498,43 @@ public class MobilePlaybackActivity extends MobileActivity
 
         sheet.setContentView(content);
         sheet.setOnDismissListener(d -> armAutoHide());
-        sheet.show();
+        showPlayerSheet(sheet);
+    }
+
+    /**
+     * A bare BottomSheetDialog over the player misbehaves two ways: it opens half-collapsed at the
+     * default auto peek height (tall content ends up cut off below the screen edge), and in the
+     * immersive landscape player its focusable window re-summons the system bars, shifting the
+     * sheet's layout so it lands partly off-screen. Every in-player sheet must open through here:
+     * expanded and never collapsible, shown focus-less first with the player's system-UI state
+     * mirrored onto its window (focus is restored right after, per the standard immersive-dialog
+     * recipe) so the bars stay hidden.
+     */
+    private void showPlayerSheet(BottomSheetDialog dialog) {
+        Window window = dialog.getWindow();
+        boolean immersive = isLandscape();
+        if (immersive && window != null) {
+            window.setFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+            window.getDecorView().setSystemUiVisibility(
+                    getWindow().getDecorView().getSystemUiVisibility());
+        }
+
+        dialog.setOnShowListener(d -> {
+            View sheetView = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
+            if (sheetView != null) {
+                // The frame's own white background would poke out around bg_mobile_sheet's corners.
+                sheetView.setBackgroundColor(Color.TRANSPARENT);
+                BottomSheetBehavior<View> behavior = BottomSheetBehavior.from(sheetView);
+                behavior.setSkipCollapsed(true);
+                behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+            }
+            if (immersive && window != null) {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+            }
+        });
+
+        dialog.show();
     }
 
     private void addMenuRow(LinearLayout container, BottomSheetDialog sheet, int labelRes,
@@ -1854,21 +1924,21 @@ public class MobilePlaybackActivity extends MobileActivity
     // ---------------------------------------------------------------------------------
 
     /**
-     * Swipe-down morph, YouTube-style: instead of sliding the screen away, the drag SHRINKS the
-     * whole container toward the exact spot where Browse's floating mini-player card sits, so the
-     * video visually "becomes" the mini-player. The watch page + controls fade out early in the
-     * drag, leaving only the video during the shrink. Geometry note: both activities fit system
-     * windows, so window coordinates line up across the task switch, and a 16:9 video scaled to
-     * the card's width lands exactly on the 16:9 card - the hard cut to Browse (no window
-     * animation) is then nearly seamless.
+     * Swipe-down morph, YouTube-style: the video itself shrinks toward the exact spot where
+     * Browse's floating mini-player card sits while the watch content fades away. The player
+     * window is translucent, so every pixel uncovered by that movement reveals the already-live
+     * screen underneath throughout the drag; there is no intermediate black window or route fade.
+     * Geometry note: both activities fit system windows, so their coordinates line up and a 16:9
+     * video scaled to the card's width lands exactly on the 16:9 card.
      */
-    private float mMorphScale = 1f;
+    private float mMorphScaleX = 1f;
+    private float mMorphScaleY = 1f;
     private float mMorphTx;
     private float mMorphTy;
     private float mMorphFraction;
     private ValueAnimator mMorphAnimator;
 
-    /** Compute the container transform (pivot 0,0) that maps the video area onto the mini card. */
+    /** Compute the video transform (pivot 0,0) that maps the video area onto the mini card. */
     private void computeMorphTarget() {
         float density = getResources().getDisplayMetrics().density;
         float cardW = 180 * density;
@@ -1884,30 +1954,86 @@ public class MobilePlaybackActivity extends MobileActivity
         float targetX = mContainer.getWidth() - margin - cardW;
         float targetY = mContainer.getHeight() - bottomNav - margin - cardH;
 
-        mMorphScale = scale;
-        mMorphTx = targetX - video.left * scale;
-        mMorphTy = targetY - video.top * scale;
+        mMorphScaleX = scale;
+        mMorphScaleY = scale;
+        // mVideoArea's translation is expressed in its parent's (unscaled) coordinates. With a
+        // top-left pivot its rendered origin is layoutOrigin + translation, independent of scale.
+        mMorphTx = targetX - video.left;
+        mMorphTy = targetY - video.top;
+    }
+
+    /** Map the watch-page video box onto an arbitrary tapped thumbnail in screen coordinates. */
+    private void computeMorphTarget(Rect sourceBounds) {
+        Rect video = new Rect(0, 0, mVideoArea.getWidth(), mVideoArea.getHeight());
+        mContainer.offsetDescendantRectToMyCoords(mVideoArea, video);
+
+        int[] containerLocation = new int[2];
+        mContainer.getLocationOnScreen(containerLocation);
+        float sourceLeft = sourceBounds.left - containerLocation[0];
+        float sourceTop = sourceBounds.top - containerLocation[1];
+
+        mMorphScaleX = video.width() > 0
+                ? (float) sourceBounds.width() / video.width() : 1f;
+        mMorphScaleY = video.height() > 0
+                ? (float) sourceBounds.height() / video.height() : mMorphScaleX;
+        mMorphTx = sourceLeft - video.left;
+        mMorphTy = sourceTop - video.top;
+    }
+
+    /** Start with the player hidden, reveal it exactly over the tapped card, then expand. */
+    private void startOpenMorph(Rect sourceBounds, long durationMs) {
+        if (mContainer == null || mVideoArea == null) {
+            return;
+        }
+        overridePendingTransition(0, 0);
+        mContainer.setVisibility(View.INVISIBLE);
+        mContainer.post(() -> {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            computeMorphTarget(sourceBounds);
+            applyMorph(1f);
+            mContainer.setVisibility(View.VISIBLE);
+            mContainer.postOnAnimation(() -> animateMorph(0f, durationMs, () -> {
+                resetMorph();
+                // The launch thumbnail may now yield to the next actual frame. If a new stream is
+                // still loading, mStillAwaitReady keeps it up until STATE_READY first.
+                if (mVideoStill != null && mVideoStill.getVisibility() == View.VISIBLE) {
+                    mStillAwaitFrame = true;
+                }
+            }));
+        });
     }
 
     /** Apply the morph at fraction f (0 = fullscreen player, 1 = sitting on the mini card). */
     private void applyMorph(float f) {
         mMorphFraction = f;
-        mContainer.setPivotX(0f);
-        mContainer.setPivotY(0f);
-        float s = 1f + (mMorphScale - 1f) * f;
-        mContainer.setScaleX(s);
-        mContainer.setScaleY(s);
-        mContainer.setTranslationX(mMorphTx * f);
-        mContainer.setTranslationY(mMorphTy * f);
+        mVideoArea.setPivotX(0f);
+        mVideoArea.setPivotY(0f);
+        float sx = 1f + (mMorphScaleX - 1f) * f;
+        float sy = 1f + (mMorphScaleY - 1f) * f;
+        mVideoArea.setScaleX(sx);
+        mVideoArea.setScaleY(sy);
+        mVideoArea.setTranslationX(mMorphTx * f);
+        mVideoArea.setTranslationY(mMorphTy * f);
+        // The content column is the next LinearLayout child and would otherwise be drawn over the
+        // moving video. Any positive Z keeps the live TextureView visually on top during the morph.
+        float density = getResources().getDisplayMetrics().density;
+        mVideoArea.setTranslationZ(f > 0f ? 12f * density : 0f);
 
-        // Everything that is not the video disappears quickly (gone by f=0.35), so the tail of
-        // the shrink shows only the video flying into the corner - like YouTube.
-        float contentAlpha = Math.max(0f, 1f - f * 3f);
-        if (mWatchRoot != null) {
-            mWatchRoot.setAlpha(contentAlpha);
+        // Remove labels/cards early so they do not ghost over Browse, then fade the solid watch
+        // background more slowly. This reads as a black sheet becoming transparent while the live
+        // video remains fully opaque above it.
+        float contentAlpha = Math.max(0f, 1f - f * 5f);
+        if (mWatchContent != null) {
+            mWatchContent.setAlpha(contentAlpha);
         }
-        if (mControlsRoot != null) {
-            mControlsRoot.setAlpha(Math.min(mControlsRoot.getAlpha(), contentAlpha));
+        if (mWatchScroll != null && mWatchScroll.getBackground() != null) {
+            int backdropAlpha = Math.round(255f * (1f - f));
+            mWatchScroll.getBackground().mutate().setAlpha(backdropAlpha);
+        }
+        if (mControlsRoot != null && mControlsRoot.getVisibility() == View.VISIBLE) {
+            mControlsRoot.setAlpha(contentAlpha);
         }
     }
 
@@ -1917,13 +2043,19 @@ public class MobilePlaybackActivity extends MobileActivity
             mMorphAnimator = null;
         }
         mMorphFraction = 0f;
-        mContainer.setScaleX(1f);
-        mContainer.setScaleY(1f);
-        mContainer.setTranslationX(0f);
-        mContainer.setTranslationY(0f);
-        mContainer.setAlpha(1f);
-        if (mWatchRoot != null) {
-            mWatchRoot.setAlpha(1f);
+        mVideoArea.setScaleX(1f);
+        mVideoArea.setScaleY(1f);
+        mVideoArea.setTranslationX(0f);
+        mVideoArea.setTranslationY(0f);
+        mVideoArea.setTranslationZ(0f);
+        if (mWatchContent != null) {
+            mWatchContent.setAlpha(1f);
+        }
+        if (mWatchScroll != null && mWatchScroll.getBackground() != null) {
+            mWatchScroll.getBackground().mutate().setAlpha(255);
+        }
+        if (mControlsRoot != null) {
+            mControlsRoot.setAlpha(mControlsVisible ? 1f : 0f);
         }
     }
 
@@ -1982,22 +2114,36 @@ public class MobilePlaybackActivity extends MobileActivity
             return;
         }
 
-        // Launch Browse IMMEDIATELY and let the rest of the shrink play while it boots behind
-        // the scenes. Sequencing the launch after the animation left the screen sitting on the
-        // morph's final frame (video parked on the card spot over black) for the whole
-        // activity-switch latency - the "black screen between the transitions". This way the
-        // remaining motion covers most of that latency and Browse fades in over the finished
-        // morph.
-        minimizeByDrag();
-        animateMorph(1f, 150, null);
+        // The destination is already visible through our translucent window, so finish the live
+        // video motion in this Activity first. Only then reorder Browse and hand it the texture;
+        // its mini card occupies the same rectangle, making the Activity switch a visual no-op.
+        animateMorph(1f, 150, this::minimizeByDrag);
     }
 
     /**
      * Swipe-down now MINIMIZES like the YouTube app (playback continues in the Browse mini
      * card) instead of closing. This activity stays alive behind Browse - it still owns the
-     * player. Called at drag RELEASE (the morph tail keeps animating while Browse boots).
+     * player. Called once the release animation has landed on the mini-card rectangle.
      */
     private void minimizeByDrag() {
+        if (!prepareMiniPlayerHandoff(false)) {
+            return;
+        }
+        getViewManager().startView(BrowseView.class);
+        overridePendingTransition(0, 0);
+    }
+
+    /** Channel navigation completed: background this player as a live in-app mini session. */
+    boolean minimizeForNavigation() {
+        return prepareMiniPlayerHandoff(true);
+    }
+
+    /** Capture/freeze the current frame and make the session texture available to a mini host. */
+    private boolean prepareMiniPlayerHandoff(boolean keepEntryStill) {
+        if (mPlayer == null) {
+            return false;
+        }
+
         // Freeze the current frame over the morphing video box, then detach the TextureView so
         // the session texture is free for the Browse card the moment it resumes (a SurfaceTexture
         // can feed only one GL consumer at a time). The codec keeps decoding into the briefly
@@ -2008,6 +2154,9 @@ public class MobilePlaybackActivity extends MobileActivity
             if (frame != null) {
                 showHandoffStill(frame);
                 mStillAwaitFrame = false; // keep it until the expand path re-arms the lift
+                if (keepEntryStill) {
+                    MiniPlayerBridge.setMiniEntryStill(frame);
+                }
             }
         }
         detachVideoTexture();
@@ -2019,8 +2168,7 @@ public class MobilePlaybackActivity extends MobileActivity
         // auto-enter flag too - same failure mode, system-initiated instead of leave-hint.
         mSuppressAutoPip = true;
         updatePipActions();
-        getViewManager().startView(BrowseView.class);
-        overridePendingTransition(0, 0);
+        return true;
     }
 
     /** X tapped on the Browse mini bar: stop playback and quietly retire this hidden activity. */
@@ -2625,7 +2773,7 @@ public class MobilePlaybackActivity extends MobileActivity
             audioList.setVisibility(View.GONE);
         }
 
-        dialog.show();
+        showPlayerSheet(dialog);
     }
 
     private void addQualityRow(LinearLayout parent, CharSequence label, boolean selected, Runnable onClick) {
@@ -2968,6 +3116,10 @@ public class MobilePlaybackActivity extends MobileActivity
         if (video == null || !ChannelPresenter.canOpenChannel(video)) {
             return;
         }
+        // Channel-id lookup may be asynchronous. Mark the route now, but detach/activate the live
+        // mini session only when MobileChannelActivity is actually created; a failed lookup leaves
+        // the watch page untouched.
+        MiniPlayerBridge.prepareNavigation(this);
         MediaServiceManager.chooseChannelPresenter(this, video);
     }
 

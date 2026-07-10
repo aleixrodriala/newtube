@@ -101,6 +101,8 @@ public class MobileChannelUploadsActivity extends MobileActivity implements Chan
         mLayoutManager = new GridLayoutManager(this, computeSpanCount());
         mAdapter = new VideoCardAdapter(this::onVideoClicked, this::onVideoLongClicked);
 
+        mGrid.setHasFixedSize(true);
+        mGrid.setItemViewCacheSize(8);
         mGrid.setLayoutManager(mLayoutManager);
         mGrid.setAdapter(mAdapter);
         mGrid.addOnScrollListener(new RecyclerView.OnScrollListener() {

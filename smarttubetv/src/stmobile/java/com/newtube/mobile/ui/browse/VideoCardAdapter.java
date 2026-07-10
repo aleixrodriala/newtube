@@ -18,6 +18,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.newtube.mobile.ui.playback.PlayerTransitionBridge;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
 import com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover;
@@ -76,7 +77,11 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
 
     @Override
     public int getItemViewType(int position) {
-        return getItem(position).isChannel() ? VIEW_TYPE_CHANNEL : VIEW_TYPE_VIDEO;
+        // isChannel() alone also matches playlists delivered in the playlist-as-channel shape
+        // (videoId/playlistId null + a VL... channelId — the standard shape of the user
+        // Playlists section): those must stay thumbnail cards, not round-avatar channel rows.
+        Video item = getItem(position);
+        return item.isChannel() && !item.isPlaylistAsChannel() ? VIEW_TYPE_CHANNEL : VIEW_TYPE_VIDEO;
     }
 
     /** Full-span rows (channel results) for the grid's SpanSizeLookup in multi-column layouts. */
@@ -141,6 +146,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
      */
     public static class VideoViewHolder extends RecyclerView.ViewHolder {
         private final ImageView mThumbnail;
+        private final View mThumbnailFrame;
         private final TextView mBadge;
         private final ProgressBar mWatchProgress;
         private final TextView mTitle;
@@ -152,6 +158,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             super(itemView);
 
             mThumbnail = itemView.findViewById(R.id.video_thumbnail);
+            mThumbnailFrame = itemView.findViewById(R.id.video_thumbnail_frame);
             mBadge = itemView.findViewById(R.id.video_badge);
             mWatchProgress = itemView.findViewById(R.id.video_watch_progress);
             mTitle = itemView.findViewById(R.id.video_title);
@@ -160,6 +167,11 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
 
             itemView.setOnClickListener(v -> {
                 if (mVideo != null && clickListener != null) {
+                    if (mVideo.videoId != null) {
+                        PlayerTransitionBridge.prepare(mThumbnailFrame);
+                    } else {
+                        PlayerTransitionBridge.clear();
+                    }
                     clickListener.onVideoClick(mVideo);
                 }
             });
@@ -259,7 +271,10 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .format(DecodeFormat.PREFER_RGB_565)
                     .override(w, sThumbH)
-                    .centerCrop();
+                    .centerCrop()
+                    // Network loads fade in over the placeholder-colored card instead of popping;
+                    // memory-cache hits skip the transition entirely, so scrolling stays crisp.
+                    .transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.withCrossFade(150));
 
             // At the default thumb quality the primary URL IS the card URL, so a fallback request
             // would be identical - only pay the second RequestBuilder when it can actually differ.
@@ -302,6 +317,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
 
             itemView.setOnClickListener(v -> {
                 if (mVideo != null && clickListener != null) {
+                    PlayerTransitionBridge.clear();
                     clickListener.onVideoClick(mVideo);
                 }
             });

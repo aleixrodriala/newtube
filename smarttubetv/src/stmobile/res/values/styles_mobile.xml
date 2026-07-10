@@ -30,36 +30,33 @@
     </style>
 
     <!--
-      Window open/close transitions for the touch player. Set via android:windowAnimationStyle
-      on Theme.NewTube.Player so the player fades+scales in when launched from a card and
-      fades+slides down when closed - without having to touch the (shared, presenter-driven)
-      ViewManager.startActivity() launch site. windowBackground stays opaque black to avoid a
-      white/black flash on the cold open before the first decoded frame.
+      Player window transitions. A card launch suppresses OPEN and animates the tapped thumbnail
+      itself; applying a second whole-window transform would make that morph feel like a route
+      transition. The alpha-only OPEN below is the fallback for deep links or clipped thumbnails,
+      where there is no source geometry. CLOSE keeps the small fade/slide used by explicit Back.
     -->
     <style name="PlayerWindowAnimation">
-        <item name="android:activityOpenEnterAnimation">@anim/player_open_enter</item>
-        <item name="android:activityOpenExitAnimation">@anim/player_open_exit</item>
+        <item name="android:activityOpenEnterAnimation">@anim/browse_to_front_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/mobile_stay</item>
         <item name="android:activityCloseEnterAnimation">@anim/player_close_enter</item>
         <item name="android:activityCloseExitAnimation">@anim/player_close_exit</item>
-        <!-- The player is singleInstance = its own TASK, so launching it from Browse (and
-             re-expanding it from the mini-player) is a TASK transition: the activity* items
-             above never fired for it and the system fell back to the stock cross-task zoom -
-             the mismatched "whole transition" feel on device. Same animations, task slots. -->
-        <item name="android:taskOpenEnterAnimation">@anim/player_open_enter</item>
-        <item name="android:taskOpenExitAnimation">@anim/player_open_exit</item>
-        <item name="android:taskToFrontEnterAnimation">@anim/player_open_enter</item>
-        <item name="android:taskToFrontExitAnimation">@anim/player_open_exit</item>
+        <!-- Task slots are defensive fallbacks for external/deep-link launches. Normal mobile
+             navigation is in one task; if OEM routing intervenes, keep the fallback alpha-only
+             so no spatial movement competes with the geometry-driven view animation. -->
+        <item name="android:taskOpenEnterAnimation">@anim/browse_to_front_enter</item>
+        <item name="android:taskOpenExitAnimation">@anim/mobile_stay</item>
+        <item name="android:taskToFrontEnterAnimation">@anim/browse_to_front_enter</item>
+        <item name="android:taskToFrontExitAnimation">@anim/mobile_stay</item>
         <item name="android:taskToBackEnterAnimation">@anim/player_close_enter</item>
         <item name="android:taskToBackExitAnimation">@anim/player_close_exit</item>
     </style>
 
     <!--
       Browse window animations. With every touch activity in ONE shared task (manifest note),
-      surfacing this screen is a plain in-task "open" - most importantly on MINIMIZE, where the
-      player hand-animates the video shrinking onto the mini-card and Browse then fades in
-      underneath it (160ms), reading as one continuous motion. Applies theme-wide (Theme.NewTube),
-      so Search/Channel/etc. get the same quick fade instead of the stock sideways slide - the
-      YouTube-like "no transitions between screens" feel. task* slots kept as a fallback for any
+      these quick fades replace the stock sideways slide for ordinary Search/Channel/etc.
+      navigation. Interactive player minimize explicitly disables the window transition: Browse
+      is already visible through the translucent player and the final reorder only transfers the
+      live video into its matching mini-card rectangle. task* slots remain as a fallback for any
       residual cross-task switch (e.g. external deep links).
     -->
     <style name="BrowseWindowAnimation" parent="@android:style/Animation.Activity">
@@ -67,22 +64,26 @@
         <item name="android:activityOpenExitAnimation">@anim/mobile_stay</item>
         <item name="android:activityCloseEnterAnimation">@anim/mobile_stay</item>
         <item name="android:activityCloseExitAnimation">@anim/mobile_fade_out</item>
+        <item name="android:taskOpenEnterAnimation">@anim/browse_to_front_enter</item>
+        <item name="android:taskOpenExitAnimation">@anim/mobile_stay</item>
         <item name="android:taskToFrontEnterAnimation">@anim/browse_to_front_enter</item>
         <item name="android:taskToFrontExitAnimation">@anim/mobile_stay</item>
     </style>
 
     <!--
-      PLAYER LAYOUT POLISH: the player must NOT inherit the app surface's solid status-bar colour
-      (which draws a coloured band across the top of the video/title). Draw our own system-bar
-      backgrounds with a TRANSPARENT status bar so the video + the top gradient scrim show through;
-      the navigation bar takes the watch-page background so the portrait content column reads cleanly.
-      windowTranslucentStatus=false is required so the transparent statusBarColor actually applies
-      (a translucent status bar would draw a system scrim instead). The runtime code in
-      MobilePlaybackActivity.applyPortraitTransparentBars() re-asserts this per-orientation because
-      MotherActivity.makeActivityFullscreen2() sets FLAG_TRANSLUCENT_STATUS on every resume.
+      Keep the player window translucent (but undimmed) so the Activity immediately below it in
+      the shared mobile task remains the live backdrop. The watch page's own video/content children
+      are fully opaque at rest; during the interactive minimize they fade/move independently and
+      reveal that already-rendered screen instead of exposing an opaque black window until Browse
+      is reordered to the front.
+
+      This is window translucency, not a translucent status bar. Runtime system-bar handling still
+      chooses normal fitted bars in portrait and immersive video in landscape.
     -->
     <style name="Theme.NewTube.Player" parent="Theme.NewTube">
-        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
         <item name="android:windowAnimationStyle">@style/PlayerWindowAnimation</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:windowTranslucentStatus">false</item>
@@ -158,6 +159,32 @@
     </style>
     <style name="MobileSkeletonRelatedLineNarrow">
         <item name="android:layout_width">120dp</item>
+        <item name="android:layout_height">12dp</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:background">@drawable/bg_skeleton_block</item>
+    </style>
+
+    <!-- Feed first-load skeleton (alpha-pulsed from code) - ghosts of the full-width video cards. -->
+    <style name="MobileSkeletonFeedCard">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:layout_marginBottom">20dp</item>
+    </style>
+    <style name="MobileSkeletonFeedThumb">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">204dp</item>
+        <item name="android:background">@drawable/bg_skeleton_block</item>
+    </style>
+    <style name="MobileSkeletonFeedLineWide">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">15dp</item>
+        <item name="android:layout_marginTop">12dp</item>
+        <item name="android:layout_marginEnd">48dp</item>
+        <item name="android:background">@drawable/bg_skeleton_block</item>
+    </style>
+    <style name="MobileSkeletonFeedLineNarrow">
+        <item name="android:layout_width">180dp</item>
         <item name="android:layout_height">12dp</item>
         <item name="android:layout_marginTop">8dp</item>
         <item name="android:background">@drawable/bg_skeleton_block</item>

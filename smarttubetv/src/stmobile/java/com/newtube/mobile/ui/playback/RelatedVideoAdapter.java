@@ -164,7 +164,9 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
                     .load(thumbnailUrl)
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .format(DecodeFormat.PREFER_RGB_565)
-                    .centerCrop();
+                    .centerCrop()
+                    // Fade network loads in over the placeholder; cache hits skip the transition.
+                    .transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.withCrossFade(150));
 
             String fallbackUrl = video.getCardImageUrl();
             if (fallbackUrl != null && !fallbackUrl.equals(thumbnailUrl)) {

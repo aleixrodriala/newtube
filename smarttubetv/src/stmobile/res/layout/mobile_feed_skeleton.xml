@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Animated (alpha-pulsed from code) first-load skeleton for the feed grids. Mirrors
+     item_video_card's geometry (16:9-ish thumb + title + meta line) so the real cards
+     replace it without a jarring layout shift. Shown only while a section loads into an
+     EMPTY grid - never over content (returning to already-loaded content stays instant). -->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/mobile_feed_skeleton"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:paddingHorizontal="@dimen/mobile_card_spacing"
+    android:paddingTop="@dimen/mobile_card_spacing"
+    tools:visibility="visible">
+
+    <LinearLayout style="@style/MobileSkeletonFeedCard">
+        <View style="@style/MobileSkeletonFeedThumb" />
+        <View style="@style/MobileSkeletonFeedLineWide" />
+        <View style="@style/MobileSkeletonFeedLineNarrow" />
+    </LinearLayout>
+
+    <LinearLayout style="@style/MobileSkeletonFeedCard">
+        <View style="@style/MobileSkeletonFeedThumb" />
+        <View style="@style/MobileSkeletonFeedLineWide" />
+        <View style="@style/MobileSkeletonFeedLineNarrow" />
+    </LinearLayout>
+
+    <LinearLayout style="@style/MobileSkeletonFeedCard">
+        <View style="@style/MobileSkeletonFeedThumb" />
+        <View style="@style/MobileSkeletonFeedLineWide" />
+        <View style="@style/MobileSkeletonFeedLineNarrow" />
+    </LinearLayout>
+
+</LinearLayout>

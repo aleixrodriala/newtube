@@ -7,14 +7,18 @@
   full-width card feed (same VideoCardAdapter as Home/Search). No nested horizontal
   carousels (TV MultipleRowsFragment) and no interleaved mega-list (the pre-tab design).
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/mobile_channel_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/mobile_color_background"
-    android:orientation="vertical">
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/mobile_color_background"
+        android:orientation="vertical">
 
     <LinearLayout
         android:id="@+id/mobile_channel_toolbar"
@@ -88,4 +92,9 @@
 
     </FrameLayout>
 
-</LinearLayout>
+    </LinearLayout>
+
+    <!-- Channel navigation from the watch page keeps playback alive in this overlay. -->
+    <include layout="@layout/mobile_mini_player_overlay" />
+
+</FrameLayout>

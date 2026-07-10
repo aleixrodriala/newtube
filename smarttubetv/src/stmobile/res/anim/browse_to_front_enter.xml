@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Browse surfacing after the player minimizes: quick fade over the player's black window,
-     continuing the motion of the hand-animated swipe-down (PlayerContainerLayout drag). -->
+<!-- Quick fade used when Browse is surfaced by ordinary navigation. Interactive player minimize
+     overrides the window transition because Browse is already visible beneath the dragged video. -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"
     android:interpolator="@android:anim/decelerate_interpolator">
     <alpha

@@ -216,6 +216,10 @@ dependencies {
     // widgets.
     implementation 'com.google.android.material:material:' + materialVersion
 
+    // Touch UI (stmobile flavor): pull-to-refresh on the feed grid (MobileBrowseActivity).
+    // Harmless for the TV flavors, which never reference it.
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+
     // Touch UI (stmobile flavor): client-side QR encoder for the device-code sign-in
     // screen (com.newtube.mobile.ui.signin.MobileSignInActivity). Encoder only, no UI
     // dependency - we render the BitMatrix into a Bitmap ourselves - so it pulls in no

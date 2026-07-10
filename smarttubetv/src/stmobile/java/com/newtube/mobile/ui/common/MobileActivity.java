@@ -99,18 +99,20 @@ public abstract class MobileActivity extends MotherActivity {
     public void finishReally() {
         // Mandatory line. Fix un-proper view order (especially for playback view).
         //
-        // Normally we explicitly relaunch the parent screen here because singleInstance
-        // back-navigation is unreliable. BUT if another screen is being launched right now
-        // (e.g. a long-press context-menu action like "Open channel"/"Open playlist" that
-        // calls a presenter.openChannel() -> ViewManager.startView() and THEN closeDialog()),
-        // relaunching this screen's parent (Home) would land on top of and hide that new
-        // screen. In that race, just pop ourselves off the ViewManager back-stack and let the
-        // freshly-started view stay in front. Plain Android back (nothing else launching) is
-        // unaffected: isNewViewPending() is false then, so the parent is relaunched as before.
+        // Mobile activities share one task, so normal Back should simply remove this Activity and
+        // reveal the already-rendered screen below. Relaunching the registered parent here was a
+        // singleInstance-era TV workaround; on mobile it produced an unnecessary OPEN transition
+        // immediately followed by this Activity's CLOSE transition.
+        //
+        // A true task-root/deep-link screen has nothing underneath, so retain the explicit parent
+        // launch there. The pending-view race likewise only updates ViewManager's logical stack;
+        // the newly launched destination must remain in front.
         if (getViewManager().isNewViewPending()) {
             getViewManager().removeTop(this);
-        } else {
+        } else if (isTaskRoot()) {
             getViewManager().startParentView(this);
+        } else {
+            getViewManager().removeTop(this);
         }
         // NOT super.finishReally(): MotherActivity's version calls finishAndRemoveTask(), which
         // on TV merely cleaned up the finished screen's own singleInstance task from recents.

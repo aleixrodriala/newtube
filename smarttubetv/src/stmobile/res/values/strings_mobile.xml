@@ -73,6 +73,8 @@
     <!-- The NW arrow on a suggestion row: puts the text into the field without searching. -->
     <string name="mobile_search_insert">Refine this search</string>
     <string name="mobile_search_clear">Clear search</string>
+    <!-- Zero-result / failed search (the two are indistinguishable at this seam); tap = retry. -->
+    <string name="mobile_search_empty">No results. Tap to retry.</string>
     <!-- Fallback tab label for a channel section the API delivered without a title. -->
     <string name="mobile_channel_tab_videos">Videos</string>
 

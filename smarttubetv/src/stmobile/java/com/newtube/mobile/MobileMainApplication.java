@@ -16,6 +16,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.YTSignInPresenter;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.ExoMediaSourceFactory;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.TrackSelectorManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.ExoPlayerInitializer;
+import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.tv.ui.main.MainApplication;
 import com.liskovsoft.youtubeapi.app.AppServiceIntCached;
@@ -25,6 +26,7 @@ import com.newtube.mobile.ui.adddevice.MobileAddDeviceActivity;
 import com.newtube.mobile.ui.browse.MobileBrowseActivity;
 import com.newtube.mobile.ui.channel.MobileChannelActivity;
 import com.newtube.mobile.ui.channel.MobileChannelUploadsActivity;
+import com.newtube.mobile.ui.common.FeedCache;
 import com.newtube.mobile.ui.dialog.MobileAppDialogActivity;
 import com.newtube.mobile.ui.playback.MobilePlaybackActivity;
 import com.newtube.mobile.ui.playback.MobilePlayerCache;
@@ -218,6 +220,11 @@ public class MobileMainApplication extends MainApplication {
         // their FIRST video tap. See SessionWarmup for the locking/caching guarantees. TV never
         // calls this -> TV startup unchanged.
         SessionWarmup.start(this);
+
+        // FEED SNAPSHOTS (mobile-only): the grids repaint their last-known content instantly
+        // while the presenters refetch (see FeedCache). Feeds are per-account, so an account
+        // switch must drop every snapshot or the next repaint shows the previous user's feed.
+        MediaServiceManager.instance().addAccountListener(account -> FeedCache.clear());
 
         ViewManager viewManager = ViewManager.instance(this);
 

@@ -21,6 +21,8 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelView;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.browse.VideoCardAdapter;
 import com.newtube.mobile.ui.common.MobileActivity;
+import com.newtube.mobile.ui.playback.MiniPlayerBridge;
+import com.newtube.mobile.ui.playback.MobileMiniPlayerController;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -68,6 +70,8 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
     private ProgressBar mProgressBar;
     private TextView mTitleView;
     private ImageButton mBackButton;
+    private MobileMiniPlayerController mMiniPlayer;
+    private boolean mAnimateMiniFromPlayer;
 
     /** Sections in delivery order; iteration order == tab order. */
     private final Map<Integer, Section> mSections = new LinkedHashMap<>();
@@ -84,6 +88,13 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
         setContentView(R.layout.activity_mobile_channel);
 
         bindViews();
+        mMiniPlayer = new MobileMiniPlayerController(this);
+        mAnimateMiniFromPlayer = MiniPlayerBridge.completePendingNavigation();
+        if (mAnimateMiniFromPlayer) {
+            // The live card supplies the spatial transition from the watch page; suppress the
+            // channel window's generic alpha so the two motions do not stack.
+            overridePendingTransition(0, 0);
+        }
         setupGrid();
         setupTabs();
 
@@ -123,6 +134,8 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
             }
         });
 
+        mGrid.setHasFixedSize(true);
+        mGrid.setItemViewCacheSize(8);
         mGrid.setLayoutManager(mLayoutManager);
         mGrid.setAdapter(mAdapter);
         mGrid.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -249,13 +262,27 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
     protected void onResume() {
         super.onResume();
 
+        // REORDER_TO_FRONT may reuse an existing channel Activity, bypassing onCreate entirely.
+        // Complete a watch-page channel handoff here as well so that path still becomes mini mode.
+        if (MiniPlayerBridge.completePendingNavigation()) {
+            mAnimateMiniFromPlayer = true;
+            overridePendingTransition(0, 0);
+        }
+
         if (mPresenter != null) {
             mPresenter.onViewResumed();
+        }
+        if (mMiniPlayer != null) {
+            mMiniPlayer.sync(mAnimateMiniFromPlayer);
+            mAnimateMiniFromPlayer = false;
         }
     }
 
     @Override
     protected void onPause() {
+        if (mMiniPlayer != null) {
+            mMiniPlayer.hide();
+        }
         super.onPause();
 
         if (mPresenter != null) {

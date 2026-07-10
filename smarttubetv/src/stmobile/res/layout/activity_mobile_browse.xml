@@ -68,40 +68,49 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/mobile_content_grid"
+        <!-- Pull-to-refresh drives BrowsePresenter.refresh() - also the natural retry
+             gesture when a section shows the error placeholder (the error overlay doesn't
+             consume touches, so the pull still reaches this layout). -->
+        <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+            android:id="@+id/mobile_content_swipe"
             android:layout_width="0dp"
             android:layout_height="0dp"
-            android:clipToPadding="false"
-            android:paddingHorizontal="@dimen/mobile_card_spacing"
-            android:paddingBottom="@dimen/mobile_card_spacing"
-            android:scrollbars="vertical"
             app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/mobile_title_bar"
-            tools:listitem="@layout/item_video_card" />
+            app:layout_constraintTop_toBottomOf="@id/mobile_title_bar">
 
-        <!--
-             Progress + empty/error placeholder are anchored to the title bar / bottom
-             nav / parent (NOT to the content grid): when a section is empty or sign-in
-             gated the grid is set GONE, and ConstraintLayout collapses any view
-             constrained to a GONE view to a zero-size point - which is exactly why the
-             signed-out Subscriptions/Playlists sections used to render as a blank black
-             area with no message. Independent anchors keep the placeholder centered and
-             visible over the (empty) content area.
-        -->
-        <ProgressBar
-            android:id="@+id/mobile_progress_bar"
-            style="?android:attr/progressBarStyle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/mobile_content_grid"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingHorizontal="@dimen/mobile_card_spacing"
+                android:paddingBottom="@dimen/mobile_card_spacing"
+                android:scrollbars="vertical"
+                tools:listitem="@layout/item_video_card" />
+
+        </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+        <include
+            layout="@layout/mobile_feed_skeleton"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
             android:visibility="gone"
             app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/mobile_title_bar" />
 
+        <!--
+             The empty/error placeholder is anchored to the title bar / bottom nav / parent
+             (NOT to the content grid): when a section is empty or sign-in gated the grid is
+             set GONE, and ConstraintLayout collapses any view constrained to a GONE view to
+             a zero-size point - which is exactly why the signed-out Subscriptions/Playlists
+             sections used to render as a blank black area with no message. Independent
+             anchors keep the placeholder centered and visible over the (empty) content area.
+             (First-load progress is the card skeleton above, not a spinner.)
+        -->
         <LinearLayout
             android:id="@+id/mobile_error_container"
             android:layout_width="0dp"

@@ -102,6 +102,22 @@
             android:layout_gravity="center"
             android:visibility="gone" />
 
+        <!-- A search that ends with zero rows used to just... stop (spinner gone, screen
+             blank). Shown by showProgressBar(false) when the grid is empty; tap = retry. -->
+        <TextView
+            android:id="@+id/mobile_search_message"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center"
+            android:padding="24dp"
+            android:text="@string/mobile_search_empty"
+            android:textColor="@color/mobile_color_on_surface_secondary"
+            android:textSize="15sp"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
         <!-- Suggestions/history: a full-height vertical list OVER the results while the user
              is editing the query (YouTube-style; was a one-line horizontal chip strip).
              Empty query = search history (clock rows), typed query = live suggestions. -->
