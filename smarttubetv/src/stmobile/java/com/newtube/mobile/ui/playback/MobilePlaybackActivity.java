@@ -57,6 +57,7 @@ import com.bumptech.glide.Glide;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
+import com.liskovsoft.smartyoutubetv2.tv.BuildConfig;
 import com.liskovsoft.mediaserviceinterfaces.LiveChatService;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemMetadata;
 import com.liskovsoft.sharedutils.rx.RxHelper;
@@ -607,6 +608,15 @@ public class MobilePlaybackActivity extends MobileActivity
 
         mPlayer = mPlayerInitializer.createPlayer(
                 trackSelector, mExoPlayerController.getMediaSourceFactory().getBandwidthMeter());
+        // NEWTUBE(diagnostics): media3's stock per-event logcat tap (tag EventLogger) - track/ABR
+        // switches, renderer state, loadError. Debug builds only, kept permanently.
+        // NOTE: stock EventLogger does NOT emit loadStarted/loadCompleted lines, so per-chunk
+        // network timing is invisible with it alone - NetPathLoadListener (tag NetPath) fills
+        // exactly that gap with one dense line per load event.
+        if (BuildConfig.DEBUG) {
+            mPlayer.addAnalyticsListener(new androidx.media3.exoplayer.util.EventLogger());
+            mPlayer.addAnalyticsListener(new NetPathLoadListener());
+        }
         mPlayer.setPlayWhenReady(true);
 
         // Bounded-tolerance seeking as the player-wide default (scrub release, position restore -
@@ -3507,5 +3517,81 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     public boolean isEmbed() {
         return false;
+    }
+
+    /**
+     * NEWTUBE(diagnostics): debug-only per-chunk load logging under tag {@code NetPath}. media3's
+     * stock {@code EventLogger} prints loadError only - loadStarted/loadCompleted (bytes, duration,
+     * media position per chunk) never reach logcat with it. One dense line per event:
+     * {@code load[S|C|X|E] <dataType>/<trackType> <uri-tail> bytes=<n> ms=<n> pos=<n>}
+     * (S=started, C=completed, X=canceled, E=error; E appends the exception class+message).
+     * Registered next to EventLogger in {@link #createPlayerObjects()} behind the same
+     * {@code BuildConfig.DEBUG} gate. Uses android.util.Log directly so lines always reach logcat.
+     */
+    private static final class NetPathLoadListener implements androidx.media3.exoplayer.analytics.AnalyticsListener {
+        @Override
+        public void onLoadStarted(EventTime eventTime, androidx.media3.exoplayer.source.LoadEventInfo loadEventInfo,
+                androidx.media3.exoplayer.source.MediaLoadData mediaLoadData, int retryCount) {
+            log("load[S]", loadEventInfo, mediaLoadData, null);
+        }
+
+        @Override
+        public void onLoadCompleted(EventTime eventTime, androidx.media3.exoplayer.source.LoadEventInfo loadEventInfo,
+                androidx.media3.exoplayer.source.MediaLoadData mediaLoadData) {
+            log("load[C]", loadEventInfo, mediaLoadData, null);
+        }
+
+        @Override
+        public void onLoadCanceled(EventTime eventTime, androidx.media3.exoplayer.source.LoadEventInfo loadEventInfo,
+                androidx.media3.exoplayer.source.MediaLoadData mediaLoadData) {
+            log("load[X]", loadEventInfo, mediaLoadData, null);
+        }
+
+        @Override
+        public void onLoadError(EventTime eventTime, androidx.media3.exoplayer.source.LoadEventInfo loadEventInfo,
+                androidx.media3.exoplayer.source.MediaLoadData mediaLoadData, java.io.IOException error,
+                boolean wasCanceled) {
+            log("load[E]", loadEventInfo, mediaLoadData, error);
+        }
+
+        private static void log(String event,
+                androidx.media3.exoplayer.source.LoadEventInfo info,
+                androidx.media3.exoplayer.source.MediaLoadData data,
+                @Nullable Exception error) {
+            StringBuilder line = new StringBuilder(event)
+                    .append(' ').append(data.dataType).append('/').append(data.trackType)
+                    .append(' ').append(uriTail(info.uri))
+                    .append(" bytes=").append(info.bytesLoaded)
+                    .append(" ms=").append(info.loadDurationMs)
+                    .append(" pos=").append(data.mediaStartTimeMs);
+            if (error != null) {
+                line.append(' ').append(error.getClass().getSimpleName()).append(": ")
+                        .append(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.trunc(error.getMessage(), 120));
+                android.util.Log.w(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG, line.toString());
+            } else {
+                android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG, line.toString());
+            }
+        }
+
+        /** Last path segment plus the identifying query params (itag/range/sq/rn), max ~80 chars. */
+        private static String uriTail(android.net.Uri uri) {
+            StringBuilder tail = new StringBuilder();
+            String segment = uri.getLastPathSegment();
+            tail.append(segment != null ? segment : uri);
+            if (uri.isHierarchical()) {
+                appendQueryParam(tail, uri, "itag");
+                appendQueryParam(tail, uri, "range");
+                appendQueryParam(tail, uri, "sq");
+                appendQueryParam(tail, uri, "rn");
+            }
+            return tail.length() <= 80 ? tail.toString() : tail.substring(0, 80);
+        }
+
+        private static void appendQueryParam(StringBuilder tail, android.net.Uri uri, String name) {
+            String value = uri.getQueryParameter(name);
+            if (value != null) {
+                tail.append(' ').append(name).append('=').append(value);
+            }
+        }
     }
 }

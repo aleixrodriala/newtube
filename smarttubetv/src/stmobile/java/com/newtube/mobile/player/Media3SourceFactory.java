@@ -4,10 +4,14 @@ import android.content.Context;
 import android.net.Uri;
 
 import androidx.annotation.Nullable;
+import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.HttpDataSource;
+import androidx.media3.datasource.ResolvingDataSource;
 import androidx.media3.datasource.cache.Cache;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cronet.CronetDataSource;
@@ -21,6 +25,7 @@ import androidx.media3.exoplayer.source.MergingMediaSource;
 import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy;
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy;
 
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.sharedutils.cronet.CronetManager;
@@ -33,6 +38,7 @@ import java.io.InputStream;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Media3 counterpart of {@code ExoMediaSourceFactory}, reduced to the branches the touch player
@@ -72,10 +78,38 @@ public class Media3SourceFactory {
      * media3's default gives a segment 3 tries before erroring the whole source; googlevideo
      * routinely stalls/kills connections mid-segment when the client reads slowly (throttled
      * network, huge in-flight segment), and every retry re-opens with a Range from where it left
-     * off, so patience converts those stalls into progress. 6 tries before surfacing the error to
-     * the app-level reload - the legacy engine's custom Dash policy was similarly forgiving.
+     * off, so patience converts those stalls into progress. 6 tries are kept, but
+     * {@link FailFastLoadErrorPolicy} caps the retry backoff at 1s (stock policy stretches to 5s
+     * per try = up to ~60s of silent in-player retrying) and gives a fatal HTTP code (403
+     * expired/invalid signed URL, 416 unsatisfiable range - retrying the same DataSpec can't heal
+     * either) only 2 tries before surfacing the error to the app-level reload, which re-fetches
+     * fresh signed URLs within seconds.
      */
     private static final int LOAD_RETRY_COUNT = 6;
+
+    /**
+     * 4s read timeout (half the 8s default): a silently-stalled googlevideo read should fail fast
+     * into the (1s-backoff) retry, which re-opens ranged from the stall point. Connect timeouts
+     * stay at the 8s default.
+     */
+    private static final int READ_TIMEOUT_MS = 4_000;
+
+    /**
+     * DISABLED after on-device verification (v1.2.1 round): googlevideo PRIORITIZES the
+     * {@code range=} query param over the {@code Range:} header and answers misaligned
+     * (416, or 200-style bodies already offset from the requested position); CronetDataSource
+     * then applies its own {@code position}-skip on top of the already-offset body, so the
+     * extractor reads garbage AND TeeDataSource writes the misaligned bytes into the shared
+     * SimpleCache (poisoned entries). A correct implementation must zero
+     * {@code DataSpec.position} and drop the {@code Range:} header when using {@code range=}
+     * (NewPipe's YoutubeHttpDataSource approach) - parked as a future experiment behind this
+     * gate. Do NOT flip to {@code true} without on-device verification. With {@code false} the
+     * leaf transport is used unwrapped - zero behavior change.
+     */
+    private static final boolean GOOGLEVIDEO_RANGE_QUERY = false;
+
+    /** Request counter for the {@code rn=} param; shared across all rewritten requests. */
+    private static final AtomicLong RANGE_QUERY_RN = new AtomicLong();
 
     /**
      * Process-wide executor for Cronet's async callbacks, reused across engine restarts (a
@@ -102,26 +136,34 @@ public class Media3SourceFactory {
                 .setUserAgent(USER_AGENT)
                 .setAllowCrossProtocolRedirects(true)
                 .setConnectTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
-                .setReadTimeoutMs(DefaultHttpDataSource.DEFAULT_READ_TIMEOUT_MILLIS)
+                .setReadTimeoutMs(READ_TIMEOUT_MS)
                 .setTransferListener(mBandwidthMeter);
 
         // Prefer Cronet (H2/QUIC/Brotli) whenever the embedded engine loads; it is only the leaf
         // HTTP transport - every cache tier above stays byte-identical. Cronet follows
         // http<->https redirects natively (no setAllowCrossProtocolRedirects equivalent needed).
         CronetEngine cronetEngine = CronetManager.getEngine(mContext);
+        DataSource.Factory leafFactory;
         if (cronetEngine != null) {
             Log.d(TAG, "media transport: cronet");
-            mHttpDataSourceFactory = new CronetDataSource.Factory(cronetEngine, CRONET_EXECUTOR)
+            leafFactory = new CronetDataSource.Factory(cronetEngine, CRONET_EXECUTOR)
                     .setUserAgent(USER_AGENT)
                     .setTransferListener(mBandwidthMeter)
                     .setConnectionTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
-                    .setReadTimeoutMs(DefaultHttpDataSource.DEFAULT_READ_TIMEOUT_MILLIS)
+                    .setReadTimeoutMs(READ_TIMEOUT_MS)
                     .setKeepPostFor302Redirects(true)
                     .setFallbackFactory(defaultHttp);
         } else {
             Log.d(TAG, "media transport: http (cronet unavailable)");
-            mHttpDataSourceFactory = defaultHttp;
+            leafFactory = defaultHttp;
         }
+
+        // googlevideo range-query mirroring sits directly on the leaf transport, BELOW the cache
+        // tier (CacheDataSource upstream = resolving(leaf)): the cache key factory reads only
+        // id/itag/lmt/xtags/sq from the ORIGINAL uri, so cache keys never see rn=/range=.
+        mHttpDataSourceFactory = GOOGLEVIDEO_RANGE_QUERY
+                ? new ResolvingDataSource.Factory(leafFactory, Media3SourceFactory::mirrorRangeIntoQuery)
+                : leafFactory;
 
         Cache mediaCache = Media3PlayerCache.get(mContext);
         if (mediaCache != null) {
@@ -174,7 +216,7 @@ public class Media3SourceFactory {
         return new DashMediaSource.Factory(
                         new DefaultDashChunkSource.Factory(chunkDataSourceFactory),
                         /* manifestDataSourceFactory= */ null)
-                .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(LOAD_RETRY_COUNT))
+                .setLoadErrorHandlingPolicy(new FailFastLoadErrorPolicy())
                 .createMediaSource(manifest, new MediaItem.Builder()
                         .setUri(GENERATED_MANIFEST_URI)
                         .setMimeType(MimeTypes.APPLICATION_MPD)
@@ -186,7 +228,7 @@ public class Media3SourceFactory {
         return new DashMediaSource.Factory(
                         new DefaultDashChunkSource.Factory(mHttpDataSourceFactory),
                         mHttpDataSourceFactory)
-                .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(LOAD_RETRY_COUNT))
+                .setLoadErrorHandlingPolicy(new FailFastLoadErrorPolicy())
                 .createMediaSource(new MediaItem.Builder()
                         .setUri(dashManifestUrl)
                         .setMimeType(MimeTypes.APPLICATION_MPD)
@@ -197,7 +239,7 @@ public class Media3SourceFactory {
     MediaSource fromHlsPlaylist(String hlsPlaylistUrl) {
         return new HlsMediaSource.Factory(mHttpDataSourceFactory)
                 .setAllowChunklessPreparation(true)
-                .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(LOAD_RETRY_COUNT))
+                .setLoadErrorHandlingPolicy(new FailFastLoadErrorPolicy())
                 .createMediaSource(new MediaItem.Builder()
                         .setUri(hlsPlaylistUrl)
                         .setMimeType(MimeTypes.APPLICATION_M3U8)
@@ -212,7 +254,7 @@ public class Media3SourceFactory {
         }
 
         return new ProgressiveMediaSource.Factory(mCachedDataSourceFactory)
-                .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(LOAD_RETRY_COUNT))
+                .setLoadErrorHandlingPolicy(new FailFastLoadErrorPolicy())
                 .createMediaSource(MediaItem.fromUri(urlList.get(0)));
     }
 
@@ -233,6 +275,98 @@ public class Media3SourceFactory {
             return fromHlsPlaylist(hlsPlaylistUrl);
         }
         return new MergingMediaSource(dash, fromHlsPlaylist(hlsPlaylistUrl));
+    }
+
+    /**
+     * {@link ResolvingDataSource.Resolver} for {@link #GOOGLEVIDEO_RANGE_QUERY} - PARKED, gate is
+     * off. As written this keeps {@code DataSpec.position}/{@code length} (the {@code Range:}
+     * header still goes out alongside {@code range=}), and on-device verification showed
+     * googlevideo prioritizes the {@code range=} query over the header and replies misaligned
+     * (416 / 200-with-offset-body) while CronetDataSource still re-skips {@code position} bytes -
+     * garbage into the extractor and poisoned cache writes. Before this gate is ever re-enabled,
+     * the resolver must zero the position and suppress the Range header (NewPipe's
+     * YoutubeHttpDataSource approach). Live/OTF sq-addressed segments are whole-resource
+     * per-segment fetches and are left alone.
+     */
+    private static DataSpec mirrorRangeIntoQuery(DataSpec dataSpec) {
+        if (dataSpec.httpMethod != DataSpec.HTTP_METHOD_GET) {
+            return dataSpec;
+        }
+
+        Uri uri = dataSpec.uri;
+        String host = uri.getHost();
+        String path = uri.getPath();
+        if (host == null || !host.endsWith(".googlevideo.com")
+                || path == null || !path.startsWith("/videoplayback")) {
+            return dataSpec;
+        }
+
+        // Already range-addressed, or sq-addressed (live/OTF): leave untouched.
+        if (uri.getQueryParameter("range") != null) {
+            return dataSpec;
+        }
+        if (uri.getQueryParameter("sq") != null || path.contains("/sq/")) {
+            return dataSpec;
+        }
+
+        // Whole-file position-0 unbounded requests stay untouched.
+        if (dataSpec.position <= 0 && dataSpec.length == C.LENGTH_UNSET) {
+            return dataSpec;
+        }
+
+        String range = dataSpec.length != C.LENGTH_UNSET
+                ? dataSpec.position + "-" + (dataSpec.position + dataSpec.length - 1)
+                : dataSpec.position + "-";
+        long rn = RANGE_QUERY_RN.incrementAndGet();
+        Uri rewritten = uri.buildUpon()
+                .appendQueryParameter("rn", String.valueOf(rn))
+                .appendQueryParameter("range", range)
+                .build();
+
+        if (rn == 1) {
+            Log.d(TAG, "range-query rewrite active: " + rewritten);
+        }
+
+        return dataSpec.withUri(rewritten);
+    }
+
+    /**
+     * {@link DefaultLoadErrorHandlingPolicy} ({@link #LOAD_RETRY_COUNT} tries) that fails fast:
+     * retry backoff capped at 1s (the stock (errorCount-1)*1000-capped-5000 stretches a dead
+     * connection into ~60s of silent retrying), and a fatal HTTP code (403/416, see
+     * {@link #isFatalHttpCode}) stops after 2 tries so {@code onPlayerError} surfaces and
+     * {@code ErrorFixerController.applyNoPlaybackFix()}+{@code reloadVideo()} re-fetches fresh
+     * signed URLs within seconds.
+     */
+    private static final class FailFastLoadErrorPolicy extends DefaultLoadErrorHandlingPolicy {
+        FailFastLoadErrorPolicy() {
+            super(LOAD_RETRY_COUNT);
+        }
+
+        @Override
+        public long getRetryDelayMsFor(LoadErrorHandlingPolicy.LoadErrorInfo loadErrorInfo) {
+            if (loadErrorInfo.errorCount >= 2 && isFatalHttpCode(loadErrorInfo.exception)) {
+                return C.TIME_UNSET; // don't retry: surface the error to the app-level reload
+            }
+            return Math.min(super.getRetryDelayMsFor(loadErrorInfo), 1000);
+        }
+
+        /**
+         * 403: expired/invalid signed URL - no retry can heal it. 416: the server refuses the
+         * requested byte range - retrying the SAME DataSpec can never heal it either; failing
+         * fast surfaces {@code onPlayerError} so the app-level reload fetches a fresh manifest.
+         */
+        private static boolean isFatalHttpCode(Throwable exception) {
+            for (Throwable e = exception; e != null; e = e.getCause()) {
+                if (e instanceof HttpDataSource.InvalidResponseCodeException) {
+                    int code = ((HttpDataSource.InvalidResponseCodeException) e).responseCode;
+                    if (code == 403 || code == 416) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
     }
 
     /**

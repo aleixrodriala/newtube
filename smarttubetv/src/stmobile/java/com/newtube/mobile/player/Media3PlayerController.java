@@ -19,6 +19,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.listener.PlayerEventListener;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.TrackSelectorManager;
+import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
 
 import java.io.InputStream;
@@ -66,7 +67,7 @@ public class Media3PlayerController implements Player.Listener {
         Log.e(TAG, "openSabr: SABR-only response on the media3 engine; trying the LQ url list");
 
         if (formatInfo.containsUrlFormats()) {
-            openUrlList(formatInfo.createUrlList());
+            openMediaSource(mMediaSourceFactory.fromUrlList(formatInfo.createUrlList()), "sabr-fallback");
         } else {
             // Feed the regular error path (ErrorFixer -> reload) instead of hanging silently.
             mEventListener.onEngineError(
@@ -76,34 +77,34 @@ public class Media3PlayerController implements Player.Listener {
     }
 
     public void openDash(MediaItemFormatInfo formatInfo) {
-        openMediaSource(mMediaSourceFactory.fromDashFormatInfo(formatInfo));
+        openMediaSource(mMediaSourceFactory.fromDashFormatInfo(formatInfo), "dash-mpd");
     }
 
     public void openDash(InputStream dashManifest) {
-        openMediaSource(mMediaSourceFactory.fromDashManifest(dashManifest));
+        openMediaSource(mMediaSourceFactory.fromDashManifest(dashManifest), "dash-mpd");
     }
 
     public void openDashUrl(String dashManifestUrl) {
-        openMediaSource(mMediaSourceFactory.fromDashManifestUrl(dashManifestUrl));
+        openMediaSource(mMediaSourceFactory.fromDashManifestUrl(dashManifestUrl), "dash-url");
     }
 
     public void openHlsUrl(String hlsPlaylistUrl) {
-        openMediaSource(mMediaSourceFactory.fromHlsPlaylist(hlsPlaylistUrl));
+        openMediaSource(mMediaSourceFactory.fromHlsPlaylist(hlsPlaylistUrl), "hls");
     }
 
     public void openUrlList(List<String> urlList) {
-        openMediaSource(mMediaSourceFactory.fromUrlList(urlList));
+        openMediaSource(mMediaSourceFactory.fromUrlList(urlList), "progressive");
     }
 
     public void openMerged(MediaItemFormatInfo formatInfo, String hlsPlaylistUrl) {
-        openMediaSource(mMediaSourceFactory.fromMerged(formatInfo, hlsPlaylistUrl));
+        openMediaSource(mMediaSourceFactory.fromMerged(formatInfo, hlsPlaylistUrl), "dash-mpd+hls");
     }
 
     public void openMerged(InputStream dashManifest, String hlsPlaylistUrl) {
-        openMediaSource(mMediaSourceFactory.fromMerged(dashManifest, hlsPlaylistUrl));
+        openMediaSource(mMediaSourceFactory.fromMerged(dashManifest, hlsPlaylistUrl), "dash-mpd+hls");
     }
 
-    private void openMediaSource(@Nullable MediaSource mediaSource) {
+    private void openMediaSource(@Nullable MediaSource mediaSource, String netPathType) {
         if (mPlayer == null) {
             return;
         }
@@ -125,6 +126,8 @@ public class Media3PlayerController implements Player.Listener {
 
         mPlayer.setMediaSource(mediaSource);
         mPlayer.prepare();
+
+        NetPath.logPrepare(getVideoId(), netPathType); // NetPath milestone 3: source prepared
     }
 
     // ---------------------------------------------------------------------------------
@@ -237,6 +240,11 @@ public class Media3PlayerController implements Player.Listener {
 
     public Video getVideo() {
         return mVideo != null ? mVideo.get() : null;
+    }
+
+    private String getVideoId() {
+        Video video = getVideo();
+        return video != null ? video.videoId : null;
     }
 
     public void setOnVideoLoaded(Runnable onVideoLoaded) {
@@ -396,8 +404,14 @@ public class Media3PlayerController implements Player.Listener {
     }
 
     @Override
+    public void onRenderedFirstFrame() {
+        NetPath.logFirstFrame(getVideoId()); // NetPath milestone 4: first frame rendered
+    }
+
+    @Override
     public void onPlayerError(PlaybackException error) {
         Log.e(TAG, "onPlayerError: " + error);
+        NetPath.logError(getVideoId(), error); // NetPath milestone 5: player error
 
         // NEWTUBE(live): playhead fell out of the live DVR window (device slept, long pause).
         // media3's canonical recovery: jump to the default (live-edge) position and re-prepare the

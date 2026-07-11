@@ -22,8 +22,19 @@ import java.util.List;
 public class ErrorFixerController extends BasePlayerController implements OnLongBuffering {
     private static final String TAG = ErrorFixerController.class.getSimpleName();
     private static final long STREAM_END_THRESHOLD_MS = 180_000;
+    /**
+     * At most this many CONSECUTIVE automatic error-driven reload/fix cycles per video without
+     * playback reaching a healthy state in between. The next (4th) consecutive error stops
+     * auto-fixing and surfaces the error - an unbounded ~1.7s reload loop was observed hammering
+     * googlevideo for 9+ minutes, provoking server-side anti-abuse ("This video is unavailable").
+     */
+    private static final int MAX_CONSECUTIVE_AUTO_FIXES = 3;
     private final BufferingDetector mBufferingDetector = new BufferingDetector(this);
     private VideoLoaderController mVideoLoaderController;
+    // Auto-fix cap state: per controller instance (= per playback session), deliberately not static.
+    private int mConsecutiveAutoFixCount;
+    private String mAutoFixVideoId;
+    private boolean mAutoReloadPending;
 
     @Override
     public void onInit() {
@@ -44,7 +55,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         } else if (isOfflineVideo() && isSubtitlesEnabled()) {
             // Long loading subtitles cause hangs
             disableSubtitles();
-            mVideoLoaderController.reloadVideo();
+            scheduleAutoReload(); // buffering rescue: not counted against the cap, but machine-initiated
         } else if (!getPlayerTweaksData().isNetworkErrorFixingDisabled()) {
             //if (!isFasterDataSourceEnabled()) {
             //    enableFasterDataSource();
@@ -71,6 +82,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     @Override
     public void onPlay() {
         mBufferingDetector.onStopBuffering();
+        // Engine reached READY and is playing: playback is healthy again - reopen the fix window.
+        resetAutoFixCap();
     }
 
     @Override
@@ -81,6 +94,16 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     @Override
     public void onNewVideo(Video item) {
         mBufferingDetector.reset();
+
+        // Our own scheduled reload re-enters here (VideoLoaderController.mReloadVideo dispatches
+        // onNewVideo for the SAME video); only a genuinely user-initiated open - new video, or a
+        // manual retry of the same one - resets the consecutive-fix window.
+        String videoId = item != null ? item.videoId : null;
+        if (mAutoReloadPending && Helpers.equals(videoId, mAutoFixVideoId)) {
+            mAutoReloadPending = false; // our automatic reload landing - keep the count
+        } else {
+            resetAutoFixCap();
+        }
     }
 
     @Override
@@ -91,6 +114,11 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     @Override
     public void onEngineReleased() {
         mBufferingDetector.reset();
+        // A scheduled reload can't land after release (VideoLoaderController disposes its
+        // callbacks), so drop the marker: a later re-open of the same video is a user action.
+        // The count itself survives on purpose - restartEngine() fix cycles release+recreate the
+        // engine mid-cycle and must still hit the cap.
+        mAutoReloadPending = false;
     }
 
     private void runEngineErrorAction(int type, int rendererIndex, Throwable error) {
@@ -115,6 +143,13 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         String errorContent = error != null ? error.getMessage() : null;
         String errorTitle = getErrorTitle(type, rendererIndex);
         String errorMessage = errorTitle + "\n" + errorContent;
+
+        // 4th consecutive error without healthy playback in between: stop auto-fixing entirely
+        // (no config mutation, no reload/restart) and leave a state the user can act on.
+        if (registerAutoFixAndCheckCap(error)) {
+            surfaceCappedError(errorMessage, errorContent);
+            return;
+        }
 
         if (Helpers.startsWithAny(errorContent, "Unable to connect to")) {
             // No internet connection or WRONG DATE on the device
@@ -205,10 +240,12 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         }
 
         if (restartEngine) {
+            // NOTE: no onNewVideo fires on this path (engine re-init loads the video directly),
+            // so no pending marker is needed - the consecutive count survives the restart.
             mVideoLoaderController.restartEngine();
         } else {
             // Need at least to reload the video because the player becomes idle after error
-            mVideoLoaderController.reloadVideo();
+            scheduleAutoReload();
         }
     }
 
@@ -282,17 +319,77 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             MessageHelpers.showLongMessage(getContext(), fullMsg);
         }
 
+        // Format(metadata)-fetch errors reload just like engine errors - same consecutive cap.
+        if (registerAutoFixAndCheckCap(error)) {
+            surfaceCappedError(fullMsg, message);
+            return;
+        }
+
         if (Helpers.containsAny(message, "Unexpected token", "Syntax error", "invalid argument") || // temporal fix
                 Helpers.equalsAny(className, "PoTokenException", "BadWebViewException")) {
             YouTubeServiceManager.instance().applyNoPlaybackFix();
-            mVideoLoaderController.reloadVideo();
+            scheduleAutoReload();
         } else if (Helpers.containsAny(message, "is not defined")) {
             YouTubeServiceManager.instance().invalidateCache();
-            mVideoLoaderController.reloadVideo();
+            scheduleAutoReload();
         } else {
             Log.e(TAG, "Probably no internet connection");
-            mVideoLoaderController.reloadVideo();
+            scheduleAutoReload();
         }
+    }
+
+    /**
+     * Counts a CONSECUTIVE automatic error-driven fix cycle for the current video and reports
+     * whether the cap ({@link #MAX_CONSECUTIVE_AUTO_FIXES}) is exceeded - the caller must then
+     * NOT schedule another automatic fix. The window resets on healthy playback ({@link #onPlay})
+     * and on user-initiated opens ({@link #onNewVideo} not caused by our own scheduled reload).
+     */
+    private boolean registerAutoFixAndCheckCap(Throwable error) {
+        String videoId = getVideo() != null ? getVideo().videoId : null;
+
+        if (!Helpers.equals(videoId, mAutoFixVideoId)) {
+            // Different video than the one being counted: fresh window.
+            mAutoFixVideoId = videoId;
+            mConsecutiveAutoFixCount = 0;
+        }
+
+        mConsecutiveAutoFixCount++;
+
+        if (mConsecutiveAutoFixCount > MAX_CONSECUTIVE_AUTO_FIXES) {
+            android.util.Log.w("NetPath", "auto-reload cap hit (" + mConsecutiveAutoFixCount + ") for " + videoId
+                    + " — stopping; last error: " + error);
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Cap reached: surface the error through the existing message mechanism and leave the player
+     * in a stopped, user-actionable state (manual retry / back out) - never an endless spinner.
+     */
+    private void surfaceCappedError(String errorMessage, String errorContent) {
+        MessageHelpers.showLongMessage(getContext(), errorMessage);
+        if (getPlayer() != null) {
+            getPlayer().setTitle(errorContent);
+            getPlayer().showProgressBar(false);
+            getPlayer().showOverlay(true);
+        }
+    }
+
+    /**
+     * Every automatic (machine-initiated) reload goes through here, so {@link #onNewVideo} can
+     * tell our own reload of the same video apart from a user-initiated open/retry.
+     */
+    private void scheduleAutoReload() {
+        mAutoReloadPending = true;
+        mVideoLoaderController.reloadVideo();
+    }
+
+    private void resetAutoFixCap() {
+        mConsecutiveAutoFixCount = 0;
+        mAutoFixVideoId = null;
+        mAutoReloadPending = false;
     }
 
     /**

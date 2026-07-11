@@ -22,6 +22,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.VideoActionPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
+import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
@@ -233,6 +234,7 @@ public class VideoLoaderController extends BasePlayerController {
      */
     private void loadVideo(Video item) {
         if (getPlayer() != null && item != null) {
+            NetPath.logOpen(item.videoId, item.getTitle()); // NetPath milestone 1: open requested
             mPlaylist.setCurrent(item);
             getPlayer().setVideo(item);
             getPlayer().resetPlayerState();
@@ -301,6 +303,12 @@ public class VideoLoaderController extends BasePlayerController {
         if (player == null || getVideo() == null) {
             return;
         }
+
+        // NetPath milestone 2: InnerTube metadata/streamingData arrived (consumer side).
+        NetPath.logInfo(getVideo().videoId,
+                formatInfo.containsDashFormats() && formatInfo.getAdaptiveFormats() != null
+                        ? formatInfo.getAdaptiveFormats().size() : 0,
+                formatInfo.containsHlsUrl(), formatInfo.containsSabrFormats(), formatInfo.isLive());
 
         String bgImageUrl = null;
 
