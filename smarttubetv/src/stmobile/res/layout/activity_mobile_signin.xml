@@ -7,9 +7,10 @@
   "Open sign-in page" button. On a phone there is nothing to scan, so instead of a QR
   the activation page is opened directly in the device browser when the code arrives
   (see MobileSignInActivity.showCode); the button re-opens it on demand.
-  A spinner shows until the first code arrives from the backend; an error TextView
-  surfaces the network/auth error verbatim (SignInView's 2-arg showCode error path).
-  The account/auth backend is untouched - this view only renders.
+  A spinner shows until the first code arrives from the backend; errors (SignInView's 2-arg
+  showCode path) render as a friendly headline + raw-detail line + "Try again" button that
+  restarts the flow with a fresh code. The account/auth backend is untouched - this view only
+  renders.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -72,18 +73,59 @@
                 android:layout_marginTop="64dp"
                 android:indeterminateTint="@color/mobile_color_primary" />
 
-            <TextView
-                android:id="@+id/mobile_signin_error"
+            <!--
+              Error state: a human-readable headline + "Try again" (restarts the flow with a
+              fresh device code). The raw backend error goes to the small detail line below it,
+              for tester bug reports - never as the main message.
+            -->
+            <LinearLayout
+                android:id="@+id/mobile_signin_error_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_gravity="top"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
                 android:padding="24dp"
-                android:gravity="center"
-                android:textColor="@color/mobile_color_primary"
-                android:textSize="16sp"
                 android:visibility="gone"
-                tools:text="Sign in error: network unreachable"
-                tools:visibility="visible" />
+                tools:visibility="visible">
+
+                <TextView
+                    android:id="@+id/mobile_signin_error"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="@string/mobile_signin_error"
+                    android:textColor="@color/mobile_color_on_surface"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/mobile_signin_error_detail"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:ellipsize="end"
+                    android:gravity="center"
+                    android:maxLines="4"
+                    android:textColor="@color/mobile_color_on_surface_secondary"
+                    android:textSize="12sp"
+                    android:visibility="gone"
+                    tools:text="java.net.UnknownHostException: Unable to resolve host"
+                    tools:visibility="visible" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/mobile_signin_retry_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:paddingStart="24dp"
+                    android:paddingEnd="24dp"
+                    android:text="@string/mobile_signin_retry_button"
+                    android:textColor="@color/mobile_color_on_surface"
+                    android:textSize="16sp"
+                    app:backgroundTint="@color/mobile_color_primary"
+                    app:cornerRadius="24dp" />
+
+            </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/mobile_signin_content"

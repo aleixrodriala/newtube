@@ -54,14 +54,19 @@ import com.newtube.mobile.ui.common.MobileActivity;
  *       browser (for when the user backgrounds / dismisses the auto-opened tab).</li>
  * </ul>
  * A spinner shows until the first code arrives; the {@link #showCode(String, String)} 2-arg error
- * path (empty {@code signInUrl}) surfaces the backend error message verbatim.
+ * path (empty {@code signInUrl}) renders a human-readable error with a "Try again" button that
+ * restarts the flow with a fresh device code (the raw backend error is kept as a small detail
+ * line for bug reports). A failed sign-in is never resumed - retrying always mints a new code.
  */
 public class MobileSignInActivity extends MobileActivity implements SignInView {
 
     private YTSignInPresenter mSignInPresenter;
 
     private ProgressBar mProgress;
+    private View mErrorContainer;
     private TextView mErrorView;
+    private TextView mErrorDetailView;
+    private MaterialButton mRetryButton;
     private View mContent;
     private MaterialCardView mCodeCard;
     private TextView mCodeView;
@@ -93,6 +98,7 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
         mCodeCard.setOnClickListener(v -> copyCodeToClipboard());
         mUrlView.setOnClickListener(v -> openSignInUrl());
         mOpenButton.setOnClickListener(v -> openSignInUrl());
+        mRetryButton.setOnClickListener(v -> restartSignIn());
 
         mSignInPresenter = YTSignInPresenter.instance(this);
         mSignInPresenter.setView(this);
@@ -101,7 +107,10 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
 
     private void bindViews() {
         mProgress = findViewById(R.id.mobile_signin_progress);
+        mErrorContainer = findViewById(R.id.mobile_signin_error_container);
         mErrorView = findViewById(R.id.mobile_signin_error);
+        mErrorDetailView = findViewById(R.id.mobile_signin_error_detail);
+        mRetryButton = findViewById(R.id.mobile_signin_retry_button);
         mContent = findViewById(R.id.mobile_signin_content);
         mCodeCard = findViewById(R.id.mobile_signin_code_card);
         mCodeView = findViewById(R.id.mobile_signin_code);
@@ -152,7 +161,7 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
             mFullSignInUrl = !TextUtils.isEmpty(fullSignInUrl) ? fullSignInUrl : signInUrl;
 
             mProgress.setVisibility(View.GONE);
-            mErrorView.setVisibility(View.GONE);
+            mErrorContainer.setVisibility(View.GONE);
             mContent.setVisibility(View.VISIBLE);
 
             mCodeView.setText(userCode);
@@ -176,8 +185,29 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
     private void showError(String message) {
         mProgress.setVisibility(View.GONE);
         mContent.setVisibility(View.GONE);
-        mErrorView.setVisibility(View.VISIBLE);
-        mErrorView.setText(!TextUtils.isEmpty(message) ? message : getString(R.string.mobile_signin_error));
+        mErrorContainer.setVisibility(View.VISIBLE);
+        mErrorView.setText(R.string.mobile_signin_error);
+        mErrorDetailView.setText(message);
+        mErrorDetailView.setVisibility(!TextUtils.isEmpty(message) ? View.VISIBLE : View.GONE);
+    }
+
+    /**
+     * "Try again" - restart the whole device-code flow from scratch. The presenter's
+     * onViewInitialized() disposes the dead sign-in chain and mints a FRESH code (a failed
+     * sign-in is never resumed - simpler and the old code may be expired anyway).
+     */
+    private void restartSignIn() {
+        mErrorContainer.setVisibility(View.GONE);
+        mContent.setVisibility(View.GONE);
+        mProgress.setVisibility(View.VISIBLE);
+
+        mUserCode = null;
+        mSignInUrl = null;
+        mFullSignInUrl = null;
+
+        if (mSignInPresenter != null) {
+            mSignInPresenter.onViewInitialized();
+        }
     }
 
     private void copyCodeToClipboard() {

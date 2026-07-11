@@ -8,6 +8,7 @@
     <string name="mobile_player_replay">Replay</string>
     <string name="mobile_player_fullscreen">Toggle fullscreen</string>
     <string name="mobile_player_time_default">0:00</string>
+    <string name="mobile_player_live" translatable="false">LIVE</string>
     <string name="mobile_player_quality">Quality</string>
     <string name="mobile_player_subtitles">Subtitles</string>
     <string name="mobile_player_speed">Playback speed</string>
@@ -101,7 +102,8 @@
     <string name="mobile_signin_code_copied">Code copied to clipboard</string>
     <string name="mobile_signin_open_button">Continue with Google</string>
     <string name="mobile_signin_open_hint">Tap the address to open it in your browser</string>
-    <string name="mobile_signin_error">Sign in failed. Please try again.</string>
+    <string name="mobile_signin_error">Couldn\'t complete sign-in. Check your connection and try again — you\'ll get a fresh code.</string>
+    <string name="mobile_signin_retry_button">Try again</string>
 
     <!-- Empty / sign-in-gated / errored browse section placeholders (MobileBrowseActivity) -->
     <string name="mobile_empty_signin_section">Sign in to see your %1$s</string>
