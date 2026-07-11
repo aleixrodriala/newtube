@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!--
       Touch UI theme for the stmobile flavor.
 
@@ -26,6 +26,13 @@
         <item name="android:statusBarColor">@color/mobile_color_background</item>
         <item name="android:navigationBarColor">@color/mobile_color_background</item>
         <item name="android:windowLightStatusBar">false</item>
+        <!-- targetSdk 35 forces edge-to-edge (transparent bars, content underneath), which
+             no-ops the fitted opaque #0F0F0F bars painted above and by
+             MobileActivity.applyMobileSystemBars(). Opt out (API 35+ attr; older devices
+             ignore it) so every screen keeps the designed status/nav-bar separation.
+             Stopgap: the attr is deprecated once we target SDK 36 - proper per-screen
+             insets handling is specced in the edge-to-edge follow-up. -->
+        <item name="android:windowOptOutEdgeToEdgeEnforcement" tools:targetApi="35">true</item>
         <item name="android:windowAnimationStyle">@style/BrowseWindowAnimation</item>
     </style>
 
