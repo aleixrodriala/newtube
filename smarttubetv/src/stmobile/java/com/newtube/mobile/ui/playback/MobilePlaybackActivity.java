@@ -792,6 +792,12 @@ public class MobilePlaybackActivity extends MobileActivity
             mPresenter.onViewResumed();
         }
 
+        // Foreground recovery: if a background startForeground was rejected (API 31+, see
+        // MobilePlaybackService.onNotificationPosted), re-run the promotion now that we're visible.
+        if (mPlaybackService != null) {
+            mPlaybackService.ensureForeground();
+        }
+
         applySystemBarsForOrientation(getResources().getConfiguration().orientation);
     }
 

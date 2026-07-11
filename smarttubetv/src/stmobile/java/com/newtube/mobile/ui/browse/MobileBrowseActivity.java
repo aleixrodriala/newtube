@@ -1,6 +1,8 @@
 package com.newtube.mobile.ui.browse;
 
+import android.Manifest;
 import android.animation.ValueAnimator;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
@@ -87,6 +89,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     private static final int MAX_NAV_ITEMS = 5;
     /** Single checkable group id for the navigation-drawer section list. */
     private static final int DRAWER_GROUP_ID = 1;
+    private static final int REQUEST_POST_NOTIFICATIONS = 1;
 
     /**
      * Preferred bottom-nav sections, in priority order. Matched primarily by
@@ -179,6 +182,15 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         mPresenter = BrowsePresenter.instance(this);
         mPresenter.setView(this);
         mPresenter.onViewInitialized();
+
+        // Android 13+ (targetSdk 35): POST_NOTIFICATIONS is a runtime permission - without it
+        // the media-playback notification never shows on a fresh install. Ask plainly on every
+        // cold start until granted; the framework itself stops showing the dialog after two
+        // denials, so no extra bookkeeping (and no custom rationale UI) is needed.
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_POST_NOTIFICATIONS);
+        }
     }
 
     private void bindViews() {

@@ -28,6 +28,7 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 import com.liskovsoft.sharedutils.helpers.Helpers;
+import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
@@ -51,12 +52,17 @@ import com.liskovsoft.smartyoutubetv2.tv.R;
  * </ul>
  *
  * <p>The service is bound + started by the Activity while it is in the foreground (the player is
- * created on a visible screen), so {@code startForeground} is always reached from the foreground -
- * no {@code ForegroundServiceStartNotAllowedException}. On real finish the Activity calls
- * {@link #detachPlayer()} which clears the player (cancelling the notification -> stopForeground)
- * before the player itself is released.
+ * created on a visible screen), so the FIRST {@code startForeground} is always reached from the
+ * foreground. A RE-attach (engine restart while backgrounded, e.g. a network flap) must not forfeit
+ * that grant: {@link #attachPlayer} suppresses the teardown that swapping players would otherwise
+ * trigger, and {@code startForeground} is additionally guarded against
+ * {@code ForegroundServiceStartNotAllowedException} (API 31+) - see the notification listener.
+ * On real finish the Activity calls {@link #detachPlayer()} which clears the player (cancelling
+ * the notification -> stopForeground) before the player itself is released.
  */
 public class MobilePlaybackService extends Service {
+
+    private static final String TAG = MobilePlaybackService.class.getSimpleName();
 
     public static final String CHANNEL_ID = "newtube_playback_channel";
     private static final int NOTIFICATION_ID = 41337;
@@ -81,6 +87,12 @@ public class MobilePlaybackService extends Service {
     private Player mNotificationPlayer;
     private Player.Listener mSessionSyncListener;
     private boolean mIsForeground;
+    /**
+     * A new player is being attached over an old one: the old notification's cancel callback must
+     * not stopForeground/stopSelf, or the new player's first ongoing notification would call
+     * startForeground from the background (API 31+ crash).
+     */
+    private boolean mReattaching;
 
     // Simple large-icon (album art) cache so the adapter can answer synchronously on repeat calls.
     private String mArtUrl;
@@ -198,8 +210,16 @@ public class MobilePlaybackService extends Service {
             return;
         }
 
-        // Re-attach cleanly if something was already wired.
-        releaseInternal(false);
+        // Re-attach cleanly if something was already wired. mReattaching keeps the foreground
+        // grant alive across the swap: setPlayer(null) inside releaseInternal synchronously fires
+        // onNotificationCancelled, whose usual stopForeground+stopSelf would demote the service
+        // right before the new player re-posts the (same-id) notification.
+        mReattaching = true;
+        try {
+            releaseInternal(false);
+        } finally {
+            mReattaching = false;
+        }
 
         mPresenter = presenter;
         mPlayer = player;
@@ -313,8 +333,19 @@ public class MobilePlaybackService extends Service {
                     public void onNotificationPosted(int notificationId, Notification notification, boolean ongoing) {
                         if (ongoing) {
                             // Promote to foreground so audio keeps playing when backgrounded / screen off.
-                            startForeground(notificationId, notification);
-                            mIsForeground = true;
+                            try {
+                                startForeground(notificationId, notification);
+                                mIsForeground = true;
+                            } catch (IllegalStateException e) {
+                                // API 31+ ForegroundServiceStartNotAllowedException (an ISE subclass;
+                                // catching the parent keeps this API-level agnostic): the foreground
+                                // grant is gone and we're in the background. Continue un-promoted -
+                                // the Activity binding keeps the service alive and playback + the
+                                // notification still work; ensureForeground() re-promotes on the
+                                // next Activity resume.
+                                Log.e(TAG, "startForeground rejected, continuing un-promoted: " + e);
+                                mIsForeground = false;
+                            }
                         } else {
                             // Paused: keep the notification but drop foreground state (dismissible).
                             ServiceCompat.stopForeground(MobilePlaybackService.this, ServiceCompat.STOP_FOREGROUND_DETACH);
@@ -324,6 +355,12 @@ public class MobilePlaybackService extends Service {
 
                     @Override
                     public void onNotificationCancelled(int notificationId, boolean dismissedByUser) {
+                        if (mReattaching) {
+                            // Old player detaching as part of attachPlayer()'s re-attach; the new
+                            // player's notification replaces this one immediately. Keep the
+                            // foreground grant and the service alive (see attachPlayer).
+                            return;
+                        }
                         ServiceCompat.stopForeground(MobilePlaybackService.this, ServiceCompat.STOP_FOREGROUND_REMOVE);
                         mIsForeground = false;
                         stopSelf();
@@ -347,6 +384,17 @@ public class MobilePlaybackService extends Service {
     /** Detach + tear down media session and notification. Called before the player is released. */
     public void detachPlayer() {
         releaseInternal(true);
+    }
+
+    /**
+     * Foreground-recovery hook (called from the Activity's onResume): if a background
+     * {@code startForeground} was rejected (see {@code onNotificationPosted}), re-post the current
+     * notification now that the app is in the foreground - the promotion is retried and succeeds.
+     */
+    public void ensureForeground() {
+        if (!mIsForeground && mNotificationManager != null) {
+            mNotificationManager.invalidate();
+        }
     }
 
     private void releaseInternal(boolean removeNotification) {

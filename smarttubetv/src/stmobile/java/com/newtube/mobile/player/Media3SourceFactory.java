@@ -145,23 +145,34 @@ public class Media3SourceFactory {
         return fromDashManifest(formatInfo.createMpdStream());
     }
 
-    /** DASH VOD from an MPD stream (side-loaded, static). */
+    /** DASH from an MPD stream (side-loaded). VOD rides the cache; a live manifest bypasses it. */
     @Nullable
     MediaSource fromDashManifest(InputStream dashManifest) {
         if (dashManifest == null) {
             return null;
         }
 
+        StaticDashManifestParser parser = new StaticDashManifestParser();
         DashManifest manifest;
         try {
-            manifest = new StaticDashManifestParser().parse(GENERATED_MANIFEST_URI, dashManifest);
+            manifest = parser.parse(GENERATED_MANIFEST_URI, dashManifest);
         } catch (IOException | RuntimeException e) {
             Log.e(TAG, "fromDashManifest: can't parse generated mpd: " + e);
             return null;
         }
 
+        // "Live bypasses the cache" applies to SIDE-LOADED manifests too: the generated MPD
+        // (YouTubeMPDBuilder) declares type="dynamic" exactly for live streams, and the parser
+        // records that original flag before forcing the manifest static - the least invasive
+        // signal, since no live/VOD flag travels through PlayerEngine.openDash(). Live segments
+        // are sq-addressed, so the sq-aware cache key (Media3PlayerCache) already keeps them
+        // apart - this routing makes that belt-and-braces, and spares the LRU cache a moving
+        // live edge that would never be re-watched. Static VOD keeps the cached tier.
+        DataSource.Factory chunkDataSourceFactory =
+                parser.wasDynamic() ? mHttpDataSourceFactory : mCachedDataSourceFactory;
+
         return new DashMediaSource.Factory(
-                        new DefaultDashChunkSource.Factory(mCachedDataSourceFactory),
+                        new DefaultDashChunkSource.Factory(chunkDataSourceFactory),
                         /* manifestDataSourceFactory= */ null)
                 .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(LOAD_RETRY_COUNT))
                 .createMediaSource(manifest, new MediaItem.Builder()
@@ -227,9 +238,17 @@ public class Media3SourceFactory {
     /**
      * The generated MPD describes finished VOD but has no explicit {@code static} marker media3
      * trusts; force non-dynamic so the timeline gets a fixed duration (same trick as the legacy
-     * {@code StaticDashManifestParser}).
+     * {@code StaticDashManifestParser}). The original {@code dynamic} flag is recorded first -
+     * it's how {@link #fromDashManifest} tells a side-loaded LIVE manifest from VOD.
      */
     private static class StaticDashManifestParser extends DashManifestParser {
+        private boolean mWasDynamic;
+
+        /** Whether the source manifest declared {@code type="dynamic"} (live), pre-forcing. */
+        boolean wasDynamic() {
+            return mWasDynamic;
+        }
+
         @Override
         protected DashManifest buildMediaPresentationDescription(
                 long availabilityStartTime,
@@ -245,6 +264,7 @@ public class Media3SourceFactory {
                 @Nullable androidx.media3.exoplayer.dash.manifest.ServiceDescriptionElement serviceDescription,
                 @Nullable Uri location,
                 List<androidx.media3.exoplayer.dash.manifest.Period> periods) {
+            mWasDynamic |= dynamic;
             return super.buildMediaPresentationDescription(
                     availabilityStartTime,
                     durationMs,

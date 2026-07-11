@@ -930,7 +930,7 @@ public class Utils {
     }
 
     public static void updateChannels(Context context) {
-        startReceiver(context, UPDATE_CHANNELS_RECEIVER_CLASS_NAME);
+        // NOP: phone app - the Android-TV home-screen channels (leanbackassistant receiver) went away with the TV UI.
     }
 
     public static void startRemoteControl(Context context) {

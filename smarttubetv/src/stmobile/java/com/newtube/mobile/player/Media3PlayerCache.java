@@ -2,6 +2,7 @@ package com.newtube.mobile.player;
 
 import android.content.Context;
 import android.net.Uri;
+import android.text.TextUtils;
 
 import androidx.annotation.Nullable;
 import androidx.media3.database.StandaloneDatabaseProvider;
@@ -13,6 +14,7 @@ import androidx.media3.datasource.cache.SimpleCache;
 import com.liskovsoft.sharedutils.mylogger.Log;
 
 import java.io.File;
+import java.util.List;
 
 /**
  * Process-wide on-disk media cache for the Media3 touch player: one bounded LRU
@@ -56,7 +58,25 @@ public final class Media3PlayerCache {
 
         String lmt = uri.getQueryParameter("lmt");
         String xtags = uri.getQueryParameter("xtags");
-        return "yt." + id + "." + itag + "." + (lmt != null ? lmt : "") + "." + (xtags != null ? xtags : "");
+        String key = "yt." + id + "." + itag + "." + (lmt != null ? lmt : "") + "." + (xtags != null ? xtags : "");
+
+        // Segment addressing distinction: range-addressed VOD (SegmentBase) reuses ONE URL for the
+        // whole stream - byte ranges tell the pieces apart, so the stable key alone is correct (and
+        // must stay byte-identical: warm caches out there key on it). Live/OTF DASH instead gives
+        // every segment its OWN URL via `sq` (query param `?sq=N` or path form `/sq/N/`), each
+        // starting at position 0 - without an sq suffix they'd all collapse into one cache resource
+        // and segment N's cached bytes would be served for N+1.
+        String sq = uri.getQueryParameter("sq");
+        if (sq == null) {
+            List<String> pathSegments = uri.getPathSegments();
+            int sqIndex = pathSegments.indexOf("sq");
+            if (sqIndex >= 0 && sqIndex + 1 < pathSegments.size()
+                    && TextUtils.isDigitsOnly(pathSegments.get(sqIndex + 1))) {
+                sq = pathSegments.get(sqIndex + 1);
+            }
+        }
+
+        return sq != null ? key + ".sq" + sq : key;
     };
 
     private Media3PlayerCache() {
