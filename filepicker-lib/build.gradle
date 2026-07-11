@@ -33,6 +33,4 @@ dependencies {
     implementation 'androidx.recyclerview:recyclerview:' + recyclerviewXVersion
     implementation 'com.google.android.material:material:' + materialVersion
     implementation 'androidx.fragment:fragment:' + annotationXVersion
-
-    implementation project(':fragment-1.1.0')
 }

@@ -24,4 +24,13 @@
     <item name="action_afr" type="id"/>
     <item name="channel_new_content" type="id"/>
     <item name="linkify_click_handler" type="id"/>
+    <!--
+      NEWTUBE(phone-only): these two player-control tokens used to come from androidx.leanback
+      (R.id.lb_control_*), which common resolved transitively via :leanbackassistant -> :leanback-1.0.0.
+      With the TV UI + leanback removed, define them here (same opaque-token style as the action_* ids
+      above) so common stays self-contained. Only the shared playback controllers reference them; no
+      leanback widget consumes them, so the concrete int value is irrelevant.
+    -->
+    <item name="lb_control_closed_captioning" type="id"/>
+    <item name="lb_control_high_quality" type="id"/>
 </resources>

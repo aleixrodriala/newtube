@@ -55,16 +55,8 @@ allprojects {
         // Downgrade Cronet version for cronet-okhttp
         resolutionStrategy.force 'org.chromium.net:cronet-api:' + cronetApiVersion
         resolutionStrategy.force 'androidx.multidex:multidex:' + multiDexVersion
-
-        // Replace with modded library (leanback-1.0.0)
-        exclude group: 'androidx.leanback', module: 'leanback'
-        // Replace with modded library (fragment-1.1.0)
-        exclude group: 'androidx.fragment', module: 'fragment'
-
-        // Don't work! Replace with modded library (leanback-1.0.0)
-        // resolutionStrategy.dependencySubstitution {
-        //     // substitute remote dependency with local module
-        //     substitute module('androidx.leanback:leanback') using project(':leanback-1.0.0')
-        // }
+        // NEWTUBE(phone-only): the androidx.leanback/androidx.fragment global excludes that
+        // shadowed the modded :leanback-1.0.0/:fragment-1.1.0 modules are gone with the TV UI.
+        // Stock androidx.fragment 1.1.0 resolves transitively (same version as the mod was).
     }
 }

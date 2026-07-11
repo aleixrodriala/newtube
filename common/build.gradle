@@ -22,6 +22,12 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles 'consumer-rules.pro'
 
+        // NEWTUBE(phone-only): this module lost its stbeta/ststable/stfdroid flavors, but the
+        // vendored exoplayer-amzn modules (kept until Phase B) still declare that "default"
+        // dimension. Pick the ststable variant of those deps - the flavor the mobile build
+        // historically consumed via the old stmobile matchingFallbacks.
+        missingDimensionStrategy 'default', 'ststable'
+
         // More info: http://myhexaville.com/2017/03/10/android-multidex/
         // Additionally, you should extend your application from MultiDexApplication
         multiDexEnabled = true
@@ -39,16 +45,6 @@ android {
         disable 'MissingTranslation'
         disable 'MissingQuantity'
     }
-
-    // gradle 4.6 migration: disable dimensions mechanism
-    // more: https://proandroiddev.com/advanced-android-flavors-part-4-a-new-version-fc2ad80c01bb
-    flavorDimensions "default"
-
-    productFlavors {
-        stbeta {}
-        ststable {}
-        stfdroid {}
-    }
 }
 
 dependencies {
@@ -59,7 +55,6 @@ dependencies {
     testImplementation 'org.robolectric:robolectric:' + robolectricVersion
 
     implementation project(':sharedutils')
-    implementation project(':fragment-1.1.0')
     implementation project(':mediaserviceinterfaces')
     implementation project(':youtubeapi')
     implementation project(':filepicker-lib')
@@ -97,8 +92,6 @@ dependencies {
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:' + kotlinxVersion
 
     implementation 'com.jakewharton:process-phoenix:' + phoenixVersion
-
-    implementation project(':leanbackassistant')
 
     implementation project(':appupdatechecker2')
 

@@ -16,7 +16,7 @@ import androidx.annotation.Nullable;
  *
  * <p>The {@code slidableactivity} (Slidr) module was evaluated first but doesn't integrate cleanly
  * here: it hijacks the decor view and would fight the
- * {@link com.github.vkay94.dtpv.DoubleTapPlayerViewImpl} which consumes all touch events. The mobile
+ * {@link com.github.vkay94.dtpv3.DoubleTapPlayerViewImpl} which consumes all touch events. The mobile
  * activities now share one task and the player window is translucent, so this small, self-contained
  * vertical drag can reveal the already-rendered Activity underneath without delegating the gesture
  * or its geometry to a window transition.</p>

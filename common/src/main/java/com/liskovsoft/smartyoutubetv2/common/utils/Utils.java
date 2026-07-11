@@ -1150,7 +1150,9 @@ public class Utils {
     public static boolean skipCronet() {
         // Android 6 and below may crash running Cronet???
         //return VERSION.SDK_INT <= 23 || Helpers.equals(BuildConfig.FLAVOR, "strtarmenia");
-        return Helpers.equals(BuildConfig.FLAVOR, "strtarmenia");
+        // NEWTUBE(phone-only): common lost its product flavors, so BuildConfig.FLAVOR is no longer
+        // generated. The "strtarmenia" flavor never existed in this fork, so this was always false.
+        return false;
     }
 
     public static boolean isEnoughRam() {

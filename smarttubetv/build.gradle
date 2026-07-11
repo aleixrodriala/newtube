@@ -1,43 +1,11 @@
 apply from: gradle.ext.sharedModulesConstants
 
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-        jcenter()
-    }
-
-    dependencies {
-        // These docs use an open ended version so that our plugin
-        // can be updated quickly in response to Android tooling updates
-
-        // Check that you have the Google Services Gradle plugin v4.3.2 or later
-        // (if not, add it).
-        classpath 'com.google.gms:google-services:4.3.15'
-
-        // Add the Crashlytics Gradle plugin.
-        // https://firebase.google.com/docs/crashlytics/get-started?platform=android
-        // https://firebase.google.com/docs/android/setup
-        classpath 'com.google.firebase:firebase-crashlytics-gradle:2.7.1'
-    }
-}
-
 apply plugin: 'com.android.application'
 
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
-}
-
-// The first letter of the flavor name must be in uppercase
-if (new File("${projectDir}/google-services.json").exists() && (getGradle().getStartParameter().getTaskRequests().toString().contains("Stbeta") ||
-        getGradle().getStartParameter().getTaskRequests().toString().contains("Ststable"))) {
-    // Google Services Gradle plugin (transforms google-services.json file)
-    apply plugin: 'com.google.gms.google-services'
-
-    // Apply the Crashlytics Gradle plugin
-    apply plugin: 'com.google.firebase.crashlytics'
 }
 
 android {
@@ -61,6 +29,11 @@ android {
         versionName "31.97"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "long", "TIMESTAMP", System.currentTimeMillis() + "L"
+
+        // NEWTUBE(phone-only): the app dropped its TV flavors, but the vendored exoplayer-amzn
+        // modules (kept until Phase B) still declare the "default" flavor dimension. Select their
+        // ststable variant - the flavor the stmobile build historically consumed via matchingFallbacks.
+        missingDimensionStrategy 'default', 'ststable'
 
         // More info: http://myhexaville.com/2017/03/10/android-multidex/
         // Additionally, you should extend your application from MultiDexApplication
@@ -161,30 +134,14 @@ android {
     // more: https://proandroiddev.com/advanced-android-flavors-part-4-a-new-version-fc2ad80c01bb
     flavorDimensions "default"
 
-    // NOTE: The main goal of prefixing a flavor is to group flavors' folders together
+    // NEWTUBE(phone-only): the TV flavors (stbeta/ststable/stfdroid) are gone — see the
+    // tv-legacy git tag for the last commit that built them. stmobile stays a (single)
+    // flavor so its source set (src/stmobile/) keeps applying without a directory move.
     productFlavors {
-        stbeta {
-            applicationId "org.smarttube.beta"
-            targetSdkVersion project.properties.compileSdkVersion
-        }
-        ststable {
-            applicationId "org.smarttube.stable"
-            targetSdkVersion project.properties.compileSdkVersion
-        }
-        stfdroid {
-            applicationId "app.smarttube.fdroid"
-            minSdkVersion 21
-            targetSdkVersion project.properties.compileSdkVersion
-        }
-        // Touch-mobile (phone/tablet) port. Reuses the ststable variant of all
-        // library modules via matchingFallbacks; a flavor-specific manifest
-        // (src/stmobile/AndroidManifest.xml) drops the Leanback requirement so the
-        // app installs on touchscreens. Keeps the TV flavors building untouched.
         stmobile {
             applicationId "com.newtube.app"
             minSdkVersion 21
             targetSdkVersion project.properties.compileSdkVersion
-            matchingFallbacks = ['ststable']
             // NewTube versions independently of upstream SmartTube (defaultConfig carries the
             // fork-point 31.97/2387). versionCode starts at 10000 - above upstream's code so
             // existing test installs upgrade in place - and encodes the version:
@@ -198,9 +155,6 @@ android {
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
 
-    implementation 'androidx.leanback:leanback:' + leanbackXVersion
-    implementation 'androidx.leanback:leanback-preference:' + leanbackXVersion
-    implementation 'androidx.recommendation:recommendation:' + leanbackXVersion
     implementation 'androidx.annotation:annotation:' + annotationXVersion
     implementation 'androidx.recyclerview:recyclerview:' + recyclerviewXVersion // exoplayer 2.12.1 fix
     implementation 'androidx.media:media:' + mediaXVersion // exoplayer fix
@@ -238,7 +192,6 @@ dependencies {
 
     implementation project(':exoplayer-library-core')
     implementation project(':exoplayer-library-ui')
-    implementation project(':exoplayer-extension-leanback')
     implementation project(':exoplayer-extension-mediasession')
 
     // implementation 'com.amazon.android:exoplayer:' + amazonExoplayerVersion
@@ -272,31 +225,15 @@ dependencies {
     androidTestImplementation 'androidx.test:rules:' + testXSupportVersion
     androidTestImplementation 'androidx.test.espresso:espresso-core:' + espressoVersion
 
-    implementation project(':fragment-1.1.0')
-    implementation project(':leanback-1.0.0')
     implementation project(':common')
     implementation project(':sharedutils')
     implementation project(':mediaserviceinterfaces')
     implementation project(':youtubeapi')
-    implementation project(':chatkit')
-    implementation project(':doubletapplayerview')
 
     implementation 'io.reactivex.rxjava2:rxandroid:' + rxAndroidVersion
     implementation 'io.reactivex.rxjava2:rxjava:' + rxJavaVersion
 
-    // Add the Firebase Crashlytics SDK.
-
-    stbetaImplementation('com.google.firebase:firebase-crashlytics:' + firebaseCrashlyticsVersion) {
-        transitive = true
-    }
-
-    ststableImplementation('com.google.firebase:firebase-crashlytics:' + firebaseCrashlyticsVersion) {
-        transitive = true
-    }
-
     // debugImplementation 'com.squareup.leakcanary:leakcanary-android:2.14'
-
-    implementation 'net.gotev:speech:' + gotevSpeechVersion
 
     // ByeByeDPI fix
     implementation 'org.conscrypt:conscrypt-android:' + conscryptVersion

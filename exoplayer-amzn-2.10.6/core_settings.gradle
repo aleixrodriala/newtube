@@ -37,7 +37,8 @@ include modulePrefix + 'extension-okhttp'
 include modulePrefix + 'extension-opus'
 include modulePrefix + 'extension-vp9'
 // include modulePrefix + 'extension-rtmp' // absent in mavenCentral
-include modulePrefix + 'extension-leanback'
+// NEWTUBE(phone-only): extension-leanback depends on :leanback-1.0.0 (deleted with the TV UI). Excluded in Phase A.
+// include modulePrefix + 'extension-leanback'
 // include modulePrefix + 'extension-jobdispatcher' // absent in mavenCentral
 include modulePrefix + 'extension-workmanager'
 
@@ -61,6 +62,7 @@ project(modulePrefix + 'extension-okhttp').projectDir = new File(rootDir, 'exten
 project(modulePrefix + 'extension-opus').projectDir = new File(rootDir, 'extensions/opus')
 project(modulePrefix + 'extension-vp9').projectDir = new File(rootDir, 'extensions/vp9')
 // project(modulePrefix + 'extension-rtmp').projectDir = new File(rootDir, 'extensions/rtmp')
-project(modulePrefix + 'extension-leanback').projectDir = new File(rootDir, 'extensions/leanback')
+// NEWTUBE(phone-only): extension-leanback module excluded (see include line above).
+// project(modulePrefix + 'extension-leanback').projectDir = new File(rootDir, 'extensions/leanback')
 // project(modulePrefix + 'extension-jobdispatcher').projectDir = new File(rootDir, 'extensions/jobdispatcher') // absent in mavenCentral
 project(modulePrefix + 'extension-workmanager').projectDir = new File(rootDir, 'extensions/workmanager')

@@ -22,16 +22,6 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.NetworkData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
-import com.liskovsoft.smartyoutubetv2.tv.ui.adddevice.AddDeviceActivity;
-import com.liskovsoft.smartyoutubetv2.tv.ui.browse.BrowseActivity;
-import com.liskovsoft.smartyoutubetv2.tv.ui.channel.ChannelActivity;
-import com.liskovsoft.smartyoutubetv2.tv.ui.channeluploads.ChannelUploadsActivity;
-import com.liskovsoft.smartyoutubetv2.tv.ui.dialogs.AppDialogActivity;
-import com.liskovsoft.smartyoutubetv2.tv.ui.dialogs.AppDialogActivityOpaque;
-import com.liskovsoft.smartyoutubetv2.tv.ui.playback.PlaybackActivity;
-import com.liskovsoft.smartyoutubetv2.tv.ui.search.tags.SearchTagsActivity;
-import com.liskovsoft.smartyoutubetv2.tv.ui.signin.SignInActivity;
-import com.liskovsoft.smartyoutubetv2.tv.ui.webbrowser.WebBrowserActivity;
 
 import org.conscrypt.Conscrypt;
 
@@ -86,29 +76,12 @@ public class MainApplication extends MultiDexApplication { // fix: Didn't find c
     }
 
     private void setupViewManager() {
+        // NEWTUBE(phone-only): only the SplashView->SplashActivity mapping survives here. Every
+        // other View->Activity mapping (and the root activity) is re-registered by
+        // MobileMainApplication, which calls super.onCreate() then overwrites the rest for the
+        // touch shell. SplashView is the one mapping mobile never re-registers, so it must stay.
         ViewManager viewManager = ViewManager.instance(this);
-
-        Class<? extends AppDialogActivity> dialogClazz;
-
-        if (VERSION.SDK_INT == 26
-                && Helpers.equalsAny(Helpers.getCrashlyticsDeviceName(), "4S806_Z51S1 (Panasonic)")) {
-            // The fix: Only fullscreen opaque activities can request orientation
-            dialogClazz = AppDialogActivityOpaque.class;
-        } else {
-            dialogClazz = AppDialogActivity.class;
-        }
-
-        viewManager.setRoot(BrowseActivity.class);
         viewManager.register(SplashView.class, SplashActivity.class); // no parent, because it's root activity
-        viewManager.register(BrowseView.class, BrowseActivity.class); // no parent, because it's root activity
-        viewManager.register(PlaybackView.class, PlaybackActivity.class, BrowseActivity.class);
-        viewManager.register(AppDialogView.class, dialogClazz, BrowseActivity.class);
-        viewManager.register(SearchView.class, SearchTagsActivity.class, BrowseActivity.class);
-        viewManager.register(SignInView.class, SignInActivity.class, BrowseActivity.class);
-        viewManager.register(AddDeviceView.class, AddDeviceActivity.class, BrowseActivity.class);
-        viewManager.register(ChannelView.class, ChannelActivity.class, BrowseActivity.class);
-        viewManager.register(ChannelUploadsView.class, ChannelUploadsActivity.class, BrowseActivity.class);
-        viewManager.register(WebBrowserView.class, WebBrowserActivity.class, BrowseActivity.class);
     }
 
     private void setupGlobalExceptionHandler() {
