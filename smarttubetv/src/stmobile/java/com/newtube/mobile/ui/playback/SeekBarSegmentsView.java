@@ -15,7 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Thin overlay drawn on top of the player's {@link com.google.android.exoplayer2.ui.DefaultTimeBar}
+ * Thin overlay drawn on top of the player's {@code androidx.media3.ui.DefaultTimeBar}
  * to render SponsorBlock colored segment ranges (PLAYER OPTIONS wave, ARCHITECTURE.md section 6:
  * "SponsorBlockController's {@code SeekBarSegment} list - draw colored ranges on scrubber"). This is
  * visual only; the actual skipping is done by {@code SponsorBlockController}, which pushes the ranges

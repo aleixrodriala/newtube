@@ -22,12 +22,6 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles 'consumer-rules.pro'
 
-        // NEWTUBE(phone-only): this module lost its stbeta/ststable/stfdroid flavors, but the
-        // vendored exoplayer-amzn modules (kept until Phase B) still declare that "default"
-        // dimension. Pick the ststable variant of those deps - the flavor the mobile build
-        // historically consumed via the old stmobile matchingFallbacks.
-        missingDimensionStrategy 'default', 'ststable'
-
         // More info: http://myhexaville.com/2017/03/10/android-multidex/
         // Additionally, you should extend your application from MultiDexApplication
         multiDexEnabled = true
@@ -62,21 +56,9 @@ dependencies {
     implementation 'io.reactivex.rxjava2:rxandroid:' + rxAndroidVersion
     implementation 'io.reactivex.rxjava2:rxjava:' + rxJavaVersion
 
-    //////// BEGIN EXOPLAYER /////////
-
-    implementation project(':exoplayer-library')
-    implementation project(':exoplayer-extension-okhttp')
-    implementation project(':exoplayer-extension-cronet')
-
-    // implementation 'com.amazon.android:exoplayer:' + amazonExoplayerVersion
-    // implementation 'com.amazon.android:extension-okhttp:' + amazonExoplayerVersion
-
-    // implementation 'com.google.android.exoplayer:exoplayer:' + exoplayerVersion
-    // implementation 'com.google.android.exoplayer:extension-okhttp:' + exoplayerVersion
-
-    // implementation 'com.github.amzn:exoplayer-amazon-port:' + amazonExoplayerJitpackVersion
-
-    //////// END EXOPLAYER //////////
+    // WebProxyDialog's URL tests use okhttp directly. This used to arrive transitively via the
+    // vendored exoplayer-extension-okhttp project (deleted in the phone-only port).
+    implementation 'com.squareup.okhttp3:okhttp:' + okhttpVersion
 
     implementation 'androidx.media:media:' + mediaXVersion // exoplayer fix
 

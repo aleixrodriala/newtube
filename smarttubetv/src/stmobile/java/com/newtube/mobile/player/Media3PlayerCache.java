@@ -15,12 +15,11 @@ import com.liskovsoft.sharedutils.mylogger.Log;
 import java.io.File;
 
 /**
- * Process-wide on-disk media cache for the Media3 touch player.
- *
- * <p>Media3 twin of {@code MobilePlayerCache} (which serves the legacy vendored-ExoPlayer path):
- * one bounded LRU {@link SimpleCache} with a database-backed index, living in its OWN directory -
- * a {@code SimpleCache} folder can only ever be opened by one cache implementation, and the legacy
- * cache class must keep working if the app is downgraded.</p>
+ * Process-wide on-disk media cache for the Media3 touch player: one bounded LRU
+ * {@link SimpleCache} with a database-backed index, living in its OWN directory - a
+ * {@code SimpleCache} folder can only ever be opened by one cache implementation. (The legacy
+ * vendored-ExoPlayer cache, {@code MobilePlayerCache}, used a separate directory and was deleted
+ * with that engine.)
  *
  * <p>{@link #CACHE_KEY_FACTORY} replaces the legacy stable-key patch that lived in the vendored
  * {@code DashManifestParser2}: googlevideo media URLs are signed and expire, so the default

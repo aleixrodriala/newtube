@@ -46,7 +46,7 @@ class Media3TrackAdapter {
     /** What the app asked for, per renderer index. Never the momentary ABR rung. */
     private final FormatItem[] mTargets = new FormatItem[3];
     private Tracks mTracks = Tracks.EMPTY;
-    /** NEWTUBE(mobile): mirrors TrackSelectorManager.setPreferOriginalAudioDefault. */
+    /** NEWTUBE(mobile): default multi-audio videos to the untranslated ("original") track. */
     private boolean mPreferOriginalAudio;
 
     Media3TrackAdapter(DefaultTrackSelector trackSelector) {
@@ -178,7 +178,7 @@ class Media3TrackAdapter {
 
     /**
      * "Auto" = a ceiling preset, not a concrete stream. Same rule as the legacy selector
-     * (VideoTrack.inBounds detects presets by missing format id).
+     * (which detected presets by a missing format id).
      */
     private static boolean isAutoTarget(FormatItem item) {
         if (item.isPreset()) {

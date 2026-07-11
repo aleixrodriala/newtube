@@ -4,15 +4,14 @@ import androidx.annotation.Nullable;
 
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.TrackSelectorManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.MediaTrack;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.TrackFormat;
 
 /**
- * Converts media3 {@link androidx.media3.common.Format}s into the legacy
- * {@code com.google.android.exoplayer2.Format} objects that the app's shared data model
+ * Converts media3 {@link androidx.media3.common.Format}s into the engine-neutral
+ * {@link TrackFormat} DTOs that the app's shared data model
  * ({@code MediaTrack} / {@code ExoFormatItem} / {@code PlayerData} persistence / the quality
- * sheet) is built on. The legacy Format is used purely as a DTO here - it is never handed to a
- * player - which lets the whole presenter/UI layer work unchanged while the actual engine is
- * media3. The vendored exoplayer2 library stays in the APK for the TV flavors anyway, so this
- * costs nothing.
+ * sheet) is built on, which lets the whole presenter/UI layer work unchanged while the actual
+ * engine is media3.
  */
 final class Media3FormatConverter {
 
@@ -33,7 +32,7 @@ final class Media3FormatConverter {
         }
     }
 
-    /** Builds a legacy-Format-backed {@link MediaTrack} DTO for one media3 track. */
+    /** Builds a {@link TrackFormat}-backed {@link MediaTrack} DTO for one media3 track. */
     @Nullable
     static MediaTrack toMediaTrack(int rendererIndex, androidx.media3.common.Format format) {
         MediaTrack mediaTrack = MediaTrack.forRendererIndex(rendererIndex);
@@ -42,39 +41,38 @@ final class Media3FormatConverter {
             return null;
         }
 
-        mediaTrack.format = toLegacyFormat(rendererIndex, format);
+        mediaTrack.format = toTrackFormat(rendererIndex, format);
 
         return mediaTrack;
     }
 
     /**
-     * media3 Format -> legacy exoplayer2 Format DTO. Field names match 1:1; only the static
-     * factory methods differ. DRC audio variants are recognized by the {@code xtags=drc} marker
-     * YouTube puts in the stream URL, surfaced by the MPD builder as part of the format id
-     * ("140-drc" style) - mirror the check the legacy parser did.
+     * media3 Format -> neutral {@link TrackFormat} DTO. Field names match 1:1; the per-renderer
+     * factories reproduce the legacy exoplayer2 Format fabrication (including language
+     * normalization) byte-for-byte, since ExoFormatItem persists the result. DRC audio variants
+     * are recognized by the {@code xtags=drc} marker YouTube puts in the stream URL, surfaced by
+     * the MPD builder as part of the format id ("140-drc" style) - mirror the check the legacy
+     * parser did.
      */
-    static com.google.android.exoplayer2.Format toLegacyFormat(int rendererIndex, androidx.media3.common.Format format) {
+    static TrackFormat toTrackFormat(int rendererIndex, androidx.media3.common.Format format) {
         String id = format.id;
         String codecs = format.codecs;
         String language = pickLanguage(format);
 
         switch (rendererIndex) {
             case TrackSelectorManager.RENDERER_INDEX_VIDEO:
-                return com.google.android.exoplayer2.Format.createVideoSampleFormat(
-                        id, format.sampleMimeType, codecs, format.bitrate, /* maxInputSize= */ -1,
-                        format.width, format.height, format.frameRate,
-                        /* initializationData= */ null, /* drmInitData= */ null);
+                return TrackFormat.createVideo(
+                        id, format.sampleMimeType, codecs, format.bitrate,
+                        format.width, format.height, format.frameRate);
             case TrackSelectorManager.RENDERER_INDEX_AUDIO:
-                return com.google.android.exoplayer2.Format.createAudioSampleFormat(
-                        id, format.sampleMimeType, codecs, format.bitrate, /* maxInputSize= */ -1,
+                return TrackFormat.createAudio(
+                        id, format.sampleMimeType, codecs, format.bitrate,
                         format.channelCount > 0 ? format.channelCount : 0,
                         format.sampleRate > 0 ? format.sampleRate : 0,
-                        /* initializationData= */ null, /* drmInitData= */ null,
-                        /* selectionFlags= */ 0, language, isDrc(format));
+                        language, isDrc(format));
             case TrackSelectorManager.RENDERER_INDEX_SUBTITLE:
             default:
-                return com.google.android.exoplayer2.Format.createTextSampleFormat(
-                        id, format.sampleMimeType, /* selectionFlags= */ 0, language);
+                return TrackFormat.createText(id, format.sampleMimeType, language);
         }
     }
 

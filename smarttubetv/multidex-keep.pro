@@ -102,10 +102,6 @@
     java.lang.String LEGACY_ARRAY_DELIM;
     java.lang.Object findFirst(java.util.Collection, com.liskovsoft.sharedutils.helpers.Helpers$Filter);
 }
--keepclassmembers class com.google.android.exoplayer2.PlaybackParameters {
-    <init>(...);
-    float pitch;
-}
 -keepclassmembers class androidx.work.impl.constraints.trackers.Trackers {
     <init>(...);
 }
@@ -159,9 +155,6 @@
 -keepclassmembers class com.liskovsoft.smartyoutubetv2.common.utils.Utils {
     boolean isFormatSupported(com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.MediaTrack);
 }
--keepclassmembers class com.google.android.exoplayer2.video.VideoRendererEventListener {
-    void onVideoDisabled(com.google.android.exoplayer2.decoder.DecoderCounters);
-}
 -keepclassmembers class com.liskovsoft.smartyoutubetv2.common.app.models.search.MediaServiceSearchTagProvider {
     <init>(...);
     boolean mIgnoreEmptyQuery;
@@ -193,16 +186,6 @@
     <init>(...);
     void setZ(float);
 }
--keepclassmembers class com.liskovsoft.smartyoutubetv2.common.exoplayer.controller.ExoPlayerController {
-    <init>(...);
-    boolean containsMedia();
-}
--keepclassmembers interface com.google.android.exoplayer2.Player$EventListener {
-    void onPlaybackParametersChanged(com.google.android.exoplayer2.PlaybackParameters);
-}
--keepclassmembers interface com.google.android.exoplayer2.Player {
-    boolean isPlaying();
-}
 -keepclassmembers class com.liskovsoft.sharedutils.locale.LocaleContextWrapper {
     public static android.content.Context wrap(android.content.Context, java.util.Locale, android.util.DisplayMetrics);
 }
@@ -212,7 +195,6 @@
 
 # NOTE: Debug build: VirusTotal (Google: Detected, Ikarus: Trojan.AndroidOS.Agent)
 #-keep class androidx.recyclerview.widget.RecyclerView { *; }
-#-keep class com.google.android.exoplayer2.C { *; }
 #-keep class kotlin.collections.CollectionsKt__CollectionsKt { *; }
 #-keep class okhttp3.OkHttpClient$Builder { *; }
 #-keep class androidx.leanback.widget.ItemBridgeAdapter { *; }
@@ -232,7 +214,6 @@
 #-keep class io.reactivex.schedulers.Schedulers { *; }
 
 # Not sure why I've commented these out (probably the main dex was full)
-#-keep class com.google.android.exoplayer2.extractor.mp4.FragmentedMp4Extractor { *; }
 #-keep class kotlin.collections.builders.* { *; }
 #-keep class androidx.room.** { *; }
 
@@ -244,6 +225,5 @@
 
 # NOTE: Fdroid: VirusTotal (Google: Detected, Ikarus: Trojan.AndroidOS.Agent)
 #-keep class com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.providers.ContextMenuProvider { *; }
-#-keep class com.google.android.exoplayer2.util.Util { *; }
 #-keep class com.bumptech.glide.request.RequestOptions { *; }
 #-keep class com.liskovsoft.smartyoutubetv2.tv.ui.mod.leanback.playerglue.tooltips.TooltipCompatHandler { *; }

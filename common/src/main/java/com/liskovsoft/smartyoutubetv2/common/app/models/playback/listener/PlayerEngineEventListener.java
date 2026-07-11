@@ -1,31 +1,31 @@
 package com.liskovsoft.smartyoutubetv2.common.app.models.playback.listener;
 
-import com.google.android.exoplayer2.ExoPlaybackException;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.TrackSelectorManager;
 
 public interface PlayerEngineEventListener {
+    // Values mirror ExoPlaybackException.TYPE_* (identical ints in exoplayer2 and media3).
     /**
      * The error occurred loading data
      */
-    int ERROR_TYPE_SOURCE = ExoPlaybackException.TYPE_SOURCE;
+    int ERROR_TYPE_SOURCE = 0;
     /**
      * The error occurred in a renderer.
      */
-    int ERROR_TYPE_RENDERER = ExoPlaybackException.TYPE_RENDERER;
+    int ERROR_TYPE_RENDERER = 1;
     /**
      * The error was an unexpected
      */
-    int ERROR_TYPE_UNEXPECTED = ExoPlaybackException.TYPE_UNEXPECTED;
+    int ERROR_TYPE_UNEXPECTED = 2;
     /**
      * The error occurred in a remote component.
      */
-    int ERROR_TYPE_REMOTE = ExoPlaybackException.TYPE_REMOTE;
+    int ERROR_TYPE_REMOTE = 3;
     /**
      * The error was an {@link OutOfMemoryError}.
      */
-    int ERROR_TYPE_OUT_OF_MEMORY = ExoPlaybackException.TYPE_OUT_OF_MEMORY;
+    int ERROR_TYPE_OUT_OF_MEMORY = 4;
     int RENDERER_INDEX_UNKNOWN = TrackSelectorManager.RENDERER_INDEX_UNKNOWN;
     int RENDERER_INDEX_VIDEO = TrackSelectorManager.RENDERER_INDEX_VIDEO;
     int RENDERER_INDEX_AUDIO = TrackSelectorManager.RENDERER_INDEX_AUDIO;

@@ -7,14 +7,13 @@ import android.os.Build.VERSION;
 
 import androidx.annotation.NonNull;
 
-import com.google.android.exoplayer2.text.CaptionStyleCompat;
 import com.liskovsoft.sharedutils.helpers.DeviceHelpers;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.locale.LocaleUtility;
 import com.liskovsoft.smartyoutubetv2.common.R;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerEngine;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerConstants;
-import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager.SubtitleStyle;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleStyle;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.ExoFormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.MediaTrack;
@@ -783,13 +782,18 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
         return mAfrSwitchTimeMs;
     }
 
+    // CaptionStyleCompat.EDGE_TYPE_* values (identical ints in exoplayer2 and media3;
+    // Media3SubtitleManager feeds them straight into androidx.media3.ui.CaptionStyleCompat).
+    private static final int EDGE_TYPE_OUTLINE = 1;
+    private static final int EDGE_TYPE_DROP_SHADOW = 2;
+
     private void initSubtitleStyles() {
-        mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_white_transparent, R.color.light_grey, R.color.transparent, CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW));
-        mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_white_semi_transparent, R.color.light_grey, R.color.semi_transparent, CaptionStyleCompat.EDGE_TYPE_OUTLINE));
-        mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_white_black, R.color.light_grey, R.color.black, CaptionStyleCompat.EDGE_TYPE_OUTLINE));
-        mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_yellow_transparent, R.color.yellow, R.color.transparent, CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW));
-        mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_yellow_semi_transparent, R.color.yellow, R.color.semi_transparent, CaptionStyleCompat.EDGE_TYPE_OUTLINE));
-        mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_yellow_black, R.color.yellow, R.color.black, CaptionStyleCompat.EDGE_TYPE_OUTLINE));
+        mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_white_transparent, R.color.light_grey, R.color.transparent, EDGE_TYPE_DROP_SHADOW));
+        mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_white_semi_transparent, R.color.light_grey, R.color.semi_transparent, EDGE_TYPE_OUTLINE));
+        mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_white_black, R.color.light_grey, R.color.black, EDGE_TYPE_OUTLINE));
+        mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_yellow_transparent, R.color.yellow, R.color.transparent, EDGE_TYPE_DROP_SHADOW));
+        mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_yellow_semi_transparent, R.color.yellow, R.color.semi_transparent, EDGE_TYPE_OUTLINE));
+        mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_yellow_black, R.color.yellow, R.color.black, EDGE_TYPE_OUTLINE));
 
         if (VERSION.SDK_INT >= 19) {
             mSubtitleStyles.add(new SubtitleStyle(R.string.subtitle_system));

@@ -19,7 +19,7 @@ import androidx.media3.ui.SubtitleView;
 
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.smartyoutubetv2.common.R;
-import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager.SubtitleStyle;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleStyle;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.common.DataChangeBase.OnDataChange;
 

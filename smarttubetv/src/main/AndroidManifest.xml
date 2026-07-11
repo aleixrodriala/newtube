@@ -20,11 +20,6 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
-    <uses-sdk tools:overrideLibrary="
-        com.google.android.exoplayer2.ext.vp9,
-        com.google.android.exoplayer2.testutil,
-        com.google.android.exoplayer2.ext.okhttp"/>
-
     <uses-feature
         android:name="android.hardware.microphone"
         android:required="false" />

@@ -1,23 +1,19 @@
 package com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track;
 
-import com.google.android.exoplayer2.Format;
-import com.google.android.exoplayer2.source.TrackGroupArray;
-import com.google.android.exoplayer2.trackselection.TrackSelection.Definition;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.TrackSelectorManager;
-import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.TrackSelectorUtil;
 
+/**
+ * Engine-neutral track DTO shell. The legacy findBestMatch/compare machinery that ran on the
+ * vendored exoplayer2 engine was deleted with it in the phone-only port; what remains is the
+ * data carrier ({@link TrackFormat} + selection flags) shared by {@code ExoFormatItem},
+ * {@code PlayerData} persistence and the media3 adapter.
+ */
 public abstract class MediaTrack {
-    private static final int BITRATE_DIFF_PERCENTS = 7;
     private static final int VP9_WEIGHT = 31;
     private static final int AVC_WEIGHT = 28;
     private static final int AV1_WEIGHT = 14;
-    private static int sVP9Weight = VP9_WEIGHT;
-    private static int sAVCWeight = AVC_WEIGHT;
-    private static int sAV1Weight = AV1_WEIGHT;
-    public Format format;
-    public int groupIndex = -1;
-    public int trackIndex = -1;
+    public TrackFormat format;
     public boolean isSelected;
     public boolean isSaved;
     public boolean isPreset;
@@ -26,22 +22,6 @@ public abstract class MediaTrack {
     public MediaTrack(int rendererIndex) {
         this.rendererIndex = rendererIndex;
     }
-
-    public static MediaTrack from(int rendererIndex, TrackGroupArray groups, Definition definition) {
-        MediaTrack mediaTrack = forRendererIndex(rendererIndex);
-
-        if (mediaTrack == null || groups == null || definition == null || definition.tracks == null) {
-            return null;
-        }
-
-        mediaTrack.groupIndex = groups.indexOf(definition.group);
-        mediaTrack.trackIndex = definition.tracks[0];
-
-        return mediaTrack;
-    }
-
-    public abstract int compare(MediaTrack track2);
-    public abstract int inBounds(MediaTrack track2);
 
     public static MediaTrack forRendererIndex(int rendererIndex) {
         switch (rendererIndex) {
@@ -56,82 +36,6 @@ public abstract class MediaTrack {
         return null;
     }
 
-    protected static boolean bitrateLessOrEquals(int bitrate1, int bitrate2) {
-        if (bitrate1 == -1 || bitrate2 == -1) {
-            return true;
-        }
-
-        return bitrate1 <= bitrate2 || bitrateAlmostEquals(bitrate1, bitrate2);
-    }
-
-    private static boolean codecEquals(String codecs1, String codecs2) {
-        if (codecs1 == null || codecs2 == null) {
-            return false;
-        }
-
-        return Helpers.equals(TrackSelectorUtil.codecNameShort(codecs1), TrackSelectorUtil.codecNameShort(codecs2));
-    }
-
-    private static boolean codecEquals(Format format1, Format format2) {
-        if (format1 == null || format2 == null) {
-            return false;
-        }
-
-        return codecEquals(format1.codecs, format2.codecs);
-    }
-
-    private static boolean bitrateEquals(Format format1, Format format2) {
-        if (format1 == null || format2 == null) {
-            return false;
-        }
-
-        return format1.bitrate == format2.bitrate;
-    }
-
-    private static boolean bitrateAlmostEquals(int bitrate1, int bitrate2) {
-        return bitrate1 == bitrate2 || Math.abs(bitrate2 - bitrate1) < (bitrate2 / 100 * BITRATE_DIFF_PERCENTS);
-    }
-
-    private static boolean preferByBitrate(Format format1, Format format2) {
-        if (format1 == null) {
-            return false;
-        }
-
-        if (format2 == null) {
-            return true;
-        }
-
-        if (!codecEquals(format1, format2)) {
-            return true;
-        }
-
-        return format1.bitrate > format2.bitrate;
-    }
-
-    public static boolean codecEquals(MediaTrack track1, MediaTrack track2) {
-        if (track1 == null || track2 == null) {
-            return false;
-        }
-
-        return codecEquals(track1.format, track2.format);
-    }
-
-    public static boolean bitrateEquals(MediaTrack track1, MediaTrack track2) {
-        if (track1 == null || track2 == null) {
-            return false;
-        }
-
-        return bitrateEquals(track1.format, track2.format);
-    }
-
-    public static boolean preferByBitrate(MediaTrack track1, MediaTrack track2) {
-        if (track1 == null || track2 == null) {
-            return false;
-        }
-
-        return preferByBitrate(track1.format, track2.format);
-    }
-
     public static int getCodecWeight(MediaTrack track) {
         if (track == null || track.format == null) {
             return 0;
@@ -141,28 +45,7 @@ public abstract class MediaTrack {
     }
 
     public static int getCodecWeight(String codec) {
-        return isVP9Codec(codec) ? sVP9Weight : isAVCCodec(codec) ? sAVCWeight : isAV1Codec(codec) ? sAV1Weight : 0;
-    }
-
-    public static void setAvcOverVp9Preferred(boolean prefer) {
-        sAVCWeight = prefer ? VP9_WEIGHT : AVC_WEIGHT;
-        sVP9Weight = prefer ? AVC_WEIGHT : VP9_WEIGHT;
-    }
-
-    public static boolean preferByCodec(MediaTrack prevTrack, MediaTrack nextTrack) {
-        return getCodecWeight(prevTrack) - getCodecWeight(nextTrack) > 0;
-    }
-
-    public static boolean preferByDrc(MediaTrack origin, MediaTrack prevTrack, MediaTrack nextTrack) {
-        if (!(origin instanceof AudioTrack)) {
-            return true;
-        }
-
-        boolean isDrcOrigin = TrackSelectorUtil.isDrc(origin.format);
-        boolean isDrcPrev = TrackSelectorUtil.isDrc(prevTrack.format);
-        boolean isDrcNext = TrackSelectorUtil.isDrc(nextTrack.format);
-        boolean preferByDrc = (isDrcOrigin == isDrcNext) || (isDrcPrev == isDrcNext);
-        return preferByDrc;
+        return isVP9Codec(codec) ? VP9_WEIGHT : isAVCCodec(codec) ? AVC_WEIGHT : isAV1Codec(codec) ? AV1_WEIGHT : 0;
     }
 
     public boolean isVP9Codec() {
@@ -171,22 +54,6 @@ public abstract class MediaTrack {
 
     public boolean isAV1Codec() {
         return format != null && isAV1Codec(format.codecs);
-    }
-
-    public boolean isMP4ACodec() {
-        return format != null && isMP4ACodec(format.codecs);
-    }
-
-    public boolean isEmpty() {
-        return groupIndex == -1 && trackIndex == -1;
-    }
-
-    public int getWidth() {
-        return format != null ? format.width : -1;
-    }
-
-    public int getHeight() {
-        return format != null ? format.height : -1;
     }
 
     private static boolean isVP9Codec(String codec) {
@@ -217,15 +84,5 @@ public abstract class MediaTrack {
         codec = codec.toLowerCase();
 
         return codec.contains("av01");
-    }
-
-    private static boolean isMP4ACodec(String codec) {
-        if (codec == null) {
-            return false;
-        }
-
-        codec = codec.toLowerCase();
-
-        return codec.contains("mp4a");
     }
 }

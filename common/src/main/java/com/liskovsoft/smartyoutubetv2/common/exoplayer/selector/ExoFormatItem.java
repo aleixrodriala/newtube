@@ -4,11 +4,10 @@ import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import com.google.android.exoplayer2.Format;
-import com.google.android.exoplayer2.util.MimeTypes;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.MediaTrack;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.SubtitleTrack;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.TrackFormat;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -76,7 +75,7 @@ public class ExoFormatItem implements FormatItem {
         return videoFormatItem;
     }
 
-    public static ExoFormatItem from(Format format) {
+    public static ExoFormatItem from(TrackFormat format) {
         ExoFormatItem formatItem = new ExoFormatItem();
 
         if (format != null) {
@@ -101,10 +100,18 @@ public class ExoFormatItem implements FormatItem {
         return formatItem;
     }
 
-    private static int getType(Format format) {
+    private static int getType(TrackFormat format) {
         String sampleMimeType = format.sampleMimeType;
 
-        return MimeTypes.isVideo(sampleMimeType) ? TYPE_VIDEO : MimeTypes.isAudio(sampleMimeType) ? TYPE_AUDIO : TYPE_SUBTITLE;
+        return isVideoMime(sampleMimeType) ? TYPE_VIDEO : isAudioMime(sampleMimeType) ? TYPE_AUDIO : TYPE_SUBTITLE;
+    }
+
+    private static boolean isVideoMime(String sampleMimeType) {
+        return sampleMimeType != null && sampleMimeType.startsWith("video/");
+    }
+
+    private static boolean isAudioMime(String sampleMimeType) {
+        return sampleMimeType != null && sampleMimeType.startsWith("audio/");
     }
 
     @NonNull
@@ -124,7 +131,7 @@ public class ExoFormatItem implements FormatItem {
         if (mTrack != null) {
             rendererIndex = mTrack.rendererIndex;
             isPreset = mTrack.isPreset;
-            Format format = mTrack.format;
+            TrackFormat format = mTrack.format;
             if (format != null) {
                 id = format.id;
                 codecs = format.codecs;
@@ -190,20 +197,20 @@ public class ExoFormatItem implements FormatItem {
         }
 
         // NOTE: Create fake format. It's used in app internal comparison routine.
+        // NOTE: The argument quirks (video drops bitrate/language, audio zeroes channels/rate)
+        // replicate the legacy exo2 Format.createXxxSampleFormat calls byte-for-byte - the
+        // result is persisted via toString().
         switch (type) {
             case TYPE_VIDEO:
-                mediaTrack.format = Format.createVideoSampleFormat(
-                        id, null, codecs, -1, -1, width, height,
-                        frameRate, null, null);
+                mediaTrack.format = TrackFormat.createVideo(
+                        id, null, codecs, -1, width, height, frameRate);
                 break;
             case TYPE_AUDIO:
-                mediaTrack.format = Format.createAudioSampleFormat(
-                        id, null, codecs, bitrate, -1,0, 0,
-                        null, null, 0, language, isDrc);
+                mediaTrack.format = TrackFormat.createAudio(
+                        id, null, codecs, bitrate, 0, 0, language, isDrc);
                 break;
             case TYPE_SUBTITLE:
-                mediaTrack.format = Format.createTextSampleFormat(
-                        id, null, -1, language);
+                mediaTrack.format = TrackFormat.createText(id, null, language);
                 break;
         }
 
@@ -307,8 +314,7 @@ public class ExoFormatItem implements FormatItem {
         }
 
         // Fake format. It's used in app internal comparison routine.
-        mediaTrack.format = Format.createVideoSampleFormat(
-                null, null, codec, -1, -1, width, height, fps, null, null);
+        mediaTrack.format = TrackFormat.createVideo(null, null, codec, -1, width, height, fps);
 
         return formatItem;
     }
@@ -329,8 +335,7 @@ public class ExoFormatItem implements FormatItem {
         }
 
         // Fake format. It's used in app internal comparison routine.
-        mediaTrack.format = Format.createAudioSampleFormat(
-                null, null, codec, -1, -1,0, 0, null, null, 0, null);
+        mediaTrack.format = TrackFormat.createAudio(null, null, codec, -1, 0, 0, null, false);
 
         return formatItem;
     }
@@ -370,7 +375,7 @@ public class ExoFormatItem implements FormatItem {
         formatItem.mLanguage = langCode;
         formatItem.mIsDefault = langCode == null;
 
-        mediaTrack.format = Format.createTextSampleFormat(null, null, -1, langCode);
+        mediaTrack.format = TrackFormat.createText(null, null, langCode);
 
         return formatItem;
     }

@@ -6,7 +6,6 @@ import android.view.Gravity;
 
 import androidx.annotation.Nullable;
 
-import com.google.android.exoplayer2.Format;
 import com.liskovsoft.mediaserviceinterfaces.CommentsService;
 import com.liskovsoft.mediaserviceinterfaces.ContentService;
 import com.liskovsoft.mediaserviceinterfaces.MediaItemService;
@@ -22,6 +21,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.SearchPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.TrackFormat;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MotherActivity;
 import com.liskovsoft.smartyoutubetv2.common.misc.ScreensaverManager;
@@ -44,7 +44,7 @@ public abstract class BasePlayerController implements PlayerEventListener {
             return;
         }
         FormatItem videoFormat = getPlayer().getVideoFormat();
-        Format format = videoFormat != null && videoFormat.getTrack() != null ? videoFormat.getTrack().format : null;
+        TrackFormat format = videoFormat != null && videoFormat.getTrack() != null ? videoFormat.getTrack().format : null;
         if (format == null) {
             return;
         }

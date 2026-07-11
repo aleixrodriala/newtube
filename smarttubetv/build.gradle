@@ -30,11 +30,6 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "long", "TIMESTAMP", System.currentTimeMillis() + "L"
 
-        // NEWTUBE(phone-only): the app dropped its TV flavors, but the vendored exoplayer-amzn
-        // modules (kept until Phase B) still declare the "default" flavor dimension. Select their
-        // ststable variant - the flavor the stmobile build historically consumed via matchingFallbacks.
-        missingDimensionStrategy 'default', 'ststable'
-
         // More info: http://myhexaville.com/2017/03/10/android-multidex/
         // Additionally, you should extend your application from MultiDexApplication
         multiDexEnabled = true
@@ -188,34 +183,19 @@ dependencies {
     implementation 'com.github.zjupure:webpdecoder:' + webpDecoderVersion
     implementation 'androidx.multidex:multidex:' + multiDexVersion
 
-    //////// BEGIN EXOPLAYER /////////
+    //////// BEGIN PLAYER ENGINE /////////
 
-    implementation project(':exoplayer-library-core')
-    implementation project(':exoplayer-library-ui')
-    implementation project(':exoplayer-extension-mediasession')
-
-    // implementation 'com.amazon.android:exoplayer:' + amazonExoplayerVersion
-    // implementation 'com.amazon.android:extension-leanback:' + amazonExoplayerVersion
-    // implementation 'com.amazon.android:extension-mediasession:' + amazonExoplayerVersion
-
-    // implementation 'com.google.android.exoplayer:exoplayer:' + exoplayerVersion
-    // implementation 'com.google.android.exoplayer:extension-leanback:' + exoplayerVersion
-    // implementation 'com.google.android.exoplayer:extension-mediasession:' + exoplayerVersion
-
-    // implementation 'com.github.amzn:exoplayer-amazon-port:' + amazonExoplayerJitpackVersion
-
-    // NEWTUBE(media3): the touch flavor's player engine is androidx.media3 (modern ExoPlayer);
-    // the vendored 2.10.6 fork above stays for the TV flavors (and remains in the mobile APK so
-    // the shared FormatItem/MediaTrack DTOs and presenter constants keep compiling). 1.4.1 is the
-    // newest media3 line that compiles against compileSdk 34 (1.5+ requires 35). Scoped to
-    // stmobile so the TV flavors (minSdk 17, below media3's floor) never resolve it.
+    // NEWTUBE(media3): the player engine is androidx.media3 (modern ExoPlayer); the vendored
+    // exoplayer-amzn-2.10.6 fork was deleted in the phone-only port (the shared
+    // FormatItem/MediaTrack DTO layer is engine-neutral now). 1.4.1 is the newest media3 line
+    // that compiles against compileSdk 34 (1.5+ requires 35).
     stmobileImplementation 'androidx.media3:media3-exoplayer:1.4.1'
     stmobileImplementation 'androidx.media3:media3-exoplayer-dash:1.4.1'
     stmobileImplementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
     stmobileImplementation 'androidx.media3:media3-ui:1.4.1'
     stmobileImplementation project(':doubletapplayerview-media3')
 
-    //////// END EXOPLAYER //////////
+    //////// END PLAYER ENGINE //////////
 
     testImplementation 'junit:junit:' + junitVersion
     testImplementation 'org.robolectric:robolectric:' + robolectricVersion
