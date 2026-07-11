@@ -8,11 +8,12 @@ apply plugin: 'kotlin-android'
 apply plugin: 'com.android.library'
 
 android {
+    namespace 'com.github.vkay94.dtpv3'
+
     compileSdkVersion project.properties.compileSdkVersion
-    buildToolsVersion project.properties.buildToolsVersion
 
     defaultConfig {
-        minSdkVersion 21 // media3 floor; consumed only by the stmobile flavor (also minSdk 21)
+        minSdkVersion 24 // media3 1.10.x floor is 23; consumed only by the stmobile flavor (also minSdk 24)
         targetSdkVersion project.properties.targetSdkVersion
         versionCode 40001
         versionName '1.0.4'
@@ -31,6 +32,11 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+
+    // Kotlin 2.x defaults to the toolchain JDK (17); keep bytecode aligned with javac (1.8).
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
 }
 
 dependencies {
@@ -39,8 +45,8 @@ dependencies {
     implementation 'androidx.core:core-ktx:' + kotlinCoreXVersion
     implementation 'androidx.constraintlayout:constraintlayout:' + constraintLayoutXVersion
 
-    // 1.4.1 = newest media3 whose floor is compileSdk 34 (1.5+ needs 35); keep in sync with
+    // 1.10.1 needs compileSdk 35+ (we build against 36); keep in sync with
     // the media3 deps in smarttubetv/build.gradle.
-    api 'androidx.media3:media3-exoplayer:1.4.1'
-    api 'androidx.media3:media3-ui:1.4.1'
+    api 'androidx.media3:media3-exoplayer:1.10.1'
+    api 'androidx.media3:media3-ui:1.10.1'
 }

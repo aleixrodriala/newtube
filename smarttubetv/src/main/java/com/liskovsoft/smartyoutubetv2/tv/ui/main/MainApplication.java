@@ -1,8 +1,7 @@
 package com.liskovsoft.smartyoutubetv2.tv.ui.main;
 
+import android.app.Application;
 import android.os.Build.VERSION;
-
-import androidx.multidex.MultiDexApplication;
 
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.BrowseSection;
@@ -29,7 +28,7 @@ import java.lang.Thread.UncaughtExceptionHandler;
 import java.security.Provider;
 import java.security.Security;
 
-public class MainApplication extends MultiDexApplication { // fix: Didn't find class "com.google.firebase.provider.FirebaseInitProvider"
+public class MainApplication extends Application { // multidex is native at minSdk 24 (legacy MultiDexApplication dropped with the AGP 8 round)
     static {
         // fix youtube bandwidth throttling (best - false)???
         // false is better for streams (less buffering)

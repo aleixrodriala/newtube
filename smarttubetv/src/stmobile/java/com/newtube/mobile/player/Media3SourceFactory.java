@@ -10,6 +10,7 @@ import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.cache.Cache;
 import androidx.media3.datasource.cache.CacheDataSource;
+import androidx.media3.datasource.cronet.CronetDataSource;
 import androidx.media3.exoplayer.dash.DashMediaSource;
 import androidx.media3.exoplayer.dash.DefaultDashChunkSource;
 import androidx.media3.exoplayer.dash.manifest.DashManifest;
@@ -22,11 +23,16 @@ import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy;
 
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
+import com.liskovsoft.sharedutils.cronet.CronetManager;
 import com.liskovsoft.sharedutils.mylogger.Log;
+
+import org.chromium.net.CronetEngine;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 /**
  * Media3 counterpart of {@code ExoMediaSourceFactory}, reduced to the branches the touch player
@@ -43,11 +49,14 @@ import java.util.List;
  *   <li><b>Progressive URL list</b> - legacy LQ fallback, first (=best) URL only, like before.</li>
  * </ul>
  *
- * <p>Networking: media3 {@link DefaultHttpDataSource} with the shared singleton
- * {@link DefaultBandwidthMeter} attached as transfer listener to every data source - same "one
- * meter feeds both the estimator and the track selector" wiring the legacy round added - plus the
- * on-disk {@link CacheDataSource} tier (stable YouTube cache keys, see {@link Media3PlayerCache})
- * for immutable media. Live manifests bypass the cache, mirroring the legacy rule.</p>
+ * <p>Networking: the media path rides H2/QUIC via the embedded Cronet engine when available
+ * (matching what the legacy engine had), with media3 {@link DefaultHttpDataSource} as the
+ * build-time fallback and per-request fallback factory. The shared singleton
+ * {@link DefaultBandwidthMeter} is attached as transfer listener to the chosen leaf transport -
+ * same "one meter feeds both the estimator and the track selector" wiring the legacy round added -
+ * plus the on-disk {@link CacheDataSource} tier (stable YouTube cache keys, see
+ * {@link Media3PlayerCache}) for immutable media. Live manifests bypass the cache, mirroring the
+ * legacy rule.</p>
  */
 public class Media3SourceFactory {
 
@@ -68,6 +77,18 @@ public class Media3SourceFactory {
      */
     private static final int LOAD_RETRY_COUNT = 6;
 
+    /**
+     * Process-wide executor for Cronet's async callbacks, reused across engine restarts (a
+     * per-instance executor would leak: nothing ever shuts it down - the legacy engine's
+     * {@code ExoMediaSourceFactory} had the same rule). 2 threads so audio+video segment
+     * callbacks make progress together.
+     */
+    private static final Executor CRONET_EXECUTOR = Executors.newFixedThreadPool(2, r -> {
+        Thread thread = new Thread(r, "Media3Cronet");
+        thread.setDaemon(true);
+        return thread;
+    });
+
     private final Context mContext;
     private final DefaultBandwidthMeter mBandwidthMeter;
     private final DataSource.Factory mHttpDataSourceFactory;
@@ -77,12 +98,30 @@ public class Media3SourceFactory {
         mContext = context.getApplicationContext();
         mBandwidthMeter = DefaultBandwidthMeter.getSingletonInstance(mContext);
 
-        mHttpDataSourceFactory = new DefaultHttpDataSource.Factory()
+        DefaultHttpDataSource.Factory defaultHttp = new DefaultHttpDataSource.Factory()
                 .setUserAgent(USER_AGENT)
                 .setAllowCrossProtocolRedirects(true)
                 .setConnectTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
                 .setReadTimeoutMs(DefaultHttpDataSource.DEFAULT_READ_TIMEOUT_MILLIS)
                 .setTransferListener(mBandwidthMeter);
+
+        // Prefer Cronet (H2/QUIC/Brotli) whenever the embedded engine loads; it is only the leaf
+        // HTTP transport - every cache tier above stays byte-identical. Cronet follows
+        // http<->https redirects natively (no setAllowCrossProtocolRedirects equivalent needed).
+        CronetEngine cronetEngine = CronetManager.getEngine(mContext);
+        if (cronetEngine != null) {
+            Log.d(TAG, "media transport: cronet");
+            mHttpDataSourceFactory = new CronetDataSource.Factory(cronetEngine, CRONET_EXECUTOR)
+                    .setUserAgent(USER_AGENT)
+                    .setTransferListener(mBandwidthMeter)
+                    .setConnectionTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
+                    .setReadTimeoutMs(DefaultHttpDataSource.DEFAULT_READ_TIMEOUT_MILLIS)
+                    .setKeepPostFor302Redirects(true)
+                    .setFallbackFactory(defaultHttp);
+        } else {
+            Log.d(TAG, "media transport: http (cronet unavailable)");
+            mHttpDataSourceFactory = defaultHttp;
+        }
 
         Cache mediaCache = Media3PlayerCache.get(mContext);
         if (mediaCache != null) {

@@ -3,12 +3,13 @@ apply plugin: 'com.android.library'
 
 task sourceJar(type: Jar) {
     from android.sourceSets.main.java.srcDirs
-    classifier 'sources'
+    archiveClassifier = 'sources' // Gradle 8: 'classifier' is gone
 }
 
 android {
+    namespace 'arte.programar.materialfile'
+
     compileSdkVersion project.properties.compileSdkVersion
-    buildToolsVersion project.properties.buildToolsVersion
     defaultConfig {
         minSdkVersion project.properties.minSdkVersion
         targetSdkVersion project.properties.targetSdkVersion
@@ -32,5 +33,5 @@ dependencies {
 
     implementation 'androidx.recyclerview:recyclerview:' + recyclerviewXVersion
     implementation 'com.google.android.material:material:' + materialVersion
-    implementation 'androidx.fragment:fragment:' + annotationXVersion
+    implementation 'androidx.fragment:fragment:1.1.0' // was wrongly keyed to annotationXVersion (same 1.1.0)
 }

@@ -9,6 +9,9 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
+    // NOTE: this is the R package the code imports (unchanged from the TV era on purpose).
+    namespace 'com.liskovsoft.smartyoutubetv2.tv'
+
     // FIX: Default interface methods are only supported starting with Android N (--min-api 24)
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
@@ -16,7 +19,6 @@ android {
     }
 
     compileSdkVersion project.properties.compileSdkVersion
-    buildToolsVersion project.properties.buildToolsVersion
     testOptions.unitTests.includeAndroidResources = true
     ndkVersion "21.0.6113669" // reduce size of the *.so files (stripping debug symbols)
     
@@ -29,13 +31,6 @@ android {
         versionName "31.97"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "long", "TIMESTAMP", System.currentTimeMillis() + "L"
-
-        // More info: http://myhexaville.com/2017/03/10/android-multidex/
-        // Additionally, you should extend your application from MultiDexApplication
-        multiDexEnabled = true
-
-        // Trying to fix VerifyError/ClassNotFoundException
-        multiDexKeepProguard file("multidex-keep.pro")
 
         // The content of Universal apk
         ndk {
@@ -120,8 +115,11 @@ android {
         // exclude "lib/armeabi/**"
     }
 
-    lintOptions {
+    lint {
         abortOnError true
+        // media3 player APIs are @UnstableApi; release runs lintVital with abortOnError, so the
+        // opt-in check must stay off (the code deliberately uses the unstable player surface).
+        disable 'UnsafeOptInUsageError'
         //checkReleaseBuilds false // fix for ClassNotFoundException: com.android.tools.lint.client.api.Vendor
     }
 
@@ -135,14 +133,14 @@ android {
     productFlavors {
         stmobile {
             applicationId "com.newtube.app"
-            minSdkVersion 21
-            targetSdkVersion project.properties.compileSdkVersion
+            minSdkVersion 24 // media3 1.10.x floor is 23; 24 = project-wide minimum
+            targetSdkVersion project.properties.targetSdkVersion
             // NewTube versions independently of upstream SmartTube (defaultConfig carries the
             // fork-point 31.97/2387). versionCode starts at 10000 - above upstream's code so
             // existing test installs upgrade in place - and encodes the version:
             // 1.0.0 -> 10000, 1.0.1 -> 10001, 1.1.0 -> 10100, 2.0.0 -> 20000.
-            versionCode 10100
-            versionName "1.1.0"
+            versionCode 10200
+            versionName "1.2.0"
         }
     }
 }
@@ -181,18 +179,23 @@ dependencies {
     implementation 'com.github.bumptech.glide:annotations:' + glideVersion
     annotationProcessor 'com.github.bumptech.glide:compiler:' + glideVersion
     implementation 'com.github.zjupure:webpdecoder:' + webpDecoderVersion
-    implementation 'androidx.multidex:multidex:' + multiDexVersion
 
     //////// BEGIN PLAYER ENGINE /////////
 
     // NEWTUBE(media3): the player engine is androidx.media3 (modern ExoPlayer); the vendored
     // exoplayer-amzn-2.10.6 fork was deleted in the phone-only port (the shared
-    // FormatItem/MediaTrack DTO layer is engine-neutral now). 1.4.1 is the newest media3 line
-    // that compiles against compileSdk 34 (1.5+ requires 35).
-    stmobileImplementation 'androidx.media3:media3-exoplayer:1.4.1'
-    stmobileImplementation 'androidx.media3:media3-exoplayer-dash:1.4.1'
-    stmobileImplementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
-    stmobileImplementation 'androidx.media3:media3-ui:1.4.1'
+    // FormatItem/MediaTrack DTO layer is engine-neutral now). 1.10.1 needs compileSdk 35+
+    // (we build against 36) and AGP 8.1+. Keep in sync with doubletapplayerview-media3.
+    stmobileImplementation 'androidx.media3:media3-exoplayer:1.10.1'
+    stmobileImplementation 'androidx.media3:media3-exoplayer-dash:1.10.1'
+    stmobileImplementation 'androidx.media3:media3-exoplayer-hls:1.10.1'
+    stmobileImplementation 'androidx.media3:media3-ui:1.10.1'
+    // Cronet leaf transport for the media path (H2/QUIC, like the legacy engine had). The
+    // engine is the embedded org.chromium.net:cronet-embedded already shipped by :sharedutils
+    // (CronetManager); the GMS provider is useless weight here.
+    stmobileImplementation('androidx.media3:media3-datasource-cronet:1.10.1') {
+        exclude group: 'com.google.android.gms', module: 'play-services-cronet'
+    }
     stmobileImplementation project(':doubletapplayerview-media3')
 
     //////// END PLAYER ENGINE //////////

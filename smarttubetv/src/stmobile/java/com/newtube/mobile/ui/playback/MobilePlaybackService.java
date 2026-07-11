@@ -335,7 +335,10 @@ public class MobilePlaybackService extends Service {
         mNotificationManager.setUsePreviousAction(true);
         mNotificationManager.setUsePlayPauseActions(true);
         mNotificationManager.setUseStopAction(false);
-        mNotificationManager.setMediaSessionToken(mMediaSession.getSessionToken());
+        // media3 1.5+ dropped the MediaSessionCompat.Token overload; unwrap the platform token
+        // (MediaSessionCompat.Token.getToken() returns the framework MediaSession.Token).
+        mNotificationManager.setMediaSessionToken(
+                (android.media.session.MediaSession.Token) mMediaSession.getSessionToken().getToken());
 
         // Posts the notification now (if media already loaded) and on every subsequent player event.
         mNotificationManager.setPlayer(mNotificationPlayer);

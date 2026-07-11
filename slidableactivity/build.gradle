@@ -2,6 +2,8 @@ apply from: gradle.ext.sharedModulesConstants
 apply plugin: 'com.android.library'
 
 android {
+    namespace 'com.r0adkll.slidr'
+
     compileSdkVersion project.properties.compileSdkVersion
 
     defaultConfig {
@@ -29,7 +31,9 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:' + appCompatXVersion
     implementation 'androidx.recyclerview:recyclerview:' + recyclerviewXVersion
     implementation 'androidx.cardview:cardview:' + cardviewXVersion
-    implementation 'com.52inc:52Kit-core:0.6.2'
+    // NEWTUBE(toolchain): com.52inc:52Kit-core:0.6.2 removed - nothing in this module references
+    // com.ftinc.kit, and it was the last artifact dragging in com.android.support:*:28.0.0
+    // (which broke the build once jetifier was turned off).
 
     testImplementation 'junit:junit:' + junitVersion
     testImplementation 'org.mockito:mockito-core:' + mockitoVersion

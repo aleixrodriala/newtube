@@ -3,14 +3,20 @@ apply plugin: 'kotlin-android'
 apply plugin: 'com.android.library'
 
 android {
+    namespace 'com.liskovsoft.smartyoutubetv2.common'
+
     // FIX: Default interface methods are only supported starting with Android N (--min-api 24)
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
 
+    // Kotlin 2.x defaults to the toolchain JDK (17); keep bytecode aligned with javac (1.8).
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+
     compileSdkVersion project.properties.compileSdkVersion
-    buildToolsVersion project.properties.buildToolsVersion
     testOptions.unitTests.includeAndroidResources = true
 
     defaultConfig {
@@ -21,10 +27,6 @@ android {
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles 'consumer-rules.pro'
-
-        // More info: http://myhexaville.com/2017/03/10/android-multidex/
-        // Additionally, you should extend your application from MultiDexApplication
-        multiDexEnabled = true
     }
 
     buildTypes {
@@ -34,7 +36,7 @@ android {
         }
     }
 
-    lintOptions {
+    lint {
         abortOnError true
         disable 'MissingTranslation'
         disable 'MissingQuantity'
