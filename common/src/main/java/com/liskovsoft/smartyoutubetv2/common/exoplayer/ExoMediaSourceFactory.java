@@ -55,7 +55,9 @@ import com.liskovsoft.googlecommon.common.helpers.DefaultHeaders;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExoMediaSourceFactory {
     private static final String TAG = ExoMediaSourceFactory.class.getSimpleName();
@@ -64,28 +66,52 @@ public class ExoMediaSourceFactory {
     private static final int MAX_SEGMENTS_PER_LOAD = 1; // default - 1 (1-5)
     private static final String USER_AGENT = DefaultHeaders.APP_USER_AGENT;
     @SuppressLint("StaticFieldLeak")
-    private static final DefaultBandwidthMeter BANDWIDTH_METER = new DefaultBandwidthMeter();
+    private static volatile DefaultBandwidthMeter sBandwidthMeter;
     private final Context mContext;
     private static final Uri DASH_MANIFEST_URI = Uri.parse("https://example.com/test.mpd");
     private static final String DASH_MANIFEST_EXTENSION = "mpd";
     private static final String HLS_PLAYLIST_EXTENSION = "m3u8";
-    private static final boolean USE_BANDWIDTH_METER = false;
+    // Feed the same meter into both the network data sources and ExoPlayer's track selector. Using
+    // two meters (or not attaching a listener here) leaves AdaptiveTrackSelection at its initial
+    // estimate forever, so "Auto" cannot down-switch when throughput drops.
+    private static final boolean USE_BANDWIDTH_METER = true;
+    private static final AtomicInteger CRONET_THREAD_ID = new AtomicInteger();
+    // A process-wide callback pool avoids leaking one never-shutdown executor each time the player
+    // engine is recreated. Two threads let audio and video Cronet callbacks make progress together.
+    private static final Executor CRONET_EXECUTOR = Executors.newFixedThreadPool(2, runnable -> {
+        Thread thread = new Thread(runnable, "ExoPlayer-Cronet-" + CRONET_THREAD_ID.incrementAndGet());
+        thread.setDaemon(true);
+        return thread;
+    });
     private TrackErrorFixer mTrackErrorFixer;
     private Factory mMediaDataSourceFactory;
     private Factory mUncachedMediaDataSourceFactory;
 
     // NEWTUBE(mobile-cache): optional on-disk media cache, enabled only by the touch (stmobile)
     // flavor via setMediaCache() from MobileMainApplication. When non-null, GET-based media
-    // sources (progressive / DASH / HLS / SmoothStreaming) are served through a CacheDataSource
+    // sources (progressive / static DASH / SmoothStreaming segments) are served through a CacheDataSource
     // so already-downloaded bytes are read back from disk on a backward seek instead of being
-    // re-downloaded from the network. Left null on the TV builds, where getMediaDataSourceFactory()
-    // returns exactly the same plain factory as before -> TV behavior is byte-for-byte unchanged.
+    // re-downloaded from the network. It stays null on TV builds, which retain the plain,
+    // non-caching media data-source path.
     // NOTE: SABR is deliberately NOT cached (see getSabrChunkSourceFactory) because it streams via
     // HTTP POST request bodies that CacheDataSource can neither key nor replay.
     private static volatile Cache sMediaCache;
 
     public ExoMediaSourceFactory(Context context) {
-        mContext = context;
+        mContext = context.getApplicationContext();
+    }
+
+    /**
+     * Returns the process-wide bandwidth meter shared by ExoPlayer and every media data source.
+     * The context-aware builder provides a useful network-specific initial estimate and resets the
+     * estimate when Android reports a network-type change.
+     */
+    public static synchronized DefaultBandwidthMeter getBandwidthMeter(Context context) {
+        if (sBandwidthMeter == null) {
+            sBandwidthMeter = new DefaultBandwidthMeter.Builder(context.getApplicationContext()).build();
+        }
+
+        return sBandwidthMeter;
     }
 
     /**
@@ -131,26 +157,26 @@ public class ExoMediaSourceFactory {
     /**
      * Returns a new DataSource factory.
      *
-     * @param useBandwidthMeter Whether to set {@link #BANDWIDTH_METER} as a listener to the new
-     *                          DataSource factory.
+     * @param useBandwidthMeter Whether to set {@link #getBandwidthMeter(Context)} as a listener to
+     *                          the new DataSource factory.
      * @return A new DataSource factory.
      */
     private DataSource.Factory buildDataSourceFactory(boolean useBandwidthMeter) {
-        DefaultBandwidthMeter bandwidthMeter = useBandwidthMeter ? BANDWIDTH_METER : null;
+        DefaultBandwidthMeter bandwidthMeter = useBandwidthMeter ? getBandwidthMeter(mContext) : null;
         return new DefaultDataSourceFactory(mContext, bandwidthMeter, buildHttpDataSourceFactory(useBandwidthMeter));
     }
 
     /**
      * Returns a new HttpDataSource factory.
      *
-     * @param useBandwidthMeter Whether to set {@link #BANDWIDTH_METER} as a listener to the new
-     *                          DataSource factory.
+     * @param useBandwidthMeter Whether to set {@link #getBandwidthMeter(Context)} as a listener to
+     *                          the new DataSource factory.
      * @return A new HttpDataSource factory.
      */
     private HttpDataSource.Factory buildHttpDataSourceFactory(boolean useBandwidthMeter) {
         PlayerTweaksData tweaksData = PlayerTweaksData.instance(mContext);
         int source = tweaksData.getPlayerDataSource();
-        DefaultBandwidthMeter bandwidthMeter = useBandwidthMeter ? BANDWIDTH_METER : null;
+        DefaultBandwidthMeter bandwidthMeter = useBandwidthMeter ? getBandwidthMeter(mContext) : null;
         return source == PlayerTweaksData.PLAYER_DATA_SOURCE_OKHTTP ? buildOkHttpDataSourceFactory(bandwidthMeter) :
                         source == PlayerTweaksData.PLAYER_DATA_SOURCE_CRONET && CronetManager.getEngine(mContext) != null ? buildCronetDataSourceFactory(bandwidthMeter) :
                                 buildDefaultHttpDataSourceFactory(bandwidthMeter);
@@ -312,7 +338,7 @@ public class ExoMediaSourceFactory {
         CronetDataSourceFactory dataSourceFactory =
                 new CronetDataSourceFactory(
                         new CronetEngineWrapper(CronetManager.getEngine(mContext)),
-                        Executors.newSingleThreadExecutor(),
+                        CRONET_EXECUTOR,
                         null,
                         bandwidthMeter,
                         (int) OkHttpManager.getConnectTimeoutMs(),
@@ -434,8 +460,8 @@ public class ExoMediaSourceFactory {
      * NEWTUBE(mobile-cache): the data source that must bypass the disk cache. Used for things that are
      * NOT immutable media segments: live/dynamic manifests + playlists (DASH-URL, HLS, SmoothStreaming
      * — caching a dynamic manifest would serve a stale copy on refresh and stall live playback) and
-     * SABR (HTTP POST). On TV (cache off) this returns exactly the same shared factory as before, so
-     * TV playback is unchanged; only the mobile build (cache on) diverges to the uncached factory.
+     * SABR (HTTP POST). On TV (cache off) this returns the shared non-caching factory; only the
+     * mobile build (cache on) needs a separate uncached factory.
      */
     private Factory getNonCachedMediaDataSourceFactory() {
         return sMediaCache != null ? getUncachedMediaDataSourceFactory() : getMediaDataSourceFactory();

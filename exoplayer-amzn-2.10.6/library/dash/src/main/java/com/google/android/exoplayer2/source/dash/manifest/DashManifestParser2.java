@@ -471,7 +471,27 @@ public class DashManifestParser2 {
                 format,
                 representationInfo.baseUrl,
                 representationInfo.segmentBase,
-                new ArrayList<>());
+                new ArrayList<>(),
+                buildMediaCacheKey(format));
+    }
+
+    /**
+     * Signed googlevideo URLs change whenever format info is refreshed, although the encoded media
+     * does not. A stable key lets the disk cache survive URL expiry/player reloads. The language,
+     * DRC flag and last-modified value keep same-itag alternate audio encodes and revisions apart.
+     * Multi-segment representations ignore this key and continue to key each immutable segment URL.
+     */
+    private String buildMediaCacheKey(Format format) {
+        if (mFormatInfo == null || TextUtils.isEmpty(mFormatInfo.getVideoId()) || TextUtils.isEmpty(format.id)) {
+            return null;
+        }
+
+        return "youtube-media:"
+                + mFormatInfo.getVideoId() + ':'
+                + format.id + ':'
+                + format.lastModified + ':'
+                + (format.language != null ? format.language : "") + ':'
+                + format.isDrc;
     }
 
     protected Format buildFormat(

@@ -76,7 +76,10 @@ public final class CacheUtil {
    * @param dataSpec DataSpec of a content which the requested key is for.
    */
   public static String generateKey(DataSpec dataSpec) {
-    return dataSpec.toString() + "-" +  + dataSpec.absoluteStreamPosition;
+    // A cache entry represents the resource; byte ranges are spans within that entry. Including
+    // position/length in the key fragments one video into unrelated entries and prevents a later
+    // overlapping seek from reusing bytes that are already on disk.
+    return dataSpec.uri.toString();
   }
 
   /**

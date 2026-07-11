@@ -116,6 +116,9 @@ public final class CacheUtilTest {
     // Should generate the same key for the same input.
     assertThat(CacheUtil.generateKey(testDataSpec)).isEqualTo(key);
 
+    // Byte ranges of one resource must share a key; their positions are represented by cache spans.
+    assertThat(CacheUtil.generateKey(new DataSpec(testUri, 10, 20, null))).isEqualTo(key);
+
     // Should generate different key for different input.
     assertThat(key.equals(CacheUtil.generateKey(new DataSpec(Uri.parse("test2"))))).isFalse();
   }

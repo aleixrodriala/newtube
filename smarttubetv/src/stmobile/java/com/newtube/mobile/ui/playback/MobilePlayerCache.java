@@ -4,6 +4,7 @@ import android.content.Context;
 
 import androidx.annotation.Nullable;
 
+import com.google.android.exoplayer2.database.ExoDatabaseProvider;
 import com.google.android.exoplayer2.upstream.cache.Cache;
 import com.google.android.exoplayer2.upstream.cache.LeastRecentlyUsedCacheEvictor;
 import com.google.android.exoplayer2.upstream.cache.SimpleCache;
@@ -16,17 +17,18 @@ import java.io.File;
  *
  * <p>The reused SmartTube player has no media cache at all: {@code ExoMediaSourceFactory} builds a
  * plain {@code DefaultDataSourceFactory} over HTTP, and the only thing retained behind the playhead
- * is the in-memory back-buffer configured by {@code ExoPlayerInitializer} (50s for the BUFFER_HIGH
- * the mobile player forces). So seeking backward beyond ~50s of already-watched video re-buffers and
- * re-downloads the segments from the network.</p>
+ * was the in-memory back-buffer configured by {@code ExoPlayerInitializer}. The mobile flavor now
+ * widens that buffer to two minutes, but a farther backward seek would still re-buffer and
+ * re-download the same ranges without this disk tier.</p>
  *
  * <p>This holds a single {@link SimpleCache} (bounded LRU under the app's internal cache dir) that
  * {@code MobileMainApplication} registers with {@link
  * com.liskovsoft.smartyoutubetv2.common.exoplayer.ExoMediaSourceFactory#setMediaCache(Cache)}. Once
- * installed, every GET-based media source (progressive / DASH / HLS / SmoothStreaming) is served
- * through a {@code CacheDataSource}, so any backward seek to already-downloaded bytes is read from
- * disk instead of the network. Memory stays bounded: the cache lives on disk and the LRU evictor
- * caps it at {@link #MAX_CACHE_BYTES}.</p>
+ * installed, progressive and DASH media plus SmoothStreaming segments are served through a
+ * {@code CacheDataSource}, so any backward seek to already-downloaded bytes is read from disk
+ * instead of the network. HLS and live manifests deliberately bypass it because this ExoPlayer
+ * version uses one data-source factory for both mutable playlists and segments. Memory stays
+ * bounded: the cache lives on disk and the LRU evictor caps it at {@link #MAX_CACHE_BYTES}.</p>
  *
  * <p>Must be a singleton per directory: {@link SimpleCache} locks its folder and throws if a second
  * instance is created for the same directory in the same process, hence the static holder here.</p>
@@ -42,6 +44,7 @@ public final class MobilePlayerCache {
     private static final long MAX_CACHE_BYTES = 256L * 1024 * 1024; // 256 MB
 
     private static SimpleCache sCache;
+    private static ExoDatabaseProvider sDatabaseProvider;
 
     private MobilePlayerCache() {
     }
@@ -55,7 +58,13 @@ public final class MobilePlayerCache {
         if (sCache == null) {
             try {
                 File cacheDir = new File(context.getApplicationContext().getCacheDir(), CACHE_DIR_NAME);
-                sCache = new SimpleCache(cacheDir, new LeastRecentlyUsedCacheEvictor(MAX_CACHE_BYTES));
+                // The database-backed index avoids renaming/touching cache files on every read and
+                // makes startup scale much better once the cache contains hundreds of spans.
+                sDatabaseProvider = new ExoDatabaseProvider(context.getApplicationContext());
+                sCache = new SimpleCache(
+                        cacheDir,
+                        new LeastRecentlyUsedCacheEvictor(MAX_CACHE_BYTES),
+                        sDatabaseProvider);
             } catch (Throwable e) {
                 // e.g. folder already locked by another SimpleCache, or no free space. Non-fatal:
                 // playback continues without a disk cache (original behavior).

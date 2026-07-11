@@ -22,6 +22,7 @@ import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 import com.google.android.exoplayer2.upstream.BandwidthMeter;
 import com.google.android.exoplayer2.upstream.TransferListener;
 import com.liskovsoft.sharedutils.helpers.DeviceHelpers;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.ExoMediaSourceFactory;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
 
@@ -116,7 +117,15 @@ public class ExoPlayerInitializer {
         //trackSelector.setParameters(trackSelector.buildUponParameters().setTunnelingAudioSessionId(C.generateAudioSessionIdV21(context)));
 
         // Old initializer
-        SimpleExoPlayer player = ExoPlayerFactory.newSimpleInstance(context, renderersFactory, trackSelector, loadControl);
+        // The network data sources report transfers to this exact same meter. Passing it into the
+        // player is what turns multi-track "Auto" selections into real throughput-driven ABR.
+        SimpleExoPlayer player = ExoPlayerFactory.newSimpleInstance(
+                context,
+                renderersFactory,
+                trackSelector,
+                loadControl,
+                null,
+                ExoMediaSourceFactory.getBandwidthMeter(context));
 
         // New initializer
         //SimpleExoPlayer player = ExoPlayerFactory.newSimpleInstance(

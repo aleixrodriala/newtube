@@ -13,11 +13,11 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.WebBrowserView;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.controllers.SuggestionsController;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.YTSignInPresenter;
-import com.liskovsoft.smartyoutubetv2.common.exoplayer.ExoMediaSourceFactory;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.TrackSelectorManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.ExoPlayerInitializer;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
+import com.liskovsoft.sharedutils.okhttp.OkHttpManager;
 import com.liskovsoft.smartyoutubetv2.tv.ui.main.MainApplication;
 import com.liskovsoft.youtubeapi.app.AppServiceIntCached;
 import com.liskovsoft.youtubeapi.service.YouTubeMediaItemService;
@@ -29,7 +29,6 @@ import com.newtube.mobile.ui.channel.MobileChannelUploadsActivity;
 import com.newtube.mobile.ui.common.FeedCache;
 import com.newtube.mobile.ui.dialog.MobileAppDialogActivity;
 import com.newtube.mobile.ui.playback.MobilePlaybackActivity;
-import com.newtube.mobile.ui.playback.MobilePlayerCache;
 import com.newtube.mobile.ui.search.MobileSearchActivity;
 import com.newtube.mobile.ui.signin.MobileSignInActivity;
 import com.newtube.mobile.ui.webbrowser.MobileWebBrowserActivity;
@@ -191,14 +190,25 @@ public class MobileMainApplication extends MainApplication {
         // settings audio-language dialog) takes over from then on. TV never calls this.
         TrackSelectorManager.setPreferOriginalAudioDefault(true);
 
-        // SEEK-BACK FIX (secondary, defense-in-depth): install a bounded on-disk media cache. It does
-        // NOT help the SABR path (POST bodies aren't cacheable), but it makes the progressive /
-        // URL-list fallback path (openUrlList, LQ) and any future non-SABR/DASH stream serve
-        // already-downloaded bytes from disk on a backward seek instead of re-downloading. Harmless
-        // when inert: guarded, mobile-only, falls back cleanly. Live manifests/playlists and SABR stay
-        // uncached (see ExoMediaSourceFactory). Registered once, before any player is created, because
-        // SimpleCache must be a per-directory singleton. TV builds never call this -> TV unchanged.
-        ExoMediaSourceFactory.setMediaCache(MobilePlayerCache.get(this));
+        // HTTP/2 (mobile-only): unpin the API OkHttp client from HTTP/1.1. The pin dodges a
+        // StreamResetException on old TV boxes; on phones it just costs every InnerTube call
+        // multiplexing + connection reuse (Home fires several section fetches in parallel = N TLS
+        // handshakes on H1 vs one shared H2 connection). Must run before the first client build
+        // (earliest network is SessionWarmup at +1200ms). TV never calls this.
+        OkHttpManager.setPreferHttp2(true);
+
+        // IN-STREAM ABR (mobile-only): while quality is "Auto" (a preset ceiling, the default),
+        // hand ExoPlayer the whole rung ladder under the ceiling instead of one fixed track, so an
+        // AdaptiveTrackSelection down-switches on bandwidth dips instead of stalling. An explicit
+        // quality pick still locks that exact track. TV never calls this -> "quality sticks" kept.
+        TrackSelectorManager.setAdaptiveVideoPresets(true);
+
+        // SEEK-BACK FIX (secondary, defense-in-depth): the on-disk media cache moved into the
+        // media3 engine (Media3SourceFactory + Media3PlayerCache, its own directory + stable
+        // YouTube cache keys). The legacy ExoMediaSourceFactory.setMediaCache(MobilePlayerCache...)
+        // registration is gone on purpose: it would eagerly create a second 256MB SimpleCache for
+        // the now-unused legacy engine. MobilePlayerCache stays in the tree for a potential legacy
+        // fallback build.
 
         // TRANSITIONS (mobile-only): all touch activities are singleTop in ONE task (see the
         // stmobile manifest note) so screen switches are in-task and the Android 12+ cross-task

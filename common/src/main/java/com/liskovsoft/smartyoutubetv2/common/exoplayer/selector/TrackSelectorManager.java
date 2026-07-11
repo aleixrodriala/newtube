@@ -52,6 +52,16 @@ public class TrackSelectorManager implements TrackSelectorCallback {
     public static void setPreferOriginalAudioDefault(boolean prefer) {
         sPreferOriginalAudioDefault = prefer;
     }
+    // NEWTUBE(mobile-abr): a PRESET video target ("Auto" quality = resolution ceiling) produces a
+    // MULTI-track selection so ExoPlayer builds an AdaptiveTrackSelection - real in-stream ABR: a
+    // bandwidth dip down-switches instead of stalling. Historically a preset resolved to ONE fixed
+    // track at the ceiling. An explicitly picked quality keeps the fixed single-track behavior.
+    // Default OFF = TV behavior unchanged ("quality sticks" on the exact chosen track).
+    private static boolean sAdaptiveVideoPresets;
+
+    public static void setAdaptiveVideoPresets(boolean enabled) {
+        sAdaptiveVideoPresets = enabled;
+    }
     private final Map<String, Integer> mBlacklist = new HashMap<>();
 
     private DefaultTrackSelector mTrackSelector;
@@ -59,6 +69,9 @@ public class TrackSelectorManager implements TrackSelectorCallback {
     private final Renderer[] mRenderers = new Renderer[3];
     private final MediaTrack[] mSelectedTracks = new MediaTrack[3];
     private boolean mIsMergedSource;
+    // The vendored SABR source currently binds one FormatSelector/extractor to a request stream and
+    // cannot safely switch representations mid-stream. DASH/HLS can use normal ExoPlayer ABR.
+    private boolean mAdaptiveVideoSourceSupported = true;
 
     public TrackSelectorManager(Context context) {
         mContext = context.getApplicationContext();
@@ -66,6 +79,10 @@ public class TrackSelectorManager implements TrackSelectorCallback {
 
     public void invalidate() {
         Arrays.fill(mRenderers, null);
+    }
+
+    public void setAdaptiveVideoSourceSupported(boolean supported) {
+        mAdaptiveVideoSourceSupported = supported;
     }
 
     /**
@@ -334,7 +351,8 @@ public class TrackSelectorManager implements TrackSelectorCallback {
         MediaTrack matchedTrack = findBestMatch(selectedTrack);
 
         if (matchedTrack.groupIndex >= 0 && matchedTrack.groupIndex < groups.length) {
-            Definition definition = new Definition(groups.get(matchedTrack.groupIndex), matchedTrack.trackIndex);
+            Definition definition = new Definition(groups.get(matchedTrack.groupIndex),
+                    isAdaptiveVideoPresetMode(matchedTrack.rendererIndex) ? buildAdaptiveVideoIndices(matchedTrack) : new int[]{matchedTrack.trackIndex});
             definitionPair = new Pair<>(definition, matchedTrack);
             setSelection(matchedTrack.rendererIndex, matchedTrack.groupIndex, matchedTrack.trackIndex);
         } else if (matchedTrack.groupIndex >= groups.length) {
@@ -593,13 +611,88 @@ public class TrackSelectorManager implements TrackSelectorCallback {
         if (selectedTrack != null && selectedTrack.groupIndex != -1) {
             Log.d(TAG, "Setting override for renderer %s, group %s, track %s...", rendererIndex, selectedTrack.groupIndex, selectedTrack.trackIndex);
 
+            // NEWTUBE(mobile-abr): the override is what selectTracks() ultimately applies (and what
+            // VideoStateController re-imposes on every source change), so the adaptive set must be
+            // built here too - a single-track override always yields a FixedTrackSelection.
+            int[] trackIndices = isAdaptiveVideoPresetMode(rendererIndex)
+                    ? buildAdaptiveVideoIndices(selectedTrack)
+                    : new int[]{selectedTrack.trackIndex};
+
             mTrackSelector.setParameters(mTrackSelector.buildUponParameters().setSelectionOverride(
-                    rendererIndex, renderer.trackGroups, new SelectionOverride(selectedTrack.groupIndex, selectedTrack.trackIndex)
+                    rendererIndex, renderer.trackGroups, new SelectionOverride(selectedTrack.groupIndex, trackIndices)
             ));
         } else {
             Log.e(TAG, "Something went wrong. Selected track not found for renderer=%s", rendererIndex);
             mTrackSelector.setParameters(mTrackSelector.buildUponParameters().clearSelectionOverrides(rendererIndex)); // Auto quality button selected
         }
+    }
+
+    /**
+     * NEWTUBE(mobile-abr): see {@link #sAdaptiveVideoPresets}. Only the video renderer adapts, and
+     * only while the user's TARGET is a preset ("Auto") - the target, not the matched track,
+     * carries the preset-ness.
+     */
+    private boolean isAdaptiveVideoPresetMode(int rendererIndex) {
+        if (!sAdaptiveVideoPresets || !mAdaptiveVideoSourceSupported
+                || rendererIndex != RENDERER_INDEX_VIDEO) {
+            return false;
+        }
+
+        MediaTrack target = mSelectedTracks[rendererIndex];
+
+        // A preset is a ceiling, not a concrete stream format. The isPreset flag is only set on
+        // the TV dialog's preset entries; the DEFAULT format constants (fromVideoSpec(.., false))
+        // are recognized by id == null instead - the same "detect preset by id presence" rule
+        // VideoTrack.inBounds applies. A null format is the disable sentinel: never adaptive.
+        return target != null && (target.isPreset || (target.format != null && target.format.id == null));
+    }
+
+    /**
+     * NEWTUBE(mobile-abr): every track ExoPlayer may adapt between for a preset video target: all
+     * rungs of the matched group at or below the matched ceiling (resolution and fps), same codec
+     * family only - a mid-stream codec change forces a decoder re-init (visible hiccup), and the
+     * mp4 group can mix avc with av1. The matched ceiling track always leads the set; a
+     * single-element result simply degrades to today's FixedTrackSelection.
+     */
+    private int[] buildAdaptiveVideoIndices(MediaTrack matchedTrack) {
+        Renderer renderer = mRenderers[RENDERER_INDEX_VIDEO];
+
+        if (renderer == null || renderer.mediaTracks == null || matchedTrack.format == null
+                || matchedTrack.groupIndex < 0 || matchedTrack.groupIndex >= renderer.mediaTracks.length) {
+            return new int[]{matchedTrack.trackIndex};
+        }
+
+        List<Integer> indices = new ArrayList<>();
+        indices.add(matchedTrack.trackIndex);
+
+        for (MediaTrack track : renderer.mediaTracks[matchedTrack.groupIndex]) {
+            if (track == null || track.format == null || track.trackIndex == matchedTrack.trackIndex) {
+                continue;
+            }
+
+            if (!MediaTrack.codecEquals(track, matchedTrack)) {
+                continue;
+            }
+
+            if (track.format.height <= 0 || track.format.height > matchedTrack.format.height) {
+                continue;
+            }
+
+            if (matchedTrack.format.frameRate > 0 && track.format.frameRate > matchedTrack.format.frameRate) {
+                continue;
+            }
+
+            indices.add(track.trackIndex);
+        }
+
+        int[] result = new int[indices.size()];
+        for (int i = 0; i < result.length; i++) {
+            result[i] = indices.get(i);
+        }
+
+        Log.d(TAG, "buildAdaptiveVideoIndices: %s adaptive tracks under %s", result.length, matchedTrack.format);
+
+        return result;
     }
 
     private MediaTrack createAutoSelection(int rendererIndex) {

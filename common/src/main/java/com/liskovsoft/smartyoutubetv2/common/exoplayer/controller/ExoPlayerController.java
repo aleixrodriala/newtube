@@ -10,6 +10,7 @@ import com.google.android.exoplayer2.Format;
 import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
+import com.google.android.exoplayer2.source.BehindLiveWindowException;
 import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.MergingMediaSource;
 import com.google.android.exoplayer2.source.TrackGroupArray;
@@ -54,6 +55,9 @@ public class ExoPlayerController implements Player.EventListener {
     private VolumeBooster mVolumeBooster;
     private boolean mIsEnded;
     private Runnable mOnVideoLoaded;
+    // NEWTUBE(live): the currently prepared source, kept for the behind-live-window recovery.
+    private MediaSource mMediaSource;
+    private long mLastLiveEdgeRecoveryMs;
 
     public ExoPlayerController(Context context, PlayerEventListener eventListener) {
         PlayerTweaksData playerTweaksData = PlayerTweaksData.instance(context);
@@ -80,42 +84,52 @@ public class ExoPlayerController implements Player.EventListener {
     }
 
     public void openSabr(MediaItemFormatInfo formatInfo) {
+        // The current SABR parser is fixed-format per request stream. Supplying an
+        // AdaptiveTrackSelection makes the selected representation and SABR FormatSelector diverge.
+        mTrackSelectorManager.setAdaptiveVideoSourceSupported(false);
         MediaSource mediaSource = mMediaSourceFactory.fromSabrFormatInfo(formatInfo);
         openMediaSource(mediaSource);
     }
 
     public void openDash(MediaItemFormatInfo formatInfo) {
+        mTrackSelectorManager.setAdaptiveVideoSourceSupported(true);
         MediaSource mediaSource = mMediaSourceFactory.fromDashFormatInfo(formatInfo);
         openMediaSource(mediaSource);
     }
 
     public void openDash(InputStream dashManifest) {
+        mTrackSelectorManager.setAdaptiveVideoSourceSupported(true);
         MediaSource mediaSource = mMediaSourceFactory.fromDashManifest(dashManifest);
         openMediaSource(mediaSource);
     }
 
     public void openDashUrl(String dashManifestUrl) {
+        mTrackSelectorManager.setAdaptiveVideoSourceSupported(true);
         MediaSource mediaSource = mMediaSourceFactory.fromDashManifestUrl(dashManifestUrl);
         openMediaSource(mediaSource);
     }
 
     public void openHlsUrl(String hlsPlaylistUrl) {
+        mTrackSelectorManager.setAdaptiveVideoSourceSupported(true);
         MediaSource mediaSource = mMediaSourceFactory.fromHlsPlaylist(hlsPlaylistUrl);
         openMediaSource(mediaSource);
     }
 
     public void openUrlList(List<String> urlList) {
+        mTrackSelectorManager.setAdaptiveVideoSourceSupported(true);
         MediaSource mediaSource = mMediaSourceFactory.fromUrlList(urlList);
         openMediaSource(mediaSource);
     }
 
     public void openMerged(MediaItemFormatInfo formatInfo, String hlsPlaylistUrl) {
+        mTrackSelectorManager.setAdaptiveVideoSourceSupported(true);
         MediaSource dashMediaSource = mMediaSourceFactory.fromDashFormatInfo(formatInfo);
         MediaSource hlsMediaSource = mMediaSourceFactory.fromHlsPlaylist(hlsPlaylistUrl);
         openMediaSource(new MergingMediaSource(dashMediaSource, hlsMediaSource));
     }
 
     public void openMerged(InputStream dashManifest, String hlsPlaylistUrl) {
+        mTrackSelectorManager.setAdaptiveVideoSourceSupported(true);
         MediaSource dashMediaSource = mMediaSourceFactory.fromDashManifest(dashManifest);
         MediaSource hlsMediaSource = mMediaSourceFactory.fromHlsPlaylist(hlsPlaylistUrl);
         openMediaSource(new MergingMediaSource(dashMediaSource, hlsMediaSource));
@@ -128,6 +142,7 @@ public class ExoPlayerController implements Player.EventListener {
         mTrackSelectorManager.setMergedSource(mediaSource instanceof MergingMediaSource);
         mTrackSelectorManager.invalidate();
         mOnSourceChanged = true;
+        mMediaSource = mediaSource;
         mEventListener.onSourceChanged(getVideo());
         mPlayer.prepare(mediaSource);
     }
@@ -145,10 +160,15 @@ public class ExoPlayerController implements Player.EventListener {
      * (e.g. 302200 when duration is 302000).
      */
     public void setPositionMs(long positionMs) {
-        // Url list videos at load stage has undefined (-1) length. So, we need to remove length check.
-        if (mPlayer != null && positionMs >= 0 && positionMs <= getDurationMs()) {
-            mPlayer.seekTo(positionMs);
+        if (mPlayer == null || positionMs < 0) {
+            return;
         }
+
+        // ExoPlayer accepts a pending seek before the timeline/duration is known. The previous
+        // position <= -1 check silently dropped those seeks (notably restore/remote seeks during
+        // startup). Once duration is known, clamp tiny overflows rather than ignoring the jump.
+        long durationMs = getDurationMs();
+        mPlayer.seekTo(durationMs >= 0 ? Math.min(positionMs, durationMs) : positionMs);
     }
 
     public long getDurationMs() {
@@ -194,6 +214,7 @@ public class ExoPlayerController implements Player.EventListener {
         mTrackSelectorManager.release();
         mMediaSourceFactory.release();
         releasePlayer();
+        mMediaSource = null;
         mPlayerView = null;
         // Don't destroy it (needed inside the bridge)!
         //mEventListener = null;
@@ -322,11 +343,41 @@ public class ExoPlayerController implements Player.EventListener {
     public void onPlayerError(ExoPlaybackException error) {
         Log.e(TAG, "onPlayerError: " + error);
 
+        // NEWTUBE(live): the playhead fell out of a live stream's DVR window (device slept, long
+        // pause). The generic path below answers with a delayed FULL video reload (new InnerTube
+        // round-trip, source rebuilt); the canonical ExoPlayer recovery is re-preparing the same
+        // source at its default position = the live edge - near-instant. Rate-limited so a
+        // pathological stream still falls through to the full reload.
+        if (isBehindLiveWindow(error) && mPlayer != null && mMediaSource != null
+                && System.currentTimeMillis() - mLastLiveEdgeRecoveryMs > 15_000) {
+            Log.e(TAG, "onPlayerError: behind live window, re-preparing at the live edge");
+            mLastLiveEdgeRecoveryMs = System.currentTimeMillis();
+            mPlayer.prepare(mMediaSource, true, false);
+            mPlayer.setPlayWhenReady(true);
+            return;
+        }
+
         // NOTE: Player is released at this point. So, there is no sense to restore the playback here.
 
         Throwable nested = error.getCause() != null ? error.getCause() : error;
 
         mEventListener.onEngineError(error.type, error.rendererIndex, nested);
+    }
+
+    private static boolean isBehindLiveWindow(ExoPlaybackException error) {
+        if (error.type != ExoPlaybackException.TYPE_SOURCE) {
+            return false;
+        }
+
+        Throwable cause = error.getSourceException();
+        while (cause != null) {
+            if (cause instanceof BehindLiveWindowException) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+
+        return false;
     }
 
     @Override
