@@ -10,6 +10,7 @@ import android.view.WindowManager;
 
 import androidx.core.content.ContextCompat;
 
+import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MotherActivity;
 import com.liskovsoft.smartyoutubetv2.common.misc.ScreensaverManager;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
@@ -83,6 +84,18 @@ public abstract class MobileActivity extends MotherActivity {
 
         // Mandatory: keeps the ViewManager back-stack/parent lookup correct.
         getViewManager().addTop(this);
+
+        // While a resumed touch Activity exists, ViewManager launches new screens from it (so
+        // they join THIS task). Without it, app-context NEW_TASK launches resolve by affinity
+        // and can land inside the player's pinned picture-in-picture task.
+        ViewManager.setForegroundActivity(this);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+
+        ViewManager.unsetForegroundActivity(this);
     }
 
     @Override

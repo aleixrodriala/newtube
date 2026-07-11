@@ -235,7 +235,7 @@
             android:layout_width="0dp"
             android:layout_height="72dp"
             android:background="@color/mobile_color_background"
-            app:itemIconSize="28dp"
+            app:itemIconSize="32dp"
             app:itemIconTint="@color/mobile_bottom_nav_item"
             app:itemTextAppearanceActive="@style/MobileBottomNavText"
             app:itemTextAppearanceInactive="@style/MobileBottomNavText"

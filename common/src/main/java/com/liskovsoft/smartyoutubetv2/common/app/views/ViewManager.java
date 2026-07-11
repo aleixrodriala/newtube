@@ -30,6 +30,7 @@ import com.liskovsoft.smartyoutubetv2.common.misc.MotherActivity;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
 
+import java.lang.ref.WeakReference;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Stack;
@@ -48,6 +49,15 @@ public class ViewManager {
      * singleInstance ignores it anyway).
      */
     private static boolean sReorderToFrontEnabled;
+    /**
+     * NEWTUBE(mobile-pip): the currently resumed Activity, registered by the touch flavor's base
+     * activity (never set on TV). {@link #startActivity(Class)} launches from it so the new screen
+     * joins the caller's task. The app-context {@code NEW_TASK} launch below picks its target task
+     * by affinity, and while the player is pinned into a picture-in-picture task there are TWO
+     * same-affinity tasks - the system routed new screens (e.g. Search) into the pinned one,
+     * rendering them inside the tiny PiP window.
+     */
+    private static WeakReference<Activity> sForegroundActivity = new WeakReference<>(null);
     private final Context mContext;
     private final Map<Class<?>, Class<? extends Activity>> mViewMapping;
     private final Map<Class<? extends Activity>, Class<? extends Activity>> mParentMapping;
@@ -80,6 +90,18 @@ public class ViewManager {
     /** NEWTUBE(mobile-transitions): see {@link #sReorderToFrontEnabled}. Call once from the Application. */
     public static void setReorderToFrontEnabled(boolean enabled) {
         sReorderToFrontEnabled = enabled;
+    }
+
+    /** NEWTUBE(mobile-pip): see {@link #sForegroundActivity}. Call from the base activity's onResume. */
+    public static void setForegroundActivity(Activity activity) {
+        sForegroundActivity = new WeakReference<>(activity);
+    }
+
+    /** NEWTUBE(mobile-pip): counterpart of {@link #setForegroundActivity}; only clears its own registration. */
+    public static void unsetForegroundActivity(Activity activity) {
+        if (sForegroundActivity.get() == activity) {
+            sForegroundActivity = new WeakReference<>(null);
+        }
     }
 
     public void register(Class<?> viewClass, Class<? extends Activity> activityClass) {
@@ -211,6 +233,24 @@ public class ViewManager {
 
         mPendingActivityMs = System.currentTimeMillis();
         mPendingActivityClass = activityClass;
+
+        // NEWTUBE(mobile-pip): prefer the resumed Activity as the launch context (see
+        // sForegroundActivity). The player is exempt: its intent must keep resolving to the
+        // existing (possibly PiP-pinned) instance instead of stacking a duplicate player -
+        // an in-task launch only reuses instances within the caller's own task.
+        Activity foreground = sForegroundActivity.get();
+        boolean playerTarget = activityClass == mViewMapping.get(PlaybackView.class);
+
+        if (foreground != null && !foreground.isFinishing() && !playerTarget) {
+            Intent intent = new Intent(foreground, activityClass);
+
+            if (sReorderToFrontEnabled) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            }
+
+            safeStartActivity(foreground, intent);
+            return;
+        }
 
         Intent intent = new Intent(mContext, activityClass);
 
