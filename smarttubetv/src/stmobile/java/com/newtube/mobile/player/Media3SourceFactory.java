@@ -7,6 +7,7 @@ import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
+import androidx.media3.datasource.DataSchemeDataSource;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.DefaultHttpDataSource;
@@ -30,6 +31,8 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.sharedutils.cronet.CronetManager;
 import com.liskovsoft.sharedutils.mylogger.Log;
+import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
+import com.liskovsoft.smartyoutubetv2.tv.BuildConfig;
 
 import org.chromium.net.CronetEngine;
 
@@ -114,14 +117,56 @@ public class Media3SourceFactory {
     /**
      * Process-wide executor for Cronet's async callbacks, reused across engine restarts (a
      * per-instance executor would leak: nothing ever shuts it down - the legacy engine's
-     * {@code ExoMediaSourceFactory} had the same rule). 2 threads so audio+video segment
-     * callbacks make progress together.
+     * {@code ExoMediaSourceFactory} had the same rule). 4 threads: DASH audio + DASH video alone
+     * fill 2, and merged playback (dash-mpd+hls) runs 3+ concurrent loaders whose response
+     * callbacks would serialize on a 2-thread pool. Cronet does its network I/O on its own
+     * internal threads - this pool only runs the app-side callbacks, so the headroom is cheap.
      */
-    private static final Executor CRONET_EXECUTOR = Executors.newFixedThreadPool(2, r -> {
+    private static final Executor CRONET_EXECUTOR = Executors.newFixedThreadPool(4, r -> {
         Thread thread = new Thread(r, "Media3Cronet");
         thread.setDaemon(true);
         return thread;
     });
+
+    // NEWTUBE(abr-seed): persist the bandwidth meter's EWMA estimate across process restarts so
+    // the FIRST video of a cold session starts ABR from the last known real throughput instead of
+    // media3's coarse country x network-type table (which under-picks on fast connections and
+    // over-picks into an early rebuffer on slow ones). Clamped to sane bounds - a corrupt or
+    // pathological persisted value falls back to the default table.
+    private static final String NETWORK_PREFS_NAME = "newtube_network";
+    private static final String KEY_BITRATE_ESTIMATE = "bw_estimate_bps";
+    private static final long MIN_PERSISTED_BITRATE = 100_000;      // 100 kbps
+    private static final long MAX_PERSISTED_BITRATE = 50_000_000;   // 50 Mbps
+
+    /** Process-wide meter (replaces {@code DefaultBandwidthMeter.getSingletonInstance}), seeded once. */
+    private static DefaultBandwidthMeter sBandwidthMeter;
+
+    private static synchronized DefaultBandwidthMeter getOrCreateBandwidthMeter(Context context) {
+        if (sBandwidthMeter == null) {
+            DefaultBandwidthMeter.Builder builder = new DefaultBandwidthMeter.Builder(context);
+            long saved = context.getSharedPreferences(NETWORK_PREFS_NAME, Context.MODE_PRIVATE)
+                    .getLong(KEY_BITRATE_ESTIMATE, 0);
+            if (saved >= MIN_PERSISTED_BITRATE && saved <= MAX_PERSISTED_BITRATE) {
+                builder.setInitialBitrateEstimate(saved);
+                Log.d(TAG, "bandwidth meter seeded with persisted estimate: " + saved + " bps");
+            }
+            sBandwidthMeter = builder.build();
+        }
+        return sBandwidthMeter;
+    }
+
+    /** Persist the current estimate (cheap, async apply); called on player teardown. */
+    void persistBandwidthEstimate() {
+        DefaultBandwidthMeter meter = mBandwidthMeter;
+        if (meter == null) {
+            return;
+        }
+        long estimate = meter.getBitrateEstimate();
+        if (estimate >= MIN_PERSISTED_BITRATE && estimate <= MAX_PERSISTED_BITRATE) {
+            mContext.getSharedPreferences(NETWORK_PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit().putLong(KEY_BITRATE_ESTIMATE, estimate).apply();
+        }
+    }
 
     private final Context mContext;
     private final DefaultBandwidthMeter mBandwidthMeter;
@@ -130,7 +175,7 @@ public class Media3SourceFactory {
 
     Media3SourceFactory(Context context) {
         mContext = context.getApplicationContext();
-        mBandwidthMeter = DefaultBandwidthMeter.getSingletonInstance(mContext);
+        mBandwidthMeter = getOrCreateBandwidthMeter(mContext);
 
         DefaultHttpDataSource.Factory defaultHttp = new DefaultHttpDataSource.Factory()
                 .setUserAgent(USER_AGENT)
@@ -184,14 +229,34 @@ public class Media3SourceFactory {
     /** DASH VOD from InnerTube formats via the generated MPD. Null if the manifest can't be built. */
     @Nullable
     MediaSource fromDashFormatInfo(MediaItemFormatInfo formatInfo) {
-        return fromDashManifest(formatInfo.createMpdStream());
+        return fromDashManifest(formatInfo.createMpdStream(), formatInfo.isLive());
     }
 
-    /** DASH from an MPD stream (side-loaded). VOD rides the cache; a live manifest bypasses it. */
+    /** Legacy entry point (PlayerEngine.openDash(InputStream)); treated as VOD normalization. */
     @Nullable
     MediaSource fromDashManifest(InputStream dashManifest) {
+        return fromDashManifest(dashManifest, /* isLive= */ false);
+    }
+
+    /**
+     * DASH from a generated MPD stream. VOD is side-loaded static and rides the cache. A LIVE
+     * video only lands here as a last resort (no dash/hls manifest url at all - the dispatch in
+     * {@code VideoLoaderController} routes live to the URL paths first): its dynamic manifest must
+     * NOT be forced static (that produced a fake ~48h static window that ended playback
+     * instantly), and media3 rejects side-loaded dynamic manifests outright
+     * ({@code DashMediaSource.Factory.createMediaSource(manifest, item)} checkArguments
+     * {@code !manifest.dynamic}) - so the dynamic manifest is handed over as a {@code data:} URI,
+     * which media3 treats as a URL-loaded dynamic manifest (real live window). It cannot refresh
+     * beyond its snapshot (the bytes are fixed), so it stays a last resort.
+     */
+    @Nullable
+    MediaSource fromDashManifest(InputStream dashManifest, boolean isLive) {
         if (dashManifest == null) {
             return null;
+        }
+
+        if (isLive) {
+            return fromLiveDashManifest(dashManifest);
         }
 
         StaticDashManifestParser parser = new StaticDashManifestParser();
@@ -203,13 +268,14 @@ public class Media3SourceFactory {
             return null;
         }
 
-        // "Live bypasses the cache" applies to SIDE-LOADED manifests too: the generated MPD
-        // (YouTubeMPDBuilder) declares type="dynamic" exactly for live streams, and the parser
-        // records that original flag before forcing the manifest static - the least invasive
-        // signal, since no live/VOD flag travels through PlayerEngine.openDash(). Live segments
-        // are sq-addressed, so the sq-aware cache key (Media3PlayerCache) already keeps them
-        // apart - this routing makes that belt-and-braces, and spares the LRU cache a moving
-        // live edge that would never be re-watched. Static VOD keeps the cached tier.
+        // "Live media bypasses the cache" applies to SIDE-LOADED manifests too: the generated MPD
+        // (YouTubeMPDBuilder) declares type="dynamic" whenever the FORMATS are live media
+        // (yt_live_broadcast / live=1 urls) - which includes PAST live streams whose formatInfo is
+        // no longer live. For those the parser's static forcing IS the VOD normalization, and the
+        // recorded original flag routes their sq-addressed segments off the cache. The sq-aware
+        // cache key (Media3PlayerCache) already keeps such segments apart - this routing makes
+        // that belt-and-braces, and spares the LRU cache segments that would never be re-watched.
+        // Static VOD keeps the cached tier.
         DataSource.Factory chunkDataSourceFactory =
                 parser.wasDynamic() ? mHttpDataSourceFactory : mCachedDataSourceFactory;
 
@@ -223,11 +289,66 @@ public class Media3SourceFactory {
                         .build());
     }
 
-    /** Live (or post-live DVR) DASH from the manifest URL; media3 handles the dynamic manifest. */
+    /**
+     * LAST-RESORT live path (see {@link #fromDashManifest(InputStream, boolean)}): serve the
+     * generated dynamic MPD through a {@code data:} URI so media3 owns it as a URL-loaded dynamic
+     * manifest (live window, live-edge positioning) instead of a forbidden dynamic side-load or a
+     * broken forced-static one. Uncached transport: live segments are a moving edge. Segment URLs
+     * inside the generated MPD are absolute, so the fake base URI never matters.
+     */
+    @Nullable
+    private MediaSource fromLiveDashManifest(InputStream dashManifest) {
+        byte[] manifestBytes;
+        try {
+            manifestBytes = readAllBytes(dashManifest);
+        } catch (IOException | RuntimeException e) {
+            Log.e(TAG, "fromLiveDashManifest: can't read generated mpd: " + e);
+            return null;
+        }
+
+        Log.d(TAG, "fromLiveDashManifest: last-resort live mpd (" + manifestBytes.length + " bytes)");
+
+        Uri dataUri = Uri.parse("data:" + MimeTypes.APPLICATION_MPD + ";base64,"
+                + android.util.Base64.encodeToString(manifestBytes, android.util.Base64.NO_WRAP));
+
+        return new DashMediaSource.Factory(
+                        new DefaultDashChunkSource.Factory(mHttpDataSourceFactory),
+                        /* manifestDataSourceFactory= */ DataSchemeDataSource::new)
+                .setLoadErrorHandlingPolicy(new FailFastLoadErrorPolicy())
+                .createMediaSource(new MediaItem.Builder()
+                        .setUri(dataUri)
+                        .setMimeType(MimeTypes.APPLICATION_MPD)
+                        .build());
+    }
+
+    private static byte[] readAllBytes(InputStream is) throws IOException {
+        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream(64 * 1024);
+        byte[] chunk = new byte[8 * 1024];
+        int read;
+        while ((read = is.read(chunk)) != -1) {
+            buffer.write(chunk, 0, read);
+        }
+        return buffer.toByteArray();
+    }
+
+    /**
+     * Live (or post-live DVR) DASH from the manifest URL. media3 handles the dynamic-manifest
+     * mechanics (refreshes, live window), but YouTube live MPDs need the app-level
+     * {@link LiveDashManifestParser} (ported from the legacy TV engine) for a sane, monotonically
+     * growing DVR window - the stock parser yields a negative window duration (dead timebar, no
+     * DVR scrubbing). Don't make the parser static/shared: it retains per-stream state and needs a
+     * reset for each live source (same rule as the legacy wiring).
+     */
     MediaSource fromDashManifestUrl(String dashManifestUrl) {
+        if (BuildConfig.DEBUG) {
+            // Full (un-truncated) manifest url so the exact MPD the app got can be curl'ed.
+            NetPath.log("dash-url-full " + dashManifestUrl);
+        }
+
         return new DashMediaSource.Factory(
                         new DefaultDashChunkSource.Factory(mHttpDataSourceFactory),
                         mHttpDataSourceFactory)
+                .setManifestParser(new LiveDashManifestParser())
                 .setLoadErrorHandlingPolicy(new FailFastLoadErrorPolicy())
                 .createMediaSource(new MediaItem.Builder()
                         .setUri(dashManifestUrl)

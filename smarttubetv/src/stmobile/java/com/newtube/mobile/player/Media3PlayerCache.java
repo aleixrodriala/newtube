@@ -36,8 +36,12 @@ public final class Media3PlayerCache {
 
     private static final String CACHE_DIR_NAME = "media3-media-cache";
 
-    /** Upper bound for the on-disk cache (LRU-evicted); mirrors the legacy mobile cache budget. */
-    private static final long MAX_CACHE_BYTES = 256L * 1024 * 1024; // 256 MB
+    /**
+     * Upper bound for the on-disk cache (LRU-evicted). 512MB (raised from the legacy 256MB): a
+     * single 1080p VOD span set can approach 256MB, so a just-watched HD video could be LRU-evicted
+     * before a replay - defeating the stable-key replay win the cache exists for.
+     */
+    private static final long MAX_CACHE_BYTES = 512L * 1024 * 1024; // 512 MB
 
     private static SimpleCache sCache;
 

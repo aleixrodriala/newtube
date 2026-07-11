@@ -26,6 +26,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.VideoMe
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
+import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils.ChainProcessor;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils.Processor;
@@ -121,6 +122,8 @@ public class PlaybackPresenter extends BasePresenter<PlaybackView> implements Pl
         if (video == null) {
             return;
         }
+
+        NetPath.logTap(video.videoId); // NetPath milestone 0: user intent (tap), before activity bring-up
 
         // Mobile: kick the getVideoInfo fetch NOW (at tap) so it runs concurrently with startActivity +
         // the player Activity's onCreate (layout inflation + ExoPlayer construction) instead of after

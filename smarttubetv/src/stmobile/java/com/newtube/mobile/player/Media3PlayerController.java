@@ -22,9 +22,16 @@ import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.TrackSelectorMan
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
 
+import android.os.Handler;
+import android.os.Looper;
+
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 /**
  * Media3 twin of {@code ExoPlayerController}: same public surface (so the
@@ -41,14 +48,36 @@ import java.util.List;
 public class Media3PlayerController implements Player.Listener {
     private static final String TAG = Media3PlayerController.class.getSimpleName();
 
+    /**
+     * NEWTUBE(open-latency): the generated-MPD build (XML generation + XML re-parse, the measured
+     * 50-160ms info->prepare gap) runs here instead of the main thread. Process-wide single thread:
+     * builds are strictly ordered, and a per-instance executor would leak (nothing shuts it down -
+     * same rule as the factory's CRONET_EXECUTOR).
+     */
+    private static final ExecutorService SOURCE_BUILD_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
+        Thread thread = new Thread(r, "Media3SourceBuild");
+        thread.setDaemon(true);
+        return thread;
+    });
+
     private final Context mContext;
     private final Media3SourceFactory mMediaSourceFactory;
     private final PlayerEventListener mEventListener;
+    private final Handler mMainHandler = new Handler(Looper.getMainLooper());
+    /** Open generation: bumped on every open/reset/release so a stale off-main build never prepares. */
+    private final AtomicInteger mOpenGeneration = new AtomicInteger();
     private Media3TrackAdapter mTrackAdapter;
     private ExoPlayer mPlayer;
     private WeakReference<Video> mVideo;
     private boolean mOnSourceChanged;
     private boolean mIsEnded;
+    /**
+     * NetPath milestone 4 gate: media3 re-renders a "first" frame on every surface/stream refresh
+     * (a live window slide every ~2s made this line fire 400+ times per session) - log only the
+     * first one per open. Reset in {@link #resetPlayerState()}, which every open* path runs, so a
+     * real reload logs again.
+     */
+    private boolean mFirstFrameLogged;
     private Runnable mOnVideoLoaded;
     // NEWTUBE(live): last resort for a pathological live stream - rate-limits BLW recoveries.
     private long mLastLiveEdgeRecoveryMs;
@@ -77,7 +106,9 @@ public class Media3PlayerController implements Player.Listener {
     }
 
     public void openDash(MediaItemFormatInfo formatInfo) {
-        openMediaSource(mMediaSourceFactory.fromDashFormatInfo(formatInfo), "dash-mpd");
+        // "dash-mpd-live" only fires on the last-resort live route (no dash/hls manifest url).
+        openMediaSourceOffMain(() -> mMediaSourceFactory.fromDashFormatInfo(formatInfo),
+                formatInfo.isLive() ? "dash-mpd-live" : "dash-mpd");
     }
 
     public void openDash(InputStream dashManifest) {
@@ -97,11 +128,41 @@ public class Media3PlayerController implements Player.Listener {
     }
 
     public void openMerged(MediaItemFormatInfo formatInfo, String hlsPlaylistUrl) {
-        openMediaSource(mMediaSourceFactory.fromMerged(formatInfo, hlsPlaylistUrl), "dash-mpd+hls");
+        openMediaSourceOffMain(() -> mMediaSourceFactory.fromMerged(formatInfo, hlsPlaylistUrl), "dash-mpd+hls");
     }
 
     public void openMerged(InputStream dashManifest, String hlsPlaylistUrl) {
         openMediaSource(mMediaSourceFactory.fromMerged(dashManifest, hlsPlaylistUrl), "dash-mpd+hls");
+    }
+
+    /**
+     * NEWTUBE(open-latency): build the MediaSource (MPD XML generation + parse, 50-160ms) on the
+     * background executor, then hand it to {@link #openMediaSource} back on main. The open
+     * generation guards staleness: any newer open/reset/release bumps it, and this build's result
+     * is dropped instead of preparing over the newer video. URL-only paths stay synchronous - they
+     * are already lazy (no XML work at open time).
+     */
+    private void openMediaSourceOffMain(Supplier<MediaSource> mediaSourceBuilder, String netPathType) {
+        final int generation = mOpenGeneration.incrementAndGet();
+
+        SOURCE_BUILD_EXECUTOR.execute(() -> {
+            MediaSource mediaSource;
+            try {
+                mediaSource = mediaSourceBuilder.get();
+            } catch (Throwable e) { // never kill the build thread; surface the normal error path
+                Log.e(TAG, "openMediaSourceOffMain: source build failed: " + e);
+                mediaSource = null;
+            }
+
+            final MediaSource result = mediaSource;
+            mMainHandler.post(() -> {
+                if (generation != mOpenGeneration.get()) {
+                    Log.d(TAG, "openMediaSourceOffMain: dropping stale build (gen " + generation + ")");
+                    return;
+                }
+                openMediaSource(result, netPathType);
+            });
+        });
     }
 
     private void openMediaSource(@Nullable MediaSource mediaSource, String netPathType) {
@@ -189,6 +250,11 @@ public class Media3PlayerController implements Player.Listener {
     }
 
     public void resetPlayerState() {
+        // Any in-flight off-main source build is now stale (a new open resets first, and
+        // openMediaSource itself resets) - drop it instead of letting it prepare later.
+        mOpenGeneration.incrementAndGet();
+        mFirstFrameLogged = false; // new open = a fresh NetPath first-frame milestone
+
         if (containsMedia()) {
             mPlayer.stop();
             mPlayer.clearMediaItems();
@@ -224,6 +290,12 @@ public class Media3PlayerController implements Player.Listener {
     }
 
     public void release() {
+        mOpenGeneration.incrementAndGet(); // drop any in-flight off-main source build
+
+        // NEWTUBE(abr-seed): teardown is the one reliable end-of-session hook; persist the meter's
+        // EWMA so the next cold session's first video starts ABR from real throughput.
+        mMediaSourceFactory.persistBandwidthEstimate();
+
         if (mPlayer != null) {
             mPlayer.removeListener(this);
             mPlayer.stop();
@@ -405,7 +477,10 @@ public class Media3PlayerController implements Player.Listener {
 
     @Override
     public void onRenderedFirstFrame() {
-        NetPath.logFirstFrame(getVideoId()); // NetPath milestone 4: first frame rendered
+        if (!mFirstFrameLogged) {
+            mFirstFrameLogged = true;
+            NetPath.logFirstFrame(getVideoId()); // NetPath milestone 4: first frame rendered
+        }
     }
 
     @Override

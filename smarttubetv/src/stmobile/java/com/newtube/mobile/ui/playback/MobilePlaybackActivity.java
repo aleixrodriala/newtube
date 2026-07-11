@@ -3294,7 +3294,13 @@ public class MobilePlaybackActivity extends MobileActivity
 
         long liveDurationMs = getVideo() != null ? getVideo().getLiveDurationMs() : 0;
 
-        if (durationMs > Video.MAX_LIVE_DURATION_MS && liveDurationMs != 0) {
+        // Belt-and-braces for live: besides the legacy too-big clamp, catch a broken engine
+        // duration (media3 computed a negative live window before the LiveDashManifestParser fix;
+        // <=0 keeps the timebar dead and live-edge math garbage) and fall back to wall-clock
+        // "now - stream start". liveDurationMs != 0 only for live videos (Video.getLiveDurationMs
+        // returns 0 when startTimeMs == 0), so VOD's transient pre-prepare durationMs <= 0 is
+        // never touched.
+        if ((durationMs <= 0 || durationMs > Video.MAX_LIVE_DURATION_MS) && liveDurationMs != 0) {
             durationMs = liveDurationMs;
         }
 

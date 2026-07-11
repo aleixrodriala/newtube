@@ -212,6 +212,7 @@ public class VideoLoaderController extends BasePlayerController {
     @Override
     public void onTickle() {
         checkSleepTimer();
+        preloadNextVideoIfNeeded();
     }
 
     private void checkSleepTimer() {
@@ -341,6 +342,21 @@ public class VideoLoaderController extends BasePlayerController {
             //} else { // 18+ video or the video is hidden/removed
             //    scheduleNextVideoTimer(5_000);
             //}
+        } else if (formatInfo.isLive() && (formatInfo.containsDashUrl() || formatInfo.containsHlsUrl())) {
+            // NEWTUBE(live): a live stream must ride a URL manifest - media3 refreshes it natively
+            // (live window, manifest reload, behind-live-window recovery). The generated MPD is a
+            // static side-load that cannot refresh: on media3 it produced a fake ~48h static
+            // window that ended playback instantly (zero media fetched). Prefer the DASH manifest
+            // url; the HLS-forced tweak (or a missing dash url) picks HLS. Only when NEITHER url
+            // exists does live fall through to the generated-MPD last resort below.
+            if (formatInfo.containsDashUrl()
+                    && !(getPlayerTweaksData().isHlsStreamsForced() && formatInfo.containsHlsUrl())) {
+                Log.d(TAG, "Loading live video in dash format (manifest url)...");
+                player.openDashUrl(formatInfo.getDashManifestUrl());
+            } else {
+                Log.d(TAG, "Loading live video in hls format...");
+                player.openHlsUrl(formatInfo.getHlsManifestUrl());
+            }
         } else if (acceptAdaptiveFormats(formatInfo) && formatInfo.containsDashFormats()) {
             Log.d(TAG, "Loading regular video in dash format...");
 
@@ -658,12 +674,32 @@ public class VideoLoaderController extends BasePlayerController {
         }
     }
 
+    /**
+     * NEWTUBE(next-prefetch): called from the minute {@link #onTickle()}. Inside the last ~80s of
+     * playback (raised from 50s so the minute-aligned tick always lands in the window) prefetch the
+     * NEXT video's format info: it lands in the media service's single-slot cache (and the
+     * single-flight collapses a concurrent fetch), so the autoplay advance skips the full InnerTube
+     * round-trip, and the fetch's media-host preconnect warms the next googlevideo host for free.
+     * Info only - no media bytes. Skipped while paused (user browsing) and when the playback mode
+     * won't auto-advance.
+     */
     private void preloadNextVideoIfNeeded() {
         if (isEmbedPlayer() || getPlayer() == null || getVideo() == null || getVideo().isLive) {
             return;
         }
 
-        if (getPlayer().getDurationMs() - getPlayer().getPositionMs() < 50_000) {
+        if (!getPlayer().isPlaying()) {
+            return; // paused near the end = user browsing, don't burn a request
+        }
+
+        int playbackMode = getPlaybackMode();
+        if (playbackMode != PlayerConstants.PLAYBACK_MODE_ALL
+                && playbackMode != PlayerConstants.PLAYBACK_MODE_SHUFFLE
+                && playbackMode != PlayerConstants.PLAYBACK_MODE_LIST) {
+            return; // autoplay-next is off for this mode
+        }
+
+        if (getPlayer().getDurationMs() - getPlayer().getPositionMs() < 80_000) {
             MediaServiceManager.instance().loadFormatInfo(mSuggestionsController.getNext(), formatInfo -> {});
         }
     }

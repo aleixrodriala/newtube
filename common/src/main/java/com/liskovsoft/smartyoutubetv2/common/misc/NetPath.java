@@ -18,14 +18,31 @@ public final class NetPath {
 
     /** t0 of the current video open ({@link SystemClock#elapsedRealtime()} based). */
     private static volatile long sOpenT0;
+    /** videoId of the last {@link #logTap} so {@link #logOpen} knows whether to keep its t0. */
+    private static volatile String sTapVideoId;
 
     private NetPath() {
     }
 
-    /** Milestone 1: the app kicked off loading a video. Starts the timing window. */
-    public static void logOpen(String videoId, String title) {
+    /**
+     * Milestone 0: earliest user intent (the tap, before the player activity even starts).
+     * Starts the timing window; the following {@link #logOpen} for the SAME video keeps this t0,
+     * so the tap-&gt;open overlap (where prefetch-at-tap earns its keep) becomes measurable.
+     */
+    public static void logTap(String videoId) {
         sOpenT0 = SystemClock.elapsedRealtime();
-        android.util.Log.d(TAG, "open " + safeId(videoId) + " \"" + trunc(title, 40) + "\"");
+        sTapVideoId = videoId;
+        android.util.Log.d(TAG, "tap " + safeId(videoId));
+    }
+
+    /** Milestone 1: the app kicked off loading a video. Starts the timing window (unless a tap did). */
+    public static void logOpen(String videoId, String title) {
+        // Auto-advance / reload opens arrive without a tap: start a fresh window for those.
+        if (videoId == null || !videoId.equals(sTapVideoId)) {
+            sOpenT0 = SystemClock.elapsedRealtime();
+        }
+        sTapVideoId = null;
+        android.util.Log.d(TAG, "open " + safeId(videoId) + " +" + elapsedMs() + " \"" + trunc(title, 40) + "\"");
     }
 
     /** Milestone 2: the InnerTube metadata/streamingData response landed. */
@@ -42,6 +59,14 @@ public final class NetPath {
     /** Milestone 4: first video frame rendered. */
     public static void logFirstFrame(String videoId) {
         android.util.Log.d(TAG, "first-frame " + safeId(videoId) + " +" + elapsedMs());
+    }
+
+    /**
+     * Generic one-off diagnostic line under the NetPath tag (e.g. the full live manifest url on
+     * debug builds). No milestone timing - just guaranteed logcat visibility.
+     */
+    public static void log(String message) {
+        android.util.Log.d(TAG, message);
     }
 
     /** Milestone 5: fatal player error surfaced ({@code onPlayerError}). */

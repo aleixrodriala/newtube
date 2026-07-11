@@ -74,6 +74,11 @@ public class Media3PlayerInitializer {
                         START_BUFFER_AFTER_REBUFFER_MS)
                 .setBackBuffer(BACK_BUFFER_MS, /* retainBackBufferFromKeyframe= */ true)
                 .setTargetBufferBytes(Math.min(TARGET_BUFFER_BYTES, mMaxBufferBytes))
+                // The byte cap above is a memory BACKSTOP only: without this flag the loader stops
+                // at the byte target even below MIN_BUFFER_MS (on 2-3GB devices RAM/18 binds before
+                // the 50-75s time target -> shorter real buffer -> more rebuffers). With it, the
+                // time thresholds always win; the byte cap only guards pathological memory use.
+                .setPrioritizeTimeOverSizeThresholds(true)
                 .build();
 
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(mContext)
