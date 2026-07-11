@@ -63,18 +63,18 @@ import com.liskovsoft.sharedutils.rx.RxHelper;
 import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
 import io.reactivex.disposables.Disposable;
 
-import com.github.vkay94.dtpv.DoubleTapPlayerView;
-import com.github.vkay94.dtpv.DoubleTapPlayerViewImpl;
-import com.github.vkay94.dtpv.youtube.YouTubeOverlay;
-import com.google.android.exoplayer2.DefaultRenderersFactory;
-import com.google.android.exoplayer2.Player;
-import com.google.android.exoplayer2.SeekParameters;
-import com.google.android.exoplayer2.SimpleExoPlayer;
-import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
-import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
-import com.google.android.exoplayer2.ui.DefaultTimeBar;
-import com.google.android.exoplayer2.ui.TimeBar;
-import com.google.android.exoplayer2.util.Util;
+import com.github.vkay94.dtpv3.DoubleTapPlayerView;
+import com.github.vkay94.dtpv3.DoubleTapPlayerViewImpl;
+import com.github.vkay94.dtpv3.youtube.YouTubeOverlay;
+
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
+import androidx.media3.common.util.Util;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.SeekParameters;
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
+import androidx.media3.ui.DefaultTimeBar;
+import androidx.media3.ui.TimeBar;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.mediaserviceinterfaces.data.ChatItem;
@@ -89,14 +89,12 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.ChannelPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
-import com.liskovsoft.smartyoutubetv2.common.exoplayer.controller.ExoPlayerController;
-import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.DebugInfoManager;
-import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.ExoPlayerInitializer;
-import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
-import com.liskovsoft.smartyoutubetv2.common.exoplayer.versions.renderer.CustomOverridesRenderersFactory;
-import com.liskovsoft.smartyoutubetv2.common.exoplayer.versions.selector.RestoreTrackSelector;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
+import com.newtube.mobile.player.Media3DebugInfoManager;
+import com.newtube.mobile.player.Media3PlayerController;
+import com.newtube.mobile.player.Media3PlayerInitializer;
+import com.newtube.mobile.player.Media3SubtitleManager;
 import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.utils.AppDialogUtil;
@@ -116,8 +114,8 @@ import java.util.Locale;
  * Touch player - PLAYER POLISH wave.
  *
  * <p>Built the same way as the {@code EmbedPlayerView} template (ARCHITECTURE.md, section 6): a
- * plain ExoPlayer {@code PlayerView} (here the {@link DoubleTapPlayerViewImpl} subclass, still no
- * Leanback) wired straight to {@link ExoPlayerController} and {@link ExoPlayerInitializer}, with
+ * plain media3 {@code PlayerView} (here the {@link DoubleTapPlayerViewImpl} subclass, still no
+ * Leanback) wired straight to {@link Media3PlayerController} and {@link Media3PlayerInitializer}, with
  * this Activity itself implementing {@link PlaybackView} and being handed to
  * {@link PlaybackPresenter#setView}. The 11 playback controllers owned by {@code PlaybackPresenter}
  * (VideoLoader, VideoState, Suggestions, ErrorFixer, PlayerUI, ...) are reused completely unchanged;
@@ -131,13 +129,17 @@ import java.util.Locale;
  * with current/total time + fullscreen toggle) is shown/hidden on a single tap and auto-hidden after
  * {@link #AUTO_HIDE_MS}. Double-tap left/right seeks +/-10s via the {@code doubletapplayerview}
  * module's {@link YouTubeOverlay}, wired to the live player. Position/buffer are polled and seeking
- * is wired straight to {@link ExoPlayerController}.
+ * is wired straight to {@link Media3PlayerController}.
  */
 public class MobilePlaybackActivity extends MobileActivity
         implements PlaybackView, PlayerContainerLayout.DragListener, LiveChatSheet.Host {
 
     private static final long AUTO_HIDE_MS = 3_500;
     private static final long PROGRESS_UPDATE_MS = 500;
+    /** Live-edge jump target: mirrors the shared VideoStateController's ~15s park behind the edge. */
+    private static final long LIVE_EDGE_OFFSET_MS = 15_000;
+    /** Within this of the edge counts as "watching live" (the park offset plus segment slack). */
+    private static final long LIVE_EDGE_THRESHOLD_MS = 20_000;
     /** Trigger related-list paging when the content is scrolled within this many px of the bottom. */
     private static final int SUGGESTIONS_PAGE_THRESHOLD_PX = 800;
 
@@ -152,6 +154,7 @@ public class MobilePlaybackActivity extends MobileActivity
     private ImageButton mFullscreenButton;
     private TextView mPositionView;
     private TextView mDurationView;
+    private TextView mLiveChip;
     private DefaultTimeBar mTimeBar;
     private SeekBarSegmentsView mSegmentsView;
     private ProgressBar mProgressBar;
@@ -166,11 +169,11 @@ public class MobilePlaybackActivity extends MobileActivity
     private ImageButton mNextButton;
     private ViewGroup mDebugViewGroup;
 
-    // Subtitle styling + debug overlay. Both mirror the TV PlaybackFragment wiring: SubtitleManager
-    // applies the user's stored SubtitleStyle to the PlayerView's built-in SubtitleView; the
-    // DebugInfoManager drives the "stats for nerds" overlay. Created lazily once the player exists.
-    private SubtitleManager mSubtitleManager;
-    private DebugInfoManager mDebugInfoManager;
+    // Subtitle styling + debug overlay. Both mirror the TV PlaybackFragment wiring: the subtitle
+    // manager applies the user's stored SubtitleStyle to the PlayerView's built-in SubtitleView;
+    // the debug manager drives the "stats for nerds" overlay. Created lazily once the player exists.
+    private Media3SubtitleManager mSubtitleManager;
+    private Media3DebugInfoManager mDebugInfoManager;
 
     // Screen-orientation lock toggled from the overflow menu ("Rotate lock").
     private boolean mOrientationLocked;
@@ -240,9 +243,9 @@ public class MobilePlaybackActivity extends MobileActivity
     private boolean mDescriptionExpanded;
 
     private PlaybackPresenter mPresenter;
-    private ExoPlayerInitializer mPlayerInitializer;
-    private ExoPlayerController mExoPlayerController;
-    private SimpleExoPlayer mPlayer;
+    private Media3PlayerInitializer mPlayerInitializer;
+    private Media3PlayerController mExoPlayerController;
+    private ExoPlayer mPlayer;
     private boolean mIsEngineBlocked;
 
     private boolean mControlsVisible;
@@ -297,10 +300,12 @@ public class MobilePlaybackActivity extends MobileActivity
 
         // NOTE: position matters! Mirrors EmbedPlayerView.initPlayer()/PlaybackFragment.onCreate():
         // create the controller objects and hand the presenter our view BEFORE building the actual
-        // SimpleExoPlayer, then call onViewInitialized() to (re-)init all 11 playback controllers.
+        // player, then call onViewInitialized() to (re-)init all 11 playback controllers.
+        // NEWTUBE(media3): the engine behind this activity is androidx.media3; the controller
+        // mirrors ExoPlayerController's surface, so everything below it is unchanged.
         mPresenter = PlaybackPresenter.instance(this);
-        mPlayerInitializer = new ExoPlayerInitializer(this);
-        mExoPlayerController = new ExoPlayerController(this, mPresenter);
+        mPlayerInitializer = new Media3PlayerInitializer(this);
+        mExoPlayerController = new Media3PlayerController(this, mPresenter);
 
         mPresenter.setView(this);
         mPresenter.onViewInitialized();
@@ -332,6 +337,8 @@ public class MobilePlaybackActivity extends MobileActivity
         mFullscreenButton = findViewById(R.id.mobile_player_fullscreen);
         mPositionView = findViewById(R.id.mobile_player_position);
         mDurationView = findViewById(R.id.mobile_player_duration);
+        mLiveChip = findViewById(R.id.mobile_player_live);
+        mLiveChip.setOnClickListener(v -> jumpToLiveEdge());
         mTimeBar = findViewById(R.id.mobile_player_time_bar);
         mSegmentsView = findViewById(R.id.mobile_player_segments);
         mProgressBar = findViewById(R.id.mobile_player_progress);
@@ -589,39 +596,17 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     private void createPlayerObjects() {
-        DefaultTrackSelector trackSelector = new RestoreTrackSelector(new AdaptiveTrackSelection.Factory());
-
-        // TTFF FIX (mobile-only): 1080p ceiling, secondary safety net. The PRIMARY 1080p cap is the
-        // mobile DEFAULT video preset (see MobileMainApplication -> PlayerData.setDefaultVideoFormatMax1080),
-        // enforced in TrackSelectorManager.findBestMatch - that is the path SmartTube actually uses, because
-        // RestoreTrackSelector.selectVideoTrack always returns the app's own single-track Definition and
-        // never calls super.selectVideoTrack, so this maxVideoSize param does NOT constrain the normal
-        // video path. It is set anyway as defense-in-depth: it only takes effect if the base DefaultTrackSelector
-        // selection path ever runs for video (e.g. future adaptive work), and it costs nothing otherwise.
-        // buildUponParameters() copies current params and both ExoPlayerInitializer.createPlayer and
-        // TrackSelectorManager reuse buildUponParameters(), so it survives later setParameters calls. This
-        // DefaultTrackSelector is built only here on the touch player, so TV (PlaybackFragment /
-        // EmbedPlayerView build their own, uncapped) is untouched.
-        trackSelector.setParameters(trackSelector.buildUponParameters().setMaxVideoSize(1920, 1080));
+        // NEWTUBE(media3): the initializer owns the mobile tuning that used to be scattered here
+        // (ABR 5s up-switch, 1080p Auto ceiling, 50/75s buffer + TTFF start gate + 120s back-buffer);
+        // the buffer numbers are baked in, so the old PlayerData.setVideoBufferType() juggling is gone.
+        // Native track selection replaces RestoreTrackSelector + the custom renderers factory: media3
+        // ABR under app-level constraints, decoder fallback instead of the codec blacklist.
+        DefaultTrackSelector trackSelector = mPlayerInitializer.createTrackSelector();
 
         mExoPlayerController.setTrackSelector(trackSelector);
 
-        DefaultRenderersFactory renderersFactory = new CustomOverridesRenderersFactory(this);
-
-        // Buffer tuning applied LOCALLY (see class doc). ExoPlayerInitializer.createLoadControl()
-        // reads PlayerData.getVideoBufferType() during createPlayer(), so temporarily force
-        // BUFFER_HIGH (50s min/max + back-buffer, generous cushion against mobile-data stutter),
-        // then restore the user's persisted global immediately. The already-built LoadControl keeps
-        // the high value; the saved preference is left exactly as the user chose it. (Previously
-        // this was set in onCreate and never restored, permanently clobbering the global pref.)
-        PlayerData playerData = PlayerData.instance(this);
-        int priorBufferType = playerData.getVideoBufferType();
-        playerData.setVideoBufferType(PlayerData.BUFFER_HIGH);
-        try {
-            mPlayer = mPlayerInitializer.createPlayer(this, renderersFactory, trackSelector);
-        } finally {
-            playerData.setVideoBufferType(priorBufferType);
-        }
+        mPlayer = mPlayerInitializer.createPlayer(
+                trackSelector, mExoPlayerController.getMediaSourceFactory().getBandwidthMeter());
         mPlayer.setPlayWhenReady(true);
 
         // Bounded-tolerance seeking as the player-wide default (scrub release, position restore -
@@ -743,7 +728,6 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         mPlayerView.setPlayer(null);
-        mPlayerInitializer.release();
         mExoPlayerController.release();
         mPlayer = null;
     }
@@ -1673,11 +1657,45 @@ public class MobilePlaybackActivity extends MobileActivity
             mTimeBar.setBufferedPosition(buffered);
             mPositionView.setText(formatTime(position));
             mDurationView.setText(formatTime(duration));
+            updateLiveChip(position, duration);
         }
 
         updatePlayPauseIcon();
 
         Utils.postDelayed(mProgressUpdateRunnable, PROGRESS_UPDATE_MS);
+    }
+
+    /**
+     * Live streams: a red LIVE chip when watching at the edge, dimmed while rewound into the DVR
+     * window (the seekbar stays scrubbable); tapping it jumps back to the edge. Non-live keeps
+     * the plain position/duration pair.
+     */
+    private void updateLiveChip(long positionMs, long durationMs) {
+        if (mLiveChip == null) {
+            return;
+        }
+
+        boolean isLive = getVideo() != null && getVideo().isLive;
+        mLiveChip.setVisibility(isLive ? View.VISIBLE : View.GONE);
+
+        if (isLive) {
+            boolean atEdge = durationMs - positionMs <= LIVE_EDGE_THRESHOLD_MS;
+            mLiveChip.setAlpha(atEdge ? 1f : 0.55f);
+        }
+    }
+
+    private void jumpToLiveEdge() {
+        long durationMs = getDurationMs();
+
+        if (mExoPlayerController == null || durationMs <= 0) {
+            return;
+        }
+
+        mExoPlayerController.setPositionMs(Math.max(0, durationMs - LIVE_EDGE_OFFSET_MS));
+
+        if (mPlayer != null) {
+            mPlayer.setPlayWhenReady(true);
+        }
     }
 
     private String formatTime(long timeMs) {
@@ -1687,9 +1705,22 @@ public class MobilePlaybackActivity extends MobileActivity
         return Util.getStringForTime(mFormatBuilder, mFormatter, timeMs);
     }
 
-    private final Player.EventListener mUiPlayerListener = new Player.EventListener() {
+    private final Player.Listener mUiPlayerListener = new Player.Listener() {
         @Override
-        public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
+        public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+            // The old 2-arg onPlayerStateChanged callback split in two in media3; both re-enter
+            // the same state handler so the icon/PiP/screen-on logic sees every combination.
+            if (mPlayer != null) {
+                handleUiStateChange(playWhenReady, mPlayer.getPlaybackState());
+            }
+        }
+
+        @Override
+        public void onPlaybackStateChanged(int playbackState) {
+            handleUiStateChange(mPlayer != null && mPlayer.getPlayWhenReady(), playbackState);
+        }
+
+        private void handleUiStateChange(boolean playWhenReady, int playbackState) {
             switch (playbackState) {
                 case Player.STATE_BUFFERING:
                     showProgressBar(true);
@@ -1744,7 +1775,7 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         @Override
-        public void onPlayerError(com.google.android.exoplayer2.ExoPlaybackException error) {
+        public void onPlayerError(PlaybackException error) {
             // Never leave the loading still covering an error state.
             mStillAwaitReady = false;
             mStillAwaitFrame = false;
@@ -1783,7 +1814,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
     /** Build the code-managed video texture + still inside the PlayerView's content frame. */
     private void setupVideoSurface() {
-        ViewGroup contentFrame = mPlayerView.findViewById(com.google.android.exoplayer2.ui.R.id.exo_content_frame);
+        ViewGroup contentFrame = mPlayerView.getContentFrame();
 
         mVideoTexture = new TextureView(this);
         mVideoTexture.setSurfaceTextureListener(mVideoTextureListener);
@@ -1854,7 +1885,7 @@ public class MobilePlaybackActivity extends MobileActivity
     /** Re-parent the (still decoding) session texture back into this player's content frame. */
     private void reattachVideoTexture() {
         if (mVideoTexture != null && mVideoTexture.getParent() == null) {
-            ViewGroup contentFrame = mPlayerView.findViewById(com.google.android.exoplayer2.ui.R.id.exo_content_frame);
+            ViewGroup contentFrame = mPlayerView.getContentFrame();
             contentFrame.addView(mVideoTexture, 0, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
@@ -2183,7 +2214,7 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     /** Live player accessor for the mini bar (package-private, see MiniPlayerBridge). */
-    SimpleExoPlayer getSharedPlayer() {
+    ExoPlayer getSharedPlayer() {
         return mPlayer;
     }
 
@@ -2533,34 +2564,32 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     /**
-     * Build the {@link SubtitleManager} over the PlayerView's built-in {@link
-     * com.google.android.exoplayer2.ui.SubtitleView} and register it as a text output, so the user's
-     * stored {@code SubtitleStyle} (from SubtitleSettingsPresenter) actually takes effect. Mirrors
-     * PlaybackFragment.createSubtitleManager(). Idempotent.
+     * Build the {@link Media3SubtitleManager} over the PlayerView's built-in {@link
+     * androidx.media3.ui.SubtitleView} and register it as a player listener (media3's cue path),
+     * so the user's stored {@code SubtitleStyle} (from SubtitleSettingsPresenter) actually takes
+     * effect. Mirrors PlaybackFragment.createSubtitleManager(). Idempotent.
      */
     private void createSubtitleManager() {
         if (mSubtitleManager != null || mPlayer == null || mPlayerView == null) {
             return;
         }
 
-        com.google.android.exoplayer2.ui.SubtitleView subtitleView = mPlayerView.getSubtitleView();
+        androidx.media3.ui.SubtitleView subtitleView = mPlayerView.getSubtitleView();
         if (subtitleView == null) {
             return;
         }
 
-        mSubtitleManager = new SubtitleManager(subtitleView);
-
-        if (mPlayer.getTextComponent() != null) {
-            mPlayer.getTextComponent().addTextOutput(mSubtitleManager);
-        }
+        mSubtitleManager = new Media3SubtitleManager(subtitleView);
+        mPlayer.addListener(mSubtitleManager);
     }
 
-    /** Build the {@link DebugInfoManager} over the debug overlay group. Mirrors the TV fragment. */
+    /** Build the media3 stats-for-nerds over the debug overlay group. Mirrors the TV fragment. */
     private void createDebugManager() {
         if (mDebugInfoManager != null || mDebugViewGroup == null || mPlayer == null) {
             return;
         }
-        mDebugInfoManager = new DebugInfoManager(mDebugViewGroup, mPlayer, mPlayerInitializer);
+        mDebugInfoManager = new Media3DebugInfoManager(mDebugViewGroup, mPlayer,
+                mExoPlayerController.getMediaSourceFactory().getBandwidthMeter());
     }
 
     @Override
@@ -2681,6 +2710,21 @@ public class MobilePlaybackActivity extends MobileActivity
         return height + "p" + (highFps ? "60" : "");
     }
 
+    /**
+     * "Auto" = a ceiling preset, not a concrete stream format. The DEFAULT format constants ship
+     * with the isPreset flag unset but a null format id - the selector's own "preset by id
+     * presence" rule (VideoTrack.inBounds) - so both must count, or a fresh install never shows
+     * Auto as active and explicit rungs persist instead of being per-session.
+     */
+    private static boolean isAutoFormat(FormatItem item) {
+        if (item == null || item.isPreset()) {
+            return true;
+        }
+
+        com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.MediaTrack track = item.getTrack();
+        return track == null || track.format == null || track.format.id == null;
+    }
+
     private void showQualitySheet() {
         List<FormatItem> videoFormats = getVideoFormats();
         if (videoFormats == null) {
@@ -2696,9 +2740,13 @@ public class MobilePlaybackActivity extends MobileActivity
         LinearLayout audioList = content.findViewById(R.id.quality_sheet_audio_list);
 
         // ---- Quality: Auto + one row per distinct resolution rung (best track of each rung). ----
+        // The ACTIVE choice is the per-session override when one is set (explicit rung picked
+        // while the persisted default stays Auto), else the persisted format - otherwise the
+        // sheet would keep check-marking Auto right after the user picked a rung.
         PlayerData playerData = PlayerData.instance(this);
-        FormatItem persisted = playerData.getFormat(FormatItem.TYPE_VIDEO);
-        boolean autoActive = persisted == null || persisted.isPreset();
+        FormatItem tempOverride = playerData.getTempVideoFormat();
+        FormatItem persisted = tempOverride != null ? tempOverride : playerData.getFormat(FormatItem.TYPE_VIDEO);
+        boolean autoActive = isAutoFormat(persisted);
 
         // Rung -> representative track. Formats arrive quality-descending; the first of each rung
         // is its best variant. An explicitly selected non-preset track marks its rung instead.
@@ -2718,7 +2766,10 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         addQualityRow(qualityList, getString(R.string.mobile_quality_auto), autoActive, () -> {
-            // Back to the smart default: ABR under the mobile 1080p ceiling.
+            // Back to the smart default: ABR under the mobile 1080p ceiling. The session override
+            // must also go - VideoStateController restores tempVideoFormat FIRST on every new
+            // video, so a stale explicit rung would silently out-vote Auto from the next video on.
+            playerData.setTempVideoFormat(null);
             FormatItem auto = playerData.getDefaultVideoFormat();
             setFormat(auto);
             playerData.setFormat(auto);
@@ -2730,7 +2781,7 @@ public class MobilePlaybackActivity extends MobileActivity
                 // Mirrors HQDialogController.selectFormatOption: while the preset (Auto) is the
                 // persisted default, an explicit rung is a per-session override, like YouTube.
                 setFormat(item);
-                if (playerData.getFormat(FormatItem.TYPE_VIDEO).isPreset()) {
+                if (isAutoFormat(playerData.getFormat(FormatItem.TYPE_VIDEO))) {
                     playerData.setTempVideoFormat(item);
                 } else {
                     playerData.setFormat(item);
@@ -3140,8 +3191,20 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private void rebuildRelatedList() {
         mRelatedVideos.clear();
+        // When playing from a playlist, the section-playlist row (SuggestionsController.
+        // appendSectionPlaylistIfNeeded) contains the WHOLE playlist including the video that's
+        // already playing - YouTube's queue hides it, and as the first tappable "Up next" row it
+        // reads as broken (tapping it restarts the current video). Hide it from the visible list
+        // only, by videoId (Video.equals is unreliable across instances): the controller's
+        // next/prev logic walks the group objects, which stay untouched.
+        Video current = getVideo();
+        String currentId = current != null ? current.videoId : null;
         for (List<Video> vids : mSuggestionVideos.values()) {
-            mRelatedVideos.addAll(vids);
+            for (Video v : vids) {
+                if (currentId == null || v == null || !currentId.equals(v.videoId)) {
+                    mRelatedVideos.add(v);
+                }
+            }
         }
 
         if (mRelatedAdapter != null) {

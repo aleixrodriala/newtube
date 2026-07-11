@@ -51,17 +51,13 @@
                  the texture is simply re-parented between this view and the Browse mini card
                  (same technique as the YouTube app). PlayerView still does aspect-ratio,
                  subtitles and the double-tap layer. -->
-            <com.github.vkay94.dtpv.DoubleTapPlayerViewImpl
+            <com.github.vkay94.dtpv3.DoubleTapPlayerViewImpl
                 android:id="@+id/mobile_player_view"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:layout_gravity="center"
-                app:resize_mode="fit"
-                app:show_buffering="never"
-                app:surface_type="none"
-                app:use_controller="false" />
+                android:layout_gravity="center" />
 
-            <com.github.vkay94.dtpv.youtube.YouTubeOverlay
+            <com.github.vkay94.dtpv3.youtube.YouTubeOverlay
                 android:id="@+id/mobile_player_yt_overlay"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
@@ -292,7 +288,7 @@
                         android:layout_marginEnd="8dp"
                         android:layout_weight="1">
 
-                        <com.google.android.exoplayer2.ui.DefaultTimeBar
+                        <androidx.media3.ui.DefaultTimeBar
                             android:id="@+id/mobile_player_time_bar"
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
@@ -321,6 +317,23 @@
                         android:text="@string/mobile_player_time_default"
                         android:textColor="@android:color/white"
                         android:textSize="@dimen/mobile_player_time_text" />
+
+                    <!-- Live streams only (toggled from onProgressTick): red at the live edge,
+                         dimmed while rewound into the DVR window; tap = jump back to the edge. -->
+                    <TextView
+                        android:id="@+id/mobile_player_live"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center_vertical"
+                        android:layout_marginStart="10dp"
+                        android:background="@drawable/bg_mobile_live_chip"
+                        android:paddingHorizontal="7dp"
+                        android:paddingVertical="2dp"
+                        android:text="@string/mobile_player_live"
+                        android:textColor="@android:color/white"
+                        android:textSize="@dimen/mobile_player_time_text"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
 
                     <ImageButton
                         android:id="@+id/mobile_player_fullscreen"

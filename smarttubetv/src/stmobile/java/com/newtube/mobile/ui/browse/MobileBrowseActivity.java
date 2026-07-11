@@ -24,8 +24,8 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
-import com.google.android.exoplayer2.Player;
-import com.google.android.exoplayer2.SimpleExoPlayer;
+import androidx.media3.common.Player;
+import androidx.media3.exoplayer.ExoPlayer;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.navigation.NavigationView;
@@ -267,7 +267,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         mMiniPlayerFrame.setOnClickListener(expand);
 
         mMiniPlayPause.setOnClickListener(v -> {
-            SimpleExoPlayer player = MiniPlayerBridge.getPlayer();
+            ExoPlayer player = MiniPlayerBridge.getPlayer();
             if (player != null) {
                 player.setPlayWhenReady(!player.getPlayWhenReady());
                 updateMiniPlayPauseIcon(player);
@@ -282,7 +282,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
 
     /** Show the card and adopt the live session texture if a mini session is active. */
     private void syncMiniPlayer() {
-        SimpleExoPlayer player = MiniPlayerBridge.getPlayer();
+        ExoPlayer player = MiniPlayerBridge.getPlayer();
         if (player == null) {
             hideMiniPlayer();
             return;
@@ -377,7 +377,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         if (mMiniPlayerBar.getVisibility() != View.VISIBLE) {
             return;
         }
-        SimpleExoPlayer player = MiniPlayerBridge.getPlayer();
+        ExoPlayer player = MiniPlayerBridge.getPlayer();
         if (player == null) {
             // The hidden playback activity died (system kill / finished elsewhere): fold the bar.
             hideMiniPlayer();
@@ -391,7 +391,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         Utils.postDelayed(mMiniPlayerTick, MINI_TICK_MS);
     }
 
-    private void updateMiniPlayPauseIcon(SimpleExoPlayer player) {
+    private void updateMiniPlayPauseIcon(ExoPlayer player) {
         boolean playing = player.getPlayWhenReady()
                 && player.getPlaybackState() != Player.STATE_ENDED
                 && player.getPlaybackState() != Player.STATE_IDLE;

@@ -13,8 +13,8 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 
-import com.google.android.exoplayer2.Player;
-import com.google.android.exoplayer2.SimpleExoPlayer;
+import androidx.media3.common.Player;
+import androidx.media3.exoplayer.ExoPlayer;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 
@@ -60,7 +60,7 @@ public final class MobileMiniPlayerController {
         mFrame.setOnClickListener(expand);
 
         mPlayPause.setOnClickListener(v -> {
-            SimpleExoPlayer player = MiniPlayerBridge.getPlayer();
+            ExoPlayer player = MiniPlayerBridge.getPlayer();
             if (player != null) {
                 player.setPlayWhenReady(!player.getPlayWhenReady());
                 updatePlayPause(player);
@@ -75,7 +75,7 @@ public final class MobileMiniPlayerController {
 
     /** Show the live mini session. Optionally animate it down from the watch-page video box. */
     public void sync(boolean animateFromPlayer) {
-        SimpleExoPlayer player = MiniPlayerBridge.getPlayer();
+        ExoPlayer player = MiniPlayerBridge.getPlayer();
         if (player == null) {
             hide();
             return;
@@ -255,7 +255,7 @@ public final class MobileMiniPlayerController {
         if (mBar.getVisibility() != View.VISIBLE) {
             return;
         }
-        SimpleExoPlayer player = MiniPlayerBridge.getPlayer();
+        ExoPlayer player = MiniPlayerBridge.getPlayer();
         if (player == null) {
             hide();
             return;
@@ -268,7 +268,7 @@ public final class MobileMiniPlayerController {
         Utils.postDelayed(mTick, TICK_MS);
     }
 
-    private void updatePlayPause(SimpleExoPlayer player) {
+    private void updatePlayPause(ExoPlayer player) {
         boolean playing = player.getPlayWhenReady()
                 && player.getPlaybackState() != Player.STATE_ENDED
                 && player.getPlaybackState() != Player.STATE_IDLE;

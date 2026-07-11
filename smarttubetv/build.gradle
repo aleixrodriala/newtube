@@ -251,6 +251,17 @@ dependencies {
 
     // implementation 'com.github.amzn:exoplayer-amazon-port:' + amazonExoplayerJitpackVersion
 
+    // NEWTUBE(media3): the touch flavor's player engine is androidx.media3 (modern ExoPlayer);
+    // the vendored 2.10.6 fork above stays for the TV flavors (and remains in the mobile APK so
+    // the shared FormatItem/MediaTrack DTOs and presenter constants keep compiling). 1.4.1 is the
+    // newest media3 line that compiles against compileSdk 34 (1.5+ requires 35). Scoped to
+    // stmobile so the TV flavors (minSdk 17, below media3's floor) never resolve it.
+    stmobileImplementation 'androidx.media3:media3-exoplayer:1.4.1'
+    stmobileImplementation 'androidx.media3:media3-exoplayer-dash:1.4.1'
+    stmobileImplementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
+    stmobileImplementation 'androidx.media3:media3-ui:1.4.1'
+    stmobileImplementation project(':doubletapplayerview-media3')
+
     //////// END EXOPLAYER //////////
 
     testImplementation 'junit:junit:' + junitVersion

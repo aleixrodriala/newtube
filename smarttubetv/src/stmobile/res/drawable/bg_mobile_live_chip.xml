@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- LIVE chip in the player control bar: YouTube-red, same rounding as the thumbnail badges. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#E6CC0000" />
+    <corners android:radius="4dp" />
+</shape>

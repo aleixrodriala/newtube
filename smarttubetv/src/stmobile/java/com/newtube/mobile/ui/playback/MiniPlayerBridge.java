@@ -8,7 +8,7 @@ import android.os.SystemClock;
 
 import androidx.annotation.Nullable;
 
-import com.google.android.exoplayer2.SimpleExoPlayer;
+import androidx.media3.exoplayer.ExoPlayer;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
@@ -18,7 +18,7 @@ import java.lang.ref.WeakReference;
 /**
  * Hand-off state for the YouTube-style in-app mini-player.
  *
- * <p>The playback Activity OWNS the {@link SimpleExoPlayer} (see {@link MobilePlaybackService} -
+ * <p>The playback Activity OWNS the {@link ExoPlayer} (see {@link MobilePlaybackService} -
  * the service only wires the media session/notification, background audio already survives the
  * Activity being covered). Minimizing therefore does NOT move the player anywhere:
  * {@link MobilePlaybackActivity} stays alive behind {@code MobileBrowseActivity}, and the card
@@ -149,7 +149,7 @@ public final class MiniPlayerBridge {
 
     /** The live player to render in the bar, or null when no mini session is active. */
     @Nullable
-    public static SimpleExoPlayer getPlayer() {
+    public static ExoPlayer getPlayer() {
         return isActive() ? sActivity.get().getSharedPlayer() : null;
     }
 

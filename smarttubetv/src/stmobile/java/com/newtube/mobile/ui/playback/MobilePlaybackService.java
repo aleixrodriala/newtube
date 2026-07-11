@@ -19,35 +19,35 @@ import android.text.TextUtils;
 import androidx.annotation.Nullable;
 import androidx.core.app.ServiceCompat;
 import androidx.core.content.ContextCompat;
+import androidx.media3.common.ForwardingPlayer;
+import androidx.media3.common.Player;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerNotificationManager;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
-import com.google.android.exoplayer2.ControlDispatcher;
-import com.google.android.exoplayer2.Player;
-import com.google.android.exoplayer2.SimpleExoPlayer;
-import com.google.android.exoplayer2.ext.mediasession.MediaSessionConnector;
-import com.google.android.exoplayer2.ui.PlayerNotificationManager;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
-import com.liskovsoft.smartyoutubetv2.tv.ui.playback.other.BackboneQueueNavigator;
 
 /**
  * Lightweight foreground service that keeps audio playing when {@link MobilePlaybackActivity} is
  * backgrounded or the screen turns off, and drives the lock-screen / media notification.
  *
- * <p>It does NOT own a player - it reuses the single {@link SimpleExoPlayer} instance created by
- * {@link MobilePlaybackActivity} (handed over through {@link #attachPlayer}). It wires that live
- * player to:
+ * <p>It does NOT own a player - it reuses the single media3 {@link ExoPlayer} instance created by
+ * {@link MobilePlaybackActivity} (handed over through {@link #attachPlayer}). Media3 has no
+ * {@code MediaSessionConnector}, so this wires the live player to:
  * <ul>
- *   <li>a {@link MediaSessionCompat} + {@link MediaSessionConnector} (lock-screen transport,
- *       metadata, prev/next routed to the reused {@link PlaybackPresenter}); mirrors the TV
- *       {@code PlaybackFragment.createMediaSession()} concept (ARCHITECTURE.md section 6), and</li>
- *   <li>a {@link PlayerNotificationManager} whose {@link PlayerNotificationManager.NotificationListener}
- *       promotes/demotes this service to/from the foreground so audio survives on API 34+.</li>
+ *   <li>a {@link MediaSessionCompat} synced by a small inline connector (transport callbacks
+ *       routed to the player, prev/next to the reused {@link PlaybackPresenter} queue, playback
+ *       state pushed on every player event), and</li>
+ *   <li>a media3 {@link PlayerNotificationManager} whose notification listener promotes/demotes
+ *       this service to/from the foreground so audio survives on API 34+. The player handed to it
+ *       is wrapped in a {@link ForwardingPlayer} that always advertises prev/next and forwards
+ *       them to the presenter's queue (our player only ever holds one MediaItem).</li>
  * </ul>
  *
  * <p>The service is bound + started by the Activity while it is in the foreground (the player is
@@ -63,14 +63,23 @@ public class MobilePlaybackService extends Service {
     /** Cap the notification/lock-screen art at a sane size instead of decoding the full-res image. */
     private static final int ART_SIZE_PX = 512;
 
+    private static final long SESSION_ACTIONS = PlaybackStateCompat.ACTION_PLAY
+            | PlaybackStateCompat.ACTION_PAUSE
+            | PlaybackStateCompat.ACTION_PLAY_PAUSE
+            | PlaybackStateCompat.ACTION_SEEK_TO
+            | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
+            | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
+            | PlaybackStateCompat.ACTION_STOP;
+
     private final IBinder mBinder = new LocalBinder();
 
     private PlayerNotificationManager mNotificationManager;
     private MediaSessionCompat mMediaSession;
-    private MediaSessionConnector mMediaSessionConnector;
     private PlaybackPresenter mPresenter;
-    // Reused player instance (owned by the Activity) - kept for reading the current duration.
-    private SimpleExoPlayer mPlayer;
+    // Reused player instance (owned by the Activity).
+    private ExoPlayer mPlayer;
+    private Player mNotificationPlayer;
+    private Player.Listener mSessionSyncListener;
     private boolean mIsForeground;
 
     // Simple large-icon (album art) cache so the adapter can answer synchronously on repeat calls.
@@ -86,17 +95,10 @@ public class MobilePlaybackService extends Service {
     }
 
     /**
-     * Context that forces {@link Context#RECEIVER_NOT_EXPORTED} on the 2-arg
-     * {@code registerReceiver} the vendored {@link PlayerNotificationManager} uses internally, so it
-     * doesn't crash on API 34+ (targetSdk 34). All other calls delegate to the base Service context.
-     *
-     * <p>Crucially, {@link PlayerNotificationManager}'s constructor immediately does
-     * {@code context = context.getApplicationContext()} (exoplayer-ui PlayerNotificationManager.java),
-     * then later calls {@code registerReceiver} on THAT stored context. A plain wrapper is therefore
-     * discarded before the receiver is ever registered - which is why the flag was being lost and the
-     * spurious {@code SecurityException: RECEIVER_EXPORTED...} surfaced on every video start (caught by
-     * ErrorFixerController and shown as a false "no internet" toast). So {@link #getApplicationContext()}
-     * is overridden to keep returning a flag-forcing wrapper, ensuring the override survives the unwrap.
+     * Context that forces {@link Context#RECEIVER_NOT_EXPORTED} on any 2-arg
+     * {@code registerReceiver} call {@link PlayerNotificationManager} makes internally. media3
+     * 1.4 is targetSdk-34 aware on its own, but the wrapper is proven on this codebase and
+     * harmless, so it stays as belt-and-braces (see the legacy service for the full history).
      */
     private static class NotificationContextWrapper extends ContextWrapper {
         NotificationContextWrapper(Context base) {
@@ -106,17 +108,72 @@ public class MobilePlaybackService extends Service {
         @Override
         public Context getApplicationContext() {
             Context appContext = super.getApplicationContext();
-            // Keep the registerReceiver override alive even after PlayerNotificationManager unwraps
-            // us via getApplicationContext(). If the base already IS the app context, reuse this.
             return appContext == getBaseContext() ? this : new NotificationContextWrapper(appContext);
         }
 
         @Override
         public Intent registerReceiver(@Nullable BroadcastReceiver receiver, IntentFilter filter) {
-            // Register against the base context (not this wrapper) to avoid recursion. ContextCompat
-            // uses the flag-aware 4-arg registerReceiver on API 33+, which bypasses this override.
             return ContextCompat.registerReceiver(
                     getBaseContext(), receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
+        }
+    }
+
+    /**
+     * The single-MediaItem player can't advertise a queue, so prev/next would never show.
+     * Advertise them unconditionally and forward to the shared suggestions queue.
+     */
+    private class QueueForwardingPlayer extends ForwardingPlayer {
+        QueueForwardingPlayer(Player player) {
+            super(player);
+        }
+
+        @Override
+        public boolean isCommandAvailable(int command) {
+            if (command == COMMAND_SEEK_TO_NEXT || command == COMMAND_SEEK_TO_PREVIOUS
+                    || command == COMMAND_SEEK_TO_NEXT_MEDIA_ITEM || command == COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM) {
+                return true;
+            }
+            return super.isCommandAvailable(command);
+        }
+
+        @Override
+        public Commands getAvailableCommands() {
+            return super.getAvailableCommands().buildUpon()
+                    .addAll(COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_PREVIOUS,
+                            COMMAND_SEEK_TO_NEXT_MEDIA_ITEM, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .build();
+        }
+
+        @Override
+        public void seekToNext() {
+            skipToNext();
+        }
+
+        @Override
+        public void seekToNextMediaItem() {
+            skipToNext();
+        }
+
+        @Override
+        public void seekToPrevious() {
+            skipToPrevious();
+        }
+
+        @Override
+        public void seekToPreviousMediaItem() {
+            skipToPrevious();
+        }
+    }
+
+    private void skipToNext() {
+        if (mPresenter != null) {
+            Utils.post(() -> mPresenter.onNextClicked());
+        }
+    }
+
+    private void skipToPrevious() {
+        if (mPresenter != null) {
+            Utils.post(() -> mPresenter.onPreviousClicked());
         }
     }
 
@@ -136,7 +193,7 @@ public class MobilePlaybackService extends Service {
      * Attach the reused player. Sets up the media session + notification. Safe to call once per
      * player instance; a second call re-attaches (used when the engine is restarted).
      */
-    public void attachPlayer(SimpleExoPlayer player, PlaybackPresenter presenter, PendingIntent contentIntent) {
+    public void attachPlayer(ExoPlayer player, PlaybackPresenter presenter, PendingIntent contentIntent) {
         if (player == null) {
             return;
         }
@@ -146,56 +203,88 @@ public class MobilePlaybackService extends Service {
 
         mPresenter = presenter;
         mPlayer = player;
+        mNotificationPlayer = new QueueForwardingPlayer(player);
 
         mMediaSession = new MediaSessionCompat(getApplicationContext(), getPackageName());
+        mMediaSession.setCallback(new MediaSessionCompat.Callback() {
+            @Override
+            public void onPlay() {
+                if (mPlayer != null) {
+                    mPlayer.setPlayWhenReady(true);
+                }
+            }
+
+            @Override
+            public void onPause() {
+                if (mPlayer != null) {
+                    mPlayer.setPlayWhenReady(false);
+                }
+            }
+
+            @Override
+            public void onSeekTo(long pos) {
+                if (mPlayer != null) {
+                    mPlayer.seekTo(pos);
+                }
+            }
+
+            @Override
+            public void onSkipToNext() {
+                skipToNext();
+            }
+
+            @Override
+            public void onSkipToPrevious() {
+                skipToPrevious();
+            }
+
+            @Override
+            public void onStop() {
+                if (mPlayer != null) {
+                    mPlayer.setPlayWhenReady(false);
+                }
+            }
+        });
         mMediaSession.setActive(true);
 
-        mMediaSessionConnector = new MediaSessionConnector(mMediaSession);
-        try {
-            mMediaSessionConnector.setPlayer(player);
-        } catch (NoSuchMethodError e) {
-            // Some OEM ROMs (e.g. Android 9, Sony) lack a PlaybackState.Builder method used here.
-            mMediaSessionConnector = null;
-        }
+        // Inline connector: push state + metadata into the session on every relevant player event.
+        mSessionSyncListener = new Player.Listener() {
+            @Override
+            public void onPlaybackStateChanged(int playbackState) {
+                syncSession();
+            }
 
-        if (mMediaSessionConnector != null) {
-            mMediaSessionConnector.setMediaMetadataProvider(p -> buildMetadata());
-            mMediaSessionConnector.setQueueNavigator(new BackboneQueueNavigator() {
-                @Override
-                public long getSupportedQueueNavigatorActions(Player p) {
-                    return PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS | PlaybackStateCompat.ACTION_SKIP_TO_NEXT;
-                }
+            @Override
+            public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+                syncSession();
+            }
 
-                @Override
-                public void onSkipToPrevious(Player p, ControlDispatcher controlDispatcher) {
-                    if (mPresenter != null) {
-                        Utils.post(() -> mPresenter.onPreviousClicked());
-                    }
-                }
+            @Override
+            public void onPositionDiscontinuity(Player.PositionInfo oldPosition, Player.PositionInfo newPosition, int reason) {
+                syncSession();
+            }
 
-                @Override
-                public void onSkipToNext(Player p, ControlDispatcher controlDispatcher) {
-                    if (mPresenter != null) {
-                        Utils.post(() -> mPresenter.onNextClicked());
-                    }
-                }
-            });
-        }
+            @Override
+            public void onPlaybackParametersChanged(androidx.media3.common.PlaybackParameters playbackParameters) {
+                syncSession();
+            }
 
-        mNotificationManager = PlayerNotificationManager.createWithNotificationChannel(
-                // Wrap the Service context so the manager's internal registerReceiver() call gets the
-                // RECEIVER_NOT_EXPORTED flag mandated for apps targeting API 34+ (the vendored
-                // exoplayer-ui PlayerNotificationManager still uses the 2-arg registerReceiver, which
-                // otherwise throws SecurityException on Android 14). The action broadcasts are already
-                // package-scoped (internal), so NOT_EXPORTED is correct.
-                new NotificationContextWrapper(this),
-                CHANNEL_ID,
-                R.string.mobile_playback_channel_name,
-                R.string.mobile_playback_channel_desc,
-                NOTIFICATION_ID,
-                new PlayerNotificationManager.MediaDescriptionAdapter() {
+            @Override
+            public void onTimelineChanged(androidx.media3.common.Timeline timeline, int reason) {
+                syncSession(); // duration became known
+            }
+        };
+        player.addListener(mSessionSyncListener);
+        syncSession();
+
+        mNotificationManager = new PlayerNotificationManager.Builder(
+                new NotificationContextWrapper(this), NOTIFICATION_ID, CHANNEL_ID)
+                .setChannelNameResourceId(R.string.mobile_playback_channel_name)
+                .setChannelDescriptionResourceId(R.string.mobile_playback_channel_desc)
+                .setSmallIconResourceId(R.drawable.ic_notification_play)
+                .setMediaDescriptionAdapter(new PlayerNotificationManager.MediaDescriptionAdapter() {
                     @Override
-                    public String getCurrentContentTitle(Player player) {
+                    public CharSequence getCurrentContentTitle(Player player) {
                         Video video = mPresenter != null ? mPresenter.getVideo() : null;
                         return video != null ? Helpers.toString(video.getTitleFull()) : "";
                     }
@@ -208,7 +297,7 @@ public class MobilePlaybackService extends Service {
 
                     @Nullable
                     @Override
-                    public String getCurrentContentText(Player player) {
+                    public CharSequence getCurrentContentText(Player player) {
                         Video video = mPresenter != null ? mPresenter.getVideo() : null;
                         return video != null ? video.getAuthor() : null;
                     }
@@ -218,8 +307,8 @@ public class MobilePlaybackService extends Service {
                     public Bitmap getCurrentLargeIcon(Player player, PlayerNotificationManager.BitmapCallback callback) {
                         return loadArt(callback);
                     }
-                },
-                new PlayerNotificationManager.NotificationListener() {
+                })
+                .setNotificationListener(new PlayerNotificationManager.NotificationListener() {
                     @Override
                     public void onNotificationPosted(int notificationId, Notification notification, boolean ongoing) {
                         if (ongoing) {
@@ -239,18 +328,17 @@ public class MobilePlaybackService extends Service {
                         mIsForeground = false;
                         stopSelf();
                     }
-                });
+                })
+                .build();
 
-        mNotificationManager.setUseNavigationActions(true); // prev / next
+        mNotificationManager.setUseNextAction(true);
+        mNotificationManager.setUsePreviousAction(true);
         mNotificationManager.setUsePlayPauseActions(true);
         mNotificationManager.setUseStopAction(false);
-        mNotificationManager.setSmallIcon(R.drawable.ic_notification_play);
-        if (mMediaSession != null) {
-            mNotificationManager.setMediaSessionToken(mMediaSession.getSessionToken());
-        }
+        mNotificationManager.setMediaSessionToken(mMediaSession.getSessionToken());
 
         // Posts the notification now (if media already loaded) and on every subsequent player event.
-        mNotificationManager.setPlayer(player);
+        mNotificationManager.setPlayer(mNotificationPlayer);
     }
 
     /** Detach + tear down media session and notification. Called before the player is released. */
@@ -263,12 +351,10 @@ public class MobilePlaybackService extends Service {
             mNotificationManager.setPlayer(null); // triggers onNotificationCancelled -> stopForeground
             mNotificationManager = null;
         }
-        if (mMediaSessionConnector != null) {
-            mMediaSessionConnector.setPlayer(null);
-            mMediaSessionConnector.setMediaMetadataProvider(null);
-            mMediaSessionConnector.setQueueNavigator(null);
-            mMediaSessionConnector = null;
+        if (mPlayer != null && mSessionSyncListener != null) {
+            mPlayer.removeListener(mSessionSyncListener);
         }
+        mSessionSyncListener = null;
         if (mMediaSession != null) {
             mMediaSession.setActive(false);
             mMediaSession.release();
@@ -289,6 +375,7 @@ public class MobilePlaybackService extends Service {
         }
         mPresenter = null;
         mPlayer = null;
+        mNotificationPlayer = null;
         mArtUrl = null;
         mArtBitmap = null;
     }
@@ -297,6 +384,38 @@ public class MobilePlaybackService extends Service {
     public void onDestroy() {
         releaseInternal(true);
         super.onDestroy();
+    }
+
+    /** Push the current player state + metadata into the (lock-screen) media session. */
+    private void syncSession() {
+        if (mMediaSession == null || mPlayer == null) {
+            return;
+        }
+
+        int sessionState;
+        switch (mPlayer.getPlaybackState()) {
+            case Player.STATE_BUFFERING:
+                sessionState = PlaybackStateCompat.STATE_BUFFERING;
+                break;
+            case Player.STATE_READY:
+                sessionState = mPlayer.getPlayWhenReady()
+                        ? PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED;
+                break;
+            case Player.STATE_ENDED:
+                sessionState = PlaybackStateCompat.STATE_STOPPED;
+                break;
+            case Player.STATE_IDLE:
+            default:
+                sessionState = PlaybackStateCompat.STATE_NONE;
+                break;
+        }
+
+        mMediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
+                .setActions(SESSION_ACTIONS)
+                .setState(sessionState, mPlayer.getCurrentPosition(), mPlayer.getPlaybackParameters().speed)
+                .setBufferedPosition(mPlayer.getBufferedPosition())
+                .build());
+        mMediaSession.setMetadata(buildMetadata());
     }
 
     private MediaMetadataCompat buildMetadata() {
@@ -315,7 +434,7 @@ public class MobilePlaybackService extends Service {
         if (mArtBitmap != null) {
             builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, mArtBitmap);
         }
-        // Duration for the lock-screen / media-control scrubber. ExoPlayer returns C.TIME_UNSET
+        // Duration for the lock-screen / media-control scrubber. The player returns C.TIME_UNSET
         // (negative) until the timeline is known, so only publish a real positive duration.
         long durationMs = mPlayer != null ? mPlayer.getDuration() : 0;
         if (durationMs > 0) {
