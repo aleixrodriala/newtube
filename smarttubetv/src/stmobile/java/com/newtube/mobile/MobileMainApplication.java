@@ -94,6 +94,13 @@ public class MobileMainApplication extends MainApplication {
         // TV never calls this -> TV keeps the WEB_EMBED-first order unchanged.
         VideoInfoService.setPreferNoPotClient(true);
 
+        // /player FAN-OUT TRIM (mobile-only): skip the four TV-app fallback clients (TV_LEGACY,
+        // TV_DOWNGRADED, TV_EMBED, TV_SIMPLY) on the getVideoInfo failover ring. They only earn
+        // their keep on TV boxes; on a phone they just add up to 4 extra /player round-trips when
+        // a hard video walks the ring (AppClient.TV itself stays - it's the auth-capable client).
+        // TV never calls this -> TV keeps the full 13-client ring unchanged.
+        VideoInfoService.setSkipTvFallbackClients(true);
+
         // TTFF FIX (mobile-only, click-to-play parallelization): kick the getVideoInfo fetch the instant a
         // video is tapped (PlaybackPresenter.openVideo) so the network round-trip - the single biggest
         // chunk of click-to-play - overlaps the player Activity's bring-up (layout inflation + ExoPlayer
