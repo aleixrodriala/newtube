@@ -1,6 +1,7 @@
 package com.newtube.mobile.player;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
@@ -12,6 +13,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
 
 import com.liskovsoft.sharedutils.helpers.DeviceHelpers;
+import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
 
 /**
@@ -20,7 +22,8 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
  * from {@code MobileMainApplication}) is baked in directly:
  *
  * <ul>
- *   <li>steady-state buffer 50s min / 75s max (BUFFER_HIGH preset + the forward-seek widening),</li>
+ *   <li>steady-state buffer sized by the "Video buffer" setting (see {@link #createPlayer};
+ *       default = the BUFFER_HIGH preset that used to be hardcoded: 50s min / 75s max),</li>
  *   <li>start gate 1s first frame / 2.5s after rebuffer (TTFF fix),</li>
  *   <li>back-buffer 120s from keyframe with a RAM-clamped byte budget (backward-seek fix),</li>
  *   <li>ABR up-switch after 5s of stable buffer (the mobile tuning from the legacy round).</li>
@@ -28,13 +31,43 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
  */
 public class Media3PlayerInitializer {
 
+    // Video-buffer knob (Settings > Player > "Video buffer", PlayerData.getVideoBufferType()),
+    // read at player CREATION - an engine restart applies a change, same semantics as the legacy
+    // engine. ramCap = RAM/18 (196MB fallback), the pre-knob memory backstop.
+    //
+    //   preset    minBuf  maxBuf   byte target
+    //   LOW        20s     30s     min( 48MB, ramCap/4)
+    //   MEDIUM     50s     50s     min( 96MB, ramCap/2)   (min==max: stock ExoPlayer pattern)
+    //   HIGH       50s     75s     min(192MB, ramCap)     <- pre-knob baked values = the default
+    //   HIGHEST    50s    120s     min(288MB, ramCap*1.5 = RAM/12)
+    //
+    // LOW's 30s max sits below the standing 50s min, so its min scales down by the same 2/3
+    // min:max ratio the HIGH pair uses (50/75). Start gate, back-buffer and the time-over-size
+    // priority are shared by all presets.
     private static final int MIN_BUFFER_MS = 50_000;
     private static final int MAX_BUFFER_MS = 75_000;
+    private static final int LOW_MIN_BUFFER_MS = 20_000;
+    private static final int LOW_MAX_BUFFER_MS = 30_000;
+    private static final int MEDIUM_MAX_BUFFER_MS = 50_000;
+    private static final int HIGHEST_MAX_BUFFER_MS = 120_000;
     private static final int START_BUFFER_MS = 1_000;
     private static final int START_BUFFER_AFTER_REBUFFER_MS = 2_500;
     private static final int BACK_BUFFER_MS = 120_000;
-    private static final int TARGET_BUFFER_BYTES = 192 * 1024 * 1024;
+    private static final int MB = 1024 * 1024;
+    private static final int TARGET_BUFFER_BYTES = 192 * MB;
+    private static final int LOW_TARGET_BUFFER_BYTES = 48 * MB;
+    private static final int MEDIUM_TARGET_BUFFER_BYTES = 96 * MB;
+    private static final int HIGHEST_TARGET_BUFFER_BYTES = 288 * MB;
     private static final int ABR_UP_SWITCH_MS = 5_000;
+
+    // NEWTUBE(buffer-knob): one-time default alignment. Every pre-knob mobile build ran the baked
+    // BUFFER_HIGH preset no matter what the stored pref said, and PlayerData's parse default is
+    // MEDIUM - so an untouched install carries MEDIUM while having always experienced HIGH.
+    // Promote that untouched/dead MEDIUM to HIGH exactly once, so wiring the knob changes nothing
+    // for existing installs and the Settings radio finally reflects reality. Explicit picks made
+    // after this build are never touched (the flag is already set).
+    private static final String PLAYER_PREFS_NAME = "newtube_player";
+    private static final String KEY_BUFFER_DEFAULT_ALIGNED = "buffer_default_aligned";
 
     private final Context mContext;
     private final int mMaxBufferBytes;
@@ -45,6 +78,19 @@ public class Media3PlayerInitializer {
         long deviceRam = DeviceHelpers.getDeviceRam(mContext);
         // Same RAM clamp as the legacy initializer (and its negative-overflow guard).
         mMaxBufferBytes = deviceRam <= 0 ? 196_000_000 : (int) (deviceRam / 18);
+
+        alignBufferDefaultOnce();
+    }
+
+    private void alignBufferDefaultOnce() {
+        SharedPreferences prefs = mContext.getSharedPreferences(PLAYER_PREFS_NAME, Context.MODE_PRIVATE);
+        if (!prefs.getBoolean(KEY_BUFFER_DEFAULT_ALIGNED, false)) {
+            PlayerData playerData = PlayerData.instance(mContext);
+            if (playerData.getVideoBufferType() == PlayerData.BUFFER_MEDIUM) {
+                playerData.setVideoBufferType(PlayerData.BUFFER_HIGH);
+            }
+            prefs.edit().putBoolean(KEY_BUFFER_DEFAULT_ALIGNED, true).apply();
+        }
     }
 
     public DefaultTrackSelector createTrackSelector() {
@@ -66,18 +112,56 @@ public class Media3PlayerInitializer {
     }
 
     public ExoPlayer createPlayer(DefaultTrackSelector trackSelector, DefaultBandwidthMeter bandwidthMeter) {
+        // See the preset table above. Read afresh on every creation so an engine restart (error
+        // fix, in-player buffer pick, next activity open) picks up the current setting.
+        int bufferType = PlayerData.instance(mContext).getVideoBufferType();
+        int minBufferMs;
+        int maxBufferMs;
+        int targetBufferBytes;
+        String bufferName;
+        switch (bufferType) {
+            case PlayerData.BUFFER_LOW:
+                minBufferMs = LOW_MIN_BUFFER_MS;
+                maxBufferMs = LOW_MAX_BUFFER_MS;
+                targetBufferBytes = Math.min(LOW_TARGET_BUFFER_BYTES, mMaxBufferBytes / 4);
+                bufferName = "LOW";
+                break;
+            case PlayerData.BUFFER_MEDIUM:
+                minBufferMs = MEDIUM_MAX_BUFFER_MS; // min==max, stock ExoPlayer pattern
+                maxBufferMs = MEDIUM_MAX_BUFFER_MS;
+                targetBufferBytes = Math.min(MEDIUM_TARGET_BUFFER_BYTES, mMaxBufferBytes / 2);
+                bufferName = "MEDIUM";
+                break;
+            case PlayerData.BUFFER_HIGHEST:
+                minBufferMs = MIN_BUFFER_MS;
+                maxBufferMs = HIGHEST_MAX_BUFFER_MS;
+                // Long math: RAM/12 can exceed Integer.MAX_VALUE on huge-RAM devices; min() first.
+                targetBufferBytes = (int) Math.min(HIGHEST_TARGET_BUFFER_BYTES, mMaxBufferBytes * 3L / 2);
+                bufferName = "HIGHEST";
+                break;
+            case PlayerData.BUFFER_HIGH:
+            default: // unknown value -> today's behavior
+                minBufferMs = MIN_BUFFER_MS;
+                maxBufferMs = MAX_BUFFER_MS;
+                targetBufferBytes = Math.min(TARGET_BUFFER_BYTES, mMaxBufferBytes);
+                bufferName = "HIGH";
+                break;
+        }
+        android.util.Log.d("NetPath", "buffer=" + bufferName + " max=" + (maxBufferMs / 1000) + "s"
+                + " min=" + (minBufferMs / 1000) + "s bytes=" + (targetBufferBytes / MB) + "MB");
+
         DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
-                        MIN_BUFFER_MS,
-                        MAX_BUFFER_MS,
+                        minBufferMs,
+                        maxBufferMs,
                         START_BUFFER_MS,
                         START_BUFFER_AFTER_REBUFFER_MS)
                 .setBackBuffer(BACK_BUFFER_MS, /* retainBackBufferFromKeyframe= */ true)
-                .setTargetBufferBytes(Math.min(TARGET_BUFFER_BYTES, mMaxBufferBytes))
+                .setTargetBufferBytes(targetBufferBytes)
                 // The byte cap above is a memory BACKSTOP only: without this flag the loader stops
-                // at the byte target even below MIN_BUFFER_MS (on 2-3GB devices RAM/18 binds before
-                // the 50-75s time target -> shorter real buffer -> more rebuffers). With it, the
-                // time thresholds always win; the byte cap only guards pathological memory use.
+                // at the byte target even below the preset's min (on 2-3GB devices the RAM clamp
+                // binds before the time target -> shorter real buffer -> more rebuffers). With it,
+                // the time thresholds always win; the byte cap only guards pathological memory use.
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build();
 

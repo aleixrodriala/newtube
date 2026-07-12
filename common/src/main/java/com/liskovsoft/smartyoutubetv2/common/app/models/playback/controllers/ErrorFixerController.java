@@ -162,6 +162,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
                 // OkHttp has memory leak problems
                 enableFasterDataSource();
             } else if (getPlayerData().getVideoBufferType() == PlayerData.BUFFER_HIGH || getPlayerData().getVideoBufferType() == PlayerData.BUFFER_HIGHEST) {
+                // Takes effect via the restartEngine below: the engine restart rebuilds the player
+                // and its LoadControl, which reads this pref at creation (mobile: Media3PlayerInitializer).
                 getPlayerData().setVideoBufferType(PlayerData.BUFFER_MEDIUM);
             } else {
                 getPlayerTweaksData().setSectionPlaylistEnabled(false);
