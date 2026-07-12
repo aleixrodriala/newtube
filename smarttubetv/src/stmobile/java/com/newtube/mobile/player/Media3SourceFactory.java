@@ -203,6 +203,14 @@ public class Media3SourceFactory {
             leafFactory = defaultHttp;
         }
 
+        // NEWTUBE(debug-shaper): runtime bandwidth/fault shaping for on-device experiments
+        // (see DebugMediaShaper - the Pixel 9 is the dev Mac's uplink, so radio-level
+        // throttling is off-limits, and the emulator's throttle stalls instead of shaping).
+        // Debug builds only; inert while the debug.arc.* props are unset.
+        if (BuildConfig.DEBUG) {
+            leafFactory = new DebugMediaShaper.Factory(leafFactory);
+        }
+
         // googlevideo range-query mirroring sits directly on the leaf transport, BELOW the cache
         // tier (CacheDataSource upstream = resolving(leaf)): the cache key factory reads only
         // id/itag/lmt/xtags/sq from the ORIGINAL uri, so cache keys never see rn=/range=.

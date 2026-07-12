@@ -147,15 +147,27 @@ public class Media3PlayerInitializer {
                 bufferName = "HIGH";
                 break;
         }
+        // NEWTUBE(loop-experiment): the post-rebuffer resume gate is runtime-flippable in debug
+        // builds (adb shell setprop debug.arc.rebuffer_gate_ms 1500; engine restart applies it)
+        // so the 2500-vs-1500 A/B runs on ONE build with everything else identical. Release
+        // builds always use the constant.
+        int startAfterRebufferMs = START_BUFFER_AFTER_REBUFFER_MS;
+        if (com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG) {
+            startAfterRebufferMs =
+                    DebugMediaShaper.propInt("debug.arc.rebuffer_gate_ms", startAfterRebufferMs);
+        }
+
         android.util.Log.d("NetPath", "buffer=" + bufferName + " max=" + (maxBufferMs / 1000) + "s"
-                + " min=" + (minBufferMs / 1000) + "s bytes=" + (targetBufferBytes / MB) + "MB");
+                + " min=" + (minBufferMs / 1000) + "s bytes=" + (targetBufferBytes / MB) + "MB"
+                + (startAfterRebufferMs != START_BUFFER_AFTER_REBUFFER_MS
+                        ? " rebuffer-gate=" + startAfterRebufferMs + "ms" : ""));
 
         DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
                         minBufferMs,
                         maxBufferMs,
                         START_BUFFER_MS,
-                        START_BUFFER_AFTER_REBUFFER_MS)
+                        startAfterRebufferMs)
                 .setBackBuffer(BACK_BUFFER_MS, /* retainBackBufferFromKeyframe= */ true)
                 .setTargetBufferBytes(targetBufferBytes)
                 // The byte cap above is a memory BACKSTOP only: without this flag the loader stops

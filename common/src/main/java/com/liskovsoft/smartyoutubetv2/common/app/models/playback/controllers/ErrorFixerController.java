@@ -10,6 +10,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.BasePlayerController;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.listener.PlayerEventListener;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.MediaTrack;
 import com.liskovsoft.smartyoutubetv2.common.misc.BufferingDetector;
 import com.liskovsoft.smartyoutubetv2.common.misc.BufferingDetector.OnLongBuffering;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
@@ -35,6 +36,16 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     private int mConsecutiveAutoFixCount;
     private String mAutoFixVideoId;
     private boolean mAutoReloadPending;
+    // NEWTUBE(pin-rescue): one-shot-per-open guard. media3 pins an EXPLICIT video-quality rung
+    // with a TrackSelectionOverride, which disables per-track exclusion - so a rung whose
+    // googlevideo URL persistently 403s can never be dropped, and the reload loop just re-pins the
+    // dead format until the cap surfaces an error (the legacy engine had TrackErrorFixer for this).
+    // On the first SOURCE error under an explicit pin we fall the pin back to Auto for THIS video
+    // only, session-scoped through tempVideoFormat so the persisted quality preference is never
+    // overwritten. Armed on that error, re-asserted on our reload's onNewVideo, disarmed together
+    // with the auto-fix cap (healthy playback or a user-initiated open).
+    private boolean mPinRescueArmed;
+    private String mPinRescueVideoId;
 
     @Override
     public void onInit() {
@@ -101,6 +112,10 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         String videoId = item != null ? item.videoId : null;
         if (mAutoReloadPending && Helpers.equals(videoId, mAutoFixVideoId)) {
             mAutoReloadPending = false; // our automatic reload landing - keep the count
+            // NEWTUBE(pin-rescue): VideoStateController (registered before us) has just cleared
+            // tempVideoFormat in its own onNewVideo; re-assert Auto here so the reopened source's
+            // restoreVideoFormat reads it back instead of the failing persisted/temp pin.
+            reassertPinRescueIfArmed(videoId);
         } else {
             resetAutoFixCap();
         }
@@ -199,6 +214,11 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             //} else {
             //    YouTubeServiceManager.instance().applyNoPlaybackFix(); // Response code: 403
             //}
+
+            // NEWTUBE(pin-rescue): an explicit video-quality pin can't be excluded on the media3
+            // engine (see mPinRescueArmed) - fall it back to Auto for this video before the reload
+            // below re-pins the dead format again. No-op when no explicit pin is active.
+            maybeRescuePinnedFormat(errorContent);
 
             boolean isGeneralError = Helpers.startsWithAny(errorContent, "Response code: 429", "Response code: 500");
             if (isGeneralError && isSubtitlesEnabled()) {
@@ -392,6 +412,92 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         mConsecutiveAutoFixCount = 0;
         mAutoFixVideoId = null;
         mAutoReloadPending = false;
+        // NEWTUBE(pin-rescue): healthy playback / a user-initiated open both disarm the rescue.
+        // tempVideoFormat is left as-is (VideoStateController.onNewVideo clears it on the next
+        // user open, which restores the untouched persisted pin) so recovered playback keeps Auto.
+        mPinRescueArmed = false;
+        mPinRescueVideoId = null;
+    }
+
+    /**
+     * NEWTUBE(pin-rescue): first SOURCE error while an EXPLICIT video-quality pin is active. media3
+     * pins an explicit rung with a {@code TrackSelectionOverride}, which disables per-track
+     * exclusion, so a rung that persistently 403s can never be dropped - the reload loop re-pins
+     * the dead format until the cap. Arm the fallback (the actual switch to Auto happens on the
+     * reload's {@link #onNewVideo}, see {@link #reassertPinRescueIfArmed}), inform the user, and
+     * leave a NetPath breadcrumb. One-shot per open: once Auto is in effect the pin is no longer
+     * active, so this can't re-arm; the explicit id guard also blocks a same-open re-entry.
+     * No-op (unchanged behavior) when the active video format is Auto/a preset ceiling.
+     */
+    private void maybeRescuePinnedFormat(String reason) {
+        if (getPlayer() == null || getVideo() == null) {
+            return;
+        }
+
+        // Only server rejections of the pinned URL ("Response code: 403" etc). A transient
+        // network blip (UnknownHost, connection loss) fails EVERY rung equally - downgrading
+        // the pin there would just cost quality once the network recovers.
+        if (reason == null || !reason.contains("Response code:")) {
+            return;
+        }
+
+        String videoId = getVideo().videoId;
+        if (mPinRescueArmed && Helpers.equals(videoId, mPinRescueVideoId)) {
+            return; // already rescued this open
+        }
+
+        FormatItem pinned = getEffectiveVideoFormat();
+        if (isAutoFormat(pinned)) {
+            return; // no explicit pin -> nothing to rescue
+        }
+
+        mPinRescueArmed = true;
+        mPinRescueVideoId = videoId;
+
+        android.util.Log.d("NetPath", "rescue pin->auto reason=" + reason);
+        MessageHelpers.showLongMessage(getContext(),
+                getContext().getString(R.string.msg_quality_pin_fallback, qualityLabel(pinned)));
+    }
+
+    /**
+     * NEWTUBE(pin-rescue): re-assert Auto as the per-session {@code tempVideoFormat} on our own
+     * reload. Runs after {@code VideoStateController.onNewVideo} (registered before us) has cleared
+     * tempVideoFormat, and before the reopened source's {@code onSourceChanged -> restoreVideoFormat}
+     * reads it, so the reloaded video selects Auto (the mobile-capped default ceiling, exactly the
+     * quality sheet's "Auto" row) without ever overwriting the persisted pin.
+     */
+    private void reassertPinRescueIfArmed(String videoId) {
+        if (mPinRescueArmed && Helpers.equals(videoId, mPinRescueVideoId)) {
+            getPlayerData().setTempVideoFormat(getPlayerData().getDefaultVideoFormat());
+        }
+    }
+
+    /** The video format that {@code restoreVideoFormat} would apply: per-session pin, else persisted. */
+    private FormatItem getEffectiveVideoFormat() {
+        FormatItem temp = getPlayerData().getTempVideoFormat();
+        return temp != null ? temp : getPlayerData().getFormat(FormatItem.TYPE_VIDEO);
+    }
+
+    /**
+     * "Auto" = a ceiling preset, not a concrete stream (mirrors VideoStateController.isAutoFormat /
+     * the media3 adapter's isAutoTarget): the DEFAULT format constants ship with isPreset unset but
+     * a null format id, so both must count.
+     */
+    private static boolean isAutoFormat(FormatItem item) {
+        if (item == null || item.isPreset()) {
+            return true;
+        }
+        MediaTrack track = item.getTrack();
+        return track == null || track.format == null || track.format.id == null;
+    }
+
+    /** Distinct resolution rung of the pinned format: "1080p" / "1080p60" style (for the toast). */
+    private static String qualityLabel(FormatItem item) {
+        int height = item.getHeight();
+        if (height <= 0) {
+            return "Pinned quality";
+        }
+        return height + "p" + (item.getFrameRate() > 40 ? "60" : "");
     }
 
     /**
