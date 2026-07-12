@@ -66,6 +66,19 @@ class Media3TrackAdapter {
                 .clearOverridesOfType(C.TRACK_TYPE_TEXT));
     }
 
+    /**
+     * NEWTUBE(bg-audio): drop the whole video renderer for true background audio-only playback
+     * (no PiP, no in-app mini-player) so VIDEO stops both downloading and decoding; re-enable on
+     * foreground return. Single owner for the flag: composes with the CURRENT parameters (never a
+     * snapshot), so the quality/audio/subtitle writes elsewhere neither clear it nor are cleared by
+     * it, and {@link #onSourceChanged} only drops group-bound overrides - so the flag survives an
+     * autoplay-advance on the reused selector.
+     */
+    void setVideoTrackDisabled(boolean disabled) {
+        mTrackSelector.setParameters(mTrackSelector.buildUponParameters()
+                .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, disabled));
+    }
+
     /** Fresh tracks from the player: re-resolve every explicit target against the new groups. */
     void onTracksChanged(Tracks tracks) {
         mTracks = tracks;
