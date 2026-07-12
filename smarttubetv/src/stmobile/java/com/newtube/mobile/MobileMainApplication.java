@@ -85,14 +85,28 @@ public class MobileMainApplication extends MainApplication {
         // pushed into the legacy engine here (ExoPlayerInitializer.set*Override) moved into the
         // media3 engine itself - see Media3PlayerInitializer (back 120s, start gate 1000/2500ms).
 
-        // TTFF FIX (mobile-only, biggest cold-start win): make getVideoInfo try a no-PO-token/no-cipher
-        // client (ANDROID_VR, then ANDROID_REEL) BEFORE WEB_EMBED. WEB_EMBED (the default first client)
-        // requires a synchronous PO token + signature deciphering (~2.7s of self-inflicted latency on
-        // every cold start); the fast clients skip both. WEB_EMBED and the rest of the client list
-        // remain as fallbacks (firstInfoWith falls through), so restricted / age-gated videos still
-        // play. The winning fast client is persisted so subsequent cold starts skip straight to it.
-        // TV never calls this -> TV keeps the WEB_EMBED-first order unchanged.
-        VideoInfoService.setPreferNoPotClient(true);
+        // POT-ENFORCED NETWORKS (mobile): preferNoPotClient(true) used to put ANDROID_VR first to
+        // skip WEB_EMBED's ~2.7s of synchronous PO-token + cipher work. Real-device testing
+        // (Pixel 9, Telefonica LTE, 2026-07-12) showed carrier CGNAT IPs make googlevideo enforce
+        // integrity on EVERY client's media URLs: streams from any non-web /player flow
+        // (ANDROID_VR/TV/IOS - pot-less OR with a client-side web pot appended to the URLs) serve
+        // ~60s of media and then 403 (Source error + visible reload, repeating until the ring
+        // reaches WEB_EMBED, whose ATTESTED /player flow mints URLs that survive indefinitely).
+        // Client-side pot attachment cannot rescue non-web clients (verified: web-visitor pot,
+        // app-visitor pot - both 403 at the same wall; Android-family clients would need
+        // DroidGuard, which we can't run). So the phone rides upstream's battle-tested
+        // WEB_EMBED-first order again; warmUpPoTokenGate() below turns WEB_EMBED's old ~2.7s
+        // cold-start penalty into ~10ms (BotGuard inits at app start, off the open path), which
+        // is what made ANDROID_VR-first obsolete. Fast clients stay in the ring as fallbacks for
+        // non-embeddable videos.
+        VideoInfoService.setPreferNoPotClient(false);
+
+        // LIVE ROUTING (mobile-only): WEB_EMBED answers live videos HLS-only (no dashManifestUrl
+        // -> no LiveDashManifestParser DVR), and on pot-enforcing networks its HLS segments 403
+        // instantly regardless of client-side pot placement (manifest /pot/ path param AND
+        // per-URL pot= both verified dead on-device). Walk on to a dash-manifest client
+        // (ANDROID_VR/TV) for live; VOD keeps the WEB_EMBED-first order above.
+        VideoInfoService.setPreferDashManifestForLive(true);
 
         // /player FAN-OUT TRIM (mobile-only): skip the four TV-app fallback clients (TV_LEGACY,
         // TV_DOWNGRADED, TV_EMBED, TV_SIMPLY) on the getVideoInfo failover ring. They only earn
@@ -117,6 +131,17 @@ public class MobileMainApplication extends MainApplication {
         // Covers Home taps (A2 prefetch), related-video taps and queue loads (all format fetches
         // funnel through the same choke point). TV never calls this.
         YouTubeMediaItemService.setPreconnectMediaHost(true);
+
+        // POT-ENFORCED NETWORKS FIX (mobile-only): carrier CGNAT IPs make googlevideo enforce a
+        // PO token on EVERY client's media URLs - a pot-less stream serves ~60s of media, then
+        // 403s (Pixel 9 / Telefonica LTE: Source error + visible reload at media 60/120/180s,
+        // walking the ring until web-pot WEB_EMBED won). The fast clients the mobile path prefers
+        // (ANDROID_VR et al, see setPreferNoPotClient above) mint no pot, so decipher now falls
+        // back to attaching the web session pot to the media URLs only (/player bodies untouched).
+        // This warmup runs the ~1.5-2.5s WebView/BotGuard init at app start, off the open path,
+        // so that fallback costs ~10ms per video instead of blocking the first open. TV boxes sit
+        // on residential IPs where enforcement is rare -> TV never calls this.
+        VideoInfoService.warmUpPoTokenGate();
 
         // NOTE(perf history): a head-of-stream segment prefetch into the disk cache was tried here
         // and REMOVED - a cold-cache A/B showed no TTFF win (median +339ms WORSE with it on: the

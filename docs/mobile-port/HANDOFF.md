@@ -155,3 +155,65 @@ BODY→BASIC · `ff7c620` profiler off.
 
 Loop verdicts and the measured evidence behind each claim in STATUS.md live in
 the per-iteration commit messages above — each one carries its A/B numbers.
+
+## 8. PO-token enforcement (first real-device round, 2026-07-12)
+
+Pixel 9 (serial 4A120DLAQ0049N) on Telefónica LTE/5G. Carrier CGNAT IPs make
+googlevideo enforce PO-token integrity; the emulator's residential network
+never did, so none of this was visible before.
+
+**The rules, as measured on-device:**
+- VOD streams whose /player flow minted no pot (ANDROID_VR, TV, IOS — every
+  "fast" client) serve EXACTLY ~60s of media per stream, then 403 every chunk.
+  User-visible: play 60s → freeze → Source error → auto-reload (ring walk) →
+  repeat at 120s, 180s… until WEB_EMBED wins. Exactly consumed the 3-reload
+  ErrorFixer cap.
+- Client-side pot attachment CANNOT rescue non-web clients. Tried and 403'd
+  with `pot=y` on the wire: web-visitor streaming pot, app-visitor-bound
+  streaming pot (`getAppClientStreamingPot`, minted against the same
+  visitorData the /player call used). What matters is the MINTING FLOW: only
+  URLs from an attested (serviceIntegrityDimensions) /player request survive;
+  Android-family clients would need DroidGuard, unavailable to us.
+- Live has NO grace window (segments 403 instantly) and WEB_EMBED live
+  responses are HLS-only (no dashManifestUrl → no DVR parser). Pot on the HLS
+  manifest URL (path form `/pot/<gvs-pot>`) propagates into playlist+segment
+  URLs but they still 403. The working recipe: walk on to a dash-manifest
+  client (`setPreferDashManifestForLive`) — ANDROID_VR's DASH live manifest +
+  `/pot/` yields all-200 segments and the LiveDashManifestParser DVR window.
+  (Unknown whether the /pot/ is strictly needed there; it's idempotent — keep.)
+- The fix stack (MediaServiceCore `2d80b1d7`, main-repo Application flip):
+  BotGuard warmup at app start (~1.1s, off open path) → WEB_EMBED-first for
+  VOD (`setPreferNoPotClient(false)`; warm content-pot mints ~10ms per video,
+  killing the ~2.7s penalty that motivated ANDROID_VR-first) → live walks to a
+  dash client. Non-embeddable videos still fall through to fast clients and
+  will cascade on enforcing networks — known gap, candidates: jump straight to
+  WEB family, or TV+serviceIntegrityDimensions.
+- WEB_EMBED /player RTT on LTE varied 0.3–2.1s across opens (vs ~0.4s
+  ANDROID_VR). Cold TTFF ~3.8s worst case. Optimization candidate, not a
+  regression that matters (the alternative dies at 60s).
+
+**Debugging pitfalls that cost real time tonight (all reusable):**
+- `adb install -r` can print "Success" while installing a DIFFERENT package —
+  the appId was renamed mid-session (`301a936`, com.newtube.app →
+  io.github.aleixrodriala.arc) and every install/launch/dumpsys kept targeting
+  the old id, silently testing a stale build twice. ALWAYS verify
+  `dumpsys package <id> | grep lastUpdateTime` (and md5 of `pm path` base.apk
+  vs the local file) after installing; `monkey -p <old-id>` happily launches
+  the stale app.
+- Android 17 sideloads run through `com.google.android.verifier`
+  (VerificationCheck logcat lines) — adds seconds and log noise; verdicts
+  matter (`Result: Pass`).
+- The long-running `adb logcat > file` stream can silently stall (file stops
+  growing, process alive). Check the tail timestamp before trusting "no new
+  errors"; restart the capture.
+- Before ANY `input tap/swipe`, check `dumpsys window | grep mCurrentFocus` —
+  the user may have taken the phone (a swipe meant for the seekbar landed in
+  WhatsApp tonight).
+- Data survives package renames/signature changes via `run-as` (debug builds):
+  tar app data out, uninstall, reinstall, tar back in — but RENAME
+  `shared_prefs/<old-appId>_preferences.xml` to the new appId or the default
+  prefs silently reset. OAuth lives in `files/global_prefs/
+  media_service_account_data` (survived 3 reinstalls tonight).
+- Per-chunk NetPath lines are `load[S|C|X|E]` with literal brackets — grep
+  needs `load\[[SCXE]\]`, not `load[SCXE]` (a character class that matches
+  nothing; cost an hour of "the listener is broken" tonight).

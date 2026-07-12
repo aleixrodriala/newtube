@@ -36,12 +36,31 @@ settings, device-code OAuth multi-account) PLUS, from the 2026-07-11/12 rounds:
   OOM recovery actually lowers the buffer now.
 - Opaque system bars restored on Android 15+ (edge-to-edge opt-out; dies at
   targetSdk 36 — insets work required before bumping).
+- **Pot-enforced networks fixed (first real-device round, Pixel 9 on Telefónica
+  LTE/5G, 2026-07-12)**: carrier CGNAT IPs make googlevideo demand PO-token
+  integrity — pot-less VOD streams died at exactly 60s of served media
+  (Source error + reload cascade), live segments 403'd instantly. Fix: BotGuard
+  warmup at app start + WEB_EMBED-first again for VOD (warm pot mints ~10ms, so
+  the old ~2.7s penalty that justified ANDROID_VR-first is gone) + live walks
+  on to a dash-manifest client with `/pot/` on the manifest URL. Verified: VOD
+  250s+ soak clean, live DVR window (2h) renders with all segments 200, LTE
+  mid-chunk SocketTimeout recovers via retry with no user-visible error.
+  Full post-mortem: HANDOFF §8.
 
 ## Open — needs a real device (Pixel 9)
-- Live DVR soak on real network; ABR down-switch under genuinely constrained
-  bandwidth (emulator throttle stalls connections instead of shaping).
-- Background-audio engine-restart FGS path (Android 12+), POST_NOTIFICATIONS
-  flow, PiP→search task-routing re-check.
+Partially done 2026-07-12 (see Works above): VOD baseline, live playback + DVR
+window on real network, POST_NOTIFICATIONS fresh-install prompt, live-in-PiP
+survives app switch. Still open:
+- Live DVR scrub-back + LIVE-chip jump on device (interrupted mid-test when the
+  phone went back into personal use); long-soak manifest-refresh stability.
+- ABR down-switch under genuinely constrained bandwidth (emulator throttle
+  stalls connections instead of shaping; try `preferred_network_mode` 3G/2G).
+- Background-audio engine-restart FGS path (Android 12+), PiP→search
+  task-routing re-check.
+- WEB_EMBED /player RTT varies 0.3–2.1s on LTE (cold TTFF 3.8s worst case vs
+  ANDROID_VR's 3.4s — acceptable since ANDROID_VR streams die at 60s on
+  enforcing networks, but worth optimizing; TV+serviceIntegrityDimensions is
+  the candidate).
 - Deferred loop experiments: post-rebuffer resume gate 2.5→1.5 s,
   pinned-quality fallback rescue.
 
@@ -58,6 +77,10 @@ settings, device-code OAuth multi-account) PLUS, from the 2026-07-11/12 rounds:
   still runs during background audio.
 
 ## Open — tech debt
+- **16 KB page-size compliance**: Android 17 flags the debug build's native
+  libs as unaligned (`libcronet.105.0.5195.68.so` LOAD segment, plus libj2v8,
+  libconscrypt_jni, libglide-webp). Runs fine on 4 KB-page devices today, but
+  16 KB-only devices are coming; needs updated .so dependencies or repack.
 - Proper edge-to-edge insets before targetSdk 36.
 - Unstripped native libs (needs NDK 21); `newtube.json` update manifest for
   the in-app updater.
