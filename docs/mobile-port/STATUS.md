@@ -55,6 +55,17 @@ settings, device-code OAuth multi-account) PLUS, from the 2026-07-11/12 rounds:
   routing correct: pinned player task collapses back into the main task when a
   new video opens from search — single task, no duplicate player, no double
   audio; search-result tap→first-frame 1.9 s.
+- **Original-audio default fixed (2026-07-12 late, main `cce4344` + MSC
+  `b2d09bc6`)**: multi-language videos defaulted to an auto-dub (pt-br on a
+  Spanish video, device-verified). Two causes: the generated MPD wrote the
+  display string into `lang` and stamped Role=main on every set; and
+  findTrack treated an itag hit as exact although audio itags repeat per
+  language variant, so a persisted "en-us (original)" 251 pinned the first
+  251 in the manifest = the dub. Now: MPD carries clean lang + label +
+  Role (only original = main, dubs = dub), and audio id matches require
+  language agreement with an original-preferring second tier + prefer-original
+  fallback. Verified on the repro video (es-us original selected, dubs
+  role=dub), single-language VOD, and live.
 
 ## Open — needs a real device (Pixel 9)
 Round 2 (2026-07-12 evening) closed most of this list (see Works): live DVR
@@ -83,8 +94,6 @@ scrub-back + LIVE-chip + soak, background-audio FGS, PiP→search. Still open:
   the app never retries when connectivity returns, and play is a no-op in the
   dead state — the video must be re-opened manually. Wanted: connectivity
   listener → one automatic reload (or a "Retry" button) + friendly error text.
-- Audio track selection picked `pt-br (dubbed-auto)` as [main] on a Spanish
-  video (WEB_EMBED DASH set) — check original-language preference logic.
 - In-player "Video buffer" row (knob currently applies at next player open).
 - UI sweep leftovers: CC dialog still TV-style, speed/CC pickers inconsistent
   with native quality sheet, PiP enter-animation flash.
