@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Themed-icon (API 33+) monochrome layer: the NewTube play glyph as a single
+<!-- Themed-icon (API 33+) monochrome layer: the NewTube arch mark as a single
      silhouette the launcher tints. Same geometry as the foreground. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -9,8 +9,8 @@
     <path
         android:fillColor="#FFFFFF"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="6"
+        android:strokeWidth="5"
         android:strokeLineJoin="round"
         android:strokeLineCap="round"
-        android:pathData="M46,40 L46,68 L74,54 Z" />
+        android:pathData="M32,78 L32,55 A22,22 0 0 1 76,55 L76,78 L63,78 L63,55 A9,9 0 0 0 45,55 L45,78 Z" />
 </vector>

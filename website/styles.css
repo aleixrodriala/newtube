@@ -5,23 +5,24 @@
 
 :root {
   /* --- The ONE KNOB: change --accent to re-skin the whole site. --- */
-  /* Every red on the page derives from this (via color-mix below). The only
-     hard-coded brand reds live in the standalone SVG/HTML assets
+  /* Every accent color on the page derives from this (via color-mix below).
+     The only hard-coded brand colors live in the standalone SVG/HTML assets
      (favicon.svg, logo.svg, og-image.svg, og-template.html) — update those
-     by hand if you change hue. */
-  --accent: #FF2E3F;
+     by hand if you change hue. Indigo matches the arch-"n" app icon
+     (#1E2A78 tile); deliberately far from YouTube red. */
+  --accent: #5C6BC0;
 
   /* Derived accent shades (auto-follow --accent via color-mix) */
   --accent-hi:   color-mix(in srgb, var(--accent) 82%, #ffffff);
-  --accent-deep: color-mix(in srgb, var(--accent) 68%, #12060a);
+  --accent-deep: color-mix(in srgb, var(--accent) 68%, #0a0d1f);
   --accent-15:   color-mix(in srgb, var(--accent) 15%, transparent);
   --accent-22:   color-mix(in srgb, var(--accent) 22%, transparent);
   --accent-40:   color-mix(in srgb, var(--accent) 40%, transparent);
   --accent-glow: color-mix(in srgb, var(--accent) 55%, transparent);
   /* Text color that sits ON the accent (buttons/chips). This near-black
-     assumes a red-ish accent; RE-CHECK its contrast if you shift --accent
+     assumes a mid-tone accent; RE-CHECK its contrast if you shift --accent
      toward a light hue (e.g. yellow/cyan) — you may need #fff instead. */
-  --on-accent:   #12060a;
+  --on-accent:   #0a0d1f;
 
   /* Surfaces */
   --bg:        #0B0B0D;

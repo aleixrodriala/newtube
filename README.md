@@ -70,7 +70,24 @@ adb install -r smarttubetv/build/outputs/apk/stmobile/debug/*universal*.apk
 The original TV build flavors (`stbeta`, `ststable`, `stfdroid`) remain intact and
 continue to build unchanged.
 
+## Credits & third-party data
+
+NewTube stands on other people's work. Full notices are in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md); the essentials:
+
+- **SmartTube** (© yuliskov, MIT) — the upstream this project forks. Huge thanks;
+  please support it: https://github.com/yuliskov/SmartTube
+- **SponsorBlock** and **DeArrow** — community data © their contributors,
+  licensed **CC BY-NC-SA 4.0**. NewTube uses this data unmodified and
+  non-commercially. (The non-commercial term is one reason NewTube takes no
+  donations, ads, or paid tiers.)
+- **Return YouTube Dislike** — dislike data via its public API.
+- Bundled libraries: DoubleTapPlayerView (MIT), Slidr/SlidableActivity
+  (Apache-2.0), filepicker-lib (Apache-2.0); j2v8 (EPL-1.0) and Commons IO
+  (Apache-2.0) via SharedModules.
+
 ---
 
-*NewTube is not affiliated with or endorsed by Google or YouTube. "YouTube" is a
-trademark of Google LLC.*
+*NewTube is an independent, unofficial fork. It is not affiliated with,
+sponsored, or endorsed by Google, YouTube, or SmartTube's developer. "YouTube"
+and "Android" are trademarks of Google LLC.*

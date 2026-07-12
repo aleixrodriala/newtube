@@ -1,42 +1,80 @@
-# Privacy Policy for SmartTube (F-Droid Build)
+# Privacy Policy for NewTube
 
-**Last Updated:** March 21, 2026
+**Last updated:** July 12, 2026
 
-This Privacy Policy applies specifically to the **F-Droid flavor** of SmartTube (Package ID: `app.smarttube.fdroid`). This version is specifically hardened for user privacy and compliance with F-Droid’s inclusion policy.
+This Privacy Policy applies to **NewTube**, an open-source YouTube client for
+Android phones (package ID `io.github.aleixrodriala.arc`). NewTube is an
+independent, unofficial fork of SmartTube. It is not affiliated with Google,
+YouTube, or SmartTube's developer.
 
-## 1. Scope of this Policy
-This document covers the **F-Droid build** only. Other versions or "flavors" of the application (e.g., Stable, Beta) may contain additional features such as self-update mechanisms or crash reporting that are removed in this specific F-Droid release.
+## 1. Summary
 
-## 2. Data Collection and Processing
-* **No Backend:** The F-Droid build of SmartTube operates entirely as a client-side application. It does not communicate with any developer-controlled servers.
-* **No Telemetry or Analytics:** This version contains no tracking code, telemetry, or analytics frameworks (e.g., no Firebase, no Crashlytics). We do not monitor how you use the app.
-* **No Update Tracking:** The self-update mechanism is disabled in this flavor. Updates are handled exclusively through the F-Droid client.
+NewTube has **no backend of its own** and its developer collects **no personal
+data**. The app talks only to YouTube/Google, a small set of community services
+you can disable, and (for update checks) GitHub. There are no analytics, no
+trackers, no advertising, and no crash reporting.
 
-## 3. Third-Party Services (YouTube/Google)
-* **Authentication:** When you sign in, the application uses the official Google OAuth 2.0 flow. This is a secure method that allows you to authorize the app without sharing your password with the developer.
-* **Local Storage:** Authentication tokens are stored exclusively on your device's secure local storage. They are never transmitted to, or stored by, the developer.
-* **Data Flow:** Video data and account information are fetched directly from YouTube/Google servers to your device.
+## 2. Data the developer collects
 
-## 4. Community-Driven Services & Third-Party APIs
-To provide core functionality and enhanced features, the application communicates with the following community-driven services:
-* **SponsorBlock:** The app sends the ID of the video being viewed to the SponsorBlock API to retrieve crowd-sourced skip segments.
-* **DeArrow:** The app sends the ID of the video being viewed to the DeArrow API to retrieve crowd-sourced titles.
-* **Return YouTube Dislike (RYD):** The app sends the Video ID to the RYD API to retrieve estimated dislike counts.
-* **Anonymous Metadata Requests:** These requests are "read-only" and do not include personal identifiers, Google account tokens, or user-specific profile data. 
-* **General API Communication:** The application may communicate with other third-party infrastructure (such as official YouTube/Google endpoints) solely to fetch media content and metadata required for the application to function. These functional requests do not involve the collection or storage of personal user data by the developer.
+**None.** NewTube has no developer-controlled server, no account system of its
+own, and no telemetry or analytics frameworks (no Firebase, no Crashlytics, no
+Sentry, no ad SDKs). The developer does not receive, store, or have access to
+any information about you or your usage.
 
-## 5. Automated Decision-Making and Profiling
-In accordance with **GDPR Article 15**, we confirm for this build:
-* **No Profiling:** We do not track user behavior to build profiles.
-* **No Automated Decisions:** The app does not use algorithms or AI to make decisions about users or to manipulate content ranking. Content is served as-is from the YouTube API.
+## 3. YouTube / Google
 
-## 6. External Links & Donations
-The application contains static links and addresses for project documentation (GitHub) and donations (e.g., PayPal, Patreon, Bitcoin, Ethereum, and other cryptocurrencies).
-* **Manual Action Only:** These links do not trigger automatically. No data is transmitted until the user manually clicks a link or copies an address.
-* **Third-Party Policies:** Once you leave the application to a donation platform or use a third-party wallet, your data is governed by the privacy policy of those respective services.
+- **Sign-in is optional.** You can use NewTube fully signed out. If you choose to
+  sign in, NewTube uses Google's official OAuth 2.0 **device-code flow** — you
+  authorize the app on Google's own page; your password is never seen by, or
+  shared with, the developer.
+- **Tokens stay on your device.** Authentication tokens are stored only in the
+  app's local storage on your device. They are never transmitted to, or stored
+  by, the developer.
+- **Direct connection.** Video streams, search, and account data are fetched
+  directly from YouTube/Google servers to your device. Your use of YouTube's
+  services through NewTube is also subject to Google's and YouTube's own terms
+  and privacy policies.
 
-## 7. Your Rights (GDPR / CCPA)
-Because this specific build flavor does not store or transmit personal data to the developer, we hold no identifiable records (names, emails, IPs) associated with your identity. Therefore, we have no data to provide or delete upon request.
+## 4. Community services (optional, per-feature)
+
+When the corresponding feature is enabled, NewTube sends **only the ID of the
+video you are viewing** to these community-run services to retrieve crowd-sourced
+data. These requests are read-only and contain no account tokens, names, emails,
+or other personal identifiers:
+
+- **SponsorBlock** (`sponsor.ajay.app`) — sponsor-segment timestamps.
+- **DeArrow** (`sponsor.ajay.app`, `dearrow-thumb.ajay.app`) — de-clickbait
+  titles and thumbnails.
+- **Return YouTube Dislike** (`returnyoutubedislikeapi.com`) — estimated dislike
+  counts.
+
+Each of these can be turned off in Settings. They are operated by their
+respective projects under their own privacy policies, not by NewTube.
+
+## 5. Update checks
+
+Unless you installed NewTube from a store that manages updates for you (such as
+F-Droid or IzzyOnDroid), the app periodically checks NewTube's **GitHub
+Releases** for a newer version. This is a normal web request to `github.com`;
+like any web request it exposes your IP address to GitHub, but it sends no
+account data or personal identifiers, and no data goes to the developer. You can
+avoid these checks by installing and updating through F-Droid/IzzyOnDroid.
+
+## 6. No profiling, no advertising, no monetization
+
+NewTube does not profile you, does not use analytics or automated
+decision-making about you, and shows no ads. NewTube is a free, non-commercial
+project: it does **not** solicit donations or payments and contains no in-app
+purchases.
+
+## 7. Your rights (GDPR / CCPA)
+
+Because NewTube stores and transmits no personal data to the developer, the
+developer holds no identifiable records associated with you, and therefore has
+nothing to export or delete on request. Data held by Google/YouTube or the
+community services above is governed by their respective policies.
 
 ## 8. Contact
-For technical inquiries regarding the privacy architecture of the F-Droid build, please open an issue on the official GitHub repository.
+
+For questions about this policy or NewTube's privacy design, please open an issue
+on the project's GitHub repository.

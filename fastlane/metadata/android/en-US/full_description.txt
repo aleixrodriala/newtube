@@ -1,1 +1,15 @@
-Browse media content with your own rules on Android TV
+NewTube is a free, open-source YouTube client for Android phones and tablets — an independent, unofficial fork of SmartTube (the Android TV client), rebuilt for touch.
+
+It keeps SmartTube's battle-tested InnerTube engine and full feature set, and delivers a clean, calm, Material interface: a lean video feed, touch gestures, and a fast, minimal player.
+
+Features:
+• No ads — streams via YouTube's internal API, so there are no ads to block (no ad-blocker, no root)
+• SponsorBlock — auto-skip sponsor segments (data © SponsorBlock contributors, CC BY-NC-SA 4.0)
+• DeArrow — de-clickbait titles and thumbnails (data © DeArrow contributors, CC BY-NC-SA 4.0)
+• Return YouTube Dislike
+• Background playback and Picture-in-Picture
+• Up to 4K / HDR with codec choice
+• Optional sign-in with your real YouTube account (device-code flow)
+• Open source (MIT), no analytics, no trackers
+
+NewTube is an independent project. It is not affiliated with, sponsored, or endorsed by Google, YouTube, or SmartTube's developer. "YouTube" and "Android" are trademarks of Google LLC.

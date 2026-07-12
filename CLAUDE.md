@@ -1,7 +1,9 @@
 # NewTube — Claude Code context
 
 NewTube is a **phone-only fork of SmartTube** ("SmartTube for phones"): package
-`com.newtube.app`, single product flavor `stmobile`, touch UI in
+`io.github.aleixrodriala.arc` (brand-neutral so a rename never touches the
+package; "arc" = the arch-"n" launcher mark), single product flavor `stmobile`,
+touch UI in
 `smarttubetv/src/stmobile/`, playback on **androidx.media3 1.10.1** (Cronet media
 path). The TV flavors and the vendored ExoPlayer fork were deleted in the
 phone-only port; pre-port history lives at the `tv-legacy` tag and the

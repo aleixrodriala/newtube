@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="NewTube">
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FF5A66"/>
-      <stop offset="1" stop-color="#FF2E3F"/>
+      <stop offset="0" stop-color="#2E3D96"/>
+      <stop offset="1" stop-color="#1E2A78"/>
     </linearGradient>
   </defs>
-  <rect x="1" y="4" width="30" height="24" rx="7" fill="url(#g)"/>
-  <path d="M13 11.2 L22 16 L13 20.8 Z" fill="#0B0B0D"/>
+  <rect x="2" y="2" width="28" height="28" rx="8" fill="url(#g)"/>
+  <path d="M10.3,22.2 L10.3,16.25 A5.7,5.7 0 0 1 21.7,16.25 L21.7,22.2 L18.33,22.2 L18.33,16.25 A2.33,2.33 0 0 0 13.67,16.25 L13.67,22.2 Z" fill="#FFFFFF"/>
 </svg>

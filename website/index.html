@@ -12,7 +12,7 @@
 
   <!-- Icons -->
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
-  <link rel="mask-icon" href="assets/favicon.svg" color="#FF2E3F" />
+  <link rel="mask-icon" href="assets/favicon.svg" color="#5C6BC0" />
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
 
   <!-- Open Graph -->
@@ -91,7 +91,7 @@
         "name": "How do I watch YouTube without ads on Android without root?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Install NewTube's APK from GitHub Releases. It streams via YouTube's internal API, so ads are never delivered — no ad-blocker or root required."
+          "text": "Install NewTube's APK from GitHub Releases. It streams via YouTube's internal API, so there are no ads to block — no ad-blocker or root required."
         }
       },
       {
@@ -154,8 +154,8 @@
     <div class="container nav-inner">
       <a class="brand" href="#top" aria-label="NewTube home">
         <svg class="brand-glyph" width="30" height="30" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-          <rect x="1" y="4" width="30" height="24" rx="7" fill="var(--accent)"></rect>
-          <path d="M13 11.2 L22 16 L13 20.8 Z" fill="#0B0B0D"></path>
+          <rect x="2" y="2" width="28" height="28" rx="8" fill="var(--accent)"></rect>
+          <path d="M10.3,22.2 L10.3,16.25 A5.7,5.7 0 0 1 21.7,16.25 L21.7,22.2 L18.33,22.2 L18.33,16.25 A2.33,2.33 0 0 0 13.67,16.25 L13.67,22.2 Z" fill="#0B0B0D"></path>
         </svg>
         <span class="brand-word">New<span class="brand-word-accent">Tube</span></span>
       </a>
@@ -188,7 +188,7 @@
         <div class="hero-copy">
           <p class="eyebrow reveal"><span class="dot"></span> Open source · Available now on GitHub</p>
           <h1 id="hero-title" class="reveal">SmartTube, but for your <span class="accent-text">Android phone.</span></h1>
-          <p class="hero-sub reveal">NewTube is a free, open-source, ad-free YouTube client for Android — the power of <strong>SmartTube</strong>, rebuilt for touch. No ads, no root, no tracking.</p>
+          <p class="hero-sub reveal">NewTube is a free, open-source YouTube client for Android — an independent, <strong>unofficial fork of <a href="https://github.com/yuliskov/SmartTube">SmartTube</a></strong>, rebuilt for touch. No ads, no root, no tracking.</p>
 
           <ul class="chips reveal" aria-label="What NewTube is">
             <li class="chip chip-accent">Open source (MIT)</li>
@@ -270,8 +270,8 @@
         <ul class="cards" role="list">
           <li class="card reveal">
             <span class="card-ic"><svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 2a8 8 0 016.3 12.9L7.1 5.7A8 8 0 0112 4zM5.7 7.1 16.9 18.3A8 8 0 015.7 7.1z"/></svg></span>
-            <h3>Ad-free, always</h3>
-            <p>Streams straight from YouTube's API, so ads are never served. No blocker, no root.</p>
+            <h3>No ads</h3>
+            <p>Streams straight from YouTube's internal API, so there are no ads to block — no ad-blocker, no root.</p>
           </li>
           <li class="card reveal">
             <span class="card-ic"><svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 12a5 5 0 10-5-5 5 5 0 005 5zm0 2c-4 0-8 2-8 5v3h16v-3c0-3-4-5-8-5z"/></svg></span>
@@ -319,7 +319,7 @@
           <p class="eyebrow"><span class="dot"></span> The one thing nobody else does</p>
           <h2 id="thesis-title"><span class="accent-text">SmartTube for phone</span>, made for your thumb.</h2>
           <p>SmartTube is the gold standard for ad-free YouTube on Android TV — but it's built for a remote. NewTube keeps its battle-tested InnerTube engine and full feature set, and rebuilds the interface for phones: portrait layouts, touch gestures, a fast minimal player.</p>
-          <p>Every other open-source phone client makes you choose — keep your account (<strong>ReVanced</strong> patches Google's app, with ban risk) or stay truly open (<strong>NewPipe</strong>, but no login). <span class="accent-text">NewTube does both.</span></p>
+          <p>Every other open-source phone client makes you choose — keep your account (<strong>ReVanced</strong> patches Google's own app) or stay a clean standalone app (<strong>NewPipe</strong>, but no login). <span class="accent-text">NewTube does both.</span></p>
           <ul class="thesis-points" role="list">
             <li><span class="tick" aria-hidden="true">✓</span> Keep your real YouTube account — optional, not required</li>
             <li><span class="tick" aria-hidden="true">✓</span> No patching Google's app, no dead proxy servers</li>
@@ -331,7 +331,7 @@
             <p>“The only clean, open, touch-first phone app that keeps your <span class="accent-text">real YouTube account</span>.”</p>
           </blockquote>
           <div class="quote-legend">
-            <div><span class="lg-x">✗</span> ReVanced — patches the closed app (ban/DMCA risk)</div>
+            <div><span class="lg-x">✗</span> ReVanced — patches Google's closed app on-device</div>
             <div><span class="lg-x">✗</span> NewPipe — no login at all</div>
             <div><span class="lg-x">✗</span> LibreTube — leans on public Piped/Invidious servers</div>
             <div><span class="lg-x">✗</span> SmartTube — TV only</div>
@@ -659,7 +659,7 @@
                 <svg class="faq-caret" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 15.5 5.5 9l1.4-1.4L12 12.7l5.1-5.1L18.5 9z"/></svg>
               </button>
             </h3>
-            <div class="faq-panel" id="faq-p5" role="region" aria-labelledby="faq-b5"><div class="faq-panel-in"><p>NewPipe/LibreTube can't sync your real YouTube account; ReVanced patches Google's proprietary app (ban/DMCA risk). NewTube keeps SmartTube's engine, is fully open source, and lets you optionally sign in with your real account.</p></div></div>
+            <div class="faq-panel" id="faq-p5" role="region" aria-labelledby="faq-b5"><div class="faq-panel-in"><p>NewPipe/LibreTube can't sync your real YouTube account; ReVanced works by patching Google's proprietary app on your device. NewTube is a standalone app that keeps SmartTube's engine, is fully open source, and lets you optionally sign in with your real account.</p></div></div>
           </div>
 
           <div class="faq-item reveal">
@@ -721,11 +721,11 @@
     <div class="container footer-inner">
       <div class="footer-brand">
         <a class="brand" href="#top" aria-label="NewTube home">
-          <svg class="brand-glyph" width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="4" width="30" height="24" rx="7" fill="var(--accent)"></rect><path d="M13 11.2 L22 16 L13 20.8 Z" fill="#0B0B0D"></path></svg>
+          <svg class="brand-glyph" width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" fill="var(--accent)"></rect><path d="M10.3,22.2 L10.3,16.25 A5.7,5.7 0 0 1 21.7,16.25 L21.7,22.2 L18.33,22.2 L18.33,16.25 A2.33,2.33 0 0 0 13.67,16.25 L13.67,22.2 Z" fill="#0B0B0D"></path></svg>
           <span class="brand-word">New<span class="brand-word-accent">Tube</span></span>
         </a>
-        <p class="footer-tag">SmartTube, but for your Android phone. Ad-free, open source, no tracking.</p>
-        <p class="footer-credit"><strong>NewTube is a fork of <a href="https://github.com/yuliskov/SmartTube" target="_blank" rel="noopener noreferrer">SmartTube</a> (MIT, © yuliskov)</strong> — huge thanks; please support upstream.</p>
+        <p class="footer-tag">SmartTube, but for your Android phone. No ads, open source, no tracking.</p>
+        <p class="footer-credit"><strong>NewTube is an independent, unofficial fork of <a href="https://github.com/yuliskov/SmartTube" target="_blank" rel="noopener noreferrer">SmartTube</a> (MIT, © yuliskov)</strong> — huge thanks; please support upstream. Not affiliated with or endorsed by SmartTube's developer.</p>
       </div>
 
       <nav class="footer-col" aria-label="Product">
@@ -747,11 +747,12 @@
       <div class="footer-col">
         <h3 class="footer-h">Privacy</h3>
         <p class="footer-note">No account required. No analytics, no trackers, no ads. Sign-in is optional and talks only to Google's own YouTube endpoints.</p>
+        <p class="footer-note">SponsorBlock &amp; DeArrow data © their contributors, <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noopener noreferrer">CC BY-NC-SA 4.0</a>.</p>
       </div>
     </div>
 
     <div class="container footer-fine">
-      <p>Not affiliated with Google or YouTube. “YouTube” is a trademark of Google LLC. Released under the <a href="{{REPO_URL}}/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>.</p>
+      <p>Not affiliated with, sponsored, or endorsed by Google, YouTube, or SmartTube. “YouTube” is a trademark of Google LLC; “Android” is a trademark of Google LLC. NewTube is an independent open-source project released under the <a href="{{REPO_URL}}/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>.</p>
       <p class="footer-copy">© <span id="year">2026</span> NewTube contributors.</p>
     </div>
   </footer>

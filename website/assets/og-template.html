@@ -18,24 +18,24 @@
   Visually matches assets/og-image.svg.
 -->
 <style>
-  :root { --accent: #FF2E3F; }
+  :root { --accent: #7986CB; }
   * { margin: 0; box-sizing: border-box; }
   html, body { background: #0B0B0D; }
   .og {
     position: relative; width: 1200px; height: 630px; overflow: hidden;
     display: flex; align-items: stretch;
     background:
-      radial-gradient(70% 70% at 82% 6%, rgba(255,46,63,.42), transparent 55%),
-      radial-gradient(60% 60% at 4% 100%, rgba(255,46,63,.18), transparent 60%),
-      linear-gradient(135deg, #0B0B0D, #100b0d);
+      radial-gradient(70% 70% at 82% 6%, rgba(92,107,192,.42), transparent 55%),
+      radial-gradient(60% 60% at 4% 100%, rgba(92,107,192,.18), transparent 60%),
+      linear-gradient(135deg, #0B0B0D, #0b0c14);
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     color: #F5F5F7; box-shadow: inset 0 0 0 1px #2a2a31;
   }
 
   .left { display: flex; flex-direction: column; padding: 72px 16px 72px 84px; width: 864px; }
   .brand { display: flex; align-items: center; gap: 15px; }
-  .brand .glyph { width: 46px; height: 37px; border-radius: 11px; background: linear-gradient(180deg,#FF5A66,#FF2E3F); position: relative; flex: none; }
-  .brand .glyph::after { content: ""; position: absolute; left: 18px; top: 10px; border-left: 15px solid #0B0B0D; border-top: 9px solid transparent; border-bottom: 9px solid transparent; }
+  .brand .glyph { width: 46px; height: 46px; border-radius: 12px; background: linear-gradient(180deg,#2E3D96,#1E2A78); position: relative; flex: none; }
+  .brand .glyph::after { content: ""; position: absolute; left: 12px; right: 12px; top: 13px; height: 20px; border: 5px solid #FFFFFF; border-bottom: 0; border-top-left-radius: 12px; border-top-right-radius: 12px; }
   .brand .word { font-size: 36px; font-weight: 800; letter-spacing: -1px; }
   .brand .word b { color: var(--accent); font-weight: 800; }
 
@@ -46,7 +46,7 @@
 
   .chips { margin-top: 38px; display: flex; gap: 13px; flex-wrap: wrap; max-width: 760px; }
   .chip { height: 46px; padding: 0 20px; border-radius: 23px; display: flex; align-items: center; font-size: 20px; font-weight: 700; color: #A0A0A8; background: #17171A; border: 1px solid #2a2a31; }
-  .chip.accent { color: #12060a; background: linear-gradient(180deg,#FF5A66,#FF2E3F); border-color: transparent; }
+  .chip.accent { color: #FFFFFF; background: linear-gradient(180deg,#2E3D96,#1E2A78); border-color: transparent; }
 
   .phone { position: absolute; right: 82px; top: 138px; width: 244px; height: 404px; border-radius: 38px; background: #16161b; border: 2px solid #34343d; padding: 10px; }
   .screen { position: relative; width: 100%; height: 100%; border-radius: 26px; overflow: hidden; background: linear-gradient(135deg,#1c1c22,#0d0d10); }
@@ -60,10 +60,10 @@
   .g .c .t { height: 58px; border-radius: 7px; }
   .g .c .l1 { height: 8px; border-radius: 4px; background: #2a2a31; margin-top: 8px; }
   .g .c .l2 { height: 8px; width: 58%; border-radius: 4px; background: #2a2a31; margin-top: 6px; }
-  .g .c:nth-child(1) .t { background: #3a2330; }
+  .g .c:nth-child(1) .t { background: #232a3a; }
   .g .c:nth-child(2) .t { background: #1f2a3a; }
   .g .c:nth-child(3) .t { background: #26332a; }
-  .g .c:nth-child(4) .t { background: #332c1f; }
+  .g .c:nth-child(4) .t { background: #2b2f42; }
   .g .c:nth-child(5) .t { background: #2f2438; }
   .g .c:nth-child(6) .t { background: #203233; }
   .bnav { position: absolute; left: 0; right: 0; bottom: 0; height: 40px; background: #17171A; display: flex; align-items: center; justify-content: space-around; }
@@ -76,8 +76,8 @@
     <div class="left">
       <div class="brand"><span class="glyph"></span><span class="word">New<b>Tube</b></span></div>
       <div class="mid">
-        <h1>SmartTube, but<br>for your<br><span class="a">Android phone.</span></h1>
-        <p>Free, open-source, ad-free YouTube — no root, no tracking.</p>
+        <h1>An unofficial<br>SmartTube fork<br><span class="a">for your phone.</span></h1>
+        <p>Free, open-source, no ads — no root, no tracking.</p>
       </div>
       <div class="chips">
         <span class="chip accent">Open source (MIT)</span>

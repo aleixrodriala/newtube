@@ -2,9 +2,11 @@
 <!--
   NewTube adaptive-icon foreground (stmobile flavor).
 
-  A single white play glyph with softly rounded corners, centred inside the
-  66x66 adaptive safe zone (viewport 108, safe area ~21..87) so no launcher mask
-  clips it. This is the NewTube mark that replaces SmartTube's teal "S".
+  The NewTube "arch" mark: a lowercase-n arch (which also reads as a
+  tunnel/tube), white, centred inside the 66x66 adaptive safe zone
+  (viewport 108, safe area ~21..87) so no launcher mask clips it.
+  The stroke matches the fill and only softens the corners.
+  Deliberately NOT a play triangle — see docs/gtm + legal notes.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -14,8 +16,8 @@
     <path
         android:fillColor="#FFFFFF"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="6"
+        android:strokeWidth="5"
         android:strokeLineJoin="round"
         android:strokeLineCap="round"
-        android:pathData="M46,40 L46,68 L74,54 Z" />
+        android:pathData="M32,78 L32,55 A22,22 0 0 1 76,55 L76,78 L63,78 L63,55 A9,9 0 0 0 45,55 L45,78 Z" />
 </vector>
