@@ -209,6 +209,9 @@
     <string name="remote_session_closed">Remote session has been closed</string>
     <string name="msg_mode_switch_error">Can\'t switch display mode to \"%s\"</string>
     <string name="msg_player_error">Player error occurred %s. Restarting playback…</string>
+    <!-- NEWTUBE(mobile): friendly player title shown when playback stops on a connectivity failure
+         (auto-retries when the connection returns; a play tap retries immediately). -->
+    <string name="msg_player_no_connection_retry">No connection. Will retry when you\'re back online, or tap play to retry.</string>
     <string name="video_preset_disabled">Without preset</string>
     <string name="video_preset_enabled">Format of the next video will be set according to preset</string>
     <string name="player_sleep_timer">Sleep timer</string>
