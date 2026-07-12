@@ -217,3 +217,56 @@ never did, so none of this was visible before.
 - Per-chunk NetPath lines are `load[S|C|X|E]` with literal brackets — grep
   needs `load\[[SCXE]\]`, not `load[SCXE]` (a character class that matches
   nothing; cost an hour of "the listener is broken" tonight).
+
+## 9. Second Pixel-9 round (2026-07-12 evening) — DVR/FGS/PiP verified, network-wedge post-mortem
+
+Same build as §8 (1.3.0 + pot fixes, installed 21:33). Serial `4A120DLAQ0049N`,
+package `io.github.aleixrodriala.arc`.
+
+**Live DVR (X4VbdwhkE10, ~2h16m window, real 5G): PASS.** 18+ min continuous
+soak — DASH manifest refresh every ~2 s, all HTTP 200 with `/pot/`, zero
+`load[E]`. Slow ~1 s seekbar drag 67 min back: seek lands exactly (state
+BUFFERING mediaPos=4240.8 → READY +3.3 s), segment fetches at the target all
+200. LIVE chip: position 4309 s → 8307 s (edge), READY +2.3 s. The emulator
+seek rules hold on device: reveal controls first; only slow drags register.
+
+**Background audio-only ("Solo audio (pulsando HOME)"): PASS.**
+`MobilePlaybackService` isForeground=true type=MEDIA_PLAYBACK, transport
+notification on `newtube_playback_channel` with MediaSession token, ZERO
+ForegroundServiceStartNotAllowedException across the whole session, audio
+position advances for minutes in background. Note: no engine re-init happens
+at HOME — the FGS is already up during foreground playback, so the
+Android 12+ background-FGS-start restriction never triggers.
+BUG (worse than the old carry-over): the VIDEO stream (itag 303, 1080p60
+VP9) keeps downloading in audio-only mode, ~5 min buffered ahead on
+cellular. Fix direction: deselect the video track/renderer in audio mode,
+not just detach the surface.
+
+**PiP → search routing: PASS.** Launcher relaunch while backgrounded put the
+player into a pinned task over the browse task (two tasks). Search opened
+in-task; opening a result collapsed the pinned task — the SAME
+ActivityRecord moved back into the main task (Browse→Search→Playback), no
+duplicate player, no double audio. Search-result tap→first-frame 1.9 s.
+
+**Network-wedge post-mortem (READ BEFORE TOUCHING THE RADIO):** attempting
+the ABR test via `cmd phone set-allowed-network-types-for-users -s 0
+1000000000000011` (GSM-only) for ~35 s wedged cellular data for ~12 min:
+the radio stayed attached (dumpsys showed LTE/NR_NSA throughout) but every
+NEW DNS lookup failed (UnknownHostException); established flows kept
+working. Android's data-stall detection eventually tore down and rebuilt
+the PDN (new validated network at +12 min). The dev Mac tethers THROUGH the
+phone (USB ncm0 local net, NAT to rmnet1), so the wedge also hit the Mac.
+Rules: (1) never flip allowed-network-types while the phone is the Mac's
+uplink; (2) restore mask is `11001111101111111111`; (3) if wedged, wait for
+data-stall recovery or toggle airplane mode.
+App-side findings from the outage (both on the UX backlog in STATUS):
+ErrorFixer's reload cap (3) worked as designed and stopped cleanly; but
+after connectivity returned the app never retried, the raw
+UnknownHostException string sat in the player title, and play was a no-op —
+the video had to be re-opened manually.
+
+**Misc:** WEB_EMBED DASH picked `pt-br (dubbed-auto)` audio as [main] on a
+Spanish VOD — track-selection original-language check needed. One
+search-result thumbnail rendered blank gray. The in-player "Play in
+background" dialog was restored to Desactivado (device owner's original)
+after the tests.
