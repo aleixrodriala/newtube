@@ -234,8 +234,15 @@ class Media3TrackAdapter {
         if (location != null) {
             builder.setOverrideForType(
                     new TrackSelectionOverride(location.group.getMediaTrackGroup(), location.trackIndex));
+            mTrackSelector.setParameters(builder);
+        } else {
+            mTrackSelector.setParameters(builder);
+            // The persisted variant doesn't exist on this video at all: fall back to the
+            // untranslated track rather than whatever adaptation set the manifest lists first.
+            if (mPreferOriginalAudio) {
+                applyOriginalAudioDefault();
+            }
         }
-        mTrackSelector.setParameters(builder);
     }
 
     private void applySubtitleTarget(FormatItem item) {
@@ -264,6 +271,7 @@ class Media3TrackAdapter {
         TrackLocation best = null;
         int bestBitrate = -1;
         boolean multipleLanguages = false;
+        boolean seenAny = false;
         String firstLanguage = null;
 
         for (Tracks.Group group : mTracks.getGroups()) {
@@ -275,12 +283,15 @@ class Media3TrackAdapter {
                     continue;
                 }
                 String language = Media3FormatConverter.pickLanguage(group.getTrackFormat(i));
-                if (firstLanguage == null) {
+                if (!seenAny) {
+                    // A plain null-check can't track the first language: the original often has
+                    // no xtags (language == null), and it must still count as a distinct variant.
+                    seenAny = true;
                     firstLanguage = language;
                 } else if (!TextUtils.equals(firstLanguage, language)) {
                     multipleLanguages = true;
                 }
-                if (containsIgnoreCase(language, ORIGINAL_AUDIO_MARK)) {
+                if (isOriginalAudio(group.getTrackFormat(i))) {
                     int bitrate = group.getTrackFormat(i).bitrate;
                     if (bitrate > bestBitrate) {
                         bestBitrate = bitrate;
@@ -333,11 +344,18 @@ class Media3TrackAdapter {
     /**
      * Locates the media3 track a {@link FormatItem} means. Exact format-id (itag) match first -
      * ids are stable across sessions - then the legacy fallback chain (same rung + codec family,
-     * then same language variant for audio).
+     * then same language variant for audio). Audio itags are NOT unique on multi-language
+     * videos (every dub carries its own "251"), so for audio an id hit is only exact when the
+     * language variant matches too; id-only hits are kept as a second tier, preferring the
+     * untranslated variant (this once pinned a pt-br auto-dub on a Spanish video because the
+     * persisted "en-us (original)" 251 matched the dub's group first).
      */
     @Nullable
     private TrackLocation findTrack(int rendererIndex, FormatItem item) {
         String targetId = item.getFormatId();
+        boolean audio = rendererIndex == TrackSelectorManager.RENDERER_INDEX_AUDIO;
+        TrackLocation idMatch = null;
+        boolean idMatchOriginal = false;
         TrackLocation fallback = null;
 
         for (Tracks.Group group : mTracks.getGroups()) {
@@ -351,7 +369,16 @@ class Media3TrackAdapter {
                 androidx.media3.common.Format format = group.getTrackFormat(i);
 
                 if (targetId != null && targetId.equals(format.id)) {
-                    return new TrackLocation(group, i);
+                    if (!audio || item.getLanguage() == null
+                            || languageEquals(item.getLanguage(), Media3FormatConverter.pickLanguage(format))) {
+                        return new TrackLocation(group, i);
+                    }
+                    boolean original = isOriginalAudio(format);
+                    if (idMatch == null || (original && !idMatchOriginal)) {
+                        idMatch = new TrackLocation(group, i);
+                        idMatchOriginal = original;
+                    }
+                    continue;
                 }
 
                 if (fallback == null && matchesLoosely(rendererIndex, item, format)) {
@@ -360,7 +387,13 @@ class Media3TrackAdapter {
             }
         }
 
-        return fallback;
+        return idMatch != null ? idMatch : fallback;
+    }
+
+    /** The untranslated variant: Role=main in our generated MPDs, "(original)" in the label. */
+    private static boolean isOriginalAudio(androidx.media3.common.Format format) {
+        return (format.roleFlags & C.ROLE_FLAG_MAIN) != 0
+                || containsIgnoreCase(Media3FormatConverter.pickLanguage(format), ORIGINAL_AUDIO_MARK);
     }
 
     private static boolean matchesLoosely(int rendererIndex, FormatItem item, androidx.media3.common.Format format) {
