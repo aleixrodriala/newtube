@@ -82,6 +82,21 @@ public class Media3PlayerController implements Player.Listener {
     // NEWTUBE(live): last resort for a pathological live stream - rate-limits BLW recoveries.
     private long mLastLiveEdgeRecoveryMs;
 
+    /**
+     * NEWTUBE(prepare-stash): one-slot (videoId, MediaSource) pre-built for the likely NEXT video
+     * (autoplay prefetch, see {@code VideoLoaderController.preloadNextVideoIfNeeded}) so the
+     * auto-advance {@link #openDash(MediaItemFormatInfo)} skips the MPD XML generation+parse.
+     * Written on {@link #SOURCE_BUILD_EXECUTOR}, consumed at most once on main (media3 sources
+     * are single-use once prepared) - both under {@code mStashLock}. Invalidated in
+     * {@link #resetPlayerState()} (every open runs it, so a mismatching entry never outlives the
+     * open that skipped it) and {@link #release()}; overwritten by newer pre-builds. A never-used
+     * entry holds no player resources (a MediaSource allocates loaders/sockets only in
+     * prepareSourceInternal) - dropping the reference is a plain GC.
+     */
+    private final Object mStashLock = new Object();
+    private String mStashedVideoId;
+    private MediaSource mStashedSource;
+
     public Media3PlayerController(Context context, PlayerEventListener eventListener) {
         mContext = context.getApplicationContext();
         mMediaSourceFactory = new Media3SourceFactory(context);
@@ -106,9 +121,116 @@ public class Media3PlayerController implements Player.Listener {
     }
 
     public void openDash(MediaItemFormatInfo formatInfo) {
+        // NEWTUBE(prepare-stash): a pre-built source for this exact video skips the XML gen+parse
+        // AND the executor round-trip - prepare fires synchronously, within ~1ms of this call.
+        if (!formatInfo.isLive()) {
+            MediaSource stashed = takeStashedSource(formatInfo.getVideoId());
+            if (stashed != null) {
+                // Adopt exactly like a fresh build: bump the open generation first (any in-flight
+                // off-main build is stale now), then the same openMediaSource path (whose
+                // resetPlayerState bumps again - the off-main route also bumps twice per open).
+                mOpenGeneration.incrementAndGet();
+                openMediaSource(stashed, "dash-mpd-stash");
+                return;
+            }
+        }
+
         // "dash-mpd-live" only fires on the last-resort live route (no dash/hls manifest url).
         openMediaSourceOffMain(() -> mMediaSourceFactory.fromDashFormatInfo(formatInfo),
                 formatInfo.isLive() ? "dash-mpd-live" : "dash-mpd");
+    }
+
+    /**
+     * NEWTUBE(prepare-stash): pre-build the DASH MediaSource for the likely next video and stash
+     * it (see the stash field doc). Same factory entry point as {@link #openDash} on the same
+     * executor, so cache routing / ABR wiring are identical to a normal build. Live videos are
+     * skipped (their manifest must stay URL-loaded so it can refresh); an id-less info can't be
+     * matched at open time. Failures leave no entry - the real open just builds normally.
+     */
+    public void prebuildNextSource(MediaItemFormatInfo formatInfo) {
+        if (formatInfo == null || formatInfo.getVideoId() == null || formatInfo.isLive()) {
+            return;
+        }
+
+        final String videoId = formatInfo.getVideoId();
+
+        synchronized (mStashLock) {
+            if (videoId.equals(mStashedVideoId) && mStashedSource != null) {
+                return; // already stashed (the minute tick fires again inside the 80s window)
+            }
+        }
+
+        SOURCE_BUILD_EXECUTOR.execute(() -> {
+            MediaSource mediaSource;
+            try {
+                mediaSource = mMediaSourceFactory.fromDashFormatInfo(formatInfo);
+            } catch (Throwable e) { // never kill the build thread
+                Log.e(TAG, "prebuildNextSource: build failed: " + e);
+                mediaSource = null;
+            }
+
+            if (mediaSource != null) {
+                synchronized (mStashLock) {
+                    mStashedVideoId = videoId;
+                    mStashedSource = mediaSource;
+                }
+            }
+        });
+    }
+
+    /**
+     * Consume-at-most-once stash read (id match required). Logs the NetPath consult line only
+     * when an entry exists - at most one {@code prepare-stash hit|miss} line per open.
+     */
+    @Nullable
+    private MediaSource takeStashedSource(@Nullable String videoId) {
+        MediaSource stashed = null;
+
+        synchronized (mStashLock) {
+            if (mStashedSource == null) {
+                return null; // nothing stashed -> no consult line
+            }
+
+            if (videoId != null && videoId.equals(mStashedVideoId)) {
+                stashed = mStashedSource;
+                mStashedVideoId = null;
+                mStashedSource = null; // consumed: media3 sources are single-use
+            }
+            // Mismatch: leave the entry; resetPlayerState (this very open runs it) clears it.
+        }
+
+        NetPath.log("prepare-stash " + (stashed != null ? "hit " : "miss ") + videoId);
+        return stashed;
+    }
+
+    private void clearStashedSource() {
+        synchronized (mStashLock) {
+            mStashedVideoId = null;
+            mStashedSource = null;
+        }
+    }
+
+    /**
+     * Stash invalidation for {@link #resetPlayerState()}. Every open runs reset - and the
+     * loading pipeline ({@code VideoLoaderController.loadVideo}) runs it BEFORE the format info
+     * even arrives, i.e. before {@link #openDash} could consume the entry. An unconditional clear
+     * there would wipe the pre-built next-source at the very start of the auto-advance it was
+     * built for (the same self-eviction that made the first negative-cache cut inert). So: since
+     * {@code loadVideo} calls {@code setVideo(item)} right before reset, the target of the
+     * current open is known - keep the entry ONLY if it matches, drop anything else (manual tap
+     * on a different video, engine restarts, ...). The matching entry that then goes unused
+     * (e.g. the open dispatch picks another route) is consumed-or-dropped by the openMediaSource
+     * reset of that same open or the next one's mismatch drop.
+     */
+    private void dropMismatchedStash() {
+        String currentVideoId = getVideoId();
+
+        synchronized (mStashLock) {
+            if (mStashedSource != null && !mStashedVideoId.equals(currentVideoId)) {
+                mStashedVideoId = null;
+                mStashedSource = null;
+            }
+        }
     }
 
     public void openDash(InputStream dashManifest) {
@@ -254,6 +376,7 @@ public class Media3PlayerController implements Player.Listener {
         // openMediaSource itself resets) - drop it instead of letting it prepare later.
         mOpenGeneration.incrementAndGet();
         mFirstFrameLogged = false; // new open = a fresh NetPath first-frame milestone
+        dropMismatchedStash(); // see the method doc: keep only the entry this open will consume
 
         if (containsMedia()) {
             mPlayer.stop();
@@ -291,6 +414,7 @@ public class Media3PlayerController implements Player.Listener {
 
     public void release() {
         mOpenGeneration.incrementAndGet(); // drop any in-flight off-main source build
+        clearStashedSource(); // never-prepared = no player resources held; plain GC
 
         // NEWTUBE(abr-seed): teardown is the one reliable end-of-session hook; persist the meter's
         // EWMA so the next cold session's first video starts ABR from real throughput.

@@ -700,7 +700,32 @@ public class VideoLoaderController extends BasePlayerController {
         }
 
         if (getPlayer().getDurationMs() - getPlayer().getPositionMs() < 80_000) {
-            MediaServiceManager.instance().loadFormatInfo(mSuggestionsController.getNext(), formatInfo -> {});
+            // NEWTUBE(prepare-stash): once the next video's info lands, also pre-build its
+            // MediaSource (the MPD XML gen+parse the open path would otherwise pay) - but ONLY
+            // when the open dispatch below (processFormatInfo) would take the plain
+            // openDash(formatInfo) branch. The engine stashes it one-slot and consumes it on the
+            // matching openDash. No-op on TV (default PlayerEngine method).
+            MediaServiceManager.instance().loadFormatInfo(mSuggestionsController.getNext(), formatInfo -> {
+                PlaybackView player = getPlayer();
+                if (player != null && formatInfo != null && wouldOpenPlainDash(formatInfo)) {
+                    player.prebuildNextSource(formatInfo);
+                }
+            });
         }
+    }
+
+    /**
+     * NEWTUBE(prepare-stash): true only when {@link #processFormatInfo} would route this info
+     * through the plain {@code player.openDash(formatInfo)} branch (generated static MPD).
+     * Mirrors that dispatch exactly: unplayable, live (URL-manifest routes AND the generated-MPD
+     * live last resort), merged (high-bitrate + extended HLS), sabr and url-list routes must NOT
+     * be pre-built.
+     */
+    private boolean wouldOpenPlainDash(MediaItemFormatInfo formatInfo) {
+        return !formatInfo.isUnplayable()
+                && !formatInfo.isLive()
+                && acceptAdaptiveFormats(formatInfo)
+                && formatInfo.containsDashFormats()
+                && !(getPlayerTweaksData().isHighBitrateFormatsEnabled() && formatInfo.hasExtendedHlsFormats());
     }
 }

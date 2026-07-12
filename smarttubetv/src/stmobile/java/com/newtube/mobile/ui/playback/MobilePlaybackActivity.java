@@ -3239,6 +3239,13 @@ public class MobilePlaybackActivity extends MobileActivity
     // ---------------------------------------------------------------------------------
 
     @Override
+    public void prebuildNextSource(MediaItemFormatInfo formatInfo) {
+        // NEWTUBE(prepare-stash): pre-build + stash the likely next video's MediaSource so the
+        // auto-advance open skips the MPD gen+parse (TV keeps the no-op PlayerEngine default).
+        mExoPlayerController.prebuildNextSource(formatInfo);
+    }
+
+    @Override
     public void openSabr(MediaItemFormatInfo formatInfo) {
         mExoPlayerController.openSabr(formatInfo);
     }

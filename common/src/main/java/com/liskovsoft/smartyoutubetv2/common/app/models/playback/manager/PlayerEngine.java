@@ -7,6 +7,14 @@ import java.io.InputStream;
 import java.util.List;
 
 public interface PlayerEngine extends PlayerConstants {
+    /**
+     * NEWTUBE(prepare-stash): hint that {@code formatInfo} is the likely NEXT video (autoplay
+     * prefetch already fetched it) so the engine may pre-build the same MediaSource that
+     * {@link #openDash(MediaItemFormatInfo)} would build and stash it for the advance - skipping
+     * the MPD XML generation+parse from the open path. Best-effort; never live videos (their
+     * manifest must stay URL-loaded so it can refresh). No-op default -&gt; TV engines unchanged.
+     */
+    default void prebuildNextSource(MediaItemFormatInfo formatInfo) {}
     void openSabr(MediaItemFormatInfo formatInfo);
     void openDash(MediaItemFormatInfo formatInfo);
     void openDash(InputStream dashManifest);
