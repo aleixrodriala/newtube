@@ -270,3 +270,56 @@ Spanish VOD — track-selection original-language check needed. One
 search-result thumbnail rendered blank gray. The in-player "Play in
 background" dialog was restored to Desactivado (device owner's original)
 after the tests.
+
+## 10. Background-audio + offline-recovery fixes (2026-07-12 late night)
+
+**Audio-only background no longer downloads/decodes video.** True background
+audio (activity `onStop` with `!mIsInPip && !mSuppressAutoPip &&
+!isFinishing()` — home without PiP, screen off, another screen on top) now
+disables the whole VIDEO track type via
+`Media3TrackAdapter.setVideoTrackDisabled(true)`
+(`setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, …)` composed onto CURRENT selector
+parameters — never a snapshot, so quality/audio/subtitle writes and the flag
+can't clobber each other). Re-enabled at the top of `onResume` before the
+texture reattach; `createPlayerObjects` re-applies the flag after an engine
+restart (fresh selector) while backgrounded. PiP and the Browse mini-player
+keep video (both render live frames). Pixel-9 verified: screen off →
+`videoDisabled` in 3 s, then pure itag-251 audio chunks; a lift-to-wake blip
+(activity resumed behind keyguard for 2 s) correctly re-enabled/re-disabled —
+that's designed lifecycle behavior, costs ~1–2 MB per genuine wake event.
+KNOWN GAPS (minor, by design): (1) minimize into the Browse mini-player and
+THEN home out — the player activity is already stopped, so video stays
+enabled (needs a Browse-host hook); (2) screen-on-at-keyguard streams video
+while the lockscreen shows (activity is resumed behind keyguard).
+
+**Offline recovery is no longer a dead end.** ErrorFixerController changes:
+- Connectivity-class errors (cause-chain walk: UnknownHost/SocketTimeout/
+  Connect/SocketException + "Unable to connect to"/ERR_INTERNET_DISCONNECTED/
+  ERR_NAME_NOT_RESOLVED/ERR_CONNECTION_*/ERR_TIMED_OUT/"Exception in
+  CronetUrlRequest" etc.) now put a friendly title in the player
+  (`msg_player_no_connection_retry`) instead of the raw exception — both on
+  the pre-cap path and the capped dead state. Non-connectivity errors keep
+  the raw string (honest + diagnosable). Note: a swallowed connectivity
+  failure that surfaces as "fromNullable result is null" (seen behind a dead
+  proxy) stays raw — the service layer lost the cause, and mislabeling a
+  server break as "no connection" would be worse.
+- When the cap trips on a connectivity error, a `registerDefaultNetworkCallback`
+  (APPLICATION context) arms ONE automatic reload for when the network
+  validates. STRICTLY EDGE-TRIGGERED — do not "simplify" this: the callback
+  replays the current network state at registration, so a level-triggered
+  version insta-fires when the cap trips on a slow-but-alive link and loops
+  cap→arm→fire→cap forever against googlevideo (the exact anti-abuse loop the
+  cap exists to stop). The detector seeds `seenDisconnected` from the active
+  network's VALIDATED bit at arm time and only fires on a
+  disconnected→validated transition. Disarm on: fire, user open, engine
+  release, finish.
+- Play tap in the dead state = manual retry (resets the cap window, reloads).
+  Both `onPlayClicked` and `onPauseClicked` are handled — the retained
+  `playWhenReady` can make the first tap dispatch pause.
+Emulator-verified (pixel9_audit): mid-playback outage → cap → friendly title;
+play-tap while offline reloads and re-caps (bounded); network restore → exactly
+ONE auto-reload, first frame +0.4–1.2 s, real title restored (both the engine
+error path and the offline-open/format-fetch path); cap-trip with the network
+UP (dead-proxy trick) → zero auto-reloads over 50 s (no hot loop). Established
+Cronet connections survive a global-proxy change — to force failures on a
+validated network you must open a NEW video.

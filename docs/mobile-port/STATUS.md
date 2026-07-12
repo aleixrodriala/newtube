@@ -66,6 +66,18 @@ settings, device-code OAuth multi-account) PLUS, from the 2026-07-11/12 rounds:
   language agreement with an original-preferring second tier + prefer-original
   fallback. Verified on the repro video (es-us original selected, dubs
   role=dub), single-language VOD, and live.
+- **Background audio-only stops downloading video (2026-07-12 late night)**:
+  true background audio (no PiP, no mini-player) now disables the VIDEO track
+  type entirely — no download, no decode; re-enabled on foreground return /
+  engine restart re-applies while backgrounded. Pixel-9 verified: audio-only
+  chunk stream after screen-off, instant video return on wake. PiP and the
+  Browse mini-player keep video. HANDOFF §10.
+- **Offline recovery UX fixed (2026-07-12 late night)**: connectivity-class
+  errors show a friendly title instead of the raw exception; when the reload
+  cap trips offline, an edge-triggered connectivity listener fires exactly ONE
+  automatic reload when the network validates again; play tap in the dead
+  state is a manual retry (cap resets). Emulator-verified end to end, incl.
+  the no-hot-loop guard when the cap trips while the network is up. HANDOFF §10.
 
 ## Open — needs a real device (Pixel 9)
 Round 2 (2026-07-12 evening) closed most of this list (see Works): live DVR
@@ -89,19 +101,13 @@ scrub-back + LIVE-chip + soak, background-audio FGS, PiP→search. Still open:
   them; MediaServiceCore dig needed).
 - Channel rows in search suggestions; channel page header/sort polish.
 - Age-gated videos: silent ~6 s stall then auto-skip — needs an error dialog.
-- Offline/recovery UX (found in round 2 when the network wedged): after the
-  auto-reload cap trips, the raw exception string sits in the player title,
-  the app never retries when connectivity returns, and play is a no-op in the
-  dead state — the video must be re-opened manually. Wanted: connectivity
-  listener → one automatic reload (or a "Retry" button) + friendly error text.
 - In-player "Video buffer" row (knob currently applies at next player open).
 - UI sweep leftovers: CC dialog still TV-style, speed/CC pickers inconsistent
   with native quality sheet, PiP enter-animation flash.
-- Carry-overs: occasional first-frame black in mini player; background
-  audio-only mode still downloads AND decodes the video stream (confirmed
-  on-device round 2: itag 303 1080p60 chunks keep streaming on cellular in
-  audio mode, ~5 min buffered ahead — real data waste; fix = deselect the
-  video track/renderer in audio mode, not just hide the surface).
+- Carry-overs: occasional first-frame black in mini player. Two minor gaps
+  left by the audio-only fix (HANDOFF §10): mini-player-then-home keeps video
+  enabled (needs a Browse-host hook), and screen-on-at-keyguard streams video
+  behind the lockscreen.
 
 ## Open — tech debt
 - **16 KB page-size compliance**: Android 17 flags the debug build's native
