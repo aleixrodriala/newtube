@@ -66,22 +66,42 @@ settings, device-code OAuth multi-account) PLUS, from the 2026-07-11/12 rounds:
   language agreement with an original-preferring second tier + prefer-original
   fallback. Verified on the repro video (es-us original selected, dubs
   role=dub), single-language VOD, and live.
+- **Third Pixel-9 round — deferred loop items (2026-07-13, real 5G)**. New
+  debug-only in-app harness (`DebugMediaShaper`, leaf DataSource wrapper) makes
+  bandwidth experiments possible at last: `debug.arc.throttle_kbps` token-bucket
+  shaping, `debug.arc.poison_itag` synthetic 403s, `debug.arc.rebuffer_gate_ms`
+  gate override; all debug-gated, release path untouched.
+  - **Post-rebuffer resume gate 2500→1500 ms: SHIPPED.** 5-pair interleaved
+    starve/refill A/B (pinned 1080p vp9 248, 800→2400 kbps): 1500 won all 5
+    pairs, median stall 3.21 s → 1.71 s (−1.09 s; matches the theoretical
+    refill time of the removed 1000 ms of media, so it generalizes).
+  - **Pinned-quality fallback rescue: VERIFIED.** Poisoned pinned itag →
+    `rescue pin->auto` fires on the 403 source error → reload on Auto → media3
+    track-exclusion skips the failing rendition → playing again in ~7 s (720p).
+    One-shot per videoId held; persisted pin untouched (next launch re-pins).
+  - **ABR down-switch under constrained bandwidth: VERIFIED** (long-blocked
+    item). Under sustained 800 kbps against a 2.77 Mbps track the selector
+    lands on 240p (id=242, then 243 as the estimate refines) and playback
+    reaches READY ~12–15 s after collapse. Caveat: on this carrier the
+    collapse path goes through a genuine googlevideo 403 first (slow/idle QUIC
+    flows reconnect, CGNAT hands the new flow a different exit IP than the
+    URL's `ip=` — kin of the HANDOFF §8 CGNAT/pot findings), so the observed
+    recovery is 403 → auto-reload → ABR re-select → READY, twice reproduced.
+    Up-switch after recovery not yet observed on-device (test window ended).
 
 ## Open — needs a real device (Pixel 9)
 Round 2 (2026-07-12 evening) closed most of this list (see Works): live DVR
 scrub-back + LIVE-chip + soak, background-audio FGS, PiP→search. Still open:
-- ABR down-switch under genuinely constrained bandwidth. Radio-based
-  constraining (`cmd phone set-allowed-network-types-for-users`) is OFF THE
-  TABLE while the dev Mac tethers through the phone: a 35 s GSM-only flip
-  wedged cellular data for ~12 min (DNS dead, radio still attached; Android
-  data-stall recovery eventually rebuilt the PDN — HANDOFF §9). Needs a
-  throttled Wi-Fi AP, or a day the phone isn't the Mac's uplink.
+Round 3 (2026-07-13) closed the rest via the in-app debug shaper (see Works):
+ABR down-switch, resume gate A/B, pin-rescue. Radio-based constraining stays
+OFF THE TABLE (HANDOFF §9 GSM-flip incident) — the shaper replaces it. Still
+open:
 - WEB_EMBED /player RTT varies 0.3–2.1s on LTE (cold TTFF 3.8s worst case vs
   ANDROID_VR's 3.4s — acceptable since ANDROID_VR streams die at 60s on
   enforcing networks, but worth optimizing; TV+serviceIntegrityDimensions is
   the candidate).
-- Deferred loop experiments: post-rebuffer resume gate 2.5→1.5 s,
-  pinned-quality fallback rescue.
+- ABR up-switch after a bandwidth-collapse recovery (down-switch verified;
+  the return to high quality wasn't observed before the test window ended).
 
 ## Open — product/UX
 - Playlist queue UI in player ("Playing from: X · i/N", collapsible) — top item.
@@ -94,6 +114,12 @@ scrub-back + LIVE-chip + soak, background-audio FGS, PiP→search. Still open:
   the app never retries when connectivity returns, and play is a no-op in the
   dead state — the video must be re-opened manually. Wanted: connectivity
   listener → one automatic reload (or a "Retry" button) + friendly error text.
+  Round 3 (2026-07-13) variant: error auto-reload DID recover playback, but an
+  AUDIO_FOCUS_LOSS during the re-prepare left it paused, the watch page stayed
+  blank (title/likes/related never repopulated after the reload's enrichment
+  fetch died under bad bandwidth, no retry), and a same-video VIEW intent is
+  deduped to a no-op — app sat paused+blank until force-stop. Also: worth
+  checking whether the reload path's own focus request races itself.
 - In-player "Video buffer" row (knob currently applies at next player open).
 - UI sweep leftovers: CC dialog still TV-style, speed/CC pickers inconsistent
   with native quality sheet, PiP enter-animation flash.
