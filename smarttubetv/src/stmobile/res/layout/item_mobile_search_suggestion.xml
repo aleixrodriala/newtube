@@ -9,7 +9,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/suggestion_root"
     android:layout_width="match_parent"
-    android:layout_height="48dp"
+    android:layout_height="52dp"
     android:background="?attr/selectableItemBackground"
     android:gravity="center_vertical"
     android:orientation="horizontal"
@@ -18,8 +18,8 @@
 
     <ImageView
         android:id="@+id/suggestion_icon"
-        android:layout_width="22dp"
-        android:layout_height="22dp"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
         android:contentDescription="@null"
         android:src="@drawable/ic_mobile_search" />
 
@@ -32,7 +32,7 @@
         android:ellipsize="end"
         android:maxLines="1"
         android:textColor="@color/mobile_color_on_surface"
-        android:textSize="15sp"
+        android:textSize="17sp"
         tools:text="mr bean full episodes" />
 
     <ImageButton

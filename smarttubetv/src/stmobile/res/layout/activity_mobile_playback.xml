@@ -425,10 +425,10 @@
                     android:layout_marginTop="12dp"
                     android:paddingHorizontal="@dimen/mobile_watch_content_padding"
                     android:ellipsize="end"
+                    android:fontFamily="sans-serif-medium"
                     android:maxLines="3"
                     android:textColor="@color/mobile_color_on_surface"
-                    android:textSize="17sp"
-                    android:textStyle="bold"
+                    android:textSize="18sp"
                     tools:text="A great video title that may wrap across a couple of lines" />
 
                 <!-- views + date + expand-description affordance -->
@@ -451,7 +451,7 @@
                         android:ellipsize="end"
                         android:maxLines="1"
                         android:textColor="@color/mobile_color_on_surface_secondary"
-                        android:textSize="13sp"
+                        android:textSize="14sp"
                         tools:text="1,234,567 views • Jan 1, 2026" />
 
                     <ImageView
@@ -473,7 +473,7 @@
                     android:autoLink="web"
                     android:textColor="@color/mobile_color_on_surface_secondary"
                     android:textColorLink="@color/mobile_color_link"
-                    android:textSize="13sp"
+                    android:textSize="14sp"
                     android:visibility="gone"
                     tools:text="Video description text..."
                     tools:visibility="visible" />
@@ -521,7 +521,7 @@
                                 android:layout_marginStart="6dp"
                                 android:text="@string/mobile_watch_count_placeholder"
                                 android:textColor="@color/mobile_color_on_surface"
-                                android:textSize="13sp"
+                                android:textSize="14sp"
                                 tools:text="12K" />
 
                         </LinearLayout>
@@ -558,7 +558,7 @@
                                 android:layout_marginStart="6dp"
                                 android:text="@string/mobile_watch_count_placeholder"
                                 android:textColor="@color/mobile_color_on_surface"
-                                android:textSize="13sp"
+                                android:textSize="14sp"
                                 tools:text="123" />
 
                         </LinearLayout>
@@ -590,7 +590,7 @@
                             android:layout_marginStart="6dp"
                             android:text="@string/mobile_watch_share"
                             android:textColor="@color/mobile_color_on_surface"
-                            android:textSize="13sp" />
+                            android:textSize="14sp" />
 
                     </LinearLayout>
 
@@ -629,10 +629,10 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:ellipsize="end"
+                            android:fontFamily="sans-serif-medium"
                             android:maxLines="1"
                             android:textColor="@color/mobile_color_on_surface"
-                            android:textSize="14sp"
-                            android:textStyle="bold"
+                            android:textSize="15sp"
                             tools:text="Channel name" />
 
                         <TextView
@@ -642,7 +642,7 @@
                             android:ellipsize="end"
                             android:maxLines="1"
                             android:textColor="@color/mobile_color_on_surface_secondary"
-                            android:textSize="12sp"
+                            android:textSize="13sp"
                             android:visibility="gone"
                             tools:text="1.2M subscribers"
                             tools:visibility="visible" />
@@ -655,15 +655,19 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:backgroundTint="@color/mobile_color_primary"
+                        android:backgroundTint="@android:color/white"
+                        android:fontFamily="sans-serif-medium"
                         android:insetTop="0dp"
                         android:insetBottom="0dp"
-                        android:minHeight="0dp"
+                        android:letterSpacing="0"
+                        android:minHeight="40dp"
                         android:paddingHorizontal="16dp"
-                        android:paddingVertical="8dp"
+                        android:paddingVertical="0dp"
                         android:text="@string/mobile_watch_subscribe"
-                        android:textColor="@android:color/white"
-                        app:cornerRadius="18dp" />
+                        android:textAllCaps="false"
+                        android:textColor="@android:color/black"
+                        android:textSize="14sp"
+                        app:cornerRadius="20dp" />
 
                 </LinearLayout>
 
@@ -764,8 +768,8 @@
                     android:paddingBottom="6dp"
                     android:text="@string/mobile_watch_related"
                     android:textColor="@color/mobile_color_on_surface"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
+                    android:textSize="16sp"
+                    android:fontFamily="sans-serif-medium" />
 
                 <include
                     layout="@layout/mobile_watch_related_skeleton"

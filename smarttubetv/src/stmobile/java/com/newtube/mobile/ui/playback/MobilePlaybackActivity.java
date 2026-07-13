@@ -587,6 +587,11 @@ public class MobilePlaybackActivity extends MobileActivity
             if (mWatchScroll != null) {
                 mWatchScroll.setVisibility(View.GONE);
             }
+            // The watch-page title is hidden with the content in fullscreen, so retain the compact
+            // title in the player chrome there.
+            if (mTitleView != null) {
+                mTitleView.setVisibility(View.VISIBLE);
+            }
         } else {
             int width = getResources().getDisplayMetrics().widthPixels;
             lp.height = Math.round(width * 9f / 16f);
@@ -594,6 +599,12 @@ public class MobilePlaybackActivity extends MobileActivity
             mVideoArea.setLayoutParams(lp);
             if (mWatchScroll != null) {
                 mWatchScroll.setVisibility(View.VISIBLE);
+            }
+            // Portrait already presents the complete title immediately below the video. Repeating
+            // it in the overlay squeezes five useful controls into half the top bar and makes the
+            // player look crowded, especially for two-line titles.
+            if (mTitleView != null) {
+                mTitleView.setVisibility(View.GONE);
             }
         }
     }
@@ -3196,9 +3207,9 @@ public class MobilePlaybackActivity extends MobileActivity
         } else if (buttonId == R.id.action_subscribe && mWatchSubscribe != null) {
             mWatchSubscribe.setText(on ? R.string.mobile_watch_subscribed : R.string.mobile_watch_subscribe);
             mWatchSubscribe.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                    getColorInt(on ? R.color.mobile_color_pill : R.color.mobile_color_primary)));
+                    getColorInt(on ? R.color.mobile_color_pill : android.R.color.white)));
             mWatchSubscribe.setTextColor(getColorInt(on
-                    ? R.color.mobile_color_on_surface : android.R.color.white));
+                    ? R.color.mobile_color_on_surface : android.R.color.black));
         }
     }
 
