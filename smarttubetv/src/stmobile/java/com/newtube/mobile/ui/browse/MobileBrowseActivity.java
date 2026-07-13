@@ -582,7 +582,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         mCurrentVideos.clear();
         mAwaitingFreshContent = cached != null;
         if (cached != null) {
-            mCurrentVideos.addAll(visibleFeedItems(cached));
+            mCurrentVideos.addAll(visibleFeedItems(cached, sectionId));
         }
 
         mLastPaginationTriggerCount = -1;
@@ -1026,12 +1026,12 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
                     }
                     mCurrentVideos.clear();
                     if (!emptyReplace) {
-                        mCurrentVideos.addAll(visibleFeedItems(group.getVideos()));
+                        mCurrentVideos.addAll(visibleFeedItems(group.getVideos(), mCurrentSectionId));
                     }
                     mAwaitingFreshContent = false;
                     break;
                 case VideoGroup.ACTION_PREPEND:
-                    mCurrentVideos.addAll(0, visibleFeedItems(group.getVideos()));
+                    mCurrentVideos.addAll(0, visibleFeedItems(group.getVideos(), mCurrentSectionId));
                     break;
                 case VideoGroup.ACTION_REMOVE:
                     mCurrentVideos.removeAll(group.getVideos());
@@ -1066,7 +1066,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
             return;
         }
         for (Video video : videos) {
-            if (isVisibleFeedItem(video) && !mCurrentVideos.contains(video)) {
+            if (isVisibleFeedItem(video, mCurrentSectionId) && !mCurrentVideos.contains(video)) {
                 mCurrentVideos.add(video);
             }
         }
@@ -1075,24 +1075,28 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     /**
      * Browse sections are video feeds, not discovery results. YouTube occasionally injects a
      * channel-shaped recommendation into Home/Trending; rendering that with the shared search
-     * adapter creates an avatar-only row in the middle of otherwise full-thumbnail cards. Keep
-     * true playlists (which use a similar service shape) but leave channel discovery to Search.
+     * adapter creates an avatar-only row in the middle of otherwise full-thumbnail cards. Home
+     * also mixes Shorts into regular shelves, but the touch shell already has a dedicated Shorts
+     * destination. Keep true playlists (which use a similar service shape), keep Shorts outside
+     * Home, and leave channel discovery to Search.
      */
-    private static List<Video> visibleFeedItems(List<Video> videos) {
+    private static List<Video> visibleFeedItems(List<Video> videos, int sectionId) {
         List<Video> visible = new ArrayList<>();
         if (videos == null) {
             return visible;
         }
         for (Video video : videos) {
-            if (isVisibleFeedItem(video)) {
+            if (isVisibleFeedItem(video, sectionId)) {
                 visible.add(video);
             }
         }
         return visible;
     }
 
-    private static boolean isVisibleFeedItem(Video video) {
-        return video != null && (!video.isChannel() || video.isPlaylistAsChannel());
+    private static boolean isVisibleFeedItem(Video video, int sectionId) {
+        return video != null
+                && (sectionId != MediaGroup.TYPE_HOME || !video.isShorts)
+                && (!video.isChannel() || video.isPlaylistAsChannel());
     }
 
     private void syncVideos(List<Video> videos) {

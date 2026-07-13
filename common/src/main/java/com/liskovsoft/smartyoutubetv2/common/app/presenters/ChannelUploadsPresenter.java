@@ -170,12 +170,16 @@ public class ChannelUploadsPresenter extends BasePresenter<ChannelUploadsView> i
 
         disposeActions();
 
-        return item.hasNestedItems() || item.isChannel() ?
-               getContentService().getGroupObserve(item.mediaItem != null ? item.mediaItem : SimpleMediaItem.from(item)) :
-               item.hasReloadPageKey() ?
-               getContentService().getGroupObserve(item.getReloadPageKey()) :
-               getMediaItemService().getMetadataObserve(item.videoId, item.playlistId, 0, item.playlistParams)
-                       .flatMap(mediaItemMetadata -> Observable.just(findPlaylistRow(mediaItemMetadata)));
+        if (item.hasNestedItems() || item.isChannel() || (item.hasPlaylist() && !item.hasVideo())) {
+            return getContentService().getGroupObserve(item.mediaItem);
+        }
+
+        if (item.hasReloadPageKey()) {
+            return getContentService().getGroupObserve(item.getReloadPageKey());
+        }
+
+        return getMediaItemService().getMetadataObserve(item.videoId, item.playlistId, 0, item.playlistParams)
+                .flatMap(mediaItemMetadata -> Observable.just(findPlaylistRow(mediaItemMetadata)));
     }
 
     public Video getChannel() {
@@ -205,11 +209,14 @@ public class ChannelUploadsPresenter extends BasePresenter<ChannelUploadsView> i
             return;
         }
 
+        MediaGroup mediaGroup = group.getMediaGroup();
+        if (mediaGroup == null || mediaGroup.getNextPageKey() == null) {
+            return;
+        }
+
         Log.d(TAG, "continueGroup: start continue group: " + group.getTitle());
 
         getView().showProgressBar(true);
-
-        MediaGroup mediaGroup = group.getMediaGroup();
 
         Observable<MediaGroup> continuation;
 

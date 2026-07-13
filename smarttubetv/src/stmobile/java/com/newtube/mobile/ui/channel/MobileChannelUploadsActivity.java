@@ -12,6 +12,7 @@ import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.android.material.button.MaterialButton;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.ChannelUploadsPresenter;
@@ -63,6 +64,7 @@ public class MobileChannelUploadsActivity extends MobileActivity implements Chan
     private ProgressBar mProgressBar;
     private TextView mTitleView;
     private ImageButton mBackButton;
+    private MaterialButton mPlayAllButton;
 
     private final List<Video> mVideos = new ArrayList<>();
     private int mLastPaginationTriggerCount = -1;
@@ -77,6 +79,7 @@ public class MobileChannelUploadsActivity extends MobileActivity implements Chan
         setupGrid();
 
         mBackButton.setOnClickListener(v -> onBackPressed());
+        mPlayAllButton.setOnClickListener(v -> playAll());
 
         mPresenter = ChannelUploadsPresenter.instance(this);
 
@@ -95,6 +98,7 @@ public class MobileChannelUploadsActivity extends MobileActivity implements Chan
         mProgressBar = findViewById(R.id.mobile_channel_uploads_progress);
         mTitleView = findViewById(R.id.mobile_channel_uploads_title);
         mBackButton = findViewById(R.id.mobile_channel_uploads_back);
+        mPlayAllButton = findViewById(R.id.mobile_channel_uploads_play_all);
     }
 
     private void setupGrid() {
@@ -126,6 +130,28 @@ public class MobileChannelUploadsActivity extends MobileActivity implements Chan
 
         mPresenter.onVideoItemLongClicked(video);
         return true;
+    }
+
+    /** Start from the first playable item that carries the playlist context. */
+    private void playAll() {
+        Video first = findFirstPlaylistVideo();
+        if (first != null) {
+            onVideoClicked(first);
+        }
+    }
+
+    private Video findFirstPlaylistVideo() {
+        for (Video video : mVideos) {
+            if (video != null && video.hasVideo() && video.getPlaylistId() != null) {
+                return video;
+            }
+        }
+
+        return null;
+    }
+
+    private void updatePlayAllVisibility() {
+        mPlayAllButton.setVisibility(findFirstPlaylistVideo() != null ? View.VISIBLE : View.GONE);
     }
 
     private void maybeTriggerPagination() {
@@ -236,6 +262,7 @@ public class MobileChannelUploadsActivity extends MobileActivity implements Chan
 
             mLastPaginationTriggerCount = -1; // allow pagination to fire again at the new size
             mAdapter.submitList(new ArrayList<>(mVideos));
+            updatePlayAllVisibility();
         });
     }
 
@@ -262,6 +289,7 @@ public class MobileChannelUploadsActivity extends MobileActivity implements Chan
             mVideos.clear();
             mLastPaginationTriggerCount = -1;
             mAdapter.submitList(new ArrayList<>());
+            updatePlayAllVisibility();
         });
     }
 

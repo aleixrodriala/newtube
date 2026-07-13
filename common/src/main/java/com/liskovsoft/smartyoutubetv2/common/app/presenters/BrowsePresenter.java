@@ -827,6 +827,11 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
             return;
         }
 
+        MediaGroup mediaGroup = group.getMediaGroup();
+        if (mediaGroup == null || mediaGroup.getNextPageKey() == null) {
+            return;
+        }
+
         if (getCurrentSection() != null && mLocalGridMappings.containsKey(getCurrentSection().getId())) {
             Log.d(TAG, "Local grid section doesn't assume a continuation...");
             return;
@@ -838,8 +843,6 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         if (showLoading) {
             getView().showProgressBar(true);
         }
-
-        MediaGroup mediaGroup = group.getMediaGroup();
 
         Observable<MediaGroup> continuation;
 

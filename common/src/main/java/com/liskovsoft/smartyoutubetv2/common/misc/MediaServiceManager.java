@@ -353,6 +353,9 @@ public class MediaServiceManager implements OnAccountChange {
         }
 
         MediaGroup mediaGroup = group.getMediaGroup();
+        if (mediaGroup.getNextPageKey() == null) {
+            return false;
+        }
 
         Pair<Integer, Long> sizeTimestamp = mContinuations.get(group.getId());
 

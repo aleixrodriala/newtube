@@ -47,6 +47,30 @@
             android:textStyle="bold"
             tools:text="Daily Top Music Videos" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/mobile_channel_uploads_play_all"
+            style="@style/Widget.MaterialComponents.Button"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginEnd="12dp"
+            android:backgroundTint="@android:color/white"
+            android:fontFamily="sans-serif-medium"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minHeight="40dp"
+            android:paddingHorizontal="14dp"
+            android:text="@string/mobile_playlist_play_all"
+            android:textAllCaps="false"
+            android:textColor="@android:color/black"
+            android:textSize="14sp"
+            android:visibility="gone"
+            app:cornerRadius="20dp"
+            app:icon="@drawable/ic_player_play"
+            app:iconGravity="textStart"
+            app:iconSize="18dp"
+            app:iconTint="@android:color/black"
+            tools:visibility="visible" />
+
     </LinearLayout>
 
     <FrameLayout
