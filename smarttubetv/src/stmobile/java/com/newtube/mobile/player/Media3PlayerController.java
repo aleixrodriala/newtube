@@ -483,6 +483,17 @@ public class Media3PlayerController implements Player.Listener {
         }
     }
 
+    /**
+     * NEWTUBE(bg-audio): disable/enable the VIDEO track type for true background audio-only
+     * playback (see {@link Media3TrackAdapter#setVideoTrackDisabled}). Routed through the adapter
+     * so the track selector has a single owner for its parameters.
+     */
+    public void setVideoTrackDisabled(boolean disabled) {
+        if (mTrackAdapter != null) {
+            mTrackAdapter.setVideoTrackDisabled(disabled);
+        }
+    }
+
     public FormatItem getVideoFormat() {
         return mTrackAdapter != null ? mTrackAdapter.getSelectedFormat(TrackSelectorManager.RENDERER_INDEX_VIDEO) : null;
     }

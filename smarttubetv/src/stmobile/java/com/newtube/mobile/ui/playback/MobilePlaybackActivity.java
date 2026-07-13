@@ -253,6 +253,8 @@ public class MobilePlaybackActivity extends MobileActivity
     private boolean mScrubbing;
     private boolean mIsEnded;
     private boolean mIsInPip;
+    /** True while in true background audio-only playback (video renderer dropped); see setBackgroundAudioMode. */
+    private boolean mBackgroundAudioMode;
 
     // Background-playback foreground service (reuses THIS Activity's player; see MobilePlaybackService).
     private MobilePlaybackService mPlaybackService;
@@ -606,6 +608,12 @@ public class MobilePlaybackActivity extends MobileActivity
 
         mExoPlayerController.setTrackSelector(trackSelector);
 
+        // An engine restart (error fix, network flap) while backgrounded builds a FRESH selector
+        // with video re-enabled; re-apply the audio-only drop so the restart doesn't resume video.
+        if (mBackgroundAudioMode) {
+            mExoPlayerController.setVideoTrackDisabled(true);
+        }
+
         mPlayer = mPlayerInitializer.createPlayer(
                 trackSelector, mExoPlayerController.getMediaSourceFactory().getBandwidthMeter());
         // NEWTUBE(diagnostics): media3's stock per-event logcat tap (tag EventLogger) - track/ABR
@@ -750,6 +758,9 @@ public class MobilePlaybackActivity extends MobileActivity
 
         // In the foreground again: auto-PiP behaves normally from here on.
         mSuppressAutoPip = false;
+        // Re-enable the video track BEFORE any texture reattach below, so the first frame comes
+        // back promptly (true background audio-only mode dropped the whole video renderer).
+        setBackgroundAudioMode(false);
         updatePipActions(); // re-arm the Android 12+ auto-enter flag cleared by the minimize hand-off
 
         // Back from the mini-player (expand tap, new video, notification, recents): the Browse
@@ -824,12 +835,35 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onStop() {
         super.onStop();
 
+        // True background audio-only playback: the window is no longer visible AND we're neither in
+        // system PiP nor the in-app Browse mini-player (both of which show live video), so the
+        // service is keeping only the audio going. Drop the video renderer so VIDEO stops streaming
+        // and decoding - onStop is not delivered while a PiP window stays visible, so reaching here
+        // uninhibited means a real background (home without PiP, screen off, another screen on top).
+        // Re-enabled at the top of onResume, before the texture reattach.
+        if (mPlayer != null && !mIsInPip && !mSuppressAutoPip && !isFinishing()) {
+            setBackgroundAudioMode(true);
+        }
+
         // The minimize drag left the video morphed onto the mini-card rect. Reset it once
         // this window is no longer visible (here, not in minimizeByDrag - resetting while our
         // window still shows behind the task switch would flash the fullscreen player back).
         // The expand path immediately re-applies the morph in onResume, so this never fights it.
         if (mContainer != null && mMorphFraction != 0f) {
             resetMorph();
+        }
+    }
+
+    /**
+     * Enter/exit true background audio-only mode: enabled = drop the whole video renderer so VIDEO
+     * neither downloads nor decodes while the service keeps only audio going; disabled = restore it.
+     * PiP and the Browse mini-player both render live video, so they never enter this mode. The flag
+     * is the single source of truth (createPlayerObjects re-applies it after an engine restart).
+     */
+    private void setBackgroundAudioMode(boolean enabled) {
+        mBackgroundAudioMode = enabled;
+        if (mExoPlayerController != null) {
+            mExoPlayerController.setVideoTrackDisabled(enabled);
         }
     }
 

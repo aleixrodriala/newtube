@@ -1,7 +1,8 @@
 # NewTube — Status
 
-**v1.3.0 (versionCode 10300), main @ `c685fd6` (pot-enforcement round), all
-three repos pushed (2026-07-12).** Phone-only: the TV flavors, vendored ExoPlayer fork, and
+**v1.3.0 (versionCode 10300), main = loop-round-3 merge (resume-gate 1500 +
+pin-rescue + ABR verification + stuck-state fixes, 2026-07-13); submodules
+unchanged since the 2026-07-12 push.** Phone-only: the TV flavors, vendored ExoPlayer fork, and
 leanback modules were deleted ("slice 2"); the engine is androidx.media3
 1.10.1 on embedded Cronet (H2/QUIC). Toolchain: AGP 8.9.3 / Gradle 8.11.1 /
 Kotlin 2.1.20 / compileSdk 36 / targetSdk 35 / minSdk 24.
@@ -66,6 +67,18 @@ settings, device-code OAuth multi-account) PLUS, from the 2026-07-11/12 rounds:
   language agreement with an original-preferring second tier + prefer-original
   fallback. Verified on the repro video (es-us original selected, dubs
   role=dub), single-language VOD, and live.
+- **Background audio-only stops downloading video (2026-07-12 late night)**:
+  true background audio (no PiP, no mini-player) now disables the VIDEO track
+  type entirely — no download, no decode; re-enabled on foreground return /
+  engine restart re-applies while backgrounded. Pixel-9 verified: audio-only
+  chunk stream after screen-off, instant video return on wake. PiP and the
+  Browse mini-player keep video. HANDOFF §10.
+- **Offline recovery UX fixed (2026-07-12 late night)**: connectivity-class
+  errors show a friendly title instead of the raw exception; when the reload
+  cap trips offline, an edge-triggered connectivity listener fires exactly ONE
+  automatic reload when the network validates again; play tap in the dead
+  state is a manual retry (cap resets). Emulator-verified end to end, incl.
+  the no-hot-loop guard when the cap trips while the network is up. HANDOFF §10.
 - **Third Pixel-9 round — deferred loop items (2026-07-13, real 5G)**. New
   debug-only in-app harness (`DebugMediaShaper`, leaf DataSource wrapper) makes
   bandwidth experiments possible at last: `debug.arc.throttle_kbps` token-bucket
@@ -88,10 +101,30 @@ settings, device-code OAuth multi-account) PLUS, from the 2026-07-11/12 rounds:
     URL's `ip=` — kin of the HANDOFF §8 CGNAT/pot findings), so the observed
     recovery is 403 → auto-reload → ABR re-select → READY, twice reproduced.
     Up-switch after recovery not yet observed on-device (test window ended).
+- **Stuck-state fixes (2026-07-13, Pixel-9 fault-injection verified)** — three
+  bugs adjacent to the error-reload path:
+  - Watch page blanked by error-reloads: reloads re-enter with a bare Video
+    (no title/author) and the re-fetch can die on a bad network. Now:
+    same-video rebinds never overwrite the title/channel name with empty, and
+    bindWatchMetadata (re)populates the title from the metadata document.
+  - Same-URL external intent silently swallowed: Android dedupes a launch
+    whose intent filterEquals a recents task's ROOT intent into a bare
+    task-to-front (no callback; dead task records survive force-stop, so the
+    first URL a task ever opened kept matching forever). External filters
+    (watch links/shares/vnd.youtube) moved off the main-task Splash onto a new
+    ephemeral-task IntentRouterActivity (taskAffinity ":router",
+    excludeFromRecents, noHistory) — same-URL re-opens now route (verified:
+    tap→open→prepare ~300ms where before there was silence). Launcher opens
+    still use the main-task Splash (same-task animation preserved).
+  - Error-reload's play() killed by an external AUDIO_FOCUS_LOSS ~200ms after
+    re-prepare → recovery completed but sat paused. Now: a focus loss within
+    5s of prepare() retries play() ONCE (media3's focus request suppresses the
+    retry if the thief still holds focus — no fight loop). Live thief not
+    re-observed (1-in-8 reloads); "focus-grace" NetPath line will identify it.
 
 ## Open — needs a real device (Pixel 9)
 Round 2 (2026-07-12 evening) closed most of this list (see Works): live DVR
-scrub-back + LIVE-chip + soak, background-audio FGS, PiP→search. Still open:
+scrub-back + LIVE-chip + soak, background-audio FGS, PiP→search.
 Round 3 (2026-07-13) closed the rest via the in-app debug shaper (see Works):
 ABR down-switch, resume gate A/B, pin-rescue. Radio-based constraining stays
 OFF THE TABLE (HANDOFF §9 GSM-flip incident) — the shaper replaces it. Still
@@ -109,41 +142,13 @@ open:
   them; MediaServiceCore dig needed).
 - Channel rows in search suggestions; channel page header/sort polish.
 - Age-gated videos: silent ~6 s stall then auto-skip — needs an error dialog.
-- Offline/recovery UX (found in round 2 when the network wedged): after the
-  auto-reload cap trips, the raw exception string sits in the player title,
-  the app never retries when connectivity returns, and play is a no-op in the
-  dead state — the video must be re-opened manually. Wanted: connectivity
-  listener → one automatic reload (or a "Retry" button) + friendly error text.
-  Round 3 (2026-07-13) found and FIXED three adjacent stuck-state bugs
-  (device-verified on the Pixel 9 via poison-itag fault injection):
-  - Watch page blanked by error-reloads: reloads re-enter with a bare
-    Video (no title/author) and the re-fetch can die on a bad network. Now:
-    same-video rebinds never overwrite the title/channel name with empty, and
-    bindWatchMetadata (re)populates the title from the metadata document.
-  - Same-URL external intent silently swallowed: Android dedupes a launch
-    whose intent filterEquals a recents task's ROOT intent into a bare
-    task-to-front (no callback; dead task records survive force-stop, so the
-    first URL a task ever opened kept matching forever). External filters
-    (watch links/shares/vnd.youtube) moved off the main-task Splash onto a new
-    ephemeral-task IntentRouterActivity (taskAffinity ":router",
-    excludeFromRecents, noHistory) — same-URL re-opens now route (verified:
-    tap→open→prepare ~300ms where before there was silence). Launcher opens
-    still use the main-task Splash (same-task animation preserved).
-  - Error-reload's play() killed by an external AUDIO_FOCUS_LOSS ~200ms after
-    re-prepare → recovery completed but sat paused. Now: a focus loss within
-    5s of prepare() retries play() ONCE (media3's focus request suppresses the
-    retry if the thief still holds focus — no fight loop). Live thief not
-    re-observed (1-in-8 reloads); "focus-grace" NetPath line will identify it.
-  Still open: the capped dead state itself (raw exception in title, no
-  connectivity-recovery retry, play is a no-op there).
 - In-player "Video buffer" row (knob currently applies at next player open).
 - UI sweep leftovers: CC dialog still TV-style, speed/CC pickers inconsistent
   with native quality sheet, PiP enter-animation flash.
-- Carry-overs: occasional first-frame black in mini player; background
-  audio-only mode still downloads AND decodes the video stream (confirmed
-  on-device round 2: itag 303 1080p60 chunks keep streaming on cellular in
-  audio mode, ~5 min buffered ahead — real data waste; fix = deselect the
-  video track/renderer in audio mode, not just hide the surface).
+- Carry-overs: occasional first-frame black in mini player. Two minor gaps
+  left by the audio-only fix (HANDOFF §10): mini-player-then-home keeps video
+  enabled (needs a Browse-host hook), and screen-on-at-keyguard streams video
+  behind the lockscreen.
 
 ## Open — tech debt
 - **16 KB page-size compliance**: Android 17 flags the debug build's native

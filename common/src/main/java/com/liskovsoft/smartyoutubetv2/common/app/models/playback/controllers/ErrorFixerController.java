@@ -1,6 +1,10 @@
 package com.liskovsoft.smartyoutubetv2.common.app.models.playback.controllers;
 
 import android.annotation.SuppressLint;
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
@@ -18,6 +22,10 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
 
+import java.net.ConnectException;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.util.List;
 
 public class ErrorFixerController extends BasePlayerController implements OnLongBuffering {
@@ -46,6 +54,19 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     // with the auto-fix cap (healthy playback or a user-initiated open).
     private boolean mPinRescueArmed;
     private String mPinRescueVideoId;
+    // Dead state: the cap tripped on a connectivity-class error and auto-fixing stopped. A play tap
+    // now means "retry" (onPlayClicked/onPauseClicked) and a default-network callback arms exactly
+    // one automatic retry when the connection returns.
+    private boolean mErrorCapped;
+    private ConnectivityManager mConnectivityManager;
+    private ConnectivityManager.NetworkCallback mNetworkCallback;
+    private final Runnable mConnectivityRetry = () -> {
+        // Posted to the main thread from the binder-thread network callback. The dead state may have
+        // been left in the meantime (new video, engine release, manual retry) - only act if still set.
+        if (mErrorCapped) {
+            retryNow();
+        }
+    };
 
     @Override
     public void onInit() {
@@ -117,13 +138,36 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             // restoreVideoFormat reads it back instead of the failing persisted/temp pin.
             reassertPinRescueIfArmed(videoId);
         } else {
+            // Genuine user-initiated open (new video or manual retry): fresh window, and leave the
+            // dead state - the connectivity listener belonged to the previous attempt.
             resetAutoFixCap();
+            clearErrorCapped();
+        }
+    }
+
+    @Override
+    public void onPlayClicked() {
+        // Dead state: the engine is idle after the capped error, so a play tap can't resume playback -
+        // treat it as a user-initiated retry (reset the window, reload). Harmless no-op otherwise.
+        if (mErrorCapped) {
+            retryNow();
+        }
+    }
+
+    @Override
+    public void onPauseClicked() {
+        // Same dead-state retry: the play/pause toggle may dispatch pause first (playWhenReady was
+        // still set when the error hit), so the FIRST tap on the only visible affordance lands here.
+        if (mErrorCapped) {
+            retryNow();
         }
     }
 
     @Override
     public void onFinish() {
         mBufferingDetector.reset();
+        // Playback session ended: drop the dead-state listener so it can't leak or fire into a gone player.
+        clearErrorCapped();
     }
 
     @Override
@@ -134,6 +178,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         // The count itself survives on purpose - restartEngine() fix cycles release+recreate the
         // engine mid-cycle and must still hit the cap.
         mAutoReloadPending = false;
+        // Player torn down - nothing to retry into, so unregister the connectivity callback too.
+        clearErrorCapped();
     }
 
     private void runEngineErrorAction(int type, int rendererIndex, Throwable error) {
@@ -162,7 +208,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         // 4th consecutive error without healthy playback in between: stop auto-fixing entirely
         // (no config mutation, no reload/restart) and leave a state the user can act on.
         if (registerAutoFixAndCheckCap(error)) {
-            surfaceCappedError(errorMessage, errorContent);
+            surfaceCappedError(errorMessage, errorContent, error);
             return;
         }
 
@@ -257,7 +303,12 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         if (showMessage) {
             MessageHelpers.showLongMessage(getContext(), errorMessage);
             if (getPlayer() != null) {
-                getPlayer().setTitle(errorContent);
+                // Connectivity failures get a friendly, actionable title (a raw Cronet/socket dump
+                // helps no one here); genuine server/content errors keep the raw content. This title
+                // is transient on this path - the restart/reload below re-sets the real video title.
+                getPlayer().setTitle(isConnectivityError(error)
+                        ? getContext().getString(R.string.msg_player_no_connection_retry)
+                        : errorContent);
             }
         }
 
@@ -343,7 +394,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
 
         // Format(metadata)-fetch errors reload just like engine errors - same consecutive cap.
         if (registerAutoFixAndCheckCap(error)) {
-            surfaceCappedError(fullMsg, message);
+            surfaceCappedError(fullMsg, message, error);
             return;
         }
 
@@ -389,14 +440,151 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     /**
      * Cap reached: surface the error through the existing message mechanism and leave the player
      * in a stopped, user-actionable state (manual retry / back out) - never an endless spinner.
+     * Enters the dead state: a play tap becomes a manual retry, and for a connectivity-class error
+     * a default-network callback arms one automatic retry for when the connection returns.
      */
-    private void surfaceCappedError(String errorMessage, String errorContent) {
+    private void surfaceCappedError(String errorMessage, String errorContent, Throwable error) {
+        boolean connectivity = isConnectivityError(error);
+
         MessageHelpers.showLongMessage(getContext(), errorMessage);
         if (getPlayer() != null) {
-            getPlayer().setTitle(errorContent);
+            getPlayer().setTitle(connectivity
+                    ? getContext().getString(R.string.msg_player_no_connection_retry)
+                    : errorContent);
             getPlayer().showProgressBar(false);
             getPlayer().showOverlay(true);
         }
+
+        mErrorCapped = true;
+
+        // Only connectivity errors arm the auto-retry: reconnecting can't fix a server/content error,
+        // and re-hammering it is exactly the anti-abuse behavior the cap exists to prevent.
+        if (connectivity) {
+            armConnectivityRetry();
+        }
+    }
+
+    /**
+     * A lost/absent network connection (vs. a server- or content-side error, where the raw message
+     * is genuinely useful). Walks the cause chain: socket exception types plus the Cronet / data
+     * source connectivity message markers seen in the field.
+     */
+    private static boolean isConnectivityError(Throwable error) {
+        Throwable cause = error;
+        for (int depth = 0; cause != null && depth < 12; cause = cause.getCause(), depth++) {
+            if (cause instanceof UnknownHostException || cause instanceof SocketTimeoutException
+                    || cause instanceof ConnectException || cause instanceof SocketException) {
+                return true;
+            }
+            if (Helpers.containsAny(cause.getMessage(),
+                    "Unable to connect to",
+                    "ERR_INTERNET_DISCONNECTED", "ERR_NAME_NOT_RESOLVED", "ERR_ADDRESS_UNREACHABLE",
+                    "ERR_CONNECTION_", "ERR_TIMED_OUT", "ERR_NETWORK_CHANGED", "ERR_PROXY_CONNECTION_FAILED",
+                    "Exception in CronetUrlRequest")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Arms a single automatic retry for when connectivity RETURNS. Strictly edge-triggered:
+     * registerDefaultNetworkCallback immediately replays onAvailable/onCapabilitiesChanged for the
+     * network that's ALREADY up, so a level-triggered "validated = retry" would fire instantly when
+     * the cap trips on a slow-but-alive link (SocketTimeoutException/ERR_TIMED_OUT) - an unbounded
+     * cap->arm->fire->cap loop against googlevideo, exactly what {@link #MAX_CONSECUTIVE_AUTO_FIXES}
+     * exists to prevent. Registered on the APPLICATION context (never the Activity - a backgrounded
+     * dead player would otherwise leak it). Idempotent: one live registration per dead-state episode.
+     */
+    private void armConnectivityRetry() {
+        if (mNetworkCallback != null) {
+            return;
+        }
+
+        Context context = getContext() != null ? getContext().getApplicationContext() : null;
+        ConnectivityManager cm = context != null
+                ? (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE) : null;
+        if (cm == null) {
+            return;
+        }
+
+        // Seed the edge detector from the CURRENT state: mid-outage (no default network, or one
+        // that isn't VALIDATED) the disconnect edge already happened - fire on the next validation.
+        // If the network is validated right now, stay quiet until a real disconnect is observed;
+        // the play-tap manual retry covers the network-is-fine-but-slow case.
+        Network active = cm.getActiveNetwork();
+        NetworkCapabilities activeCaps = active != null ? cm.getNetworkCapabilities(active) : null;
+        boolean seedDisconnected = activeCaps == null || !activeCaps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+
+        ConnectivityManager.NetworkCallback callback = new ConnectivityManager.NetworkCallback() {
+            // Confined to this callback: all events of one registration are serialized on a single
+            // ConnectivityManager handler thread, so a plain boolean is safe.
+            private boolean mSeenDisconnected = seedDisconnected;
+
+            @Override
+            public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) {
+                if (capabilities != null && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                    if (mSeenDisconnected) {
+                        mSeenDisconnected = false; // one fire per observed disconnect (disarm lands on the main thread)
+                        onConnectivityRestored();
+                    }
+                } else {
+                    mSeenDisconnected = true;
+                }
+            }
+
+            @Override
+            public void onLost(Network network) {
+                mSeenDisconnected = true;
+            }
+        };
+
+        try {
+            cm.registerDefaultNetworkCallback(callback);
+        } catch (RuntimeException e) { // e.g. TOO_MANY_REQUESTS or a restricted OEM build
+            Log.e(TAG, "Failed to register connectivity retry: %s", e.getMessage());
+            return;
+        }
+
+        mConnectivityManager = cm;
+        mNetworkCallback = callback;
+    }
+
+    private void onConnectivityRestored() {
+        // Fires on a binder thread - hop to the main thread before touching player/controller state.
+        // The stable Runnable dedupes repeated callbacks (Utils.post drops any pending copy first).
+        Utils.post(mConnectivityRetry);
+    }
+
+    /**
+     * User- or connectivity-initiated recovery from the dead state: forget the cap window and reload
+     * the current video as if the user had reopened it, so the anti-abuse counter starts over. Strictly
+     * one automatic retry per episode - the listener is disarmed here before the reload is posted.
+     */
+    private void retryNow() {
+        clearErrorCapped();
+        resetAutoFixCap();
+        if (mVideoLoaderController != null) {
+            mVideoLoaderController.reloadVideo();
+        }
+    }
+
+    private void clearErrorCapped() {
+        mErrorCapped = false;
+        disarmConnectivityRetry();
+    }
+
+    private void disarmConnectivityRetry() {
+        Utils.removeCallbacks(mConnectivityRetry);
+        if (mConnectivityManager != null && mNetworkCallback != null) {
+            try {
+                mConnectivityManager.unregisterNetworkCallback(mNetworkCallback);
+            } catch (RuntimeException e) { // never registered / already unregistered
+                Log.e(TAG, "Failed to unregister connectivity retry: %s", e.getMessage());
+            }
+        }
+        mConnectivityManager = null;
+        mNetworkCallback = null;
     }
 
     /**
