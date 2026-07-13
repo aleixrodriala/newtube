@@ -96,10 +96,11 @@ settings, device-code OAuth multi-account) PLUS, from the 2026-07-11/12 rounds:
     item). Under sustained 800 kbps against a 2.77 Mbps track the selector
     lands on 240p (id=242, then 243 as the estimate refines) and playback
     reaches READY ~12–15 s after collapse. Caveat: on this carrier the
-    collapse path goes through a genuine googlevideo 403 first (slow/idle QUIC
-    flows reconnect, CGNAT hands the new flow a different exit IP than the
-    URL's `ip=` — kin of the HANDOFF §8 CGNAT/pot findings), so the observed
-    recovery is 403 → auto-reload → ABR re-select → READY, twice reproduced.
+    collapse path goes through a genuine googlevideo 403 first (mechanism
+    CORRECTED next day — see the 403-mechanism bullet below; the original
+    "CGNAT gives the new flow a different exit IP" explanation was refuted
+    by measurement), so the observed recovery is 403 → auto-reload → ABR
+    re-select → READY, twice reproduced.
     Up-switch after recovery not yet observed on-device (test window ended).
 - **Stuck-state fixes (2026-07-13, Pixel-9 fault-injection verified)** — three
   bugs adjacent to the error-reload path:
@@ -127,7 +128,7 @@ settings, device-code OAuth multi-account) PLUS, from the 2026-07-11/12 rounds:
   position, every fresh URL mint, ~20min episode, real 403s with req well
   inside clen) → each ~45s cycle replayed the same 41s of video forever.
   Five compounding defects fixed, each verified on-device (shaper poison +
-  one organic CGNAT episode mid-verification):
+  one organic 403 episode mid-verification):
   - `containsMedia()` was playback-state based, but a fatal error IDLEs the
     player BEFORE onPlayerError, so VideoStateController's error/seek/release
     position saves ALL silently no-oped → every reload resumed at a stale
@@ -149,13 +150,32 @@ settings, device-code OAuth multi-account) PLUS, from the 2026-07-11/12 rounds:
     applyNoPlaybackFix() like the automatic 403 path — it used to reload into
     the still-actual format-info cache and replay exactly the URLs that just
     died (observed burning a full error cycle; also right for
-    connectivity-restore, where the CGNAT exit IP changed under the URLs).
+    connectivity-restore, where a network reattach may sit behind a new
+    public IP that no longer matches the URLs' ip= binding).
   - Ring memory (MediaServiceCore): error-reload /player walks probe the last
     WINNING client second instead of last — applyNoPlaybackFix starts the walk
     after the winner, and with 8/9 clients unplayable midday every reload
     burned 8 playable=n calls (~2.3s) re-finding TV at the ring's end.
   - Diagnostics: NetPath load[E] lines now append req=<pos>+<len> plus clen/
     lmt so a recurrence of the per-range 403 is diagnosable from logcat.
+- **403 mechanism MEASURED (2026-07-13 pm) — the CGNAT exit-IP theory is
+  REFUTED; do not re-propose transport fixes off it.** Measurements on the
+  live network (Mac egresses through the Pixel 9's 5G): exit IP is STABLE
+  across fresh connections — 30 samples / 5 min, same public IPv4
+  (88.29.x.x) and IPv6 every time (phone is dual-stack: CGNAT'd v4
+  internally, global v6). And in the same session's logs: 24 of 34 real
+  googlevideo 403s hit REUSED (warm) connections; all 403s carried pot=y;
+  206s and 403s interleave within the same second on the same host and
+  connection, split purely by which format URL / byte range was asked for.
+  Conclusion: the episodes are server-side per-format/per-range URL
+  rejections (some googlevideo serving/anti-abuse heuristic), transient
+  (healed ~20 min later), not client transport, flow churn, IP binding, or
+  pot. Consequently the Cronet QUIC idle-timeout/keep-alive idea was
+  evaluated and DROPPED — it would not have prevented any observed 403.
+  The mitigation is the recovery stack above (format/client failover with
+  exact-position resume, ~8 s per episode). Caveat: cross-network moves
+  (WiFi↔5G) and PDN reattach were NOT tested and may still invalidate ip=
+  bindings — that class is already handled by the invalidate-on-403 path.
 
 ## Open — needs a real device (Pixel 9)
 Round 2 (2026-07-12 evening) closed most of this list (see Works): live DVR

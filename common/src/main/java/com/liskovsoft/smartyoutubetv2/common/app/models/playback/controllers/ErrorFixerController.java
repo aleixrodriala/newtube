@@ -602,11 +602,11 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         resetAutoFixCap();
         resetSamePositionWindow();
         // The dead state was reached through repeated URL failures - and on the connectivity-restore
-        // path the CGNAT exit IP likely changed, which kills the old URLs' ip= binding outright.
-        // Without this, reloadVideo() rides the still-actual positive format-info cache and replays
-        // exactly the URLs that just died (observed on-device: the manual retry burned a full error
-        // cycle on the stale manifest before the automatic path re-fetched). Invalidate like the
-        // automatic 403 path does, so the retry mints fresh URLs.
+        // path a network reattach may sit behind a new public IP that no longer matches the URLs'
+        // ip= binding. Without this, reloadVideo() rides the still-actual positive format-info cache
+        // and replays exactly the URLs that just died (observed on-device: the manual retry burned a
+        // full error cycle on the stale manifest before the automatic path re-fetched). Invalidate
+        // like the automatic 403 path does, so the retry mints fresh URLs.
         YouTubeServiceManager.instance().applyNoPlaybackFix();
         if (mVideoLoaderController != null) {
             mVideoLoaderController.reloadVideo();
