@@ -314,6 +314,8 @@ public class SplashPresenter extends BasePresenter<SplashView> {
     }
 
     public void applyNewIntent(Intent intent) {
+        com.liskovsoft.smartyoutubetv2.common.misc.NetPath.log(
+                "splash route data=" + (intent != null ? intent.getDataString() : null));
         if (intent != null) {
             String oldBridgeName = mBridgePackageName;
             mBridgePackageName = intent.getStringExtra("bridge_package_name");

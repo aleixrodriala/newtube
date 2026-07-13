@@ -61,6 +61,25 @@
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <!-- External-intent router (watch links, shares, vnd.youtube). Lives in its OWN ephemeral
+             task: Android dedupes a launch whose intent filterEquals a recents task's ROOT intent
+             into a plain task-to-front with NO app callback, so when these filters sat on the
+             main-task Splash, re-opening the same URL (second share tap, notification) was a
+             silent no-op while the app was alive - and dead task records survive force-stop, so
+             it kept matching forever. A standard-launchMode activity with its own affinity always
+             gets onCreate; it routes (SplashPresenter chain), finishes, and the empty
+             excludeFromRecents task evaporates, leaving no record to dedupe against.
+             ViewManager adds FLAG_ACTIVITY_NEW_TASK, so routed views land in the main task. -->
+        <activity
+            android:name="com.liskovsoft.smartyoutubetv2.tv.ui.main.IntentRouterActivity"
+            android:exported="true"
+            android:taskAffinity=":router"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection"
+            android:screenOrientation="unspecified">
             <!-- Process intents from other apps -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>

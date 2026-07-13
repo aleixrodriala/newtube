@@ -2942,8 +2942,16 @@ public class MobilePlaybackActivity extends MobileActivity
             }
         }
 
-        mWatchTitle.setText(item.getTitleFull());
-        mWatchChannelName.setText(item.getAuthor());
+        // Never blank a previously shown title on a SAME-video rebind: error-reloads re-enter with
+        // a bare Video (title lost) and the fetch that would repopulate it may die on a bad
+        // network - keep the last-known-good text. A genuinely new video may reset to empty.
+        if (isNewVideo || !TextUtils.isEmpty(item.getTitleFull())) {
+            mWatchTitle.setText(item.getTitleFull());
+        }
+        // Channel name has the same bare-reload-Video blanking problem as the title above.
+        if (isNewVideo || !TextUtils.isEmpty(item.getAuthor())) {
+            mWatchChannelName.setText(item.getAuthor());
+        }
 
         // Fallback meta line until the metadata load returns a clean "views • date". The
         // second-title leads with the channel name, which the channel row right below repeats -
@@ -3034,6 +3042,16 @@ public class MobilePlaybackActivity extends MobileActivity
         {
             // Clean "views • date" line. YouTube's raw date string arrives as "Published on
             // Jan 14, 2024" / "Premiered ..." - drop the wordy prefix, keep just the date.
+            // The title otherwise binds only from setVideo (Video.getTitleFull) - which is empty on
+            // bare error-reload Videos. Metadata carries the real title: use it to (re)populate,
+            // and fill the controls title too if nothing is showing there.
+            if (!TextUtils.isEmpty(metadata.getTitle())) {
+                mWatchTitle.setText(metadata.getTitle());
+                if (mTitleView != null && TextUtils.isEmpty(mTitleView.getText())) {
+                    mTitleView.setText(metadata.getTitle());
+                }
+            }
+
             String views = metadata.getViewCount();
             String date = metadata.getPublishedDate();
             if (date != null) {
@@ -3485,7 +3503,12 @@ public class MobilePlaybackActivity extends MobileActivity
             mExoPlayerController.setVideo(item);
         }
 
-        setTitle(item != null ? item.getTitleFull() : null);
+        // Same keep-last-known-good rule as bindWatchVideo: a same-video rebind with an empty
+        // title (bare error-reload Video) must not blank the controls title.
+        boolean sameVideo = item != null && Helpers.equals(item.videoId, mWatchVideoId);
+        if (!sameVideo || (item != null && !TextUtils.isEmpty(item.getTitleFull()))) {
+            setTitle(item != null ? item.getTitleFull() : null);
+        }
         bindWatchVideo(item);
 
         // LOADING STILL: a DIFFERENT video was just set on this (reused) view. The texture still

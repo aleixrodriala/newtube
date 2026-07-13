@@ -114,12 +114,28 @@ open:
   the app never retries when connectivity returns, and play is a no-op in the
   dead state — the video must be re-opened manually. Wanted: connectivity
   listener → one automatic reload (or a "Retry" button) + friendly error text.
-  Round 3 (2026-07-13) variant: error auto-reload DID recover playback, but an
-  AUDIO_FOCUS_LOSS during the re-prepare left it paused, the watch page stayed
-  blank (title/likes/related never repopulated after the reload's enrichment
-  fetch died under bad bandwidth, no retry), and a same-video VIEW intent is
-  deduped to a no-op — app sat paused+blank until force-stop. Also: worth
-  checking whether the reload path's own focus request races itself.
+  Round 3 (2026-07-13) found and FIXED three adjacent stuck-state bugs
+  (device-verified on the Pixel 9 via poison-itag fault injection):
+  - Watch page blanked by error-reloads: reloads re-enter with a bare
+    Video (no title/author) and the re-fetch can die on a bad network. Now:
+    same-video rebinds never overwrite the title/channel name with empty, and
+    bindWatchMetadata (re)populates the title from the metadata document.
+  - Same-URL external intent silently swallowed: Android dedupes a launch
+    whose intent filterEquals a recents task's ROOT intent into a bare
+    task-to-front (no callback; dead task records survive force-stop, so the
+    first URL a task ever opened kept matching forever). External filters
+    (watch links/shares/vnd.youtube) moved off the main-task Splash onto a new
+    ephemeral-task IntentRouterActivity (taskAffinity ":router",
+    excludeFromRecents, noHistory) — same-URL re-opens now route (verified:
+    tap→open→prepare ~300ms where before there was silence). Launcher opens
+    still use the main-task Splash (same-task animation preserved).
+  - Error-reload's play() killed by an external AUDIO_FOCUS_LOSS ~200ms after
+    re-prepare → recovery completed but sat paused. Now: a focus loss within
+    5s of prepare() retries play() ONCE (media3's focus request suppresses the
+    retry if the thief still holds focus — no fight loop). Live thief not
+    re-observed (1-in-8 reloads); "focus-grace" NetPath line will identify it.
+  Still open: the capped dead state itself (raw exception in title, no
+  connectivity-recovery retry, play is a no-op there).
 - In-player "Video buffer" row (knob currently applies at next player open).
 - UI sweep leftovers: CC dialog still TV-style, speed/CC pickers inconsistent
   with native quality sheet, PiP enter-animation flash.

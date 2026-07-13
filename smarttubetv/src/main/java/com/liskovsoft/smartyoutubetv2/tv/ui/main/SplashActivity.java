@@ -15,6 +15,8 @@ public class SplashActivity extends MotherActivity implements SplashView {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        com.liskovsoft.smartyoutubetv2.common.misc.NetPath.log(
+                "splash onCreate data=" + (getIntent() != null ? getIntent().getDataString() : null));
         mNewIntent = getIntent();
 
         mPresenter = SplashPresenter.instance(this);
@@ -28,6 +30,8 @@ public class SplashActivity extends MotherActivity implements SplashView {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
 
+        com.liskovsoft.smartyoutubetv2.common.misc.NetPath.log(
+                "splash onNewIntent data=" + (intent != null ? intent.getDataString() : null));
         mNewIntent = intent;
 
         mPresenter.onViewInitialized();

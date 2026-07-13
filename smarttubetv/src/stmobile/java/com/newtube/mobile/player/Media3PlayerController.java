@@ -78,6 +78,17 @@ public class Media3PlayerController implements Player.Listener {
      * real reload logs again.
      */
     private boolean mFirstFrameLogged;
+    /**
+     * NEWTUBE(focus-grace): an error-reload's own play() was observed being killed by an external
+     * AUDIO_FOCUS_LOSS landing ~200ms after re-prepare (Pixel 9, 2026-07-13) - recovery succeeded
+     * but playback sat paused until the user noticed. A focus loss that lands within this window
+     * of a prepare() is startup interference, not the user leaving for another media app: retry
+     * play() ONCE. If the other holder still has focus, media3's own focus request suppresses the
+     * retry and playback stays paused - no fight loop.
+     */
+    private static final long FOCUS_GRACE_MS = 5_000;
+    private long mLastPrepareMs;
+    private boolean mFocusGraceUsed;
     private Runnable mOnVideoLoaded;
     // NEWTUBE(live): last resort for a pathological live stream - rate-limits BLW recoveries.
     private long mLastLiveEdgeRecoveryMs;
@@ -309,6 +320,8 @@ public class Media3PlayerController implements Player.Listener {
 
         mPlayer.setMediaSource(mediaSource);
         mPlayer.prepare();
+        mLastPrepareMs = System.currentTimeMillis();
+        mFocusGraceUsed = false;
 
         NetPath.logPrepare(getVideoId(), netPathType); // NetPath milestone 3: source prepared
     }
@@ -559,6 +572,20 @@ public class Media3PlayerController implements Player.Listener {
 
     @Override
     public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+        // NEWTUBE(focus-grace): see FOCUS_GRACE_MS. One retry per prepare.
+        if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS
+                && !mFocusGraceUsed
+                && System.currentTimeMillis() - mLastPrepareMs < FOCUS_GRACE_MS) {
+            mFocusGraceUsed = true;
+            android.util.Log.d("NetPath", "focus-grace: AUDIO_FOCUS_LOSS "
+                    + (System.currentTimeMillis() - mLastPrepareMs) + "ms after prepare - retrying play once");
+            mMainHandler.postDelayed(() -> {
+                if (mPlayer != null && !mPlayer.getPlayWhenReady()) {
+                    mPlayer.setPlayWhenReady(true);
+                }
+            }, 750);
+        }
+
         if (mPlayer != null) {
             dispatchStateChange(playWhenReady, mPlayer.getPlaybackState());
         }
