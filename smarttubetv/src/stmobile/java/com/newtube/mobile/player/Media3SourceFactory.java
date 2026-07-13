@@ -86,7 +86,8 @@ public class Media3SourceFactory {
      * per try = up to ~60s of silent in-player retrying) and gives a fatal HTTP code (403
      * expired/invalid signed URL, 416 unsatisfiable range - retrying the same DataSpec can't heal
      * either) only 2 tries before surfacing the error to the app-level reload, which re-fetches
-     * fresh signed URLs within seconds.
+     * fresh signed URLs within seconds. A deterministic 403/416 is surfaced after its first
+     * response; replaying an identical signed URL + range only adds load and delays recovery.
      */
     private static final int LOAD_RETRY_COUNT = 6;
 
@@ -463,7 +464,7 @@ public class Media3SourceFactory {
      * {@link DefaultLoadErrorHandlingPolicy} ({@link #LOAD_RETRY_COUNT} tries) that fails fast:
      * retry backoff capped at 1s (the stock (errorCount-1)*1000-capped-5000 stretches a dead
      * connection into ~60s of silent retrying), and a fatal HTTP code (403/416, see
-     * {@link #isFatalHttpCode}) stops after 2 tries so {@code onPlayerError} surfaces and
+     * {@link #isFatalHttpCode}) stops after its first rejection so {@code onPlayerError} surfaces and
      * {@code ErrorFixerController.applyNoPlaybackFix()}+{@code reloadVideo()} re-fetches fresh
      * signed URLs within seconds.
      */
@@ -474,7 +475,7 @@ public class Media3SourceFactory {
 
         @Override
         public long getRetryDelayMsFor(LoadErrorHandlingPolicy.LoadErrorInfo loadErrorInfo) {
-            if (loadErrorInfo.errorCount >= 2 && isFatalHttpCode(loadErrorInfo.exception)) {
+            if (isFatalHttpCode(loadErrorInfo.exception)) {
                 return C.TIME_UNSET; // don't retry: surface the error to the app-level reload
             }
             return Math.min(super.getRetryDelayMsFor(loadErrorInfo), 1000);

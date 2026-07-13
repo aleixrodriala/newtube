@@ -66,6 +66,11 @@ public class MobileMainApplication extends MainApplication {
 
     @Override
     public void onCreate() {
+        // 403 playground: keep the persisted-app-info optimization independently switchable.
+        // This must be read before the first AppService access; no user data is cleared.
+        boolean forceFreshAppInfo = com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG
+                && "1".equals(getDebugSystemProperty("debug.arc.fresh_app_info"));
+
         // TTFF FIX (mobile-only, biggest click-to-play win): cap the DEFAULT video quality at 1080p
         // instead of the fixed high rung (~4K/FHD). The first media segment + decode is then <=1080p
         // (a 4K VP9 first frame dominates click-to-play time) and never 1440p/2160p, and phones only
@@ -85,32 +90,36 @@ public class MobileMainApplication extends MainApplication {
         // pushed into the legacy engine here (ExoPlayerInitializer.set*Override) moved into the
         // media3 engine itself - see Media3PlayerInitializer (back 120s, start gate 1000/2500ms).
 
-        // POT-ENFORCED NETWORKS (mobile): preferNoPotClient(true) used to put ANDROID_VR first to
-        // skip WEB_EMBED's ~2.7s of synchronous PO-token + cipher work. Real-device testing
-        // (Pixel 9, Telefonica LTE, 2026-07-12) showed carrier CGNAT IPs make googlevideo enforce
-        // integrity on EVERY client's media URLs: streams from any non-web /player flow
-        // (ANDROID_VR/TV/IOS - pot-less OR with a client-side web pot appended to the URLs) serve
-        // ~60s of media and then 403 (Source error + visible reload, repeating until the ring
-        // reaches WEB_EMBED, whose ATTESTED /player flow mints URLs that survive indefinitely).
-        // Client-side pot attachment cannot rescue non-web clients (verified: web-visitor pot,
-        // app-visitor pot - both 403 at the same wall; Android-family clients would need
-        // DroidGuard, which we can't run). So the phone rides upstream's battle-tested
-        // WEB_EMBED-first order again; warmUpPoTokenGate() below turns WEB_EMBED's old ~2.7s
-        // cold-start penalty into ~10ms (BotGuard inits at app start, off the open path), which
-        // is what made ANDROID_VR-first obsolete. Fast clients stay in the ring as fallbacks for
-        // non-embeddable videos.
-        VideoInfoService.setPreferNoPotClient(false);
+        // GVS 403 HYBRID (mobile): use repaired ANDROID_VR as the ordinary anonymous VOD fast path.
+        // Pixel 9 isolation on shared Wi-Fi proved
+        // the failures were not CGNAT, HTTP Range syntax, Cronet/QUIC reuse, or an appended Web PO
+        // token: replaying the exact app-minted URL on the host still returned 403, while yt-dlp's
+        // same-client URL returned 206. The Android VR root cause was request identity: NewTube
+        // reused visitorData extracted from /tv under a Fire TV user agent. Reusing the fresh Web
+        // visitor in both /player JSON and X-Goog-Visitor-Id made the same forced VR deep ranges
+        // survive and was ~0.98s faster to first frame at the median. Web-family clients immediately
+        // follow VR for restricted content and error recovery; platform-token-dependent iOS stays
+        // late in the ring.
+        VideoInfoService.setPreferNoPotClient(true);
 
-        // ATTESTED-WEB-FIRST FALLBACK (mobile-only): the residual 403s after the WEB_EMBED-first
-        // switch above are videos WEB_EMBED returns playable=n for (embed-disabled, geo, age): the
-        // ring then falls through the LIST order VR -> REEL -> TV -> ... and wins on a NON-attested
-        // client whose URLs 403 ~60s in (the reload storm). The other attested web clients
-        // (WEB/WEB_SAFARI/GEO/MWEB) sit LATER in the list, so they're never tried before the
-        // 403-prone win. This makes the failover walk probe the attested clients first, so an
-        // embed-disabled video (which plain WEB serves fine) gets a surviving attested URL on the
-        // first open instead of starting a storm on TV. Non-attested clients stay as the final
-        // fallback for auth-walled (TV) / SABR-only (VR) videos. TV boxes never set this.
+        // WEB-FAMILY RECOVERY (mobile-only): the normal route is VR -> Web family -> other platform
+        // clients. On an error-driven reload, start directly at the Web partition and defer the
+        // failed winner, preventing a deterministic GVS rejection from selecting VR again. The
+        // recovery cursor is one-shot; TV boxes keep their historical ordering.
         VideoInfoService.setPreferAttestedWebFallback(true);
+
+        // 403 PLAYGROUND (debug builds only): force one /player client and disable the fallback
+        // ring so client/token behavior is independently measurable on the connected device.
+        // Re-read on process start; device-soak.sh sets the property then force-stops the app.
+        if (com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG) {
+            String forcedClient = getDebugSystemProperty("debug.arc.player_client");
+            // Android's setprop cannot reliably clear a property with an empty value, so the
+            // playground uses "none" as its explicit off sentinel.
+            if (!forcedClient.isEmpty() && !"none".equalsIgnoreCase(forcedClient)
+                    && !VideoInfoService.setDebugForcedClient(forcedClient)) {
+                android.util.Log.w("NetPath", "unknown debug.arc.player_client=" + forcedClient);
+            }
+        }
 
         // LIVE ROUTING (mobile-only): WEB_EMBED answers live videos HLS-only (no dashManifestUrl
         // -> no LiveDashManifestParser DVR), and on pot-enforcing networks its HLS segments 403
@@ -143,15 +152,10 @@ public class MobileMainApplication extends MainApplication {
         // funnel through the same choke point). TV never calls this.
         YouTubeMediaItemService.setPreconnectMediaHost(true);
 
-        // POT-ENFORCED NETWORKS FIX (mobile-only): carrier CGNAT IPs make googlevideo enforce a
-        // PO token on EVERY client's media URLs - a pot-less stream serves ~60s of media, then
-        // 403s (Pixel 9 / Telefonica LTE: Source error + visible reload at media 60/120/180s,
-        // walking the ring until web-pot WEB_EMBED won). The fast clients the mobile path prefers
-        // (ANDROID_VR et al, see setPreferNoPotClient above) mint no pot, so decipher now falls
-        // back to attaching the web session pot to the media URLs only (/player bodies untouched).
-        // This warmup runs the ~1.5-2.5s WebView/BotGuard init at app start, off the open path,
-        // so that fallback costs ~10ms per video instead of blocking the first open. TV boxes sit
-        // on residential IPs where enforcement is rare -> TV never calls this.
+        // WEB PO-TOKEN WARMUP (mobile-only): initialize WebView/BotGuard at app start so the first
+        // web-family /player request does not pay the ~1.5-2.5s cold cost. Tokens remain scoped to
+        // Web clients: a BotGuard token cannot attest ANDROID_VR/TV/IOS and must not be appended as
+        // a cross-platform media-URL fallback. TV never calls this.
         VideoInfoService.warmUpPoTokenGate();
 
         // NOTE(perf history): a head-of-stream segment prefetch into the disk cache was tried here
@@ -166,7 +170,7 @@ public class MobileMainApplication extends MainApplication {
         // process. Same playerUrl also means the persisted player-JS/nsig extractor cache stays hot, so
         // the two heaviest cold-start fetches skip together. Self-healing (persisted copy is nulled when
         // its playerUrl stops validating). TV never calls this -> TV fetch behavior unchanged.
-        AppServiceIntCached.setPersistedAppInfoEnabled(true);
+        AppServiceIntCached.setPersistedAppInfoEnabled(!forceFreshAppInfo);
 
         // SIGN-IN FIX (mobile-only): on a phone the device-code approval happens in a browser on
         // the SAME device, so the sign-in poll completes while NewTube is backgrounded and the TV
@@ -262,5 +266,17 @@ public class MobileMainApplication extends MainApplication {
         viewManager.register(AddDeviceView.class, MobileAddDeviceActivity.class, MobileBrowseActivity.class);
 
         viewManager.setRoot(MobileBrowseActivity.class);
+    }
+
+    /** Hidden API access is confined to the debuggable 403 playground and degrades to unset. */
+    private static String getDebugSystemProperty(String key) {
+        try {
+            Class<?> properties = Class.forName("android.os.SystemProperties");
+            String value = (String) properties.getMethod("get", String.class, String.class)
+                    .invoke(null, key, "");
+            return value != null ? value.trim() : "";
+        } catch (Exception e) {
+            return "";
+        }
     }
 }

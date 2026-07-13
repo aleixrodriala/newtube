@@ -654,6 +654,12 @@ public class Media3PlayerController implements Player.Listener {
     public void onPlayerError(PlaybackException error) {
         Log.e(TAG, "onPlayerError: " + error);
         NetPath.logError(getVideoId(), error); // NetPath milestone 5: player error
+        // Debug playground only: keep a synthetic GVS rejection active until Media3 really gives
+        // up, then make the app-level client-remint reload clean. No property means a no-op, and
+        // release builds never construct the shaper in the first place.
+        if (com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG) {
+            DebugMediaShaper.disarmOneShotPoisonForRecovery();
+        }
 
         // NEWTUBE(live): playhead fell out of the live DVR window (device slept, long pause).
         // media3's canonical recovery: jump to the default (live-edge) position and re-prepare the

@@ -14,6 +14,7 @@ import java.io.InterruptedIOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * NEWTUBE(debug-shaper): debug-build-only leaf {@link DataSource} wrapper providing runtime
@@ -29,6 +30,7 @@ import java.util.Map;
  * <pre>
  *   adb shell setprop debug.arc.throttle_kbps 500   # shape reads to ~500 kbit/s (0/unset = off)
  *   adb shell setprop debug.arc.poison_itag 137     # itag=137 opens fail with a synthetic 403 ("" = off)
+ *   adb shell setprop debug.arc.poison_once_itag any # fail one playback episode, then recovery can play
  * </pre>
  *
  * <p>Wired by {@link Media3SourceFactory} around the leaf transport ONLY under
@@ -57,6 +59,8 @@ final class DebugMediaShaper implements DataSource {
 
     private static final String PROP_THROTTLE_KBPS = "debug.arc.throttle_kbps";
     private static final String PROP_POISON_ITAG = "debug.arc.poison_itag";
+    private static final String PROP_POISON_ONCE_ITAG = "debug.arc.poison_once_itag";
+    private static final AtomicBoolean sPoisonOnceDisarmed = new AtomicBoolean();
 
     /** Max un-throttled burst: a quarter second at the configured rate. */
     private static final double BURST_SECONDS = 0.25;
@@ -77,16 +81,15 @@ final class DebugMediaShaper implements DataSource {
 
     @Override
     public long open(DataSpec dataSpec) throws IOException {
+        String itag = getItag(dataSpec.uri);
         String poisonItag = prop(PROP_POISON_ITAG);
-        if (!poisonItag.isEmpty() && poisonItag.equals(getItag(dataSpec.uri))) {
-            android.util.Log.d(TAG, "shaper poison itag=" + poisonItag + " -> synthetic 403");
-            throw new HttpDataSource.InvalidResponseCodeException(
-                    403,
-                    "poisoned by debug.arc.poison_itag",
-                    /* cause= */ null,
-                    Collections.<String, List<String>>emptyMap(),
-                    dataSpec,
-                    new byte[0]);
+        if (matchesItag(poisonItag, itag)) {
+            throw synthetic403(dataSpec, PROP_POISON_ITAG, poisonItag);
+        }
+
+        String poisonOnceItag = prop(PROP_POISON_ONCE_ITAG);
+        if (!sPoisonOnceDisarmed.get() && matchesItag(poisonOnceItag, itag)) {
+            throw synthetic403(dataSpec, PROP_POISON_ONCE_ITAG, poisonOnceItag);
         }
 
         mBytesPerSec = propInt(PROP_THROTTLE_KBPS, 0) * 125L; // kbit/s -> bytes/s
@@ -98,6 +101,36 @@ final class DebugMediaShaper implements DataSource {
         }
 
         return mUpstream.open(dataSpec);
+    }
+
+    /**
+     * Called when Media3 has exhausted its own representation/source fallback and emits a terminal
+     * player error. All opens in that first playback episode are poisoned; the automatic reload is
+     * deliberately clean so it can validate client re-routing and URL reminting in the same process.
+     */
+    static void disarmOneShotPoisonForRecovery() {
+        String configured = prop(PROP_POISON_ONCE_ITAG);
+        if (!configured.isEmpty() && !"none".equalsIgnoreCase(configured)
+                && sPoisonOnceDisarmed.compareAndSet(false, true)) {
+            android.util.Log.d(TAG, "shaper one-shot disarmed for recovery");
+        }
+    }
+
+    private static boolean matchesItag(String configured, @Nullable String actual) {
+        return !configured.isEmpty() && !"none".equalsIgnoreCase(configured)
+                && ("any".equalsIgnoreCase(configured) || configured.equals(actual));
+    }
+
+    private static IOException synthetic403(DataSpec dataSpec, String property, String itag) {
+        android.util.Log.d(TAG, "shaper poison property=" + property + " itag=" + itag
+                + " -> synthetic 403");
+        return new HttpDataSource.InvalidResponseCodeException(
+                403,
+                "poisoned by " + property,
+                /* cause= */ null,
+                Collections.<String, List<String>>emptyMap(),
+                dataSpec,
+                new byte[0]);
     }
 
     @Override
