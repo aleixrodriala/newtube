@@ -176,6 +176,43 @@ settings, device-code OAuth multi-account) PLUS, from the 2026-07-11/12 rounds:
   exact-position resume, ~8 s per episode). Caveat: cross-network moves
   (WiFi↔5G) and PDN reattach were NOT tested and may still invalidate ip=
   bindings — that class is already handled by the invalidate-on-403 path.
+  MECHANISM REFINED 2026-07-13 (later) — see the attested-web-first bullet:
+  the "per-format/per-range rejection" is integrity/attestation enforcement of
+  NON-ATTESTED client mints. The pm refutation (IP/transport/flow-churn ruled
+  out) stands; "not pot" was too strong — the pot is present but NON-VALIDATING
+  on non-web clients, which is the actual trigger.
+- **403 root cause CONFIRMED + attested-web-first fallback (2026-07-13 pm,
+  Pixel-9 + off-device replay).** Deep-dive on "why 403s at all, reliably
+  avoid them". Off-device replay through the phone's own 5G egress: a pot-LESS
+  ANDROID_VR URL (yt-dlp mint) is bulletproof — 500 range sweeps / 76 MB, 300
+  identical-range replays, deep ranges to 99 % of a 1 GB file: ZERO 403s. So
+  byte-volume, replay, deep-range, and exit-IP are all excluded as triggers
+  (reconfirms the pm bullet). The differentiator is the mint: the APP attaches
+  a NON-VALIDATING app-visitor pot (`pot=y`) to non-web client URLs, and on
+  carrier/CGNAT (pot-enforcing) networks googlevideo integrity-enforces those
+  — a non-attested client (ANDROID_VR/ANDROID_REEL/TV/IOS) serves ~60 s then
+  403s forever; ONLY an attested WEB-family flow (WEB_EMBED/WEB/WEB_SAFARI/GEO/
+  MWEB, BotGuard-attested `/player` body) mints URLs that survive. This is
+  exactly the 2026-07-12 on-device finding recorded in `MobileMainApplication`
+  (WEB_EMBED-first) — now confirmed by a MediaServiceCore ring/pot audit and
+  the replay tests. Residual 403 storms = videos WEB_EMBED returns playable=n
+  for (embed-disabled/geo/age): the ring then falls through the LIST order
+  (VR → REEL → TV → …) and wins on a 403-prone non-attested client BEFORE the
+  other attested web clients (WEB/WEB_SAFARI/GEO/MWEB sit later in the list).
+  Fix: `VideoInfoService.setPreferAttestedWebFallback(true)` (mobile gate,
+  VIDEO_INFO_TYPE_LIST untouched) stable-partitions the fallback tail so all
+  attested clients are probed before any non-attested one — an embed-disabled
+  video that plain WEB can serve now gets a SURVIVING attested URL on the first
+  open instead of starting a storm on TV. Non-attested clients stay as the
+  final fallback for auth-walled (TV) / SABR-only (VR) videos. Verified
+  on-device (debug.arc.fail_clients force-fail hook, since removed): walk order
+  is WEB_EMBED→WEB→WEB_SAFARI→GEO→MWEB→ANDROID_VR→…, and ring-memory
+  (last-winner probed second) still bounds the reload walk at 2. Happy path
+  unchanged (WEB_EMBED wins at attempt 1, 10/10 test opens clean). Caveat:
+  helps only the subset of WEB_EMBED-fails a sibling WEB client can also serve;
+  videos only TV/VR can serve still take a non-attested win (unchanged). Also
+  shipped: `load[E-http]`/`load[E-url]` forensics (the 281-byte 403 body + full
+  failing URL) so the next organic episode is curl-replayable.
 
 ## Open — needs a real device (Pixel 9)
 Round 2 (2026-07-12 evening) closed most of this list (see Works): live DVR

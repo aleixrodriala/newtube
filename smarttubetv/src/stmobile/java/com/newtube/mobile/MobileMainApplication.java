@@ -101,6 +101,17 @@ public class MobileMainApplication extends MainApplication {
         // non-embeddable videos.
         VideoInfoService.setPreferNoPotClient(false);
 
+        // ATTESTED-WEB-FIRST FALLBACK (mobile-only): the residual 403s after the WEB_EMBED-first
+        // switch above are videos WEB_EMBED returns playable=n for (embed-disabled, geo, age): the
+        // ring then falls through the LIST order VR -> REEL -> TV -> ... and wins on a NON-attested
+        // client whose URLs 403 ~60s in (the reload storm). The other attested web clients
+        // (WEB/WEB_SAFARI/GEO/MWEB) sit LATER in the list, so they're never tried before the
+        // 403-prone win. This makes the failover walk probe the attested clients first, so an
+        // embed-disabled video (which plain WEB serves fine) gets a surviving attested URL on the
+        // first open instead of starting a storm on TV. Non-attested clients stay as the final
+        // fallback for auth-walled (TV) / SABR-only (VR) videos. TV boxes never set this.
+        VideoInfoService.setPreferAttestedWebFallback(true);
+
         // LIVE ROUTING (mobile-only): WEB_EMBED answers live videos HLS-only (no dashManifestUrl
         // -> no LiveDashManifestParser DVR), and on pot-enforcing networks its HLS segments 403
         // instantly regardless of client-side pot placement (manifest /pot/ path param AND

@@ -3646,6 +3646,22 @@ public class MobilePlaybackActivity extends MobileActivity
                 line.append(' ').append(error.getClass().getSimpleName()).append(": ")
                         .append(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.trunc(error.getMessage(), 120));
                 android.util.Log.w(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG, line.toString());
+                // On HTTP error responses two more lines: the server's error body (googlevideo
+                // 403s carry a ~281-byte body that names the rejection class - never logged
+                // anywhere else) and the complete failing URL, so the exact request can be
+                // replayed/mutated with curl from a dev box on the same egress IP.
+                androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException http =
+                        findInvalidResponseCode(error);
+                if (http != null) {
+                    StringBuilder detail = new StringBuilder("load[E-http] code=").append(http.responseCode);
+                    byte[] body = http.responseBody;
+                    if (body != null && body.length > 0) {
+                        detail.append(" body[").append(body.length).append("]=").append(printable(body, 400));
+                    }
+                    android.util.Log.w(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG, detail.toString());
+                    android.util.Log.w(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG,
+                            "load[E-url] " + info.uri);
+                }
             } else {
                 android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG, line.toString());
             }
@@ -3670,6 +3686,31 @@ public class MobilePlaybackActivity extends MobileActivity
             if (value != null) {
                 tail.append(' ').append(name).append('=').append(value);
             }
+        }
+
+        @Nullable
+        private static androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException
+                findInvalidResponseCode(Throwable error) {
+            for (Throwable e = error; e != null; e = e.getCause()) {
+                if (e instanceof androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+                    return (androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) e;
+                }
+            }
+            return null;
+        }
+
+        /** Body bytes as one logcat-safe line: printable ASCII kept, everything else becomes '.'. */
+        private static String printable(byte[] body, int max) {
+            int n = Math.min(body.length, max);
+            StringBuilder sb = new StringBuilder(n);
+            for (int i = 0; i < n; i++) {
+                char c = (char) (body[i] & 0xFF);
+                sb.append(c >= 0x20 && c < 0x7F ? c : '.');
+            }
+            if (body.length > max) {
+                sb.append("...");
+            }
+            return sb.toString();
         }
     }
 }
