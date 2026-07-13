@@ -121,6 +121,41 @@ settings, device-code OAuth multi-account) PLUS, from the 2026-07-11/12 rounds:
     5s of prepare() retries play() ONCE (media3's focus request suppresses the
     retry if the thief still holds focus — no fight loop). Live thief not
     re-observed (1-in-8 reloads); "focus-grace" NetPath line will identify it.
+- **Groundhog-loop fixes (2026-07-13 afternoon, Pixel-9 dogfood round)**. Live
+  dogfooding caught the app in an INFINITE error-reload loop: a googlevideo
+  edge served a deterministic 403 for one audio chunk's byte range (same media
+  position, every fresh URL mint, ~20min episode, real 403s with req well
+  inside clen) → each ~45s cycle replayed the same 41s of video forever.
+  Five compounding defects fixed, each verified on-device (shaper poison +
+  one organic CGNAT episode mid-verification):
+  - `containsMedia()` was playback-state based, but a fatal error IDLEs the
+    player BEFORE onPlayerError, so VideoStateController's error/seek/release
+    position saves ALL silently no-oped → every reload resumed at a stale
+    position (the 41s rewind). Now media-item based; reloads resume at the
+    death position (verified to the decisecond: died 795.67 → resumed 795.67).
+  - Same-position error cap: errors recurring at (±5s) the same media position
+    count in a window that onPlay does NOT reset — post-reload READY comes
+    from the disk cache and proves nothing (that false-healthy signal is what
+    reset the plain consecutive cap every cycle). 4th same-position error →
+    dead state (verified: surfaced in 7.7s where the old build looped 6min+).
+  - Audio pin rescue (twin of round-3 video pin-rescue): a persisted audio
+    language pin maps to ONE itag; when its URL persistently 403s every reload
+    re-selected the dead rendition (manifest's other same-language codec never
+    tried). Now: 403 SOURCE error with a pinned audio format → session-scoped
+    fallback to the default preset via new PlayerData.setTempAudioFormat →
+    selector freely picks the alternative codec (verified: pinned aac 140
+    poisoned → reload picked opus 251 → played through).
+  - Dead-state manual retry re-fetches: retryNow() now calls
+    applyNoPlaybackFix() like the automatic 403 path — it used to reload into
+    the still-actual format-info cache and replay exactly the URLs that just
+    died (observed burning a full error cycle; also right for
+    connectivity-restore, where the CGNAT exit IP changed under the URLs).
+  - Ring memory (MediaServiceCore): error-reload /player walks probe the last
+    WINNING client second instead of last — applyNoPlaybackFix starts the walk
+    after the winner, and with 8/9 clients unplayable midday every reload
+    burned 8 playable=n calls (~2.3s) re-finding TV at the ring's end.
+  - Diagnostics: NetPath load[E] lines now append req=<pos>+<len> plus clen/
+    lmt so a recurrence of the per-range 403 is diagnosable from logcat.
 
 ## Open — needs a real device (Pixel 9)
 Round 2 (2026-07-12 evening) closed most of this list (see Works): live DVR

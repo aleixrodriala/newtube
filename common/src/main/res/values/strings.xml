@@ -350,6 +350,7 @@
     <string name="msg_player_error_audio_source">AUDIO URL isn\'t working or incorrect device time.\nUsually, it\'s a bug in the app.</string>
     <string name="msg_player_error_subtitle_source">SUBTITLE URL isn\'t working or incorrect device time.\nUsually, it\'s a bug in the app.</string>
     <string name="msg_quality_pin_fallback">%1$s failing — quality set to Auto for this video</string>
+    <string name="msg_audio_pin_fallback">Audio track failing — using default audio for this video</string>
     <string name="hide_upcoming">Hide upcoming from Subscriptions</string>
     <string name="hide_upcoming_channel">Hide upcoming from Channel</string>
     <string name="hide_upcoming_home">Hide upcoming from Home</string>

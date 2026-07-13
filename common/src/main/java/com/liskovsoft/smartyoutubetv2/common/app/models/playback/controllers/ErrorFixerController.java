@@ -54,6 +54,22 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     // with the auto-fix cap (healthy playback or a user-initiated open).
     private boolean mPinRescueArmed;
     private String mPinRescueVideoId;
+    // NEWTUBE(pin-rescue): audio twin of the video pin rescue above. A persisted audio-language
+    // pin maps to ONE concrete rendition (itag), and if that rendition's URL persistently 403s,
+    // every reload re-pins it - observed on-device as an infinite loop replaying the same 41s
+    // (the manifest's alternative audio codec of the same language was never tried). One rescue
+    // per failing cycle: the video pin goes first, the audio pin on the next failing cycle.
+    private boolean mAudioPinRescueArmed;
+    private String mAudioPinRescueVideoId;
+    // NEWTUBE(same-position cap): errors recurring at (nearly) the SAME media position count in
+    // their own window that onPlay does NOT reset. After a reload most of the replayed span plays
+    // from the disk cache, so reaching READY+playing proves nothing about the chunk that killed
+    // the previous cycle - the plain consecutive cap resets on that false-healthy signal and the
+    // reload loop runs forever (observed: 8+ identical 41s cycles). Only a user-initiated open,
+    // a manual retry, or an error at a genuinely different position resets this window.
+    private static final long SAME_POSITION_WINDOW_MS = 5_000;
+    private long mLastErrorPositionMs = -1;
+    private int mSamePositionErrorCount;
     // Dead state: the cap tripped on a connectivity-class error and auto-fixing stopped. A play tap
     // now means "retry" (onPlayClicked/onPauseClicked) and a default-network callback arms exactly
     // one automatic retry when the connection returns.
@@ -141,6 +157,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             // Genuine user-initiated open (new video or manual retry): fresh window, and leave the
             // dead state - the connectivity listener belonged to the previous attempt.
             resetAutoFixCap();
+            resetSamePositionWindow();
             clearErrorCapped();
         }
     }
@@ -424,17 +441,36 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             // Different video than the one being counted: fresh window.
             mAutoFixVideoId = videoId;
             mConsecutiveAutoFixCount = 0;
+            resetSamePositionWindow();
         }
 
         mConsecutiveAutoFixCount++;
 
-        if (mConsecutiveAutoFixCount > MAX_CONSECUTIVE_AUTO_FIXES) {
-            android.util.Log.w("NetPath", "auto-reload cap hit (" + mConsecutiveAutoFixCount + ") for " + videoId
+        // Same-position tracking (see the field doc): position <= 0 means unknown (player gone or
+        // error before the restore seek) - leave the window untouched, the plain cap covers those.
+        long positionMs = getPlayer() != null ? getPlayer().getPositionMs() : -1;
+        if (positionMs > 0) {
+            if (mLastErrorPositionMs >= 0 && Math.abs(positionMs - mLastErrorPositionMs) < SAME_POSITION_WINDOW_MS) {
+                mSamePositionErrorCount++;
+            } else {
+                mSamePositionErrorCount = 1;
+            }
+            mLastErrorPositionMs = positionMs;
+        }
+
+        if (mConsecutiveAutoFixCount > MAX_CONSECUTIVE_AUTO_FIXES || mSamePositionErrorCount > MAX_CONSECUTIVE_AUTO_FIXES) {
+            android.util.Log.w("NetPath", "auto-reload cap hit (consecutive=" + mConsecutiveAutoFixCount
+                    + " samePos=" + mSamePositionErrorCount + " at " + mLastErrorPositionMs + "ms) for " + videoId
                     + " — stopping; last error: " + error);
             return true;
         }
 
         return false;
+    }
+
+    private void resetSamePositionWindow() {
+        mLastErrorPositionMs = -1;
+        mSamePositionErrorCount = 0;
     }
 
     /**
@@ -564,6 +600,14 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     private void retryNow() {
         clearErrorCapped();
         resetAutoFixCap();
+        resetSamePositionWindow();
+        // The dead state was reached through repeated URL failures - and on the connectivity-restore
+        // path the CGNAT exit IP likely changed, which kills the old URLs' ip= binding outright.
+        // Without this, reloadVideo() rides the still-actual positive format-info cache and replays
+        // exactly the URLs that just died (observed on-device: the manual retry burned a full error
+        // cycle on the stale manifest before the automatic path re-fetched). Invalidate like the
+        // automatic 403 path does, so the retry mints fresh URLs.
+        YouTubeServiceManager.instance().applyNoPlaybackFix();
         if (mVideoLoaderController != null) {
             mVideoLoaderController.reloadVideo();
         }
@@ -605,6 +649,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         // user open, which restores the untouched persisted pin) so recovered playback keeps Auto.
         mPinRescueArmed = false;
         mPinRescueVideoId = null;
+        mAudioPinRescueArmed = false;
+        mAudioPinRescueVideoId = null;
     }
 
     /**
@@ -630,21 +676,30 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         }
 
         String videoId = getVideo().videoId;
-        if (mPinRescueArmed && Helpers.equals(videoId, mPinRescueVideoId)) {
-            return; // already rescued this open
+        boolean videoRescued = mPinRescueArmed && Helpers.equals(videoId, mPinRescueVideoId);
+        boolean audioRescued = mAudioPinRescueArmed && Helpers.equals(videoId, mAudioPinRescueVideoId);
+
+        // One rescue per failing cycle, video pin first: the generic SOURCE error doesn't say
+        // which track 403'd, so relax one pin, observe the next cycle, then relax the other.
+        FormatItem pinnedVideo = getEffectiveVideoFormat();
+        if (!videoRescued && !isAutoFormat(pinnedVideo)) {
+            mPinRescueArmed = true;
+            mPinRescueVideoId = videoId;
+
+            android.util.Log.d("NetPath", "rescue pin->auto reason=" + reason);
+            MessageHelpers.showLongMessage(getContext(),
+                    getContext().getString(R.string.msg_quality_pin_fallback, qualityLabel(pinnedVideo)));
+            return;
         }
 
-        FormatItem pinned = getEffectiveVideoFormat();
-        if (isAutoFormat(pinned)) {
-            return; // no explicit pin -> nothing to rescue
+        if (!audioRescued && !isAutoFormat(getEffectiveAudioFormat())) {
+            mAudioPinRescueArmed = true;
+            mAudioPinRescueVideoId = videoId;
+
+            android.util.Log.d("NetPath", "rescue audio-pin->default reason=" + reason);
+            MessageHelpers.showLongMessage(getContext(),
+                    getContext().getString(R.string.msg_audio_pin_fallback));
         }
-
-        mPinRescueArmed = true;
-        mPinRescueVideoId = videoId;
-
-        android.util.Log.d("NetPath", "rescue pin->auto reason=" + reason);
-        MessageHelpers.showLongMessage(getContext(),
-                getContext().getString(R.string.msg_quality_pin_fallback, qualityLabel(pinned)));
     }
 
     /**
@@ -658,12 +713,24 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         if (mPinRescueArmed && Helpers.equals(videoId, mPinRescueVideoId)) {
             getPlayerData().setTempVideoFormat(getPlayerData().getDefaultVideoFormat());
         }
+        if (mAudioPinRescueArmed && Helpers.equals(videoId, mAudioPinRescueVideoId)) {
+            // The default is a codec-preference preset (= adaptive, language-aware selection),
+            // so the selector is free to pick the same-language alternative codec rendition
+            // instead of the one concrete itag the persisted pin kept re-selecting.
+            getPlayerData().setTempAudioFormat(getPlayerData().getDefaultAudioFormat());
+        }
     }
 
     /** The video format that {@code restoreVideoFormat} would apply: per-session pin, else persisted. */
     private FormatItem getEffectiveVideoFormat() {
         FormatItem temp = getPlayerData().getTempVideoFormat();
         return temp != null ? temp : getPlayerData().getFormat(FormatItem.TYPE_VIDEO);
+    }
+
+    /** The audio format that {@code restoreAudioFormat} would apply: per-session pin, else persisted. */
+    private FormatItem getEffectiveAudioFormat() {
+        FormatItem temp = getPlayerData().getTempAudioFormat();
+        return temp != null ? temp : getPlayerData().getFormat(FormatItem.TYPE_AUDIO);
     }
 
     /**

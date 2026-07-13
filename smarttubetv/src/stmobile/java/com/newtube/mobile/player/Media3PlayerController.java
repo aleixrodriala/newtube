@@ -381,7 +381,12 @@ public class Media3PlayerController implements Player.Listener {
     }
 
     public boolean containsMedia() {
-        return mPlayer != null && mPlayer.getPlaybackState() != Player.STATE_IDLE;
+        // Must be media-item based, NOT playback-state based: a fatal player error puts ExoPlayer
+        // in STATE_IDLE BEFORE onPlayerError is dispatched, and VideoStateController's error-path
+        // position save is guarded by containsMedia(). With the state-based check every
+        // error-reload resumed from a stale persisted position (observed on-device: a 403 loop
+        // replaying the same 41s forever because the death position was never saved).
+        return mPlayer != null && mPlayer.getMediaItemCount() > 0;
     }
 
     public void resetPlayerState() {

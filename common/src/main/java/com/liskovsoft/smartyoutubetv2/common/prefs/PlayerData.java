@@ -60,6 +60,8 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
     private FormatItem mVideoFormat;
     private FormatItem mTempVideoFormat;
     private FormatItem mAudioFormat;
+    // NEWTUBE(pin-rescue): session-scoped audio override, mirrors mTempVideoFormat (never persisted).
+    private FormatItem mTempAudioFormat;
     private FormatItem mSubtitleFormat;
     private int mVideoBufferType;
     private final List<SubtitleStyle> mSubtitleStyles = new ArrayList<>();
@@ -415,6 +417,15 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
 
     public FormatItem getTempVideoFormat() {
         return mTempVideoFormat;
+    }
+
+    // NEWTUBE(pin-rescue): session-scoped audio override, mirrors the video pair above.
+    public void setTempAudioFormat(FormatItem format) {
+        mTempAudioFormat = format;
+    }
+
+    public FormatItem getTempAudioFormat() {
+        return mTempAudioFormat;
     }
 
     public FormatItem getLastSubtitleFormat() {

@@ -61,6 +61,7 @@ public class VideoStateController extends BasePlayerController {
         setPlayEnabled(true); // video just added
 
         getPlayerData().setTempVideoFormat(null);
+        getPlayerData().setTempAudioFormat(null);
 
         enableIncognitoIfNeeded(item);
 
@@ -415,7 +416,13 @@ public class VideoStateController extends BasePlayerController {
             return;
         }
 
-        getPlayer().setFormat(getPlayerData().getFormat(FormatItem.TYPE_AUDIO));
+        // NEWTUBE(pin-rescue): the session override wins, like restoreVideoFormat above - this is
+        // how the error fixer's audio rescue survives the reload's format restore.
+        if (getPlayerData().getTempAudioFormat() != null) {
+            getPlayer().setFormat(getPlayerData().getTempAudioFormat());
+        } else {
+            getPlayer().setFormat(getPlayerData().getFormat(FormatItem.TYPE_AUDIO));
+        }
     }
 
     private void restoreSubtitleFormat() {

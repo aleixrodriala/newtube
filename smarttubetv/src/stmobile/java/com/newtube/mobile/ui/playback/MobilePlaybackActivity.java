@@ -3635,6 +3635,14 @@ public class MobilePlaybackActivity extends MobileActivity
                     .append(" ms=").append(info.loadDurationMs)
                     .append(" pos=").append(data.mediaStartTimeMs);
             if (error != null) {
+                // Errors get the request's byte range plus the URL's declared length/version
+                // params: a req beyond clen, or an lmt that differs between /player mints, each
+                // pin a distinct failure mode of a deterministic per-range 403 (seen on-device).
+                line.append(" req=").append(info.dataSpec.position).append('+').append(info.dataSpec.length);
+                if (info.uri.isHierarchical()) {
+                    appendQueryParam(line, info.uri, "clen");
+                    appendQueryParam(line, info.uri, "lmt");
+                }
                 line.append(' ').append(error.getClass().getSimpleName()).append(": ")
                         .append(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.trunc(error.getMessage(), 120));
                 android.util.Log.w(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG, line.toString());
