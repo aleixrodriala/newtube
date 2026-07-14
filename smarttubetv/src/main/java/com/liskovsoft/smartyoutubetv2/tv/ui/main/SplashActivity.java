@@ -19,6 +19,11 @@ public class SplashActivity extends MotherActivity implements SplashView {
                 "splash onCreate data=" + (getIntent() != null ? getIntent().getDataString() : null));
         mNewIntent = getIntent();
 
+        if (restorePictureInPictureIfLauncherIntent(mNewIntent)) {
+            finish();
+            return;
+        }
+
         mPresenter = SplashPresenter.instance(this);
         mPresenter.setView(this);
         mPresenter.onViewInitialized();
@@ -34,13 +39,20 @@ public class SplashActivity extends MotherActivity implements SplashView {
                 "splash onNewIntent data=" + (intent != null ? intent.getDataString() : null));
         mNewIntent = intent;
 
+        if (restorePictureInPictureIfLauncherIntent(intent)) {
+            finish();
+            return;
+        }
+
         mPresenter.onViewInitialized();
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        mPresenter.onViewDestroyed();
+        if (mPresenter != null) {
+            mPresenter.onViewDestroyed();
+        }
     }
 
     @Override
@@ -56,5 +68,14 @@ public class SplashActivity extends MotherActivity implements SplashView {
             // NullPointerException: Attempt to invoke virtual method 'void com.android.server.wm.DisplayContent.moveStack(com.android.server.wm.TaskStack, boolean)'
             e.printStackTrace();
         }
+    }
+
+    private boolean restorePictureInPictureIfLauncherIntent(Intent intent) {
+        if (intent == null || !Intent.ACTION_MAIN.equals(intent.getAction())
+                || !intent.hasCategory(Intent.CATEGORY_LAUNCHER)
+                || !(getApplication() instanceof MainApplication)) {
+            return false;
+        }
+        return ((MainApplication) getApplication()).restorePictureInPictureFromLauncher(this);
     }
 }

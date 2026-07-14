@@ -54,6 +54,7 @@ import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.common.FeedCache;
 import com.newtube.mobile.ui.common.MobileActivity;
 import com.newtube.mobile.ui.playback.MiniPlayerBridge;
+import com.newtube.mobile.ui.playback.SystemPipBridge;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -845,6 +846,15 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
 
         if (mPresenter != null) {
             mPresenter.onViewResumed();
+        }
+
+        // Android may satisfy a launcher tap by merely bringing this existing Browse task to the
+        // front (no Splash onCreate/onNewIntent callback at all) while the player remains in its
+        // separate pinned task. onResume is the reliable signal that the user reopened the app;
+        // immediately expand the exact live player instead of showing Browse under a stale PiP.
+        // Do this after the presenter callback so the ensuing onPause remains lifecycle-balanced.
+        if (SystemPipBridge.restoreFromLauncher(this)) {
+            return;
         }
 
         updateAccountRow();

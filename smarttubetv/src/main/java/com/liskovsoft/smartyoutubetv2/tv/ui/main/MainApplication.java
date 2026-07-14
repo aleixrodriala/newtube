@@ -1,6 +1,7 @@
 package com.liskovsoft.smartyoutubetv2.tv.ui.main;
 
 import android.app.Application;
+import android.app.Activity;
 import android.os.Build.VERSION;
 
 import com.liskovsoft.sharedutils.helpers.Helpers;
@@ -72,6 +73,11 @@ public class MainApplication extends Application { // multidex is native at minS
 
         setupGlobalExceptionHandler();
         setupViewManager();
+    }
+
+    /** Mobile overrides this to expand an existing system-PiP player on launcher relaunch. */
+    public boolean restorePictureInPictureFromLauncher(Activity launcher) {
+        return false;
     }
 
     private void setupViewManager() {

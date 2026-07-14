@@ -350,8 +350,21 @@ public class Media3SourceFactory {
      */
     MediaSource fromDashManifestUrl(String dashManifestUrl) {
         if (BuildConfig.DEBUG) {
-            // Full (un-truncated) manifest url so the exact MPD the app got can be curl'ed.
-            NetPath.log("dash-url-full " + dashManifestUrl);
+            // Manifest URLs are signed credentials. Keep only fields needed to distinguish an
+            // expired/tokenized route; never put the complete URL in logcat.
+            android.net.Uri uri = android.net.Uri.parse(dashManifestUrl);
+            String expire = uri.getQueryParameter("expire");
+            long expireInSec = -1;
+            if (expire != null) {
+                try {
+                    expireInSec = Long.parseLong(expire) - System.currentTimeMillis() / 1_000L;
+                } catch (NumberFormatException ignored) {
+                    // leave unknown
+                }
+            }
+            NetPath.log(NetPath.context() + " dash-url host=" + uri.getHost()
+                    + " expireInSec=" + expireInSec
+                    + " pot=" + (uri.getQueryParameter("pot") != null ? "y" : "n"));
         }
 
         return new DashMediaSource.Factory(

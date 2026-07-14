@@ -1,5 +1,7 @@
 package com.newtube.mobile;
 
+import android.app.Activity;
+
 import com.liskovsoft.smartyoutubetv2.common.app.views.AddDeviceView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.AppDialogView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
@@ -27,6 +29,7 @@ import com.newtube.mobile.ui.channel.MobileChannelUploadsActivity;
 import com.newtube.mobile.ui.common.FeedCache;
 import com.newtube.mobile.ui.dialog.MobileAppDialogActivity;
 import com.newtube.mobile.ui.playback.MobilePlaybackActivity;
+import com.newtube.mobile.ui.playback.SystemPipBridge;
 import com.newtube.mobile.ui.search.MobileSearchActivity;
 import com.newtube.mobile.ui.signin.MobileSignInActivity;
 import com.newtube.mobile.ui.webbrowser.MobileWebBrowserActivity;
@@ -63,6 +66,11 @@ import com.newtube.mobile.ui.webbrowser.MobileWebBrowserActivity;
  * runs.
  */
 public class MobileMainApplication extends MainApplication {
+
+    @Override
+    public boolean restorePictureInPictureFromLauncher(Activity launcher) {
+        return SystemPipBridge.restoreFromLauncher(launcher);
+    }
 
     @Override
     public void onCreate() {

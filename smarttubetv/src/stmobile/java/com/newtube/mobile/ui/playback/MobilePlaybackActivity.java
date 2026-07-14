@@ -243,6 +243,21 @@ public class MobilePlaybackActivity extends MobileActivity
     private String mWatchVideoId;
     private boolean mDescriptionExpanded;
 
+    /**
+     * Keep the portrait video box tied to the width the watch page actually receives. Display
+     * metrics can still describe the old landscape window inside onConfigurationChanged (observed
+     * on Pixel), which used to leave a 2251 * 9 / 16 tall black box after rotating back.
+     */
+    private final View.OnLayoutChangeListener mWatchRootLayoutListener =
+            (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+                int width = right - left;
+                if (width > 0
+                        && getResources().getConfiguration().orientation
+                        == Configuration.ORIENTATION_PORTRAIT) {
+                    applyPortraitVideoHeight(width);
+                }
+            };
+
     private PlaybackPresenter mPresenter;
     private Media3PlayerInitializer mPlayerInitializer;
     private Media3PlayerController mExoPlayerController;
@@ -278,6 +293,8 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        SystemPipBridge.attach(this);
 
         // A tapped card supplies its own geometry-driven open below. Suppress Android's whole-
         // window animation so it cannot fade/scale the custom thumbnail morph a second time.
@@ -357,6 +374,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
         // Watch page content column.
         mWatchRoot = findViewById(R.id.mobile_watch_root);
+        mWatchRoot.addOnLayoutChangeListener(mWatchRootLayoutListener);
         mWatchScroll = findViewById(R.id.mobile_watch_scroll);
         mWatchContent = findViewById(R.id.mobile_watch_content);
         mWatchTitle = findViewById(R.id.mobile_watch_title);
@@ -593,10 +611,17 @@ public class MobilePlaybackActivity extends MobileActivity
                 mTitleView.setVisibility(View.VISIBLE);
             }
         } else {
-            int width = getResources().getDisplayMetrics().widthPixels;
-            lp.height = Math.round(width * 9f / 16f);
-            lp.weight = 0;
-            mVideoArea.setLayoutParams(lp);
+            // Configuration width is already updated when display metrics/window views can still
+            // have the previous landscape bounds. The layout listener above then makes this exact
+            // for split-screen, inset and resize changes once the new window has been laid out.
+            Configuration config = getResources().getConfiguration();
+            int width = Math.round(config.screenWidthDp
+                    * getResources().getDisplayMetrics().density);
+            if (width > 0) {
+                lp.height = Math.round(width * 9f / 16f);
+                lp.weight = 0;
+                mVideoArea.setLayoutParams(lp);
+            }
             if (mWatchScroll != null) {
                 mWatchScroll.setVisibility(View.VISIBLE);
             }
@@ -634,7 +659,7 @@ public class MobilePlaybackActivity extends MobileActivity
         // exactly that gap with one dense line per load event.
         if (BuildConfig.DEBUG) {
             mPlayer.addAnalyticsListener(new androidx.media3.exoplayer.util.EventLogger());
-            mPlayer.addAnalyticsListener(new NetPathLoadListener());
+            mPlayer.addAnalyticsListener(new NetPathLoadListener(this));
         }
         mPlayer.setPlayWhenReady(true);
 
@@ -883,6 +908,11 @@ public class MobilePlaybackActivity extends MobileActivity
         cancelAutoHide();
         hideRelatedSkeleton(); // cancels the pulse animator + pending timeout
 
+        if (mWatchRoot != null) {
+            mWatchRoot.removeOnLayoutChangeListener(mWatchRootLayoutListener);
+        }
+        SystemPipBridge.detach(this);
+
         RxHelper.disposeActions(mLiveChatAction);
 
         // The only playback activity (singleInstance) is going away: no mini session can outlive it.
@@ -1005,9 +1035,11 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private void applySystemBarsForOrientation(int orientation) {
         if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            applyDisplayCutoutMode(true);
             // Immersive full-bleed video (PLAYER POLISH behaviour).
             Helpers.makeActivityFullscreen2(this);
         } else {
+            applyDisplayCutoutMode(false);
             // Watch page: standard phone chrome (solid status bar, video box below it -
             // YouTube-style). Replaces the old transparent-status-bar-over-the-video design,
             // whose edge-to-edge flags survived the fullscreen round-trip and left the status
@@ -1020,6 +1052,46 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         if (mWatchRoot != null) {
             ViewCompat.requestApplyInsets(mWatchRoot);
+        }
+    }
+
+    /**
+     * Hiding the bars does not by itself let a window use the camera-cutout strip. Without this,
+     * Android inset the whole landscape decor by the Pixel's 173px cutout and the 16:9 frame was
+     * visibly shifted right by 86.5px. ALWAYS is the modern full-bleed mode; Android 9/10 use the
+     * closest available SHORT_EDGES behavior. Portrait returns to the platform default.
+     */
+    private void applyDisplayCutoutMode(boolean fullscreen) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            return;
+        }
+
+        WindowManager.LayoutParams attributes = getWindow().getAttributes();
+        int desired;
+        if (!fullscreen) {
+            desired = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT;
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            desired = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+        } else {
+            desired = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        }
+
+        if (attributes.layoutInDisplayCutoutMode != desired) {
+            attributes.layoutInDisplayCutoutMode = desired;
+            getWindow().setAttributes(attributes);
+        }
+    }
+
+    private void applyPortraitVideoHeight(int width) {
+        if (mVideoArea == null || width <= 0) {
+            return;
+        }
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) mVideoArea.getLayoutParams();
+        int height = Math.round(width * 9f / 16f);
+        if (lp.height != height || lp.weight != 0) {
+            lp.height = height;
+            lp.weight = 0;
+            mVideoArea.setLayoutParams(lp);
         }
     }
 
@@ -1201,12 +1273,18 @@ public class MobilePlaybackActivity extends MobileActivity
             }
             updatePipActions();
         } else {
-            // Restore the normal layout for the current orientation; controls come back on tap.
+            // Restore the normal layout and controls. Explicitly showing them also resets the
+            // GONE/alpha state left by PiP; on some task-reparent exits the first PlayerView tap
+            // is swallowed by the system transition, otherwise leaving the restored player with
+            // no apparent controls.
             int orientation = newConfig != null ? newConfig.orientation
                     : getResources().getConfiguration().orientation;
             applyWatchLayoutForOrientation(orientation);
             applySystemBarsForOrientation(orientation);
             updatePlayPauseIcon();
+            if (mControlsRoot != null) {
+                showControlsInternal(false);
+            }
         }
     }
 
@@ -3610,6 +3688,12 @@ public class MobilePlaybackActivity extends MobileActivity
      * {@code BuildConfig.DEBUG} gate. Uses android.util.Log directly so lines always reach logcat.
      */
     private static final class NetPathLoadListener implements androidx.media3.exoplayer.analytics.AnalyticsListener {
+        private final Context mContext;
+
+        NetPathLoadListener(Context context) {
+            mContext = context.getApplicationContext();
+        }
+
         @Override
         public void onLoadStarted(EventTime eventTime, androidx.media3.exoplayer.source.LoadEventInfo loadEventInfo,
                 androidx.media3.exoplayer.source.MediaLoadData mediaLoadData, int retryCount) {
@@ -3635,16 +3719,19 @@ public class MobilePlaybackActivity extends MobileActivity
             log("load[E]", loadEventInfo, mediaLoadData, error);
         }
 
-        private static void log(String event,
+        private void log(String event,
                 androidx.media3.exoplayer.source.LoadEventInfo info,
                 androidx.media3.exoplayer.source.MediaLoadData data,
                 @Nullable Exception error) {
-            StringBuilder line = new StringBuilder(event)
+            StringBuilder line = new StringBuilder(
+                    com.liskovsoft.smartyoutubetv2.common.misc.NetPath.context())
+                    .append(' ').append(event)
                     .append(' ').append(data.dataType).append('/').append(data.trackType)
                     .append(' ').append(uriTail(info.uri))
                     .append(" bytes=").append(info.bytesLoaded)
                     .append(" ms=").append(info.loadDurationMs)
-                    .append(" pos=").append(data.mediaStartTimeMs);
+                    .append(" pos=").append(data.mediaStartTimeMs)
+                    .append(" net=").append(activeNetwork());
             if (error != null) {
                 // Errors get the request's byte range plus the URL's declared length/version
                 // params: a req beyond clen, or an lmt that differs between /player mints, each
@@ -3657,24 +3744,48 @@ public class MobilePlaybackActivity extends MobileActivity
                 line.append(' ').append(error.getClass().getSimpleName()).append(": ")
                         .append(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.trunc(error.getMessage(), 120));
                 android.util.Log.w(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG, line.toString());
-                // On HTTP error responses two more lines: the server's error body (googlevideo
-                // 403s carry a ~281-byte body that names the rejection class - never logged
-                // anywhere else) and the complete failing URL, so the exact request can be
-                // replayed/mutated with curl from a dev box on the same egress IP.
+                // On HTTP errors log the rejection body plus a replay-useful but credential-safe
+                // URL fingerprint. Complete googlevideo URLs contain signed credentials and must
+                // never enter logcat.
                 androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException http =
                         findInvalidResponseCode(error);
                 if (http != null) {
-                    StringBuilder detail = new StringBuilder("load[E-http] code=").append(http.responseCode);
+                    StringBuilder detail = new StringBuilder(
+                            com.liskovsoft.smartyoutubetv2.common.misc.NetPath.context())
+                            .append(" load[E-http] code=").append(http.responseCode);
                     byte[] body = http.responseBody;
                     if (body != null && body.length > 0) {
-                        detail.append(" body[").append(body.length).append("]=").append(printable(body, 400));
+                        detail.append(" body[").append(body.length).append("] hash=")
+                                .append(fingerprint(body)).append(" text=").append(printable(body, 240));
                     }
                     android.util.Log.w(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG, detail.toString());
                     android.util.Log.w(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG,
-                            "load[E-url] " + info.uri);
+                            com.liskovsoft.smartyoutubetv2.common.misc.NetPath.context()
+                                    + " load[E-request] " + safeRequestFingerprint(info));
                 }
             } else {
                 android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG, line.toString());
+            }
+        }
+
+        private String activeNetwork() {
+            try {
+                android.net.ConnectivityManager manager =
+                        (android.net.ConnectivityManager) mContext.getSystemService(Context.CONNECTIVITY_SERVICE);
+                android.net.Network network = manager != null ? manager.getActiveNetwork() : null;
+                android.net.NetworkCapabilities caps = network != null
+                        ? manager.getNetworkCapabilities(network) : null;
+                if (network == null || caps == null) {
+                    return "none";
+                }
+                String transport = caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) ? "vpn"
+                        : caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) ? "wifi"
+                        : caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) ? "cell"
+                        : caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) ? "ethernet"
+                        : "other";
+                return transport + ':' + network.hashCode();
+            } catch (Exception e) {
+                return "unknown";
             }
         }
 
@@ -3697,6 +3808,29 @@ public class MobilePlaybackActivity extends MobileActivity
             if (value != null) {
                 tail.append(' ').append(name).append('=').append(value);
             }
+        }
+
+        private static String safeRequestFingerprint(
+                androidx.media3.exoplayer.source.LoadEventInfo info) {
+            android.net.Uri uri = info.uri;
+            StringBuilder result = new StringBuilder("host=").append(uri.getHost())
+                    .append(" req=").append(info.dataSpec.position).append('+').append(info.dataSpec.length);
+            appendQueryParam(result, uri, "itag");
+            appendQueryParam(result, uri, "c");
+            appendQueryParam(result, uri, "cver");
+            appendQueryParam(result, uri, "range");
+            String expire = uri.getQueryParameter("expire");
+            if (expire != null) {
+                try {
+                    long remaining = Long.parseLong(expire) - System.currentTimeMillis() / 1_000L;
+                    result.append(" expireInSec=").append(remaining);
+                } catch (NumberFormatException ignored) {
+                    result.append(" expire=invalid");
+                }
+            }
+            result.append(" ipBound=").append(uri.getQueryParameter("ip") != null ? 'y' : 'n')
+                    .append(" pot=").append(uri.getQueryParameter("pot") != null ? 'y' : 'n');
+            return result.toString();
         }
 
         @Nullable
@@ -3722,6 +3856,20 @@ public class MobilePlaybackActivity extends MobileActivity
                 sb.append("...");
             }
             return sb.toString();
+        }
+
+        private static String fingerprint(byte[] value) {
+            try {
+                java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+                byte[] hash = digest.digest(value);
+                StringBuilder result = new StringBuilder(10);
+                for (int i = 0; i < 5; i++) {
+                    result.append(String.format(Locale.US, "%02x", hash[i] & 0xff));
+                }
+                return result.toString();
+            } catch (java.security.NoSuchAlgorithmException e) {
+                return Integer.toHexString(java.util.Arrays.hashCode(value));
+            }
         }
     }
 }
