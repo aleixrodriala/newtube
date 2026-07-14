@@ -23,7 +23,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-import io.reactivex.disposables.Disposable;
+import io.reactivex.rxjava3.disposables.Disposable;
 
 public class BackupAndRestoreManager implements MotherActivity.OnPermissions {
     private static final String TAG = BackupAndRestoreManager.class.getSimpleName();

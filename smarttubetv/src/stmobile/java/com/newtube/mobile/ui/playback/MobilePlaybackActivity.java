@@ -62,7 +62,7 @@ import com.liskovsoft.mediaserviceinterfaces.LiveChatService;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemMetadata;
 import com.liskovsoft.sharedutils.rx.RxHelper;
 import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
-import io.reactivex.disposables.Disposable;
+import io.reactivex.rxjava3.disposables.Disposable;
 
 import com.github.vkay94.dtpv3.DoubleTapPlayerView;
 import com.github.vkay94.dtpv3.DoubleTapPlayerViewImpl;
@@ -308,6 +308,8 @@ public class MobilePlaybackActivity extends MobileActivity
 
         setContentView(R.layout.activity_mobile_playback);
 
+        registerBackHandler(this::handleBack);
+
         bindViews();
         setupVideoSurface();
         setupControls();
@@ -445,7 +447,7 @@ public class MobilePlaybackActivity extends MobileActivity
         // Tap on empty overlay space hides the controls (buttons/seek bar consume their own taps).
         mControlsRoot.setOnClickListener(v -> hideControls());
 
-        mBackButton.setOnClickListener(v -> onBackPressed());
+        mBackButton.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
         mPlayPauseButton.setOnClickListener(v -> togglePlayPause());
         mFullscreenButton.setOnClickListener(v -> toggleFullscreen());
 
@@ -973,18 +975,18 @@ public class MobilePlaybackActivity extends MobileActivity
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
 
+        refreshContentInsets();
         applyWatchLayoutForOrientation(newConfig.orientation);
         applySystemBarsForOrientation(newConfig.orientation);
         updateFullscreenIcon(newConfig.orientation);
     }
 
-    @Override
-    public void onBackPressed() {
+    private void handleBack() {
         if (mPresenter != null) {
             mPresenter.onFinish();
         }
 
-        super.onBackPressed();
+        finish();
     }
 
     /**
@@ -994,6 +996,11 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     protected void applyFullscreenModeIfNeeded() {
         applySystemBarsForOrientation(getResources().getConfiguration().orientation);
+    }
+
+    @Override
+    protected boolean shouldInsetContentForSystemBars() {
+        return getResources().getConfiguration().orientation != Configuration.ORIENTATION_LANDSCAPE;
     }
 
     /**
@@ -1045,6 +1052,17 @@ public class MobilePlaybackActivity extends MobileActivity
             // whose edge-to-edge flags survived the fullscreen round-trip and left the status
             // bar overlapping the video (and leaked into the other screens).
             applyMobileSystemBars();
+            // Keep the safe status-bar inset, but paint it the same black as the video surface.
+            // Otherwise the app's #0F0F0F window background reads as a stray top margin above
+            // the #000000 player on cutout devices with a tall safe inset (notably Pixel). Modern
+            // Android makes the status bar transparent for edge-to-edge apps, so its effective
+            // color comes from the decor background rather than setStatusBarColor alone.
+            Window window = getWindow();
+            window.getDecorView().setBackgroundColor(Color.BLACK);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.setStatusBarContrastEnforced(false);
+            }
+            window.setStatusBarColor(Color.BLACK);
         }
 
         if (mControlsRoot != null) {

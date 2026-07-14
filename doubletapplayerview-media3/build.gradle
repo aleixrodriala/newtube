@@ -4,17 +4,16 @@
 // distinct package (com.github.vkay94.dtpv3) and renamed layouts (yt3_*). TV-only
 // DoubleTapPlayerAdapter is not carried over.
 apply from: gradle.ext.sharedModulesConstants
-apply plugin: 'kotlin-android'
 apply plugin: 'com.android.library'
 
 android {
-    namespace 'com.github.vkay94.dtpv3'
+    namespace = 'com.github.vkay94.dtpv3'
 
-    compileSdkVersion project.properties.compileSdkVersion
+    compileSdk = project.ext.compileSdkVersion
 
     defaultConfig {
-        minSdkVersion 24 // media3 1.10.x floor is 23; consumed only by the stmobile flavor (also minSdk 24)
-        targetSdkVersion project.properties.targetSdkVersion
+        minSdk = 24 // media3 1.10.x floor is 23; consumed only by the stmobile flavor (also minSdk 24)
+        targetSdk = project.ext.targetSdkVersion
         versionCode 40001
         versionName '1.0.4'
 
@@ -29,24 +28,19 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
-    // Kotlin 2.x defaults to the toolchain JDK (17); keep bytecode aligned with javac (1.8).
-    kotlinOptions {
-        jvmTarget = '1.8'
-    }
 }
 
 dependencies {
-    implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:' + kotlinVersion
     implementation 'androidx.appcompat:appcompat:' + appCompatXVersion
     implementation 'androidx.core:core-ktx:' + kotlinCoreXVersion
     implementation 'androidx.constraintlayout:constraintlayout:' + constraintLayoutXVersion
 
-    // 1.10.1 needs compileSdk 35+ (we build against 36); keep in sync with
+    // 1.10.1 needs compileSdk 35+ (we build against 37); keep in sync with
     // the media3 deps in smarttubetv/build.gradle.
-    api 'androidx.media3:media3-exoplayer:1.10.1'
-    api 'androidx.media3:media3-ui:1.10.1'
+    api 'androidx.media3:media3-exoplayer:' + media3Version
+    api 'androidx.media3:media3-ui:' + media3Version
 }

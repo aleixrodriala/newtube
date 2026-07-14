@@ -2,6 +2,51 @@ apply from: gradle.ext.sharedModulesConstants
 
 apply plugin: 'com.android.application'
 
+import com.android.build.api.artifact.SingleArtifact
+import com.android.build.api.variant.BuiltArtifactsLoader
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
+
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+
+abstract class CopyRenamedApks extends DefaultTask {
+    @InputDirectory
+    @PathSensitive(PathSensitivity.RELATIVE)
+    abstract DirectoryProperty getInput()
+
+    @OutputDirectory
+    abstract DirectoryProperty getOutput()
+
+    @Internal
+    abstract Property<BuiltArtifactsLoader> getBuiltArtifactsLoader()
+
+    @TaskAction
+    void copyApks() {
+        def outputDirectory = output.get().asFile
+        project.delete(outputDirectory)
+        outputDirectory.mkdirs()
+
+        def builtArtifacts = builtArtifactsLoader.get().load(input.get())
+        if (builtArtifacts == null) {
+            throw new GradleException('Cannot load APK artifacts')
+        }
+
+        builtArtifacts.elements.each { artifact ->
+            def abi = artifact.filters.find { it.filterType.toString() == 'ABI' }?.identifier ?: 'universal'
+            def version = artifact.versionName ?: 'unknown'
+            def outputFile = new File(outputDirectory, "NewTube_${version}_${abi}.apk")
+            Files.copy(new File(artifact.outputFile).toPath(), outputFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+}
+
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
@@ -10,23 +55,27 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     // NOTE: this is the R package the code imports (unchanged from the TV era on purpose).
-    namespace 'com.liskovsoft.smartyoutubetv2.tv'
+    namespace = 'com.liskovsoft.smartyoutubetv2.tv'
 
     // FIX: Default interface methods are only supported starting with Android N (--min-api 24)
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
-    compileSdkVersion project.properties.compileSdkVersion
+    buildFeatures {
+        buildConfig = true
+    }
+
+    compileSdk = project.ext.compileSdkVersion
     testOptions.unitTests.includeAndroidResources = true
-    ndkVersion "21.0.6113669" // reduce size of the *.so files (stripping debug symbols)
+    ndkVersion = "21.0.6113669" // reduce size of the *.so files (stripping debug symbols)
     
     defaultConfig {
         // values linked with applicationId: searchable.searchSuggestAuthority, searchable.searchSuggestIntentData, VideoContract.CONTENT_AUTHORITY
         applicationId "app.smarttube"
-        minSdkVersion project.properties.minSdkVersion
-        targetSdkVersion project.properties.targetSdkVersion
+        minSdk = project.ext.minSdkVersion
+        targetSdk = project.ext.targetSdkVersion
         versionCode 2387
         versionName "31.97"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -42,12 +91,12 @@ android {
     // armeabi-v7a backward compatible with arm64-v8a, x86 -> x86_64 etc
     splits {
         abi {
-            enable true
+            enable = true
             reset()
             // Note, Android could soon start warning users when they run 32-bit apps
             //include 'x86', 'x86_64', 'armeabi-v7a', 'arm64-v8a' //select ABIs to build APKs for
             include 'armeabi-v7a', 'arm64-v8a', 'x86' // v7a main build, x86 for WSL, v8a for Pixel Tablet (no 32 bit support)
-            universalApk true //generate an additional APK that contains all the ABIs
+            universalApk = true //generate an additional APK that contains all the ABIs
         }
     }
 
@@ -82,28 +131,6 @@ android {
         }
     }
 
-    // naming example: SmartYouTubeTV_Xwalk_v6.8.12_r.apk
-    // https://stackoverflow.com/questions/18332474/how-to-set-versionname-in-apk-filename-using-gradle
-    applicationVariants.all { variant ->
-        variant.outputs.all { output ->
-            def project = "SmartTube"
-            def flavorName = variant.productFlavors[-1].name
-            def flavor = flavorName.substring(2) // remove st prefix
-            def buildType = variant.buildType.name.take(1)
-            def version = variant.versionName
-            def arch = output.getFilter(com.android.build.OutputFile.ABI)
-            arch = arch != null ? arch : "universal"
-
-            // The phone port ships under its own name + versioning: NewTube_1.0.0_universal.apk
-            def newApkName = flavorName == "stmobile"
-                    ? sprintf("NewTube_%s_%s.apk", [version, arch])
-                    : sprintf("%s_%s_%s_%s.apk", [project, flavor, version, arch])
-
-            // gradle 4.6 migration
-            output.outputFileName = new File(newApkName)
-        }
-    }
-
     packagingOptions {
         // openvpn module fix: More than one file was found with OS independent path 'META-INF/com.android.tools/proguard/coroutines.pro'
         //exclude 'META-INF/com.android.tools/proguard/coroutines.pro'
@@ -116,7 +143,7 @@ android {
     }
 
     lint {
-        abortOnError true
+        abortOnError = true
         // media3 player APIs are @UnstableApi; release runs lintVital with abortOnError, so the
         // opt-in check must stay off (the code deliberately uses the unstable player surface).
         disable 'UnsafeOptInUsageError'
@@ -137,8 +164,8 @@ android {
             // arch-"n" launcher mark (Catalan for "arch"). This ID is permanent once released;
             // do not couple it to the marketing name. See docs/gtm + the legal-risk memo.
             applicationId "io.github.aleixrodriala.arc"
-            minSdkVersion 24 // media3 1.10.x floor is 23; 24 = project-wide minimum
-            targetSdkVersion project.properties.targetSdkVersion
+            minSdk = 24 // media3 1.10.x floor is 23; 24 = project-wide minimum
+            targetSdk = project.ext.targetSdkVersion
             // NewTube versions independently of upstream SmartTube (defaultConfig carries the
             // fork-point 31.97/2387). versionCode starts at 10000 - above upstream's code so
             // existing test installs upgrade in place - and encodes the version:
@@ -149,10 +176,24 @@ android {
     }
 }
 
+// AGP 9 removed applicationVariants. Listen to the public APK artifact and copy it under the
+// stable release filename instead of mutating AGP's internal package task/output model.
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def copyTask = tasks.register("copyRenamedApksFor${variant.name.capitalize()}", CopyRenamedApks) {
+            output.set(layout.buildDirectory.dir("outputs/renamed_apks/${variant.name}"))
+            builtArtifactsLoader.set(variant.artifacts.getBuiltArtifactsLoader())
+        }
+        variant.artifacts.use(copyTask).wiredWith { it.input }.toListenTo(SingleArtifact.APK.INSTANCE)
+    }
+}
+
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
 
     implementation 'androidx.annotation:annotation:' + annotationXVersion
+    implementation 'androidx.activity:activity:' + activityXVersion
+    implementation 'androidx.lifecycle:lifecycle-runtime:' + liveDataVersion
     implementation 'androidx.recyclerview:recyclerview:' + recyclerviewXVersion // exoplayer 2.12.1 fix
     implementation 'androidx.media:media:' + mediaXVersion // exoplayer fix
     implementation 'androidx.constraintlayout:constraintlayout:' + constraintLayoutXVersion
@@ -169,7 +210,7 @@ dependencies {
 
     // Touch UI (stmobile flavor): pull-to-refresh on the feed grid (MobileBrowseActivity).
     // Harmless for the TV flavors, which never reference it.
-    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.2.0'
 
     // Touch UI (stmobile flavor): client-side QR encoder for the device-code sign-in
     // screen (com.newtube.mobile.ui.signin.MobileSignInActivity). Encoder only, no UI
@@ -177,7 +218,7 @@ dependencies {
     // transitive androidx/appcompat that could clash with the project's pinned versions.
     // Replaces the TV path of fetching the QR image from api.qrserver.com via Glide.
     // Harmless for the TV flavors, which never reference it.
-    implementation 'com.google.zxing:core:3.5.3'
+    implementation 'com.google.zxing:core:3.5.4'
 
     implementation 'com.github.bumptech.glide:glide:' + glideVersion
     implementation 'com.github.bumptech.glide:annotations:' + glideVersion
@@ -189,36 +230,36 @@ dependencies {
     // NEWTUBE(media3): the player engine is androidx.media3 (modern ExoPlayer); the vendored
     // exoplayer-amzn-2.10.6 fork was deleted in the phone-only port (the shared
     // FormatItem/MediaTrack DTO layer is engine-neutral now). 1.10.1 needs compileSdk 35+
-    // (we build against 36) and AGP 8.1+. Keep in sync with doubletapplayerview-media3.
-    stmobileImplementation 'androidx.media3:media3-exoplayer:1.10.1'
-    stmobileImplementation 'androidx.media3:media3-exoplayer-dash:1.10.1'
-    stmobileImplementation 'androidx.media3:media3-exoplayer-hls:1.10.1'
-    stmobileImplementation 'androidx.media3:media3-ui:1.10.1'
+    // (we build against 37) and AGP 8.1+. Keep in sync with doubletapplayerview-media3.
+    stmobileImplementation 'androidx.media3:media3-exoplayer:' + media3Version
+    stmobileImplementation 'androidx.media3:media3-exoplayer-dash:' + media3Version
+    stmobileImplementation 'androidx.media3:media3-exoplayer-hls:' + media3Version
+    stmobileImplementation 'androidx.media3:media3-ui:' + media3Version
     // Cronet leaf transport for the media path (H2/QUIC, like the legacy engine had). The
     // engine is the embedded org.chromium.net:cronet-embedded already shipped by :sharedutils
     // (CronetManager); the GMS provider is useless weight here.
-    stmobileImplementation('androidx.media3:media3-datasource-cronet:1.10.1') {
+    stmobileImplementation('androidx.media3:media3-datasource-cronet:' + media3Version) {
         exclude group: 'com.google.android.gms', module: 'play-services-cronet'
     }
-    stmobileImplementation project(':doubletapplayerview-media3')
+    stmobileImplementation dependencies.project(':doubletapplayerview-media3')
 
     //////// END PLAYER ENGINE //////////
 
     testImplementation 'junit:junit:' + junitVersion
     testImplementation 'org.robolectric:robolectric:' + robolectricVersion
-    androidTestImplementation 'androidx.test.ext:junit:' + testXSupportVersion
-    androidTestImplementation 'androidx.test.ext:truth:' + testXSupportVersion
+    androidTestImplementation 'androidx.test.ext:junit:' + testExtJunitVersion
+    androidTestImplementation 'androidx.test.ext:truth:' + testExtTruthVersion
     androidTestImplementation 'androidx.test:runner:' + testXSupportVersion
     androidTestImplementation 'androidx.test:rules:' + testXSupportVersion
     androidTestImplementation 'androidx.test.espresso:espresso-core:' + espressoVersion
 
-    implementation project(':common')
-    implementation project(':sharedutils')
-    implementation project(':mediaserviceinterfaces')
-    implementation project(':youtubeapi')
+    implementation dependencies.project(':common')
+    implementation dependencies.project(':sharedutils')
+    implementation dependencies.project(':mediaserviceinterfaces')
+    implementation dependencies.project(':youtubeapi')
 
-    implementation 'io.reactivex.rxjava2:rxandroid:' + rxAndroidVersion
-    implementation 'io.reactivex.rxjava2:rxjava:' + rxJavaVersion
+    implementation 'io.reactivex.rxjava3:rxandroid:' + rxAndroidVersion
+    implementation 'io.reactivex.rxjava3:rxjava:' + rxJavaVersion
 
     // debugImplementation 'com.squareup.leakcanary:leakcanary-android:2.14'
 

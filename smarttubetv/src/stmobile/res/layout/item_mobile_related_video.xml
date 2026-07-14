@@ -16,7 +16,8 @@
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingHorizontal="@dimen/mobile_watch_content_padding"
-    android:paddingVertical="6dp">
+    android:paddingTop="6dp"
+    android:paddingBottom="10dp">
 
     <!-- MaterialCardView clips thumbnail + badge + progress to rounded corners (YouTube-style). -->
     <com.google.android.material.card.MaterialCardView

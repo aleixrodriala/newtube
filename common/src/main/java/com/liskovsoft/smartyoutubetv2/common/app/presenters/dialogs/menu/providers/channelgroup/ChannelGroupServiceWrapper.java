@@ -14,7 +14,7 @@ import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
 import java.io.File;
 import java.util.List;
 
-import io.reactivex.Observable;
+import io.reactivex.rxjava3.core.Observable;
 
 public class ChannelGroupServiceWrapper implements ProfileChangeListener {
     @SuppressLint("StaticFieldLeak")

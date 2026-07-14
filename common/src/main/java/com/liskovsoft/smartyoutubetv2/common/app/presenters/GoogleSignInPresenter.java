@@ -7,7 +7,7 @@ import com.liskovsoft.googleapi.oauth2.impl.GoogleSignInService;
 import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.sharedutils.rx.RxHelper;
 
-import io.reactivex.disposables.Disposable;
+import io.reactivex.rxjava3.disposables.Disposable;
 
 public class GoogleSignInPresenter extends SignInPresenter {
     private static final String TAG = GoogleSignInPresenter.class.getSimpleName();

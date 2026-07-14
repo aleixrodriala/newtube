@@ -1,27 +1,25 @@
 apply from: gradle.ext.sharedModulesConstants
-apply plugin: 'kotlin-android'
 apply plugin: 'com.android.library'
 
 android {
-    namespace 'com.liskovsoft.smartyoutubetv2.common'
+    namespace = 'com.liskovsoft.smartyoutubetv2.common'
 
     // FIX: Default interface methods are only supported starting with Android N (--min-api 24)
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
-    // Kotlin 2.x defaults to the toolchain JDK (17); keep bytecode aligned with javac (1.8).
-    kotlinOptions {
-        jvmTarget = '1.8'
+    buildFeatures {
+        buildConfig = true
     }
 
-    compileSdkVersion project.properties.compileSdkVersion
+    compileSdk = project.ext.compileSdkVersion
     testOptions.unitTests.includeAndroidResources = true
 
     defaultConfig {
-        minSdkVersion project.properties.minSdkVersion
-        targetSdkVersion project.properties.targetSdkVersion
+        minSdk = project.ext.minSdkVersion
+        targetSdk = project.ext.targetSdkVersion
         versionCode 10
         versionName "1.0"
 
@@ -37,7 +35,7 @@ android {
     }
 
     lint {
-        abortOnError true
+        abortOnError = true
         disable 'MissingTranslation'
         disable 'MissingQuantity'
     }
@@ -50,13 +48,13 @@ dependencies {
     testImplementation 'junit:junit:' + junitVersion
     testImplementation 'org.robolectric:robolectric:' + robolectricVersion
 
-    implementation project(':sharedutils')
-    implementation project(':mediaserviceinterfaces')
-    implementation project(':youtubeapi')
-    implementation project(':filepicker-lib')
+    implementation dependencies.project(':sharedutils')
+    implementation dependencies.project(':mediaserviceinterfaces')
+    implementation dependencies.project(':youtubeapi')
+    implementation dependencies.project(':filepicker-lib')
 
-    implementation 'io.reactivex.rxjava2:rxandroid:' + rxAndroidVersion
-    implementation 'io.reactivex.rxjava2:rxjava:' + rxJavaVersion
+    implementation 'io.reactivex.rxjava3:rxandroid:' + rxAndroidVersion
+    implementation 'io.reactivex.rxjava3:rxjava:' + rxJavaVersion
 
     // WebProxyDialog's URL tests use okhttp directly. This used to arrive transitively via the
     // vendored exoplayer-extension-okhttp project (deleted in the phone-only port).
@@ -72,12 +70,11 @@ dependencies {
     implementation 'androidx.browser:browser:' + browserXVersion
 
     implementation 'androidx.core:core-ktx:' + kotlinCoreXVersion
-    implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:' + kotlinVersion
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:' + kotlinxVersion
 
     implementation 'com.jakewharton:process-phoenix:' + phoenixVersion
 
-    implementation project(':appupdatechecker2')
+    implementation dependencies.project(':appupdatechecker2')
 
-    implementation project(':slidableactivity') // https://github.com/r0adkll/Slidr
+    implementation dependencies.project(':slidableactivity') // https://github.com/r0adkll/Slidr
 }

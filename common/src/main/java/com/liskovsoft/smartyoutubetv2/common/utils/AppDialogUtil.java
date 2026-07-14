@@ -59,8 +59,8 @@ import java.util.Map.Entry;
 import arte.programar.materialfile.MaterialFilePicker;
 import arte.programar.materialfile.ui.FilePickerActivity;
 import arte.programar.materialfile.utils.FileUtils;
-import io.reactivex.Observable;
-import io.reactivex.disposables.Disposable;
+import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.disposables.Disposable;
 
 public class AppDialogUtil {
     private static final String TAG = AppDialogUtil.class.getSimpleName();

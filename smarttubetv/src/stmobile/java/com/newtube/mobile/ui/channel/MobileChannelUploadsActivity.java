@@ -75,10 +75,12 @@ public class MobileChannelUploadsActivity extends MobileActivity implements Chan
 
         setContentView(R.layout.activity_mobile_channel_uploads);
 
+        registerBackHandler(this::handleBack);
+
         bindViews();
         setupGrid();
 
-        mBackButton.setOnClickListener(v -> onBackPressed());
+        mBackButton.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
         mPlayAllButton.setOnClickListener(v -> playAll());
 
         mPresenter = ChannelUploadsPresenter.instance(this);
@@ -207,13 +209,12 @@ public class MobileChannelUploadsActivity extends MobileActivity implements Chan
         super.onDestroy();
     }
 
-    @Override
-    public void onBackPressed() {
+    private void handleBack() {
         if (mPresenter != null && mPresenter.getView() == this) {
             mPresenter.onFinish();
         }
 
-        super.onBackPressed();
+        finish();
     }
 
     @Override

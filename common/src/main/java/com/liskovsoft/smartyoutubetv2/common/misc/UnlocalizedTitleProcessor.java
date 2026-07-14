@@ -17,8 +17,8 @@ import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
 import java.util.ArrayList;
 import java.util.List;
 
-import io.reactivex.Observable;
-import io.reactivex.disposables.Disposable;
+import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.disposables.Disposable;
 
 public class UnlocalizedTitleProcessor implements OnDataChange, BrowseProcessor {
     private static final String TAG = UnlocalizedTitleProcessor.class.getSimpleName();

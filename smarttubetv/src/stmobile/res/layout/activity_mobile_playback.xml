@@ -38,7 +38,8 @@
             android:id="@+id/mobile_video_area"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:background="@android:color/black">
+            android:background="@android:color/black"
+            tools:ignore="Suspicious0dp">
 
             <!-- surface_type=none: the video renders on a code-managed TextureView with a
                  PERSISTENT SurfaceTexture (see MobilePlaybackActivity#setupVideoSurface). A

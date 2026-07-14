@@ -172,6 +172,8 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
 
         setContentView(R.layout.activity_mobile_browse);
 
+        registerBackHandler(this::handleBack);
+
         bindViews();
         setupContentGrid();
         setupBottomNav();
@@ -912,8 +914,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         }
     }
 
-    @Override
-    public void onBackPressed() {
+    private void handleBack() {
         // Back closes an open drawer first (standard Material drawer behavior); only then
         // does it fall through to MobileActivity's finish()/app-exit handling.
         if (mDrawerLayout != null && mDrawerLayout.isDrawerOpen(GravityCompat.START)) {
@@ -921,7 +922,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
             return;
         }
 
-        super.onBackPressed();
+        finish();
     }
 
     // ---------------------------------------------------------------------------------

@@ -9,6 +9,10 @@ import android.view.WindowInsetsController;
 import android.view.WindowManager;
 
 import androidx.core.content.ContextCompat;
+import androidx.activity.OnBackPressedCallback;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MotherActivity;
@@ -41,6 +45,61 @@ public abstract class MobileActivity extends MotherActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+    }
+
+    @Override
+    public void setContentView(int layoutResID) {
+        super.setContentView(layoutResID);
+        installContentInsets();
+    }
+
+    /**
+     * Android 15+ enforces edge-to-edge for modern target SDKs, so decorFitsSystemWindows no
+     * longer keeps ordinary screens clear of status/navigation bars. Apply the delivered safe
+     * insets to the Activity content container; the landscape player deliberately stays
+     * full-bleed and opts out below.
+     */
+    private void installContentInsets() {
+        View content = findViewById(android.R.id.content);
+        if (content == null) {
+            return;
+        }
+
+        ViewCompat.setOnApplyWindowInsetsListener(content, (view, windowInsets) -> {
+            if (shouldInsetContentForSystemBars()) {
+                Insets insets = windowInsets.getInsets(
+                        WindowInsetsCompat.Type.systemBars()
+                                | WindowInsetsCompat.Type.displayCutout());
+                view.setPadding(insets.left, insets.top, insets.right, insets.bottom);
+            } else {
+                view.setPadding(0, 0, 0, 0);
+            }
+            return windowInsets;
+        });
+        ViewCompat.requestApplyInsets(content);
+    }
+
+    /** Override for a screen that intentionally draws behind hidden system bars. */
+    protected boolean shouldInsetContentForSystemBars() {
+        return true;
+    }
+
+    /** Re-evaluates content padding after an in-place orientation/configuration change. */
+    protected final void refreshContentInsets() {
+        View content = findViewById(android.R.id.content);
+        if (content != null) {
+            ViewCompat.requestApplyInsets(content);
+        }
+    }
+
+    /** Registers an AndroidX back handler that also receives predictive-back gestures. */
+    protected final void registerBackHandler(Runnable handler) {
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                handler.run();
+            }
+        });
     }
 
     /**

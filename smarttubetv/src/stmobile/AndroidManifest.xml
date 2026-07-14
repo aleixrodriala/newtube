@@ -19,7 +19,8 @@
   intact) and declare the touch Home Activity itself.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-          xmlns:tools="http://schemas.android.com/tools">
+          xmlns:tools="http://schemas.android.com/tools"
+          tools:ignore="MissingLeanbackLauncher,UnsupportedTvHardware">
 
     <uses-feature
         android:name="android.software.leanback"

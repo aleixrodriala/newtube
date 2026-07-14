@@ -108,12 +108,14 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
 
         setContentView(R.layout.activity_mobile_search);
 
+        registerBackHandler(this::handleBack);
+
         bindViews();
         setupSuggestions();
         setupGrid();
         setupSearchInput();
 
-        mBackButton.setOnClickListener(v -> onBackPressed());
+        mBackButton.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
         mMicButton.setOnClickListener(v -> startVoiceRecognition());
         // Clear the query, keep editing: focus stays, history rows replace the suggestions.
         mClearButton.setOnClickListener(v -> {
@@ -398,20 +400,19 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
         super.onDestroy();
     }
 
-    // NOTE: back normally flows Activity.onBackPressed() -> MobileActivity.finish() ->
+    // NOTE: back normally flows OnBackPressedDispatcher -> MobileActivity.finish() ->
     // finishReally() below, which is the single place SearchPresenter.onFinish() is invoked.
     // (Previously it was also called here on back, so onFinish() ran twice per back press.)
     // The only local back handling: when the suggestion overlay covers existing RESULTS,
     // the first back dismisses the overlay instead of leaving the screen (YouTube-style).
-    @Override
-    public void onBackPressed() {
+    private void handleBack() {
         if (mSuggestions.getVisibility() == View.VISIBLE && !mVideos.isEmpty()) {
             hideKeyboard();
             mSearchInput.clearFocus();
             mSuggestions.setVisibility(View.GONE);
             return;
         }
-        super.onBackPressed();
+        finish();
     }
 
     @Override

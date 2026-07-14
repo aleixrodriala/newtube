@@ -87,6 +87,8 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
 
         setContentView(R.layout.activity_mobile_channel);
 
+        registerBackHandler(this::handleBack);
+
         bindViews();
         mMiniPlayer = new MobileMiniPlayerController(this);
         mAnimateMiniFromPlayer = MiniPlayerBridge.completePendingNavigation();
@@ -98,7 +100,7 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
         setupGrid();
         setupTabs();
 
-        mBackButton.setOnClickListener(v -> onBackPressed());
+        mBackButton.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
 
         mPresenter = ChannelPresenter.instance(this);
 
@@ -299,13 +301,12 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
         super.onDestroy();
     }
 
-    @Override
-    public void onBackPressed() {
+    private void handleBack() {
         if (mPresenter != null && mPresenter.getView() == this) {
             mPresenter.onFinish();
         }
 
-        super.onBackPressed();
+        finish();
     }
 
     @Override

@@ -41,7 +41,7 @@ import java.util.Map;
  * {@code FragmentManager} backstack - one entry per {@code show()} call beyond the first,
  * replaced (not added) when the stack is empty. We mirror that with a plain {@link #mLevels}
  * list: every {@code show()} call appends a level; {@link #goBack()} pops one; Android back
- * goes through {@link #onBackPressed()} which pops via {@code goBack()} while
+ * goes through the AndroidX back dispatcher, which pops via {@code goBack()} while
  * {@link #canGoBack()}, and only finishes the Activity at the root level.
  *
  * <p>{@link #finish()} (the {@link AppDialogView} contract method, called by
@@ -51,7 +51,7 @@ import java.util.Map;
  * {@code AppDialogFragment.finish()} -> {@code Activity.finish()} on TV (which only special-cases
  * a level pop when the close was triggered by a physical/back-press, tracked there via
  * {@code mIsBackPressed}). Here that split is expressed by keeping level-popping entirely in
- * {@link #onBackPressed()}/{@link #goBack()}, separate from {@link #finish()}.
+ * the dialog can go back, separate from {@link #finish()}.
  *
  * <h3>Item kinds rendered</h3>
  * See {@link DialogRowAdapter} for the per-{@code OptionCategory.type} rendering (single-select
@@ -166,10 +166,12 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
 
         setContentView(R.layout.activity_mobile_app_dialog);
 
+        registerBackHandler(this::handleBack);
+
         bindViews();
         setupRecyclerView();
 
-        mBackButton.setOnClickListener(v -> onBackPressed());
+        mBackButton.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
 
         mPresenter = AppDialogPresenter.instance(this);
         mPresenter.setView(this);
@@ -323,8 +325,7 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
         super.onDestroy();
     }
 
-    @Override
-    public void onBackPressed() {
+    private void handleBack() {
         if (canGoBack()) {
             goBack();
         } else {

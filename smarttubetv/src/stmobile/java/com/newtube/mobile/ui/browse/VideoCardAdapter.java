@@ -1,5 +1,7 @@
 package com.newtube.mobile.ui.browse;
 
+import android.annotation.SuppressLint;
+
 import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -70,7 +72,10 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
         }
 
         @Override
+        @SuppressLint("DiffUtilEquals")
         public boolean areContentsTheSame(@NonNull Video oldItem, @NonNull Video newItem) {
+            // Video.equals() is identity-like (IDs only). A new instance with the same ID can
+            // carry refreshed metadata and must be rebound; the same instance needs no rebind.
             return oldItem == newItem;
         }
     };

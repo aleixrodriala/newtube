@@ -94,7 +94,7 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
 
         bindViews();
 
-        mBackButton.setOnClickListener(v -> onBackPressed());
+        mBackButton.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
         mCodeCard.setOnClickListener(v -> copyCodeToClipboard());
         mUrlView.setOnClickListener(v -> openSignInUrl());
         mOpenButton.setOnClickListener(v -> openSignInUrl());

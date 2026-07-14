@@ -11,7 +11,6 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
-import androidx.core.view.GestureDetectorCompat
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -33,7 +32,7 @@ open class DoubleTapPlayerViewImpl @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 ) : FrameLayout(context, attrs, defStyleAttr), DoubleTapPlayerView {
 
-    private val gestureDetector: GestureDetectorCompat
+    private val gestureDetector: GestureDetector
     private val gestureListener: DoubleTapGestureListener = DoubleTapGestureListener(this)
 
     private val contentFrame: AspectRatioFrameLayout = AspectRatioFrameLayout(context)
@@ -55,7 +54,7 @@ open class DoubleTapPlayerViewImpl @JvmOverloads constructor(
         }
 
     init {
-        gestureDetector = GestureDetectorCompat(context, gestureListener)
+        gestureDetector = GestureDetector(context, gestureListener)
 
         contentFrame.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
         addView(contentFrame, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)

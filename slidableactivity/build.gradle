@@ -2,13 +2,13 @@ apply from: gradle.ext.sharedModulesConstants
 apply plugin: 'com.android.library'
 
 android {
-    namespace 'com.r0adkll.slidr'
+    namespace = 'com.r0adkll.slidr'
 
-    compileSdkVersion project.properties.compileSdkVersion
+    compileSdk = project.ext.compileSdkVersion
 
     defaultConfig {
-        minSdkVersion project.properties.minSdkVersion
-        targetSdkVersion project.properties.targetSdkVersion
+        minSdk = project.ext.minSdkVersion
+        targetSdk = project.ext.targetSdkVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         versionCode 11
         versionName '2.1.0'
@@ -19,8 +19,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 }
 
@@ -38,7 +38,4 @@ dependencies {
     testImplementation 'junit:junit:' + junitVersion
     testImplementation 'org.mockito:mockito-core:' + mockitoVersion
     testImplementation 'org.hamcrest:hamcrest-library:' + hamcrestVersion
-    testImplementation 'org.powermock:powermock-api-mockito:' + powermockVersion
-    testImplementation 'org.powermock:powermock-module-junit4:' + powermockVersion
 }
-

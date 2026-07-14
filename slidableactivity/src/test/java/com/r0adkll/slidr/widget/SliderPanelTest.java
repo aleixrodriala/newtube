@@ -1,32 +1,29 @@
 package com.r0adkll.slidr.widget;
 
 import android.content.Context;
-import androidx.customview.widget.ViewDragHelper;
 import android.view.MotionEvent;
-import android.view.View;
 
 import com.r0adkll.slidr.model.SlidrConfig;
 import com.r0adkll.slidr.model.SlidrPosition;
+import com.r0adkll.slidr.util.ViewDragHelper;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.Matchers;
 import org.mockito.Mock;
 import org.mockito.Mockito;
-import org.powermock.api.mockito.PowerMockito;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
+import org.mockito.junit.MockitoJUnitRunner;
+
+import java.lang.reflect.Field;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.when;
-import static org.mockito.internal.util.reflection.Whitebox.setInternalState;
+import static org.mockito.Mockito.doThrow;
 
 /**
  * Created by farid on 18/01/16.
  */
-@RunWith(PowerMockRunner.class)
-@PrepareForTest({View.class})
+@RunWith(MockitoJUnitRunner.class)
 public class SliderPanelTest {
 
     @Mock
@@ -53,13 +50,11 @@ public class SliderPanelTest {
     public void testOnInterceptTouchEvent_whenNotLoacked_edgeOnly() throws Exception {
         //given
         SliderPanel sliderPanel = Mockito.spy(new SliderPanel(context));
-        PowerMockito.when(sliderPanel, "getWidth").thenReturn(10);
+        when(sliderPanel.getWidth()).thenReturn(10);
 
         SlidrConfig slidrConfig = Mockito.mock(SlidrConfig.class);
         when(slidrConfig.isEdgeOnly()).thenReturn(true);
         when(slidrConfig.getPosition()).thenReturn(SlidrPosition.LEFT);
-        when(slidrConfig.getEdgeSize(Matchers.anyInt())).thenReturn(10.1f);
-
         setInternalState(sliderPanel, "isLocked", false);
         setInternalState(sliderPanel, "config", slidrConfig);
 
@@ -106,7 +101,7 @@ public class SliderPanelTest {
         setInternalState(sliderPanel, "isLocked", false);
 
         ViewDragHelper viewDragHelper = Mockito.mock(ViewDragHelper.class);
-        PowerMockito.doThrow(new IllegalArgumentException()).when(viewDragHelper).processTouchEvent(motionEvent);
+        doThrow(new IllegalArgumentException()).when(viewDragHelper).processTouchEvent(motionEvent);
         setInternalState(sliderPanel, "dragHelper", viewDragHelper);
 
         //when
@@ -114,5 +109,11 @@ public class SliderPanelTest {
 
         //then
         assertFalse("Result must be false when not locked but exception occured during processTouchEvent()", result);
+    }
+
+    private static void setInternalState(Object target, String fieldName, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
     }
 }
