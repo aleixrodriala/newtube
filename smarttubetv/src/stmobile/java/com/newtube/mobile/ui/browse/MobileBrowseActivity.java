@@ -301,6 +301,15 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
             return;
         }
 
+        // Keep the exact endpoint frame visible while the newly-created TextureView adopts the
+        // session SurfaceTexture. Without this, releasing a fully-minimized drag briefly reveals
+        // the card's black background/next decoder frame and reads as a small refresh.
+        Bitmap entryStill = MiniPlayerBridge.takeMiniEntryStill();
+        if (entryStill != null) {
+            mMiniFreeze.setImageBitmap(entryStill);
+            mMiniFreeze.setVisibility(View.VISIBLE);
+        }
+
         attachMiniTexture();
         mMiniPlayerBar.setVisibility(View.VISIBLE);
         updateMiniPlayPauseIcon(player);
@@ -349,6 +358,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
                     // First live frame in the card: lift the freeze frame.
                     if (mMiniFreeze != null && mMiniFreeze.getVisibility() == View.VISIBLE) {
                         mMiniFreeze.setVisibility(View.GONE);
+                        mMiniFreeze.setImageDrawable(null);
                     }
                 }
             });
@@ -859,6 +869,10 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
 
         updateAccountRow();
         syncMiniPlayer();
+        // Home may have been paused while the player crossed landscape/PiP configurations. Those
+        // callbacks can arrive while DisplayMetrics still describe the player window, so always
+        // reconcile the retained GridLayoutManager against Home's current configuration on resume.
+        updateGridSpanCount(computeSpanCount());
     }
 
     /** Drawer-header account row label: account name when signed in, "Sign in" otherwise. */
@@ -907,8 +921,12 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
 
-        if (mLayoutManager != null) {
-            mLayoutManager.setSpanCount(computeSpanCount());
+        updateGridSpanCount(com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(newConfig));
+    }
+
+    private void updateGridSpanCount(int spanCount) {
+        if (mLayoutManager != null && mLayoutManager.getSpanCount() != spanCount) {
+            mLayoutManager.setSpanCount(spanCount);
         }
     }
 
