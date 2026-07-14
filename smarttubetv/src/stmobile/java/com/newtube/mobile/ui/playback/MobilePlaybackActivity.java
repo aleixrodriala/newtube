@@ -3737,6 +3737,34 @@ public class MobilePlaybackActivity extends MobileActivity
             log("load[E]", loadEventInfo, mediaLoadData, error);
         }
 
+        @Override
+        public void onPositionDiscontinuity(EventTime eventTime,
+                androidx.media3.common.Player.PositionInfo oldPosition,
+                androidx.media3.common.Player.PositionInfo newPosition, int reason) {
+            android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG,
+                    com.liskovsoft.smartyoutubetv2.common.misc.NetPath.context()
+                            + " position-discontinuity reason=" + discontinuityReason(reason)
+                            + " from=" + oldPosition.positionMs + " to=" + newPosition.positionMs
+                            + " delta=" + (newPosition.positionMs - oldPosition.positionMs));
+        }
+
+        @Override
+        public void onDownstreamFormatChanged(EventTime eventTime,
+                androidx.media3.exoplayer.source.MediaLoadData mediaLoadData) {
+            androidx.media3.common.Format format = mediaLoadData.trackFormat;
+            if (format == null) {
+                return;
+            }
+            android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG,
+                    com.liskovsoft.smartyoutubetv2.common.misc.NetPath.context()
+                            + " track-selected type=" + mediaLoadData.trackType
+                            + " id=" + com.liskovsoft.smartyoutubetv2.common.misc.NetPath.trunc(format.id, 32)
+                            + " mime=" + format.sampleMimeType
+                            + " bitrate=" + format.bitrate
+                            + " size=" + format.width + 'x' + format.height
+                            + " fps=" + format.frameRate);
+        }
+
         private void log(String event,
                 androidx.media3.exoplayer.source.LoadEventInfo info,
                 androidx.media3.exoplayer.source.MediaLoadData data,
@@ -3744,17 +3772,20 @@ public class MobilePlaybackActivity extends MobileActivity
             StringBuilder line = new StringBuilder(
                     com.liskovsoft.smartyoutubetv2.common.misc.NetPath.context())
                     .append(' ').append(event)
+                    .append(" lid=").append(info.loadTaskId)
                     .append(' ').append(data.dataType).append('/').append(data.trackType)
+                    .append(" host=").append(info.uri.getHost())
                     .append(' ').append(uriTail(info.uri))
+                    .append(" req=").append(info.dataSpec.position).append('+').append(info.dataSpec.length)
                     .append(" bytes=").append(info.bytesLoaded)
                     .append(" ms=").append(info.loadDurationMs)
                     .append(" pos=").append(data.mediaStartTimeMs)
                     .append(" net=").append(activeNetwork());
+            appendResponseSummary(line, info.responseHeaders);
             if (error != null) {
                 // Errors get the request's byte range plus the URL's declared length/version
                 // params: a req beyond clen, or an lmt that differs between /player mints, each
                 // pin a distinct failure mode of a deterministic per-range 403 (seen on-device).
-                line.append(" req=").append(info.dataSpec.position).append('+').append(info.dataSpec.length);
                 if (info.uri.isHierarchical()) {
                     appendQueryParam(line, info.uri, "clen");
                     appendQueryParam(line, info.uri, "lmt");
@@ -3783,6 +3814,53 @@ public class MobilePlaybackActivity extends MobileActivity
                 }
             } else {
                 android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG, line.toString());
+            }
+        }
+
+        private static void appendResponseSummary(StringBuilder line,
+                java.util.Map<String, java.util.List<String>> headers) {
+            if (headers == null || headers.isEmpty()) {
+                line.append(" responseHeaders=none");
+                return;
+            }
+            line.append(" responseHeaders=y");
+            appendHeader(line, headers, "content-length", "respLen");
+            appendHeader(line, headers, "content-range", "contentRange");
+            appendHeader(line, headers, "accept-ranges", "acceptRanges");
+            appendHeader(line, headers, "content-encoding", "encoding");
+            appendHeader(line, headers, "server", "server");
+        }
+
+        private static void appendHeader(StringBuilder line,
+                java.util.Map<String, java.util.List<String>> headers,
+                String wantedName, String logName) {
+            for (java.util.Map.Entry<String, java.util.List<String>> entry : headers.entrySet()) {
+                if (entry.getKey() != null && wantedName.equalsIgnoreCase(entry.getKey())
+                        && entry.getValue() != null && !entry.getValue().isEmpty()) {
+                    line.append(' ').append(logName).append('=')
+                            .append(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.trunc(
+                                    entry.getValue().get(0), 80));
+                    return;
+                }
+            }
+        }
+
+        private static String discontinuityReason(int reason) {
+            switch (reason) {
+                case androidx.media3.common.Player.DISCONTINUITY_REASON_AUTO_TRANSITION:
+                    return "auto";
+                case androidx.media3.common.Player.DISCONTINUITY_REASON_SEEK:
+                    return "seek";
+                case androidx.media3.common.Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT:
+                    return "seek-adjust";
+                case androidx.media3.common.Player.DISCONTINUITY_REASON_SKIP:
+                    return "skip";
+                case androidx.media3.common.Player.DISCONTINUITY_REASON_REMOVE:
+                    return "remove";
+                case androidx.media3.common.Player.DISCONTINUITY_REASON_INTERNAL:
+                    return "internal";
+                default:
+                    return Integer.toString(reason);
             }
         }
 

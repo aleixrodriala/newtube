@@ -330,12 +330,20 @@ public class VideoLoaderController extends BasePlayerController {
 
             player.setTitle(formatInfo.getPlayabilityReason());
             player.showProgressBar(false);
-            mSuggestionsController.loadSuggestions(getVideo());
             bgImageUrl = getVideo().getBackgroundUrl();
 
-            // 18+ video or the video is hidden/removed
             player.showOverlay(true);
-            loadNextVideo(5_000);
+
+            if (formatInfo.isBotCheckRequired()) {
+                // A bot-check is a session/IP throttle, not a bad video. Loading suggestions and
+                // auto-advancing turns one rejection into a tight /player + /next request loop and
+                // extends the restriction. Leave recovery to an explicit retry or sign-in.
+                android.util.Log.w("NetPath", "bot-check autoplay=n suggestions=n");
+            } else {
+                mSuggestionsController.loadSuggestions(getVideo());
+                // 18+ video or the video is hidden/removed
+                loadNextVideo(5_000);
+            }
 
             //if (formatInfo.isUnknownError()) { // the bot error or the video not available
             //    scheduleRebootAppTimer(5_000);
