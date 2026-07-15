@@ -33,10 +33,17 @@ import java.lang.ref.WeakReference;
  * activity, {@link #isActive()} turns false on its own and the bar simply hides.</p>
  */
 public final class MiniPlayerBridge {
+    /** Already-created Home screen that can draw the destination card before it is reordered. */
+    public interface BrowseHost {
+        /** @return true when the mini card was made visible and scheduled for drawing. */
+        boolean prepareMiniPlayerForHandoff(Runnable onDrawn);
+    }
+
     private static final long NAVIGATION_PENDING_MS = 30_000;
 
     private static WeakReference<MobilePlaybackActivity> sActivity = new WeakReference<>(null);
     private static WeakReference<MobilePlaybackActivity> sPendingNavigation = new WeakReference<>(null);
+    private static WeakReference<BrowseHost> sBrowseHost = new WeakReference<>(null);
     private static long sPendingNavigationAtMs;
     private static boolean sActive;
     private static Bitmap sHandoffStill;
@@ -44,6 +51,28 @@ public final class MiniPlayerBridge {
     private static Rect sMiniBounds;
 
     private MiniPlayerBridge() {
+    }
+
+    /** Keep a weak link to Home so its mini card can be rendered underneath the player. */
+    public static void registerBrowseHost(BrowseHost host) {
+        sBrowseHost = new WeakReference<>(host);
+    }
+
+    public static void unregisterBrowseHost(BrowseHost host) {
+        if (sBrowseHost.get() == host) {
+            sBrowseHost = new WeakReference<>(null);
+        }
+    }
+
+    /**
+     * Pre-render Home's destination card while the playback window still covers it. This closes
+     * the one-frame gap between hiding the morphed playback Activity and Home's onResume callback.
+     * Kept separate from {@link #activate(MobilePlaybackActivity)} because channel navigation has
+     * a different mini-player host and must not let Home claim the shared SurfaceTexture.
+     */
+    static boolean prepareBrowseHostForHandoff(Runnable onDrawn) {
+        BrowseHost host = sBrowseHost.get();
+        return host != null && host.prepareMiniPlayerForHandoff(onDrawn);
     }
 
     /** Called by the playback activity right before it backgrounds itself into mini mode. */

@@ -16,4 +16,8 @@
     <color name="mobile_color_qr_bg">#FFFFFF</color>
     <color name="mobile_color_divider">#22FFFFFF</color>
     <color name="mobile_color_pill">#26FFFFFF</color>
+    <!-- Opaque equivalent of the translucent pill over #0F0F0F. MaterialButton flattens a
+         translucent background tint onto its white base, which made white "Subscribed" text
+         disappear into a white button on-device. -->
+    <color name="mobile_color_subscribed_button">#333333</color>
 </resources>

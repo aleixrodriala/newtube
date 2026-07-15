@@ -18,6 +18,7 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.os.Build;
 import android.os.Bundle;
@@ -1051,7 +1052,9 @@ public class MobilePlaybackActivity extends MobileActivity
             // Otherwise the app's #0F0F0F window background reads as a stray top margin above
             // the #000000 player on cutout devices with a tall safe inset (notably Pixel). Modern
             // Android makes the status bar transparent for edge-to-edge apps, so its effective
-            // color comes from the decor background rather than setStatusBarColor alone.
+            // color comes from the decor background rather than setStatusBarColor alone. The
+            // minimize morph animates this drawable's alpha so it does not become an opaque black
+            // wall between the shrinking player and the translucent window's live backdrop.
             Window window = getWindow();
             window.getDecorView().setBackgroundColor(Color.BLACK);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -2220,8 +2223,22 @@ public class MobilePlaybackActivity extends MobileActivity
             int backdropAlpha = Math.round(255f * (1f - f));
             mWatchScroll.getBackground().mutate().setAlpha(backdropAlpha);
         }
+        setWindowBackdropAlpha(1f - f);
         if (mControlsRoot != null && mControlsRoot.getVisibility() == View.VISIBLE) {
             mControlsRoot.setAlpha(contentAlpha);
+        }
+    }
+
+    /**
+     * Fade the edge-to-edge window backdrop with the view morph. On current Android versions the
+     * decor drawable also paints the manually inset status/navigation-bar bands, so leaving it
+     * opaque would hide the Activity below even after all watch-page children became transparent.
+     */
+    private void setWindowBackdropAlpha(float alpha) {
+        Drawable backdrop = getWindow().getDecorView().getBackground();
+        if (backdrop != null) {
+            int drawableAlpha = Math.round(255f * Math.max(0f, Math.min(1f, alpha)));
+            backdrop.mutate().setAlpha(drawableAlpha);
         }
     }
 
@@ -2242,6 +2259,7 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mWatchScroll != null && mWatchScroll.getBackground() != null) {
             mWatchScroll.getBackground().mutate().setAlpha(255);
         }
+        setWindowBackdropAlpha(1f);
         if (mControlsRoot != null) {
             mControlsRoot.setAlpha(mControlsVisible ? 1f : 0f);
         }
@@ -2326,8 +2344,19 @@ public class MobilePlaybackActivity extends MobileActivity
         if (!prepareMiniPlayerHandoff(false)) {
             return;
         }
-        getViewManager().startView(BrowseView.class);
-        overridePendingTransition(0, 0);
+
+        Runnable showBrowse = () -> {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            getViewManager().startView(BrowseView.class);
+            overridePendingTransition(0, 0);
+        };
+
+        if (!MiniPlayerBridge.prepareBrowseHostForHandoff(showBrowse)) {
+            // Cold/deep-link path: no retained Browse instance exists to pre-render.
+            showBrowse.run();
+        }
     }
 
     /** Channel navigation completed: background this player as a live in-app mini session. */
@@ -3325,7 +3354,7 @@ public class MobilePlaybackActivity extends MobileActivity
         } else if (buttonId == R.id.action_subscribe && mWatchSubscribe != null) {
             mWatchSubscribe.setText(on ? R.string.mobile_watch_subscribed : R.string.mobile_watch_subscribe);
             mWatchSubscribe.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                    getColorInt(on ? R.color.mobile_color_pill : android.R.color.white)));
+                    getColorInt(on ? R.color.mobile_color_subscribed_button : android.R.color.white)));
             mWatchSubscribe.setTextColor(getColorInt(on
                     ? R.color.mobile_color_on_surface : android.R.color.black));
         }

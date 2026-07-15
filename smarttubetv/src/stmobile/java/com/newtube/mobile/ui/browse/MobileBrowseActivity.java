@@ -13,6 +13,7 @@ import android.view.Menu;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -82,7 +83,8 @@ import java.util.List;
  * Wave 2: tapping a card routes through {@link BrowsePresenter#onVideoItemClicked} into
  * the real touch player ({@code MobilePlaybackActivity}).
  */
-public class MobileBrowseActivity extends MobileActivity implements BrowseView {
+public class MobileBrowseActivity extends MobileActivity
+        implements BrowseView, MiniPlayerBridge.BrowseHost {
     /** BottomNavigationView item ids must be non-zero; BrowseSection ids start at 0. */
     private static final int ITEM_ID_OFFSET = 1_000_000;
     private static final int SCROLL_END_THRESHOLD_ITEMS = 6;
@@ -181,6 +183,7 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
         registerBackHandler(this::handleBack);
 
         bindViews();
+        MiniPlayerBridge.registerBrowseHost(this);
         setupContentGrid();
         setupBottomNav();
         setupDrawer();
@@ -324,6 +327,52 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
 
         Utils.removeCallbacks(mMiniPlayerTick);
         Utils.postDelayed(mMiniPlayerTick, MINI_TICK_MS);
+    }
+
+    /**
+     * The translucent playback Activity is still on top when this runs. Make the endpoint card
+     * visible now so Browse can draw it underneath before Android reorders Browse to the front.
+     */
+    @Override
+    public boolean prepareMiniPlayerForHandoff(Runnable onDrawn) {
+        if (isFinishing() || isDestroyed()) {
+            return false;
+        }
+        syncMiniPlayer();
+        if (mMiniPlayerBar.getVisibility() != View.VISIBLE) {
+            return false;
+        }
+
+        // A pair of frame callbacks only proves that time passed; it does not prove this paused
+        // window submitted a buffer. Gate the reorder on an actual draw containing the card, then
+        // wait one compositor frame before removing the playback window above it. The fallback
+        // avoids stranding the player at the endpoint if an OEM suppresses draws on paused windows.
+        ViewTreeObserver observer = mMiniPlayerBar.getViewTreeObserver();
+        class DrawGate implements ViewTreeObserver.OnDrawListener, Runnable {
+            private boolean mDelivered;
+
+            @Override
+            public void onDraw() {
+                mMiniPlayerBar.post(this);
+            }
+
+            @Override
+            public void run() {
+                if (mDelivered) {
+                    return;
+                }
+                mDelivered = true;
+                if (observer.isAlive()) {
+                    observer.removeOnDrawListener(this);
+                }
+                mMiniPlayerBar.postOnAnimation(onDrawn);
+            }
+        }
+        DrawGate gate = new DrawGate();
+        observer.addOnDrawListener(gate);
+        mMiniPlayerBar.postDelayed(gate, 100);
+        mMiniPlayerBar.invalidate();
+        return true;
     }
 
     /**
@@ -918,6 +967,8 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
 
     @Override
     protected void onDestroy() {
+        MiniPlayerBridge.unregisterBrowseHost(this);
+
         if (mPresenter != null) {
             mPresenter.onViewDestroyed();
         }
