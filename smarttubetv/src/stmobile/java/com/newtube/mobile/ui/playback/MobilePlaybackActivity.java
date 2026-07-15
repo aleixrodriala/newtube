@@ -2125,11 +2125,13 @@ public class MobilePlaybackActivity extends MobileActivity
     private float mMorphTy;
     private float mMorphFraction;
     private ValueAnimator mMorphAnimator;
+    private static final int MINI_CARD_WIDTH_DP = 180;
+    private static final int MINI_CARD_HEIGHT_DP = 102;
 
     /** Compute the video transform (pivot 0,0) that maps the video area onto the mini card. */
     private void computeMorphTarget() {
         float density = getResources().getDisplayMetrics().density;
-        float cardW = 180 * density;
+        float cardW = MINI_CARD_WIDTH_DP * density;
         float margin = 12 * density;
         float bottomNav = 72 * density;
 
@@ -2305,7 +2307,16 @@ public class MobilePlaybackActivity extends MobileActivity
         // The destination is already visible through our translucent window, so finish the live
         // video motion in this Activity first. Only then reorder Browse and hand it the texture;
         // its mini card occupies the same rectangle, making the Activity switch a visual no-op.
-        animateMorph(1f, 150, this::minimizeByDrag);
+        // If the finger already dragged to the endpoint, do not run a 150ms no-op animator after
+        // release: that pause made the eventual surface handoff look like a refresh/stutter.
+        float remaining = Math.max(0f, 1f - mMorphFraction);
+        if (remaining < 0.001f) {
+            applyMorph(1f);
+            minimizeByDrag();
+        } else {
+            long settleDurationMs = Math.max(50L, Math.round(150f * remaining));
+            animateMorph(1f, settleDurationMs, this::minimizeByDrag);
+        }
     }
 
     /**
@@ -2327,7 +2338,7 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     /** Capture/freeze the current frame and make the session texture available to a mini host. */
-    private boolean prepareMiniPlayerHandoff(boolean keepEntryStill) {
+    private boolean prepareMiniPlayerHandoff(boolean captureFullSizeStill) {
         if (mPlayer == null) {
             return false;
         }
@@ -2338,13 +2349,26 @@ public class MobilePlaybackActivity extends MobileActivity
         // consumer-less texture - audio and playback never hiccup - and the card picks the live
         // stream up without any surface change on the player.
         if (mVideoTexture != null && mVideoTexture.isAvailable()) {
-            Bitmap frame = mVideoTexture.getBitmap();
+            // A completed dismiss only needs a mini-card-sized bridge frame. Reading the entire
+            // video TextureView back to a Bitmap on ACTION_UP forces a much larger GPU->CPU copy
+            // on the UI thread and was the remaining hitch at the end of the gesture. Channel
+            // navigation still starts its destination animation at full width, so retain the
+            // full-size capture for that path.
+            Bitmap frame;
+            if (captureFullSizeStill) {
+                frame = mVideoTexture.getBitmap();
+            } else {
+                float density = getResources().getDisplayMetrics().density;
+                int width = Math.max(1, Math.round(MINI_CARD_WIDTH_DP * density));
+                int height = Math.max(1, Math.round(MINI_CARD_HEIGHT_DP * density));
+                frame = mVideoTexture.getBitmap(width, height);
+            }
             if (frame != null) {
                 showHandoffStill(frame);
                 mStillAwaitFrame = false; // keep it until the expand path re-arms the lift
-                if (keepEntryStill) {
-                    MiniPlayerBridge.setMiniEntryStill(frame);
-                }
+                // The destination paints this same frame until its TextureView receives the first
+                // live update, avoiding a black/new-frame discontinuity at the Activity switch.
+                MiniPlayerBridge.setMiniEntryStill(frame);
             }
         }
         detachVideoTexture();

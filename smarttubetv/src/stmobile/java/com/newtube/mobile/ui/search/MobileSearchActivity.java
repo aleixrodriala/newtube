@@ -420,7 +420,8 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
         super.onConfigurationChanged(newConfig);
 
         if (mLayoutManager != null) {
-            mLayoutManager.setSpanCount(computeSpanCount());
+            mLayoutManager.setSpanCount(
+                    com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(newConfig));
         }
     }
 
