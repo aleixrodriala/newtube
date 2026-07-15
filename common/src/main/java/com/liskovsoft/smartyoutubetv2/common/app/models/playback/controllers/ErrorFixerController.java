@@ -48,8 +48,9 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     // with a TrackSelectionOverride, which disables per-track exclusion - so a rung whose
     // googlevideo URL persistently 403s can never be dropped, and the reload loop just re-pins the
     // dead format until the cap surfaces an error (the legacy engine had TrackErrorFixer for this).
-    // On the first SOURCE error under an explicit pin we fall the pin back to Auto for THIS video
-    // only, session-scoped through tempVideoFormat so the persisted quality preference is never
+    // A first SOURCE 403 remints URLs and rotates the /player client with every pin intact. Only a
+    // repeat after that fresh-route attempt can implicate a concrete pin; then fall it back to Auto
+    // for THIS video, session-scoped through tempVideoFormat so the persisted preference is never
     // overwritten. Armed on that error, re-asserted on our reload's onNewVideo, disarmed together
     // with the auto-fix cap (healthy playback or a user-initiated open).
     private boolean mPinRescueArmed;
@@ -253,7 +254,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             } else {
                 restartEngine = false;
             }
-        } else if (type == PlayerEventListener.ERROR_TYPE_SOURCE && rendererIndex == PlayerEventListener.RENDERER_INDEX_UNKNOWN) {
+        } else if (type == PlayerEventListener.ERROR_TYPE_SOURCE) {
             // NOTE: Starts with any (url deciphered incorrectly)
             // "Response code: 403" (poToken error, forbidden)
             // "Response code: 404" (not sure whether below helps)
@@ -281,7 +282,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             // NEWTUBE(pin-rescue): an explicit video-quality pin can't be excluded on the media3
             // engine (see mPinRescueArmed) - fall it back to Auto for this video before the reload
             // below re-pins the dead format again. No-op when no explicit pin is active.
-            maybeRescuePinnedFormat(errorContent);
+            maybeRescuePinnedFormat(errorContent, rendererIndex);
 
             boolean isGeneralError = Helpers.startsWithAny(errorContent, "Response code: 429", "Response code: 500");
             if (isGeneralError && isSubtitlesEnabled()) {
@@ -654,16 +655,16 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     }
 
     /**
-     * NEWTUBE(pin-rescue): first SOURCE error while an EXPLICIT video-quality pin is active. media3
-     * pins an explicit rung with a {@code TrackSelectionOverride}, which disables per-track
-     * exclusion, so a rung that persistently 403s can never be dropped - the reload loop re-pins
-     * the dead format until the cap. Arm the fallback (the actual switch to Auto happens on the
-     * reload's {@link #onNewVideo}, see {@link #reassertPinRescueIfArmed}), inform the user, and
-     * leave a NetPath breadcrumb. One-shot per open: once Auto is in effect the pin is no longer
-     * active, so this can't re-arm; the explicit id guard also blocks a same-open re-entry.
-     * No-op (unchanged behavior) when the active video format is Auto/a preset ceiling.
+     * NEWTUBE(pin-rescue): relax an EXPLICIT track pin only after a fresh URL/client remint failed
+     * too. An initial 403 commonly rejects every URL minted by one /player client; blaming whichever
+     * audio/video loader happened to surface first produced a false "audio track failing" toast and
+     * needlessly discarded the user's choice. A repeat at startup (consecutive count) or at the same
+     * media position (the counter that survives READY playback) identifies a track-specific failure.
+     * When media3 can identify the source renderer, only that pin is eligible; legacy/unknown errors
+     * preserve the prior video-then-audio fallback. The actual session-only switch is applied by
+     * {@link #reassertPinRescueIfArmed} on the reload; persisted preferences are never overwritten.
      */
-    private void maybeRescuePinnedFormat(String reason) {
+    private void maybeRescuePinnedFormat(String reason, int rendererIndex) {
         if (getPlayer() == null || getVideo() == null) {
             return;
         }
@@ -675,14 +676,24 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             return;
         }
 
+        if (mConsecutiveAutoFixCount < 2 && mSamePositionErrorCount < 2) {
+            android.util.Log.d("NetPath", "rescue pins deferred for fresh-route retry renderer="
+                    + rendererIndex + " reason=" + reason);
+            return;
+        }
+
         String videoId = getVideo().videoId;
         boolean videoRescued = mPinRescueArmed && Helpers.equals(videoId, mPinRescueVideoId);
         boolean audioRescued = mAudioPinRescueArmed && Helpers.equals(videoId, mAudioPinRescueVideoId);
+        boolean videoCandidate = rendererIndex == PlayerEventListener.RENDERER_INDEX_UNKNOWN
+                || rendererIndex == PlayerEventListener.RENDERER_INDEX_VIDEO;
+        boolean audioCandidate = rendererIndex == PlayerEventListener.RENDERER_INDEX_UNKNOWN
+                || rendererIndex == PlayerEventListener.RENDERER_INDEX_AUDIO;
 
-        // One rescue per failing cycle, video pin first: the generic SOURCE error doesn't say
-        // which track 403'd, so relax one pin, observe the next cycle, then relax the other.
+        // Unknown-renderer legacy errors keep the historical one-rescue-per-cycle order: video pin
+        // first, observe the next cycle, then audio. Media3's inferred renderer targets one directly.
         FormatItem pinnedVideo = getEffectiveVideoFormat();
-        if (!videoRescued && !isAutoFormat(pinnedVideo)) {
+        if (videoCandidate && !videoRescued && !isAutoFormat(pinnedVideo)) {
             mPinRescueArmed = true;
             mPinRescueVideoId = videoId;
 
@@ -692,7 +703,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             return;
         }
 
-        if (!audioRescued && !isAutoFormat(getEffectiveAudioFormat())) {
+        if (audioCandidate && !audioRescued && !isAutoFormat(getEffectiveAudioFormat())) {
             mAudioPinRescueArmed = true;
             mAudioPinRescueVideoId = videoId;
 

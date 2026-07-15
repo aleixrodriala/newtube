@@ -1,6 +1,7 @@
 package com.newtube.mobile.player;
 
 import android.content.Context;
+import android.net.Uri;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
@@ -12,6 +13,7 @@ import androidx.media3.exoplayer.ExoPlaybackException;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
+import androidx.media3.datasource.HttpDataSource;
 
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.sharedutils.mylogger.Log;
@@ -685,8 +687,58 @@ public class Media3PlayerController implements Player.Listener {
         }
 
         Throwable nested = error.getCause() != null ? error.getCause() : error;
+        if (type == ExoPlaybackException.TYPE_SOURCE) {
+            rendererIndex = inferSourceRendererIndex(nested);
+        }
 
         // The legacy TYPE_* int values match media3's, so the shared error-fixer logic holds.
         mEventListener.onEngineError(type, rendererIndex, nested);
+    }
+
+    /**
+     * Media3 reports HTTP failures as TYPE_SOURCE with renderer=-1 even though the failing DataSpec
+     * still names its YouTube itag. Match that short id against the active explicit targets so the
+     * shared recovery code never blames an audio preference for a video failure (or vice versa).
+     * Auto/preset selections intentionally remain unknown: a client-wide URL remint is the right
+     * first response and there is no concrete user pin to relax.
+     */
+    private int inferSourceRendererIndex(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (!(cause instanceof HttpDataSource.HttpDataSourceException)) {
+                continue;
+            }
+
+            Uri uri = ((HttpDataSource.HttpDataSourceException) cause).dataSpec.uri;
+            String itag = uri != null && uri.isHierarchical() ? uri.getQueryParameter("itag") : null;
+            int rendererIndex = rendererIndexForTargetId(itag);
+            if (rendererIndex != TrackSelectorManager.RENDERER_INDEX_UNKNOWN) {
+                android.util.Log.d("NetPath", "source-error inferred-renderer=" + rendererIndex
+                        + " itag=" + itag);
+            }
+            return rendererIndex;
+        }
+
+        return TrackSelectorManager.RENDERER_INDEX_UNKNOWN;
+    }
+
+    private int rendererIndexForTargetId(@Nullable String formatId) {
+        if (formatId == null || mTrackAdapter == null) {
+            return TrackSelectorManager.RENDERER_INDEX_UNKNOWN;
+        }
+        if (targetIdEquals(TrackSelectorManager.RENDERER_INDEX_VIDEO, formatId)) {
+            return TrackSelectorManager.RENDERER_INDEX_VIDEO;
+        }
+        if (targetIdEquals(TrackSelectorManager.RENDERER_INDEX_AUDIO, formatId)) {
+            return TrackSelectorManager.RENDERER_INDEX_AUDIO;
+        }
+        if (targetIdEquals(TrackSelectorManager.RENDERER_INDEX_SUBTITLE, formatId)) {
+            return TrackSelectorManager.RENDERER_INDEX_SUBTITLE;
+        }
+        return TrackSelectorManager.RENDERER_INDEX_UNKNOWN;
+    }
+
+    private boolean targetIdEquals(int rendererIndex, String formatId) {
+        FormatItem target = mTrackAdapter.getSelectedFormat(rendererIndex);
+        return target != null && formatId.equals(target.getFormatId());
     }
 }
