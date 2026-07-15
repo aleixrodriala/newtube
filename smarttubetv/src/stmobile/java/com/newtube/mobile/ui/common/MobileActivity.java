@@ -70,7 +70,8 @@ public abstract class MobileActivity extends MotherActivity {
                 Insets insets = windowInsets.getInsets(
                         WindowInsetsCompat.Type.systemBars()
                                 | WindowInsetsCompat.Type.displayCutout());
-                view.setPadding(insets.left, insets.top, insets.right, insets.bottom);
+                view.setPadding(insets.left, insets.top, insets.right,
+                        shouldInsetContentForNavigationBar() ? insets.bottom : 0);
             } else {
                 view.setPadding(0, 0, 0, 0);
             }
@@ -81,6 +82,15 @@ public abstract class MobileActivity extends MotherActivity {
 
     /** Override for a screen that intentionally draws behind hidden system bars. */
     protected boolean shouldInsetContentForSystemBars() {
+        return true;
+    }
+
+    /**
+     * Most screens keep their whole content above the gesture/navigation area. A screen with a
+     * bottom navigation component can instead let that component extend to the display edge and
+     * apply the navigation inset inside its own background.
+     */
+    protected boolean shouldInsetContentForNavigationBar() {
         return true;
     }
 

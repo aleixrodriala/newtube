@@ -162,6 +162,12 @@ public class MobileBrowseActivity extends MobileActivity implements BrowseView {
     private boolean mAwaitingFreshContent;
 
     @Override
+    protected boolean shouldInsetContentForNavigationBar() {
+        // BottomNavigationView paints through the gesture area and applies that inset internally.
+        return false;
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 

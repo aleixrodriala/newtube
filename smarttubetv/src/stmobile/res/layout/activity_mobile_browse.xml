@@ -24,6 +24,7 @@
             android:id="@+id/mobile_menu_button"
             android:layout_width="48dp"
             android:layout_height="@dimen/mobile_title_bar_height"
+            android:layout_marginStart="4dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/mobile_menu_button"
             android:padding="12dp"
@@ -61,6 +62,7 @@
             android:id="@+id/mobile_settings_button"
             android:layout_width="48dp"
             android:layout_height="@dimen/mobile_title_bar_height"
+            android:layout_marginEnd="4dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/mobile_settings_button"
             android:padding="12dp"
@@ -230,17 +232,21 @@
 
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- Matched against the real YouTube app on a Pixel 9 (2026-07): their icon/label row
+             measures ~51dp with 24dp icons and ~10sp labels, content centered, gesture inset
+             absorbed below. Stock M2 wrap_content (56dp row) is the closest the widget allows;
+             the view pads itself by the gesture-navigation inset (paddingBottomSystemWindowInsets)
+             so the bar paints through to the display edge without squeezing the row. -->
         <com.google.android.material.bottomnavigation.BottomNavigationView
             android:id="@+id/mobile_bottom_nav"
             android:layout_width="0dp"
-            android:layout_height="80dp"
+            android:layout_height="wrap_content"
             android:background="@color/mobile_color_background"
             app:itemIconSize="24dp"
             app:itemIconTint="@color/mobile_bottom_nav_item"
-            app:itemPaddingBottom="8dp"
-            app:itemPaddingTop="8dp"
             app:itemTextAppearanceActive="@style/MobileBottomNavText"
             app:itemTextAppearanceInactive="@style/MobileBottomNavText"
+            app:paddingBottomSystemWindowInsets="true"
             app:itemTextColor="@color/mobile_bottom_nav_item"
             app:labelVisibilityMode="labeled"
             app:layout_constraintBottom_toBottomOf="parent"

@@ -9,6 +9,8 @@ import android.view.ViewConfiguration;
 import android.widget.FrameLayout;
 
 import androidx.annotation.Nullable;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 /**
  * Root container for {@link MobilePlaybackActivity} that adds YouTube-style
@@ -79,6 +81,29 @@ public class PlayerContainerLayout extends FrameLayout {
         mDragStartBoundView = view;
     }
 
+    /**
+     * The top band where the system's own swipe-down begins: status-bar reveal in immersive
+     * fullscreen, then the notification shade. Sticky-immersive delivers that edge swipe to the
+     * app TOO, so without this exclusion "peek at the notifications" while fullscreen started the
+     * dismiss drag and minimized the player. Band = the hidden bars' height (ignoring visibility -
+     * the visible height is 0 while immersive) or the mandatory top gesture inset, whichever is
+     * larger; raw screen coordinates, so it holds regardless of window insets/padding.
+     */
+    private boolean isInTopSystemGestureBand(MotionEvent ev) {
+        int band = 0;
+        WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(this);
+        if (insets != null) {
+            band = Math.max(
+                    insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars()
+                            | WindowInsetsCompat.Type.displayCutout()).top,
+                    insets.getInsets(WindowInsetsCompat.Type.mandatorySystemGestures()).top);
+        }
+        if (band <= 0) {
+            band = Math.round(24 * getResources().getDisplayMetrics().density);
+        }
+        return ev.getRawY() <= band;
+    }
+
     private boolean isInDragRegion(MotionEvent ev) {
         if (mDragStartBoundView == null) {
             return true;
@@ -105,7 +130,7 @@ public class PlayerContainerLayout extends FrameLayout {
                 mDownRawX = ev.getRawX();
                 mDownRawY = ev.getRawY();
                 mDragging = false;
-                mDownInDragRegion = isInDragRegion(ev);
+                mDownInDragRegion = isInDragRegion(ev) && !isInTopSystemGestureBand(ev);
                 break;
             case MotionEvent.ACTION_MOVE:
                 if (!mDragging && mDownInDragRegion) {

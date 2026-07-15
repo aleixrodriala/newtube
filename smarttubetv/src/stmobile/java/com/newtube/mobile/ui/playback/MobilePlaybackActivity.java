@@ -428,16 +428,11 @@ public class MobilePlaybackActivity extends MobileActivity
             }
         });
 
-        // PLAYER LAYOUT POLISH: in portrait the decor already fits the system windows, so the bars
-        // insets arriving here are consumed (zero) and no extra padding is applied; kept for the
-        // landscape edge cases (content column is GONE there anyway).
-        if (mWatchRoot != null) {
-            ViewCompat.setOnApplyWindowInsetsListener(mWatchRoot, (v, insets) -> {
-                Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-                v.setPadding(0, 0, 0, isLandscape() ? 0 : bars.bottom);
-                return insets;
-            });
-        }
+        // No extra system-bar padding on the watch page itself: in portrait the Activity content
+        // container already applies the top/bottom safe insets (MobileActivity.installContentInsets;
+        // under enforced edge-to-edge the insets arrive UNconsumed, so padding here again doubled
+        // the bottom margin), and in landscape the content column is GONE and the video is
+        // deliberately full-bleed.
 
         // Single tap on the video surface toggles the overlay. DoubleTapPlayerViewImpl routes a
         // single (non-double) tap to performClick() on the view captured at construction (itself,
@@ -2133,7 +2128,10 @@ public class MobilePlaybackActivity extends MobileActivity
         float density = getResources().getDisplayMetrics().density;
         float cardW = MINI_CARD_WIDTH_DP * density;
         float margin = 12 * density;
-        float bottomNav = 72 * density;
+        // Browse's bottom nav is wrap_content (56dp Material row) + the gesture inset it absorbs
+        // itself; this container's bottom already excludes that same gesture inset in portrait,
+        // so only the 56dp row offsets the card from the container's bottom edge.
+        float bottomNav = 56 * density;
 
         Rect video = new Rect();
         video.set(0, 0, mVideoArea.getWidth(), mVideoArea.getHeight());

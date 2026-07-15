@@ -121,10 +121,9 @@
         <item name="android:windowAnimationStyle">@null</item>
     </style>
 
-    <!-- Material 3 nav metrics (matches YouTube/Gmail): drawer rows = Label Large (14sp medium)
-         with a pill-shaped selected highlight; navigation bar = 80dp tall, 24dp icons, 12sp
-         medium labels. The "bigger" feel of Google apps comes from bar HEIGHT + spacing, not
-         oversized glyphs. -->
+    <!-- Stock Material navigation metrics: the bottom bar is its default 56dp labeled row (plus
+         the gesture inset it pads itself with), 24dp icons, 12sp medium labels; drawer rows are
+         14sp medium with a pill-shaped selected highlight. -->
     <style name="MobileDrawerItemText" parent="TextAppearance.MaterialComponents.Subtitle2">
         <item name="android:textSize">14sp</item>
         <item name="android:fontFamily">sans-serif-medium</item>
@@ -135,8 +134,10 @@
         <item name="cornerSize">28dp</item>
     </style>
 
+    <!-- 10sp like the real YouTube bar labels (12sp read visibly wider/heavier than theirs
+         side-by-side, and truncated "Listas de reproducción" earlier). -->
     <style name="MobileBottomNavText" parent="TextAppearance.MaterialComponents.Caption">
-        <item name="android:textSize">12sp</item>
+        <item name="android:textSize">10sp</item>
         <item name="android:fontFamily">sans-serif-medium</item>
     </style>
 
