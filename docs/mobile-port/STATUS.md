@@ -214,19 +214,97 @@ settings, device-code OAuth multi-account) PLUS, from the 2026-07-11/12 rounds:
   shipped: `load[E-http]`/`load[E-url]` forensics (the 281-byte 403 body + full
   failing URL) so the next organic episode is curl-replayable.
 
+## Works (added 2026-07-16 — network round: Tiny-Desk timings + 69-agent code audit)
+All device-verified on the Pixel 9 (WiFi, signed in, wireless adb
+`adb-4A120DLAQ0049N-JPKPvP._adb-tls-connect._tcp`):
+- **Signed-in ring memory**: authenticated TV /player is currently SABR-only
+  (playable=n, usableAdaptive=0) — measured 4/4 opens; the ring now learns it
+  per-process (`player-ring learn tv-sabr-only=y`) and starts later signed-in
+  opens at TV_DOWNGRADED (TV keeps one re-probe per process — normally the
+  app-start session warmup — and a playable TV response clears the flag).
+  Warm open tap→first-frame **1.70s → 1.08s**, one /player per open not two.
+- **Cold-open V8 stall gone**: PlayerDataExtractor's restored-cache path now
+  warms V8 on a background thread instead of inside the first /player's
+  request path (it ran under AppServiceIntCached's player lock). Measured
+  player-context→player-http gap 2.3s → 58ms; cold intent-open first-frame
+  **4.63s → 2.78s**. The once-per-JS-rotation dummy-solve validation stays
+  synchronous on purpose — firstValidExtractor's validate() contract needs it.
+- **Storyboard enrichment gated off** (`setSkipStoryboardEnrichment`, mobile
+  gate): the touch UI never renders seek previews (loadStoryboard is a stub),
+  yet a broken storyboard on the winning client fired a deferred IOS /player
+  per non-live open. Re-enable when seek-preview UI ships.
+- **Live-chat poll lifecycle**: get_live_chat (~5s cadence) used to run until
+  video change/destroy — with the sheet closed, in background audio, and in
+  PiP (~700 req/h invisible). Now stops on sheet dismiss / background audio /
+  PiP enter, revives on foreground return / PiP exit while the sheet is open.
+- **Updater fixed**: pending-update APK re-downloaded IN FULL on every cold
+  start >15min (freshness heuristic) — now a getPackageArchiveInfo integrity+
+  version check, at most one download per advertised version. Manifest check
+  60s → 12h (one-shot migration of the persisted legacy 60s pref); definitive
+  answers (404 = nothing published, today's reality) stamp the throttle clock,
+  connectivity failures don't. Verified: relaunch fires zero manifest GETs.
+- **Dead-host placeholder removed**: Video.getBackgroundUrl no longer returns
+  a via.placeholder.com URL (dead host — one failed TLS per watch open);
+  callers render solid black on null.
+- **ABR up-switch after collapse VERIFIED** (closes the round-3 open item):
+  700 kbps shaper on a fresh open → clean 1080p→480p(+4.6s)→240p(+20s)
+  down-switch, zero errors (no 403 involvement on WiFi); lift → chunk loads
+  back at 1080p in ~2s, selector event +31s (buffered low-res plays out —
+  media3's data-frugal default). Minor 480p↔240p flapping only when available
+  bandwidth sits exactly at a rendition's bitrate; not worth tuning.
+- Tiny Desk concerts (the "hard" test set) play clean on WiFi — zero 403s,
+  zero reloads across Mumford/RAYE/Sting/Parcels; their historical difficulty
+  is carrier-attestation dynamics (HANDOFF §8), not content.
+
+## Open — network audit backlog (2026-07-16, verified findings not yet built)
+From the 69-agent audit (21 confirmed after 2-lens adversarial verify; the
+items above are done). Ordered roughly by value:
+- Browse section switches refetch /browse every time (BrowsePresenter:494,
+  no TTL cache; needs account-change invalidation + History/Subs freshness).
+- SessionWarmup fires a throwaway Big Buck Bunny /player + googlevideo
+  preconnect every launch (SessionWarmup:64; preconnect-skip is the safe
+  half — full skip needs an nsig-extractor freshness probe).
+- FailFastLoadErrorPolicy: treat Cronet net::ERR_NAME_NOT_RESOLVED /
+  ERR_INTERNET_DISCONNECTED as fatal (currently 6 futile retries ~5s).
+- Fixed 1000ms reload delay on the 403-remint path (VideoLoaderController:461;
+  shorten via a call-site overload, NOT the shared reloadVideo default).
+- ABR seed persists across network types (Media3SourceFactory:151; use the
+  per-networkType setInitialBitrateEstimate overload).
+- No metered cap on buffer-ahead (75s of 1080p prefetch on abandoned videos).
+- Brotli for InnerTube JSON (decode path already wired; CAUTION: MSC fork
+  history flip-flopped `br` 4×, last REVERTED — gate phone-only, verify on
+  cellular).
+- 10s connect timeout for non-open-path API calls (currently 20s).
+- CronetManager.getEngine catches only UnsatisfiedLinkError → broaden to
+  Throwable, keep null-fallback.
+- Account avatars fetched with ALL caching disabled (GlideIconFetcher:45).
+- UnlocalizedTitleProcessor unbounded flatMap (add maxConcurrency).
+- CLOSE/PAUSE queue auto-advance misses the next-video prefetch (NOT
+  REVERSE_LIST — it advances backwards, would warm the wrong video).
+- DeArrow: per-card uncached GETs (batch = k-anonymity hashPrefix endpoint —
+  bucket API, needs client-side filtering).
+Rejected by verification (do NOT re-propose without new evidence): IPv4-first
+DNS change, Glide→OkHttp loader swap, related-thumb downsizing, live manifest
+cadence backoff (refresh is emsg-driven), proactive WiFi↔cell URL invalidate,
+gating the /player fingerprint logging.
+
 ## Open — needs a real device (Pixel 9)
 Round 2 (2026-07-12 evening) closed most of this list (see Works): live DVR
 scrub-back + LIVE-chip + soak, background-audio FGS, PiP→search.
 Round 3 (2026-07-13) closed the rest via the in-app debug shaper (see Works):
-ABR down-switch, resume gate A/B, pin-rescue. Radio-based constraining stays
+ABR down-switch, resume gate A/B, pin-rescue. The 2026-07-16 round closed the
+ABR up-switch item (see Works). Radio-based constraining stays
 OFF THE TABLE (HANDOFF §9 GSM-flip incident) — the shaper replaces it. Still
 open:
 - WEB_EMBED /player RTT varies 0.3–2.1s on LTE (cold TTFF 3.8s worst case vs
   ANDROID_VR's 3.4s — acceptable since ANDROID_VR streams die at 60s on
   enforcing networks, but worth optimizing; TV+serviceIntegrityDimensions is
-  the candidate).
-- ABR up-switch after a bandwidth-collapse recovery (down-switch verified;
-  the return to high quality wasn't observed before the test window ended).
+  the candidate). Note 2026-07-16: signed-in flows now ride TV_DOWNGRADED
+  (ring memory) — re-measure on carrier before optimizing.
+- Signed-in TV_DOWNGRADED streams on a pot-ENFORCING carrier network: the
+  2026-07-16 round was WiFi-only; confirm authenticated non-attested URLs
+  don't hit the 60s cliff on Telefónica 5G (dogfooding hasn't shown it, but
+  it was never explicitly soaked).
 
 ## Open — product/UX
 - Playlist queue UI in player ("Playing from: X · i/N", collapsible) — top item.

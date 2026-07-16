@@ -37,6 +37,8 @@ public class LiveChatSheet extends BottomSheetDialogFragment {
         List<ChatItem> getChatSnapshot();
         void registerChatObserver(Observer observer);
         void unregisterChatObserver(Observer observer);
+        /** The panel was closed by the user: stop the live-chat stream the Activity opened for it. */
+        void onChatSheetDismissed();
     }
 
     public interface Observer {
@@ -130,6 +132,17 @@ public class LiveChatSheet extends BottomSheetDialogFragment {
                 behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
             }
         }
+    }
+
+    @Override
+    public void onDismiss(@NonNull android.content.DialogInterface dialog) {
+        // User closed the panel (X, swipe, back, scrim tap): tell the Activity to stop the live-chat
+        // poll it opened for us. onDestroyView only tears down the observer - the poll outlives the
+        // view during background audio, so its lifetime is tied to this explicit dismiss instead.
+        if (mHost != null) {
+            mHost.onChatSheetDismissed();
+        }
+        super.onDismiss(dialog);
     }
 
     @Override

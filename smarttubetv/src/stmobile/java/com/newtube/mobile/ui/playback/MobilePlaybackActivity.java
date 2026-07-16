@@ -899,6 +899,28 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mExoPlayerController != null) {
             mExoPlayerController.setVideoTrackDisabled(enabled);
         }
+
+        // The Activity-owned live-chat poll keeps hitting the network (~700 req/hr) even with the
+        // video renderer dropped. Stop it going audio-only in the background; if the chat sheet
+        // survived the stint (mChatObserver != null - the sheet fragment outlives onStop/onResume)
+        // revive the stream on return so the user doesn't come back to a frozen panel. The
+        // ChatController receiver path (mChatReceiver) owns its own stream, so never touch it here.
+        if (enabled) {
+            if (mLiveChatAction != null) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG,
+                            "live-chat poll stop (background audio)");
+                }
+                stopLiveChatStream();
+            }
+        } else if (mChatObserver != null && mChatReceiver == null
+                && mLiveChatAction == null && mLiveChatKey != null) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG,
+                        "live-chat poll resume (foreground)");
+            }
+            startLiveChatStream();
+        }
     }
 
     @Override
@@ -1287,8 +1309,27 @@ public class MobilePlaybackActivity extends MobileActivity
                 lp.weight = 0;
                 mVideoArea.setLayoutParams(lp);
             }
+            // The PiP window renders only video: an open chat sheet is invisible, so its poll is
+            // pure waste (same rule as background audio in setBackgroundAudioMode).
+            if (mLiveChatAction != null) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG,
+                            "live-chat poll stop (pip)");
+                }
+                stopLiveChatStream();
+            }
             updatePipActions();
         } else {
+            // Mirror of the setBackgroundAudioMode(false) revive: the sheet fragment survives the
+            // PiP stint, so bring its stream back when the full watch UI returns.
+            if (mChatObserver != null && mChatReceiver == null
+                    && mLiveChatAction == null && mLiveChatKey != null) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG,
+                            "live-chat poll resume (pip exit)");
+                }
+                startLiveChatStream();
+            }
             // Restore the normal layout and controls. Explicitly showing them also resets the
             // GONE/alpha state left by PiP; on some task-reparent exits the first PlayerView tap
             // is swallowed by the system transition, otherwise leaving the restored player with
@@ -3085,6 +3126,16 @@ public class MobilePlaybackActivity extends MobileActivity
                         () -> { /* live chat session closed */ });
     }
 
+    /**
+     * Stop the Activity-owned live-chat poll (openLiveChatObserve loops forever) and clear it so a
+     * later onChatEntryClicked re-seeds a fresh stream - its gate requires mLiveChatAction == null.
+     * The ChatController receiver path (mChatReceiver) owns its own stream and is left untouched.
+     */
+    private void stopLiveChatStream() {
+        RxHelper.disposeActions(mLiveChatAction);
+        mLiveChatAction = null;
+    }
+
     // ---------------------------------------------------------------------------------
     // LiveChatSheet.Host - expose the buffered chat stream to the open sheet.
     // ---------------------------------------------------------------------------------
@@ -3104,6 +3155,13 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mChatObserver == observer) {
             mChatObserver = null;
         }
+    }
+
+    @Override
+    public void onChatSheetDismissed() {
+        // Panel closed by the user: stop the invisible forever-poll opened in onChatEntryClicked.
+        // A later re-open re-seeds a fresh stream via the mLiveChatAction == null gate.
+        stopLiveChatStream();
     }
 
     // ---------------------------------------------------------------------------------

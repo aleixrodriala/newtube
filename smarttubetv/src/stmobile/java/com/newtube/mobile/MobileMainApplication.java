@@ -143,6 +143,13 @@ public class MobileMainApplication extends MainApplication {
         // TV never calls this -> TV keeps the full 13-client ring unchanged.
         VideoInfoService.setSkipTvFallbackClients(true);
 
+        // STORYBOARD TRIM (mobile-only): the touch UI has no seek-preview thumbnails yet
+        // (MobilePlaybackActivity.loadStoryboard is a stub), but a winning client without a
+        // storyboard spec fires a deferred IOS /player per non-live open purely to refetch that
+        // spec. Skip the refetch until the UI consumes storyboards; specs that arrive free with
+        // an extended-HLS fetch are still applied.
+        VideoInfoService.setSkipStoryboardEnrichment(true);
+
         // TTFF FIX (mobile-only, click-to-play parallelization): kick the getVideoInfo fetch the instant a
         // video is tapped (PlaybackPresenter.openVideo) so the network round-trip - the single biggest
         // chunk of click-to-play - overlaps the player Activity's bring-up (layout inflation + ExoPlayer

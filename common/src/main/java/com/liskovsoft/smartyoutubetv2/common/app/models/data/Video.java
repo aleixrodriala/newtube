@@ -38,7 +38,6 @@ public final class Video {
     public static final String TERTIARY_TEXT_DELIM = "•";
     public static final long MAX_LIVE_DURATION_MS = 24 * 60 * 60 * 1_000;
     private static final int MAX_AUTHOR_LENGTH_CHARS = 20;
-    private static final String BLACK_PLACEHOLDER_URL = "https://via.placeholder.com/1280x720/000000/000000";
     private static final float RESTORE_POSITION_PERCENTS = 10; // min value for immediately closed videos
     public int id;
     public String title;
@@ -588,7 +587,9 @@ public final class Video {
     }
 
     public String getBackgroundUrl() {
-        return bgImageUrl != null ? bgImageUrl : BLACK_PLACEHOLDER_URL;
+        // May be null: callers render a local black/neutral fallback rather than fetch a remote
+        // placeholder (the old via.placeholder.com URL is a dead host that only cost a failed TLS).
+        return bgImageUrl;
     }
 
     public boolean belongsToSameAuthorGroup() {
