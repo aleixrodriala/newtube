@@ -22,4 +22,12 @@ public interface BrowseView {
     void focusOnContent();
     boolean isEmpty();
     void updateBadge();
+
+    /**
+     * The presenter decided the section's content is fresh enough (within its TTL) and skipped
+     * the network refetch — whatever the view is painting for this section IS current. Views
+     * with stale-while-revalidate machinery should stand down (no fresh REPLACE is coming).
+     */
+    default void onSectionContentCurrent(int sectionId) {
+    }
 }

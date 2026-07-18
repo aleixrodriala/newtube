@@ -77,6 +77,16 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
     private long mLastUpdateTimeMs = -1;
     private int mBootSectionIndex;
     private int mBootstrapSectionId = -1;
+    /**
+     * Per-section last-successful-fetch times: a section refocused within
+     * {@link #SECTION_FRESH_MS} skips the network refetch entirely — the view keeps painting
+     * its (identical) snapshot. Pull-to-refresh and {@link #refresh()} bypass via
+     * {@link #mForceSectionUpdate}; cleared on account change and when a section's backing
+     * observable is swapped (sorting/style changes).
+     */
+    private static final long SECTION_FRESH_MS = 5 * 60 * 1_000;
+    private final Map<Integer, Long> mSectionFetchTimeMs = new HashMap<>();
+    private boolean mForceSectionUpdate;
 
     private BrowsePresenter(Context context) {
         super(context);
@@ -350,6 +360,8 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
     }
 
     public void updateChannelSorting() {
+        mSectionFetchTimeMs.remove(MediaGroup.TYPE_CHANNEL_UPLOADS); // backing observable changes
+
         int sortingType = getMainUIData().getChannelCategorySorting();
 
         switch (sortingType) {
@@ -370,6 +382,8 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
     }
 
     public void updatePlaylistsStyle() {
+        mSectionFetchTimeMs.remove(MediaGroup.TYPE_USER_PLAYLISTS); // backing observable changes
+
         int playlistsStyle = getMainUIData().getPlaylistsStyle();
 
         switch (playlistsStyle) {
@@ -623,6 +637,7 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
     }
 
     public void refresh(boolean focusOnContent) {
+        mForceSectionUpdate = true; // user-initiated (or staleness-driven): always refetch
         updateCurrentSection();
         if (focusOnContent && getView() != null) {
             getView().focusOnContent();
@@ -631,6 +646,32 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
 
     private void updateRefreshTime() {
         mLastUpdateTimeMs = System.currentTimeMillis();
+    }
+
+    /**
+     * TTL applies only to remote row/grid sections. History is exempt — the user expects a
+     * just-watched video to appear the moment they return to it. Local/settings sections are
+     * cheap in-process computations and never had a network cost to skip.
+     */
+    private boolean isSectionFresh(BrowseSection section) {
+        if (section.getId() == MediaGroup.TYPE_HISTORY) {
+            return false;
+        }
+
+        int type = section.getType();
+        boolean remote = (type == BrowseSection.TYPE_ROW && mRowMapping.containsKey(section.getId()))
+                || ((type == BrowseSection.TYPE_GRID || type == BrowseSection.TYPE_SHORTS_GRID || type == BrowseSection.TYPE_MULTI_GRID)
+                        && mGridMapping.containsKey(section.getId()));
+        if (!remote) {
+            return false;
+        }
+
+        Long fetchedMs = mSectionFetchTimeMs.get(section.getId());
+        return fetchedMs != null && System.currentTimeMillis() - fetchedMs < SECTION_FRESH_MS;
+    }
+
+    private void markSectionFetched(int sectionId) {
+        mSectionFetchTimeMs.put(sectionId, System.currentTimeMillis());
     }
 
     private void updateCurrentSection() {
@@ -645,6 +686,19 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
     }
 
     private void updateSection(BrowseSection section) {
+        boolean force = mForceSectionUpdate;
+        mForceSectionUpdate = false;
+
+        // Fresh-within-TTL section whose content the view is already painting: skip the refetch
+        // storm (a Home reload is 1 browse + ~6 serial continuations). The view is told its
+        // snapshot is current so its stale-while-revalidate machinery stands down.
+        if (!force && isSectionFresh(section) && getView() != null && !getView().isEmpty()) {
+            Log.d(TAG, "Section %s is fresh — skipping refetch", section.getTitle());
+            getView().showProgressBar(false);
+            getView().onSectionContentCurrent(section.getId());
+            return;
+        }
+
         switch (section.getType()) {
             case BrowseSection.TYPE_GRID:
             case BrowseSection.TYPE_SHORTS_GRID:
@@ -750,6 +804,7 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
 
                                 getView().updateSection(videoGroup);
                                 mBrowseProcessor.process(videoGroup);
+                                markSectionFetched(section.getId());
 
                                 continueGroupIfNeeded(videoGroup, false);
                             }
@@ -801,6 +856,9 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
                             appendLocalHistory(videoGroup);
                             getView().updateSection(videoGroup);
                             mBrowseProcessor.process(videoGroup);
+                            if (!mediaGroup.isEmpty()) {
+                                markSectionFetched(section.getId());
+                            }
 
                             continueGroupIfNeeded(videoGroup);
                         },
@@ -1139,6 +1197,8 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
     @Override
     public void onAccountChanged(Account account) {
         Log.d(TAG, "On account changed");
+
+        mSectionFetchTimeMs.clear(); // feeds are per-account
 
         if (getView() == null) {
             return;

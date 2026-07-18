@@ -150,6 +150,14 @@ public class MobileMainApplication extends MainApplication {
         // an extended-HLS fetch are still applied.
         VideoInfoService.setSkipStoryboardEnrichment(true);
 
+        // FEED FIRST-PAINT (mobile-only): emit the Subscriptions grid after ONE /browse instead
+        // of blocking behind the TV pre-combine loop (up to 10 serial continuations gathering
+        // 60+ items purely so live streams can float over page-1 items — measured 4.6s of blank
+        // skeleton on a roaming link, 4 of the 5 requests spent before anything painted). Page 1
+        // keeps its own live-first sort; deeper pages arrive via normal scroll pagination.
+        // TV never calls this -> TV keeps the combined-window sort unchanged.
+        com.liskovsoft.youtubeapi.browse.v2.BrowseServiceGates.setSkipContinuationPreCombine(true);
+
         // TTFF FIX (mobile-only, click-to-play parallelization): kick the getVideoInfo fetch the instant a
         // video is tapped (PlaybackPresenter.openVideo) so the network round-trip - the single biggest
         // chunk of click-to-play - overlaps the player Activity's bring-up (layout inflation + ExoPlayer

@@ -1350,4 +1350,21 @@ public class MobileBrowseActivity extends MobileActivity
         // Account/bridge badge icon (top corner on TV). No equivalent surface yet on
         // the mobile shell; revisit alongside the account/sign-in screens (Wave 5).
     }
+
+    @Override
+    public void onSectionContentCurrent(int sectionId) {
+        runOnUiThread(() -> {
+            if (sectionId != mCurrentSectionId) {
+                return;
+            }
+
+            // The presenter skipped the refetch (section fresh within TTL): the snapshot painted
+            // by paintCachedSnapshot IS the current content. Clear the awaiting flag so a later
+            // scroll-end APPEND extends the grid instead of swap-replacing it through the
+            // stale-snapshot path, and make sure no loading affordance lingers.
+            mAwaitingFreshContent = false;
+            setSkeletonVisible(false);
+            mContentSwipe.setRefreshing(false);
+        });
+    }
 }

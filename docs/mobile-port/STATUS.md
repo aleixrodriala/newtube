@@ -256,11 +256,69 @@ All device-verified on the Pixel 9 (WiFi, signed in, wireless adb
   zero reloads across Mumford/RAYE/Sting/Parcels; their historical difficulty
   is carrier-attestation dynamics (HANDOFF §8), not content.
 
+## Works (added 2026-07-18 — feed-load round, tier 1)
+Root cause was measured 2026-07-16 on LTE ROAMING (~800ms RTT amplifies every
+serial round trip): cold→Home first cards 5.2s = token refresh 1.9s →
+accounts_list 0.8s → /browse 2.1s, ALL serial; Subs first visit 4.6s of blank
+skeleton = 5 serial /browse (continueIfNeededTV pre-combining >60 items for
+the LIVE-first sort before ANY emission); every Home re-focus refetched
+~350KB with no TTL. 55-agent audit: 16 confirmed / 0 rejected findings.
+Fixes (Pixel 9 WiFi-verified 2026-07-18):
+- **Subs pre-combine gated off on phone** (`BrowseServiceGates
+  .setSkipContinuationPreCombine`, set in MobileMainApplication):
+  continueIfNeededTV returns page 1 as overrideItems/overrideKey → ONE
+  /browse then paint (395ms on WiFi; was 5 serial requests). Page 1 keeps its
+  live-first stable sort (MediaGroupImpl sorts the override window); deeper
+  pages arrive via normal scroll pagination. TV default unchanged.
+- **Access token persisted across process starts** (YouTubeSignInService
+  AuthTokenCache pref: header + mint time + owning refresh token): cold start
+  within the 60-min token lifetime restores the header from disk — zero
+  /o/oauth2/token calls, verified "Restored persisted authorization header".
+  Invalidated on account change/sign-out (invalidateCache clears disk too);
+  revoked-early tokens are handled by a transport-level one-shot 401
+  retry (RetrofitOkHttpHelper.retryOnceIfAuthRejected → refresh → replay).
+- **accounts_list off the auth lock**: syncStorage (avatar/name/email sync,
+  drawer cosmetics) used to run INSIDE synchronized updateAuthHeaders — the
+  first feed's checkAuth blocked on its round trip. Now a named background
+  thread ("AccountStorageSync"), once-per-process semantics kept
+  (synchronized syncStorage). First browse no longer waits on it.
+- **Per-section browse TTL (5 min)** in BrowsePresenter: a re-focused section
+  fetched successfully within the TTL skips the refetch entirely — verified
+  ZERO requests on Home↔Subs switches ("Section X is fresh — skipping
+  refetch"), where each Home re-focus used to cost 1 browse + ~6 serial
+  continuations (~350KB). Pull-to-refresh / refresh() force-bypass; History
+  is exempt (just-watched must appear); invalidated on account change and on
+  channel-sorting/playlists-style changes (backing observable swapped). New
+  BrowseView.onSectionContentCurrent default method tells the phone view its
+  painted snapshot is current (clears mAwaitingFreshContent so a later
+  scroll-end APPEND extends instead of swap-replacing).
+- **FeedCache now pins its snapshot's VideoGroups** (strong refs, replaced
+  per put / dropped on clear): Video.group is upstream's WeakReference
+  memory-leak fix, so after any GC a repainted snapshot answered
+  getGroup()==null and scroll-end pagination died silently ("Can't continue
+  group") — previously masked because every focus refetched. Verified:
+  TTL-skipped subs grid paginates (2 continuation pages appended, list
+  extended not replaced). Walk this timeline again if snapshot scope changes
+  (CLAUDE.md single-slot-cache rule).
+- Net effect measured on WiFi: cold start #2 launch→rows ~2.0s with zero
+  auth requests; subs tap→cards 1 request; tab switches free. On the roaming
+  profile this removes ~2.7s of the 5.2s cold chain and ~3.7s of the 4.6s
+  subs wait per the 2026-07-16 request-level measurements.
+Tier 2 (approved by Aleix "then we do tier 2", not yet built): defer
+SessionWarmup until first feed emission, brotli for API calls (phone-gated),
+disk-backed FeedCache snapshot (account-keyed), lazier Home per-row eager
+continuations (MIN_ROW_GROUP_SIZE=5 is TV-tuned; do NOT touch the empty-group
+3× retry loop itself — upstream-churned), boot double-load guard
+(onViewInitialized re-selects the boot section → dispose+resubscribe),
+preconnect www.youtube.com at app start (distinct from googlevideo
+preconnect). Rejected by verify: switching feeds TV→WEB client (upstream:
+WEB home breaks signed-in parity).
+
 ## Open — network audit backlog (2026-07-16, verified findings not yet built)
 From the 69-agent audit (21 confirmed after 2-lens adversarial verify; the
 items above are done). Ordered roughly by value:
-- Browse section switches refetch /browse every time (BrowsePresenter:494,
-  no TTL cache; needs account-change invalidation + History/Subs freshness).
+- ~~Browse section switches refetch /browse every time~~ DONE 2026-07-18
+  (per-section 5-min TTL, see the feed-load round above).
 - SessionWarmup fires a throwaway Big Buck Bunny /player + googlevideo
   preconnect every launch (SessionWarmup:64; preconnect-skip is the safe
   half — full skip needs an nsig-extractor freshness probe).

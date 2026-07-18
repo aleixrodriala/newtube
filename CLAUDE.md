@@ -17,9 +17,10 @@ phone-only slice — treat as historical. GTM/launch assets: `docs/gtm/`.
 
 ## Repos & commit order
 - Main: `origin` = github.com/aleixrodriala/newtube, branch `main`.
-- Submodules `MediaServiceCore` and `SharedModules` are **our forks**
-  (remote `fork` = aleixrodriala/<name>, branch `master`). Commit INSIDE the
-  submodule first, push `fork master`, then commit the pointer bump in main.
+- Submodules `MediaServiceCore` and `SharedModules` are **our forks**:
+  `origin` = aleixrodriala/<name> (HTTPS — SSH keys are not set up on this
+  Mac), `upstream` = yuliskov/<name>, branch `master`. Commit INSIDE the
+  submodule first, push `origin master`, then commit the pointer bump in main.
 - Upstream (yuliskov) fixes are merged into the **submodule forks only**; the
   main repo never merges upstream (TV code is gone). Submodules have repo-local
   `core.autocrlf=false` — keep it; several upstream build files are CRLF.
