@@ -11,9 +11,13 @@
   Drives the unchanged SearchPresenter via the standard MVP seam; this is the touch
   replacement for the Leanback SearchTagsFragment/SearchTagsActivity.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+<LinearLayout
     android:id="@+id/mobile_search_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -135,3 +139,8 @@
     </FrameLayout>
 
 </LinearLayout>
+
+    <!-- Minimizing a video opened from these results keeps playback alive in this overlay. -->
+    <include layout="@layout/mobile_mini_player_overlay" />
+
+</FrameLayout>

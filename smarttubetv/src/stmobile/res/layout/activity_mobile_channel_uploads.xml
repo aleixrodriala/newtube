@@ -7,9 +7,13 @@
   Toolbar with the list title + a back arrow. No bottom nav: this is a pushed detail
   screen (parent = MobileBrowseActivity), so back returns to wherever it was opened from.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+<LinearLayout
     android:id="@+id/mobile_channel_uploads_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -99,3 +103,8 @@
     </FrameLayout>
 
 </LinearLayout>
+
+    <!-- Minimizing a video opened from this list keeps playback alive in this overlay. -->
+    <include layout="@layout/mobile_mini_player_overlay" />
+
+</FrameLayout>

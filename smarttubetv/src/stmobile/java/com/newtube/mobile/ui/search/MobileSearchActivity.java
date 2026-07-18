@@ -31,6 +31,8 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.SearchView;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.browse.VideoCardAdapter;
 import com.newtube.mobile.ui.common.MobileActivity;
+import com.newtube.mobile.ui.playback.MiniPlayerBridge;
+import com.newtube.mobile.ui.playback.MobileMiniPlayerController;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -66,13 +68,17 @@ import java.util.List;
  *       without crashing.</li>
  * </ul>
  */
-public class MobileSearchActivity extends MobileActivity implements SearchView {
+public class MobileSearchActivity extends MobileActivity
+        implements SearchView, MiniPlayerBridge.MiniHost {
     private static final int SCROLL_END_THRESHOLD_ITEMS = 6;
     private static final int REQUEST_VOICE = 5001;
     /** Pause after the last keystroke before hitting the suggest endpoint. */
     private static final long SUGGEST_DEBOUNCE_MS = 200;
 
     private SearchPresenter mPresenter;
+
+    /** Docks the live player card when a video opened from these results is minimized. */
+    private MobileMiniPlayerController mMiniPlayer;
 
     private EditText mSearchInput;
     private ImageButton mBackButton;
@@ -111,6 +117,7 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
         registerBackHandler(this::handleBack);
 
         bindViews();
+        mMiniPlayer = new MobileMiniPlayerController(this);
         setupSuggestions();
         setupGrid();
         setupSearchInput();
@@ -380,10 +387,20 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
         if (mPresenter != null) {
             mPresenter.onViewResumed();
         }
+        // Last-resumed host wins: a video opened from these results minimizes back onto them.
+        MiniPlayerBridge.registerMiniHost(this);
+        if (mMiniPlayer != null) {
+            mMiniPlayer.sync(false);
+        }
     }
 
     @Override
     protected void onPause() {
+        // Free the mini bar's video surface whenever this screen leaves the foreground - the
+        // playback activity may be about to re-claim it (expand / new video).
+        if (mMiniPlayer != null) {
+            mMiniPlayer.hide();
+        }
         super.onPause();
 
         if (mPresenter != null) {
@@ -393,11 +410,29 @@ public class MobileSearchActivity extends MobileActivity implements SearchView {
 
     @Override
     protected void onDestroy() {
+        MiniPlayerBridge.unregisterMiniHost(this);
+
         if (mPresenter != null && mPresenter.getView() == this) {
             mPresenter.onViewDestroyed();
         }
 
         super.onDestroy();
+    }
+
+    @Override
+    public boolean prepareMiniPlayerForHandoff(Runnable onDrawn) {
+        return mMiniPlayer != null && mMiniPlayer.prepareForHandoff(onDrawn);
+    }
+
+    @Override
+    public Class<?> getMiniHostViewClass() {
+        return SearchView.class;
+    }
+
+    @Override
+    public int getMiniCardBottomOffsetPx() {
+        // Overlay card (mobile_mini_player_overlay.xml) sits flush at the content bottom.
+        return 0;
     }
 
     // NOTE: back normally flows OnBackPressedDispatcher -> MobileActivity.finish() ->

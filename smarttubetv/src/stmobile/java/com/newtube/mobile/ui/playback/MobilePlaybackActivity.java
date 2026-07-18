@@ -2182,10 +2182,11 @@ public class MobilePlaybackActivity extends MobileActivity
         float density = getResources().getDisplayMetrics().density;
         float cardW = MINI_CARD_WIDTH_DP * density;
         float margin = 12 * density;
-        // Browse's bottom nav is wrap_content (56dp Material row) + the gesture inset it absorbs
-        // itself; this container's bottom already excludes that same gesture inset in portrait,
-        // so only the 56dp row offsets the card from the container's bottom edge.
-        float bottomNav = 56 * density;
+        // Card bottom offset comes from the DESTINATION host: Browse's card floats above its
+        // 56dp bottom-nav row, Search/Channel overlay cards sit flush at the content bottom.
+        // Both containers already exclude the gesture inset in portrait, so no inset term here.
+        MiniPlayerBridge.MiniHost host = MiniPlayerBridge.getMiniHost();
+        float bottomNav = host != null ? host.getMiniCardBottomOffsetPx() : 56 * density;
 
         Rect video = new Rect();
         video.set(0, 0, mVideoArea.getWidth(), mVideoArea.getHeight());
@@ -2396,23 +2397,46 @@ public class MobilePlaybackActivity extends MobileActivity
             return;
         }
 
-        Runnable showBrowse = () -> {
+        // Return to the screen the video was opened from (Search, Channel, Home...) - the
+        // last-resumed mini host is exactly the Activity visible through this translucent
+        // window during the drag. Falling back to Home only when no host exists (deep link).
+        MiniPlayerBridge.MiniHost host = MiniPlayerBridge.getMiniHost();
+        final Class<?> hostView = host != null ? host.getMiniHostViewClass() : BrowseView.class;
+
+        Runnable showHost = () -> {
             if (isFinishing() || isDestroyed()) {
                 return;
             }
-            getViewManager().startView(BrowseView.class);
+            getViewManager().startView(hostView);
             overridePendingTransition(0, 0);
+            // Only AFTER the reorder launch: a docked player leaves the logical back stack (see
+            // prepareMiniPlayerHandoff). Removing it first would make the host the logical top
+            // and startView's "already top" guard would skip the reorder entirely, stranding the
+            // transparent player window above the host (observed: taps fell through to nothing).
+            getViewManager().removeTop(this);
         };
 
-        if (!MiniPlayerBridge.prepareBrowseHostForHandoff(showBrowse)) {
-            // Cold/deep-link path: no retained Browse instance exists to pre-render.
-            showBrowse.run();
+        boolean prepared = MiniPlayerBridge.prepareMiniHostForHandoff(showHost);
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG,
+                    "mini minimize host=" + (host != null ? host.getClass().getSimpleName() : "none")
+                            + " prepared=" + prepared);
+        }
+        if (!prepared) {
+            // Cold/deep-link path: no retained host instance exists to pre-render.
+            showHost.run();
         }
     }
 
     /** Channel navigation completed: background this player as a live in-app mini session. */
     boolean minimizeForNavigation() {
-        return prepareMiniPlayerHandoff(true);
+        if (!prepareMiniPlayerHandoff(true)) {
+            return false;
+        }
+        // The channel is already launched and on top here, so the docked player can leave the
+        // logical back stack immediately (the drag path defers this until after its reorder).
+        getViewManager().removeTop(this);
+        return true;
     }
 
     /** Capture/freeze the current frame and make the session texture available to a mini host. */
@@ -2451,6 +2475,16 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         detachVideoTexture();
         MiniPlayerBridge.activate(this);
+        // A deep-linked open arms ViewManager's player-only mode ("watch, then back to the
+        // launcher"). Minimizing into an in-app host means the user is now USING the app, so
+        // drop the flag - a stale one makes startParentView "exit to Home" on the next back
+        // press (observed: back from a channel with a docked card sent the app to the launcher).
+        getViewManager().enablePlayerOnlyMode(false);
+        // NOTE: the docked player also leaves ViewManager's logical stack (so a host's
+        // back-press resolves its parent to the screen BELOW the player instead of expanding
+        // the video), but each caller removes it at its own safe point - see minimizeByDrag
+        // (after the reorder launch) and minimizeForNavigation. The next onResume's addTop()
+        // re-inserts it when the card expands back to full screen.
         // Launching Browse over ourselves delivers onUserLeaveHint to this activity, and the
         // isNewViewPending() guard there is NOT reliable for this hand-off (observed: minimize
         // put the player into a system PiP window floating over the mini card). Suppress

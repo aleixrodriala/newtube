@@ -45,7 +45,8 @@ import java.util.Map;
  * (via {@code VideoActionPresenter.apply()}); long-press/⋮ shows the context menu through
  * the Wave-3 {@code MobileAppDialogActivity}.</p>
  */
-public class MobileChannelActivity extends MobileActivity implements ChannelView {
+public class MobileChannelActivity extends MobileActivity
+        implements ChannelView, MiniPlayerBridge.MiniHost {
     private static final int SCROLL_END_THRESHOLD_ITEMS = 6;
 
     /** A channel section, keyed by its {@link VideoGroup#getId()} so continuations/replacements
@@ -274,10 +275,28 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
         if (mPresenter != null) {
             mPresenter.onViewResumed();
         }
+        // Last-resumed host wins: a video opened from this channel minimizes back onto it.
+        MiniPlayerBridge.registerMiniHost(this);
         if (mMiniPlayer != null) {
             mMiniPlayer.sync(mAnimateMiniFromPlayer);
             mAnimateMiniFromPlayer = false;
         }
+    }
+
+    @Override
+    public boolean prepareMiniPlayerForHandoff(Runnable onDrawn) {
+        return mMiniPlayer != null && mMiniPlayer.prepareForHandoff(onDrawn);
+    }
+
+    @Override
+    public Class<?> getMiniHostViewClass() {
+        return ChannelView.class;
+    }
+
+    @Override
+    public int getMiniCardBottomOffsetPx() {
+        // Overlay card (mobile_mini_player_overlay.xml) sits flush at the content bottom.
+        return 0;
     }
 
     @Override
@@ -294,6 +313,8 @@ public class MobileChannelActivity extends MobileActivity implements ChannelView
 
     @Override
     protected void onDestroy() {
+        MiniPlayerBridge.unregisterMiniHost(this);
+
         if (mPresenter != null && mPresenter.getView() == this) {
             mPresenter.onViewDestroyed();
         }

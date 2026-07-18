@@ -7,6 +7,7 @@ import android.graphics.SurfaceTexture;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -103,6 +104,52 @@ public final class MobileMiniPlayerController {
                 animateFromWatchPage();
             }
         });
+    }
+
+    /**
+     * The translucent playback Activity is still on top when this runs. Make the endpoint card
+     * visible now so this host can draw it underneath before Android reorders it to the front.
+     * Mirrors Home's proven pre-render gate (see MobileBrowseActivity#prepareMiniPlayerForHandoff).
+     */
+    public boolean prepareForHandoff(Runnable onDrawn) {
+        if (mActivity.isFinishing() || mActivity.isDestroyed()) {
+            return false;
+        }
+        sync(false);
+        if (mBar.getVisibility() != View.VISIBLE) {
+            return false;
+        }
+
+        // A pair of frame callbacks only proves that time passed; it does not prove this paused
+        // window submitted a buffer. Gate the reorder on an actual draw containing the card, then
+        // wait one compositor frame before removing the playback window above it. The fallback
+        // avoids stranding the player at the endpoint if an OEM suppresses draws on paused windows.
+        final ViewTreeObserver observer = mBar.getViewTreeObserver();
+        class DrawGate implements ViewTreeObserver.OnDrawListener, Runnable {
+            private boolean mDelivered;
+
+            @Override
+            public void onDraw() {
+                mBar.post(this);
+            }
+
+            @Override
+            public void run() {
+                if (mDelivered) {
+                    return;
+                }
+                mDelivered = true;
+                if (observer.isAlive()) {
+                    observer.removeOnDrawListener(this);
+                }
+                mBar.postOnAnimation(onDrawn);
+            }
+        }
+        DrawGate gate = new DrawGate();
+        observer.addOnDrawListener(gate);
+        mBar.postDelayed(gate, 100);
+        mBar.invalidate();
+        return true;
     }
 
     /**

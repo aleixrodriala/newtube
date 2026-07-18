@@ -19,6 +19,7 @@ import com.liskovsoft.smartyoutubetv2.common.misc.MotherActivity;
 import com.liskovsoft.smartyoutubetv2.common.misc.ScreensaverManager;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import com.newtube.mobile.ui.playback.MiniPlayerBridge;
 
 /**
  * Mobile base Activity. Mirrors the lifecycle wiring that the TV base activity
@@ -170,8 +171,18 @@ public abstract class MobileActivity extends MotherActivity {
     @Override
     public void finish() {
         if (!getViewManager().hasParentView(this)) {
-            // Root screen (Home): back closes the app instead of leaving an empty stack.
-            Utils.properlyFinishTheApp(this);
+            if (MiniPlayerBridge.isActive()) {
+                // Root screen (Home) with a docked mini player. properlyFinishTheApp would
+                // force-finish the hidden playback activity (killing the mini session) and,
+                // with the player buried mid-stack, strand whatever activity sat underneath as
+                // a corrupted task root (observed: a stale Search screen became the app).
+                // Instead background the whole task like YouTube: the mini session and its
+                // audio survive, and reopening the app restores Home with the card docked.
+                moveTaskToBack(true);
+            } else {
+                // Root screen (Home): back closes the app instead of leaving an empty stack.
+                Utils.properlyFinishTheApp(this);
+            }
         } else {
             finishReally();
         }
@@ -189,9 +200,14 @@ public abstract class MobileActivity extends MotherActivity {
         // A true task-root/deep-link screen has nothing underneath, so retain the explicit parent
         // launch there. The pending-view race likewise only updates ViewManager's logical stack;
         // the newly launched destination must remain in front.
+        //
+        // With a docked mini player the screen physically below is the MINIMIZED playback
+        // activity - popping this one would reveal the fullscreen video instead of the logical
+        // parent screen. Route through the explicit parent launch, which reorders the parent
+        // over the buried player before this activity goes away.
         if (getViewManager().isNewViewPending()) {
             getViewManager().removeTop(this);
-        } else if (isTaskRoot()) {
+        } else if (isTaskRoot() || MiniPlayerBridge.isActive()) {
             getViewManager().startParentView(this);
         } else {
             getViewManager().removeTop(this);

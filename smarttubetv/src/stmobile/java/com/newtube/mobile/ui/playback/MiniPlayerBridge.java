@@ -33,17 +33,32 @@ import java.lang.ref.WeakReference;
  * activity, {@link #isActive()} turns false on its own and the bar simply hides.</p>
  */
 public final class MiniPlayerBridge {
-    /** Already-created Home screen that can draw the destination card before it is reordered. */
-    public interface BrowseHost {
+    /**
+     * A screen that can dock the live mini card: Home, Search, and Channel all qualify. The
+     * player minimizes onto whichever host was RESUMED most recently - that is exactly the
+     * screen sitting underneath the translucent playback window, so a video opened from Search
+     * minimizes back onto the search results instead of yanking Home to the front.
+     */
+    public interface MiniHost {
         /** @return true when the mini card was made visible and scheduled for drawing. */
         boolean prepareMiniPlayerForHandoff(Runnable onDrawn);
+
+        /** The ViewManager view class that reorders this host's Activity to the front. */
+        Class<?> getMiniHostViewClass();
+
+        /**
+         * Distance in px between the host's card bottom edge and the content bottom (Home's
+         * 56dp bottom-nav row; 0 for overlay hosts). Lets the minimize morph land exactly on
+         * THIS host's card instead of always assuming Home's geometry.
+         */
+        int getMiniCardBottomOffsetPx();
     }
 
     private static final long NAVIGATION_PENDING_MS = 30_000;
 
     private static WeakReference<MobilePlaybackActivity> sActivity = new WeakReference<>(null);
     private static WeakReference<MobilePlaybackActivity> sPendingNavigation = new WeakReference<>(null);
-    private static WeakReference<BrowseHost> sBrowseHost = new WeakReference<>(null);
+    private static WeakReference<MiniHost> sMiniHost = new WeakReference<>(null);
     private static long sPendingNavigationAtMs;
     private static boolean sActive;
     private static Bitmap sHandoffStill;
@@ -53,25 +68,36 @@ public final class MiniPlayerBridge {
     private MiniPlayerBridge() {
     }
 
-    /** Keep a weak link to Home so its mini card can be rendered underneath the player. */
-    public static void registerBrowseHost(BrowseHost host) {
-        sBrowseHost = new WeakReference<>(host);
+    /**
+     * Track the host screen currently underneath (or about to be underneath) the player. Called
+     * from each host's onResume - the last resumed host is the minimize destination. Hosts stay
+     * registered while merely paused (the player on top of them must still find them).
+     */
+    public static void registerMiniHost(MiniHost host) {
+        sMiniHost = new WeakReference<>(host);
     }
 
-    public static void unregisterBrowseHost(BrowseHost host) {
-        if (sBrowseHost.get() == host) {
-            sBrowseHost = new WeakReference<>(null);
+    public static void unregisterMiniHost(MiniHost host) {
+        if (sMiniHost.get() == host) {
+            sMiniHost = new WeakReference<>(null);
         }
     }
 
+    /** The registered destination host, or null (deep-linked player with no screen beneath). */
+    @Nullable
+    static MiniHost getMiniHost() {
+        return sMiniHost.get();
+    }
+
     /**
-     * Pre-render Home's destination card while the playback window still covers it. This closes
-     * the one-frame gap between hiding the morphed playback Activity and Home's onResume callback.
-     * Kept separate from {@link #activate(MobilePlaybackActivity)} because channel navigation has
-     * a different mini-player host and must not let Home claim the shared SurfaceTexture.
+     * Pre-render the destination card while the playback window still covers it. This closes
+     * the one-frame gap between hiding the morphed playback Activity and the host's onResume
+     * callback. Kept separate from {@link #activate(MobilePlaybackActivity)} because channel
+     * navigation has a different mini-player host and must not let this host claim the shared
+     * SurfaceTexture.
      */
-    static boolean prepareBrowseHostForHandoff(Runnable onDrawn) {
-        BrowseHost host = sBrowseHost.get();
+    static boolean prepareMiniHostForHandoff(Runnable onDrawn) {
+        MiniHost host = sMiniHost.get();
         return host != null && host.prepareMiniPlayerForHandoff(onDrawn);
     }
 

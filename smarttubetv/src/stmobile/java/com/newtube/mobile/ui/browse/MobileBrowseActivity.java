@@ -85,7 +85,7 @@ import java.util.List;
  * the real touch player ({@code MobilePlaybackActivity}).
  */
 public class MobileBrowseActivity extends MobileActivity
-        implements BrowseView, MiniPlayerBridge.BrowseHost {
+        implements BrowseView, MiniPlayerBridge.MiniHost {
     /** BottomNavigationView item ids must be non-zero; BrowseSection ids start at 0. */
     private static final int ITEM_ID_OFFSET = 1_000_000;
     private static final int SCROLL_END_THRESHOLD_ITEMS = 6;
@@ -184,7 +184,6 @@ public class MobileBrowseActivity extends MobileActivity
         registerBackHandler(this::handleBack);
 
         bindViews();
-        MiniPlayerBridge.registerBrowseHost(this);
         setupContentGrid();
         setupBottomNav();
         setupDrawer();
@@ -328,6 +327,17 @@ public class MobileBrowseActivity extends MobileActivity
 
         Utils.removeCallbacks(mMiniPlayerTick);
         Utils.postDelayed(mMiniPlayerTick, MINI_TICK_MS);
+    }
+
+    @Override
+    public Class<?> getMiniHostViewClass() {
+        return BrowseView.class;
+    }
+
+    @Override
+    public int getMiniCardBottomOffsetPx() {
+        // The card floats above the 56dp Material bottom-nav row (see activity_mobile_browse.xml).
+        return Math.round(56 * getResources().getDisplayMetrics().density);
     }
 
     /**
@@ -920,6 +930,9 @@ public class MobileBrowseActivity extends MobileActivity
         }
 
         updateAccountRow();
+        // Last-resumed host wins: while this screen is (or is about to be) the one under the
+        // player, minimize docks its card here.
+        MiniPlayerBridge.registerMiniHost(this);
         syncMiniPlayer();
         // Home may have been paused while the player crossed landscape/PiP configurations. Those
         // callbacks can arrive while DisplayMetrics still describe the player window, so always
@@ -990,7 +1003,7 @@ public class MobileBrowseActivity extends MobileActivity
 
     @Override
     protected void onDestroy() {
-        MiniPlayerBridge.unregisterBrowseHost(this);
+        MiniPlayerBridge.unregisterMiniHost(this);
 
         if (mPresenter != null) {
             mPresenter.onViewDestroyed();

@@ -20,6 +20,8 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelUploadsView;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.browse.VideoCardAdapter;
 import com.newtube.mobile.ui.common.MobileActivity;
+import com.newtube.mobile.ui.playback.MiniPlayerBridge;
+import com.newtube.mobile.ui.playback.MobileMiniPlayerController;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -53,10 +55,14 @@ import java.util.List;
  *   <li>Scroll near the end -> {@link ChannelUploadsPresenter#onScrollEnd} paginates.</li>
  * </ul>
  */
-public class MobileChannelUploadsActivity extends MobileActivity implements ChannelUploadsView {
+public class MobileChannelUploadsActivity extends MobileActivity
+        implements ChannelUploadsView, MiniPlayerBridge.MiniHost {
     private static final int SCROLL_END_THRESHOLD_ITEMS = 6;
 
     private ChannelUploadsPresenter mPresenter;
+
+    /** Docks the live player card when a video opened from this list is minimized. */
+    private MobileMiniPlayerController mMiniPlayer;
 
     private RecyclerView mGrid;
     private GridLayoutManager mLayoutManager;
@@ -78,6 +84,7 @@ public class MobileChannelUploadsActivity extends MobileActivity implements Chan
         registerBackHandler(this::handleBack);
 
         bindViews();
+        mMiniPlayer = new MobileMiniPlayerController(this);
         setupGrid();
 
         mBackButton.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
@@ -189,10 +196,20 @@ public class MobileChannelUploadsActivity extends MobileActivity implements Chan
         if (mPresenter != null) {
             mPresenter.onViewResumed();
         }
+        // Last-resumed host wins: a video opened from this list minimizes back onto it.
+        MiniPlayerBridge.registerMiniHost(this);
+        if (mMiniPlayer != null) {
+            mMiniPlayer.sync(false);
+        }
     }
 
     @Override
     protected void onPause() {
+        // Free the mini bar's video surface whenever this screen leaves the foreground - the
+        // playback activity may be about to re-claim it (expand / new video).
+        if (mMiniPlayer != null) {
+            mMiniPlayer.hide();
+        }
         super.onPause();
 
         if (mPresenter != null) {
@@ -202,11 +219,29 @@ public class MobileChannelUploadsActivity extends MobileActivity implements Chan
 
     @Override
     protected void onDestroy() {
+        MiniPlayerBridge.unregisterMiniHost(this);
+
         if (mPresenter != null && mPresenter.getView() == this) {
             mPresenter.onViewDestroyed();
         }
 
         super.onDestroy();
+    }
+
+    @Override
+    public boolean prepareMiniPlayerForHandoff(Runnable onDrawn) {
+        return mMiniPlayer != null && mMiniPlayer.prepareForHandoff(onDrawn);
+    }
+
+    @Override
+    public Class<?> getMiniHostViewClass() {
+        return ChannelUploadsView.class;
+    }
+
+    @Override
+    public int getMiniCardBottomOffsetPx() {
+        // Overlay card (mobile_mini_player_overlay.xml) sits flush at the content bottom.
+        return 0;
     }
 
     private void handleBack() {
