@@ -2146,17 +2146,13 @@ public class MobilePlaybackActivity extends MobileActivity
     /** Detach the TextureView so the session texture is free for another view's GL consumer. */
     private void detachVideoTexture() {
         if (mVideoTexture != null && mVideoTexture.getParent() instanceof ViewGroup) {
-            // Actively swap a throwaway texture into the outgoing view BEFORE removing it.
-            // removeView alone leaves the session texture bound to this view's HWUI layer
-            // until the layer's lazy teardown (observed 1.5-3s on Pixel while this window
-            // sits invisible) - during that window the adopting mini card renders the
-            // texture mis-transformed and then visibly snaps (reads as a card "refresh").
-            // The swap releases the GL binding now; the throwaway dies with the view
-            // (onSurfaceTextureDestroyed returns true for non-session textures).
-            if (android.os.Build.VERSION.SDK_INT >= 26 && mVideoTexture.isAvailable()
-                    && mVideoTexture.getSurfaceTexture() == mSessionTexture) {
-                mVideoTexture.setSurfaceTexture(new SurfaceTexture(false));
-            }
+            // NOTE: do NOT "swap a throwaway texture in" here to force an eager GL release.
+            // TextureView#setSurfaceTexture releases the texture it currently holds, so that
+            // swap destroys the session texture and the adopting mini card crashes with
+            // "Cannot setSurfaceTexture to a released SurfaceTexture". The known cosmetic
+            // cost of plain removeView is that the outgoing HWUI layer can keep the texture
+            // GL-bound for a beat (observed 1.5-3s on Pixel), during which the adopting card
+            // renders mis-transformed and then snaps - an open issue needing a different fix.
             ((ViewGroup) mVideoTexture.getParent()).removeView(mVideoTexture);
         }
     }

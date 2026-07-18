@@ -474,14 +474,9 @@ public class MobileBrowseActivity extends MobileActivity
                     MiniPlayerBridge.setHandoffStill(still);
                 }
             }
-            // Actively swap a throwaway texture in BEFORE removing the view: removeView alone
-            // leaves the session texture GL-bound to this view's HWUI layer until lazy teardown,
-            // and the expanding player would render it mis-transformed until then (same defect
-            // as the minimize direction, see MobilePlaybackActivity#detachVideoTexture).
-            if (android.os.Build.VERSION.SDK_INT >= 26 && mMiniTexture.isAvailable()
-                    && mMiniTexture.getSurfaceTexture() == MiniPlayerBridge.getSessionTexture()) {
-                mMiniTexture.setSurfaceTexture(new SurfaceTexture(false));
-            }
+            // No throwaway-texture swap here: TextureView#setSurfaceTexture releases the
+            // texture the view currently holds, which would destroy the session texture
+            // (see MobilePlaybackActivity#detachVideoTexture).
             mMiniPlayerFrame.removeView(mMiniTexture);
             mMiniTexture = null; // next show builds a fresh view (see attachMiniTexture)
         }

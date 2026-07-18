@@ -173,13 +173,9 @@ public final class MobileMiniPlayerController {
                     MiniPlayerBridge.setHandoffStill(still);
                 }
             }
-            // Swap a throwaway texture in BEFORE removing the view so the session texture's GL
-            // binding is released now, not at lazy layer teardown (see MobilePlaybackActivity
-            // #detachVideoTexture for the visible defect this prevents).
-            if (android.os.Build.VERSION.SDK_INT >= 26 && mTexture.isAvailable()
-                    && mTexture.getSurfaceTexture() == MiniPlayerBridge.getSessionTexture()) {
-                mTexture.setSurfaceTexture(new SurfaceTexture(false));
-            }
+            // No throwaway-texture swap here: TextureView#setSurfaceTexture releases the
+            // texture the view currently holds, which would destroy the session texture
+            // (see MobilePlaybackActivity#detachVideoTexture).
             mFrame.removeView(mTexture);
             mTexture = null;
         }
