@@ -269,6 +269,16 @@ public class MobilePlaybackActivity extends MobileActivity
     private boolean mScrubbing;
     private boolean mIsEnded;
     private boolean mIsInPip;
+    /** True between onStop and onStart; distinguishes PiP-dismiss orderings (see onPictureInPictureModeChanged). */
+    private boolean mIsStopped;
+    /**
+     * Set when PiP mode ends, cleared when the fullscreen UI actually resumes. If onStop arrives
+     * with it still set, the PiP window was DISMISSED (the X / swipe-away), not expanded: Android 16's
+     * pip2 shell doesn't finish the activity on dismiss (it delivers modeChanged(false) then onStop
+     * and parks the task at the bottom), so without this the "closed" video kept playing audio
+     * forever and the stopped player lingered as a zombie task that hijacked the next video open.
+     */
+    private boolean mPipDismissPending;
     /** True while in true background audio-only playback (video renderer dropped); see setBackgroundAudioMode. */
     private boolean mBackgroundAudioMode;
 
@@ -785,6 +795,12 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        mIsStopped = false;
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
 
@@ -792,6 +808,8 @@ public class MobilePlaybackActivity extends MobileActivity
 
         // In the foreground again: auto-PiP behaves normally from here on.
         mSuppressAutoPip = false;
+        // The PiP exit ended in the fullscreen UI, so it was an expand, not a dismiss.
+        mPipDismissPending = false;
         // Re-enable the video track BEFORE any texture reattach below, so the first frame comes
         // back promptly (true background audio-only mode dropped the whole video renderer).
         setBackgroundAudioMode(false);
@@ -868,6 +886,17 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     protected void onStop() {
         super.onStop();
+
+        mIsStopped = true;
+
+        // Going to the background right after leaving PiP mode, without the fullscreen UI ever
+        // resuming: the user dismissed the PiP window. Close the video for real (see
+        // mPipDismissPending) instead of falling through into background-audio mode.
+        if (mPipDismissPending) {
+            mPipDismissPending = false;
+            finishFromPipDismiss();
+            return;
+        }
 
         // True background audio-only playback: the window is no longer visible AND we're neither in
         // system PiP nor the in-app Browse mini-player (both of which show live video), so the
@@ -1013,6 +1042,29 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         finish();
+    }
+
+    /**
+     * The user dismissed the system PiP window (X / swipe-away): close the video like YouTube does.
+     * The player sits alone in its own (formerly pinned) task at this point, so
+     * {@code finishAndRemoveTask()} kills exactly that task - the shared Browse task is untouched.
+     * Bypasses the {@code MobileActivity.finish()} routing on purpose: its root-screen branches
+     * (parent relaunch / task-to-back) are for screens the user is looking at, not for an invisible
+     * dismissed player.
+     */
+    private void finishFromPipDismiss() {
+        if (isFinishing() || isDestroyed()) {
+            return; // the system already finished us (older PiP shell) - nothing to do
+        }
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG,
+                    "pip dismissed -> closing playback");
+        }
+        if (mPresenter != null) {
+            mPresenter.onFinish();
+        }
+        getViewManager().removeTop(this);
+        finishAndRemoveTask();
     }
 
     /**
@@ -1304,6 +1356,7 @@ public class MobilePlaybackActivity extends MobileActivity
         mIsInPip = isInPictureInPictureMode;
 
         if (isInPictureInPictureMode) {
+            mPipDismissPending = false;
             // Video only: hide the controls overlay and the watch-page content, fill with the video.
             cancelAutoHide();
             hideControls();
@@ -1330,6 +1383,15 @@ public class MobilePlaybackActivity extends MobileActivity
             }
             updatePipActions();
         } else {
+            // Dismiss vs expand: an expand always ends with onResume (which clears the flag); a
+            // dismiss ends with onStop. On the older PiP shell the dismissal onStop ran BEFORE this
+            // callback, so if we're already stopped this exit can only be a dismissal - finish now.
+            if (mIsStopped) {
+                finishFromPipDismiss();
+                return;
+            }
+            mPipDismissPending = true;
+
             // Mirror of the setBackgroundAudioMode(false) revive: the sheet fragment survives the
             // PiP stint, so bring its stream back when the full watch UI returns.
             if (mChatObserver != null && mChatReceiver == null
