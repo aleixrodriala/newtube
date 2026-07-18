@@ -128,6 +128,11 @@ android {
             if (keystorePropertiesFile.exists()) {
                 signingConfig signingConfigs.release
             }
+            // TEMP(handoff-probe): side-by-side install for on-device debugging without
+            // touching the release-signed main install. Remove before committing.
+            if (project.hasProperty('probeSuffix')) {
+                applicationIdSuffix ".probe"
+            }
         }
     }
 
@@ -170,8 +175,8 @@ android {
             // fork-point 31.97/2387). versionCode starts at 10000 - above upstream's code so
             // existing test installs upgrade in place - and encodes the version:
             // 1.0.0 -> 10000, 1.0.1 -> 10001, 1.1.0 -> 10100, 2.0.0 -> 20000.
-            versionCode 10400
-            versionName "1.4.0"
+            versionCode 10401
+            versionName "1.4.1"
         }
     }
 }
