@@ -35,6 +35,7 @@ import com.google.android.material.navigation.NavigationView;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaGroup;
 import com.liskovsoft.mediaserviceinterfaces.oauth.Account;
 import com.liskovsoft.sharedutils.helpers.Helpers;
+import com.liskovsoft.smartyoutubetv2.tv.BuildConfig;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.BrowseSection;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.SettingsGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.SettingsItem;
@@ -404,6 +405,13 @@ public class MobileBrowseActivity extends MobileActivity
                 @Override
                 public void onSurfaceTextureAvailable(SurfaceTexture texture, int width, int height) {
                     SurfaceTexture session = MiniPlayerBridge.getSessionTexture();
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG,
+                                "mini tex available t=" + android.os.SystemClock.uptimeMillis()
+                                        + " session=" + (session != null)
+                                        + " cb=" + width + "x" + height
+                                        + " view=" + textureView.getWidth() + "x" + textureView.getHeight());
+                    }
                     if (session != null && texture != session) {
                         textureView.setSurfaceTexture(session);
                         texture.release(); // the view-created texture is never used
@@ -412,6 +420,12 @@ public class MobileBrowseActivity extends MobileActivity
 
                 @Override
                 public void onSurfaceTextureSizeChanged(SurfaceTexture texture, int width, int height) {
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG,
+                                "mini tex sizeChanged t=" + android.os.SystemClock.uptimeMillis()
+                                        + " cb=" + width + "x" + height
+                                        + " view=" + textureView.getWidth() + "x" + textureView.getHeight());
+                    }
                 }
 
                 @Override
@@ -425,6 +439,10 @@ public class MobileBrowseActivity extends MobileActivity
                 public void onSurfaceTextureUpdated(SurfaceTexture texture) {
                     // First live frame in the card: lift the freeze frame.
                     if (mMiniFreeze != null && mMiniFreeze.getVisibility() == View.VISIBLE) {
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG,
+                                    "mini tex first update t=" + android.os.SystemClock.uptimeMillis());
+                        }
                         mMiniFreeze.setVisibility(View.GONE);
                         mMiniFreeze.setImageDrawable(null);
                     }
@@ -455,6 +473,14 @@ public class MobileBrowseActivity extends MobileActivity
                     mMiniFreeze.setVisibility(View.VISIBLE);
                     MiniPlayerBridge.setHandoffStill(still);
                 }
+            }
+            // Actively swap a throwaway texture in BEFORE removing the view: removeView alone
+            // leaves the session texture GL-bound to this view's HWUI layer until lazy teardown,
+            // and the expanding player would render it mis-transformed until then (same defect
+            // as the minimize direction, see MobilePlaybackActivity#detachVideoTexture).
+            if (android.os.Build.VERSION.SDK_INT >= 26 && mMiniTexture.isAvailable()
+                    && mMiniTexture.getSurfaceTexture() == MiniPlayerBridge.getSessionTexture()) {
+                mMiniTexture.setSurfaceTexture(new SurfaceTexture(false));
             }
             mMiniPlayerFrame.removeView(mMiniTexture);
             mMiniTexture = null; // next show builds a fresh view (see attachMiniTexture)

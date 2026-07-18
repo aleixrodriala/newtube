@@ -2146,6 +2146,17 @@ public class MobilePlaybackActivity extends MobileActivity
     /** Detach the TextureView so the session texture is free for another view's GL consumer. */
     private void detachVideoTexture() {
         if (mVideoTexture != null && mVideoTexture.getParent() instanceof ViewGroup) {
+            // Actively swap a throwaway texture into the outgoing view BEFORE removing it.
+            // removeView alone leaves the session texture bound to this view's HWUI layer
+            // until the layer's lazy teardown (observed 1.5-3s on Pixel while this window
+            // sits invisible) - during that window the adopting mini card renders the
+            // texture mis-transformed and then visibly snaps (reads as a card "refresh").
+            // The swap releases the GL binding now; the throwaway dies with the view
+            // (onSurfaceTextureDestroyed returns true for non-session textures).
+            if (android.os.Build.VERSION.SDK_INT >= 26 && mVideoTexture.isAvailable()
+                    && mVideoTexture.getSurfaceTexture() == mSessionTexture) {
+                mVideoTexture.setSurfaceTexture(new SurfaceTexture(false));
+            }
             ((ViewGroup) mVideoTexture.getParent()).removeView(mVideoTexture);
         }
     }
@@ -2536,6 +2547,10 @@ public class MobilePlaybackActivity extends MobileActivity
             }
         }
         detachVideoTexture();
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(com.liskovsoft.smartyoutubetv2.common.misc.NetPath.TAG,
+                    "mini handoff detach t=" + android.os.SystemClock.uptimeMillis());
+        }
         MiniPlayerBridge.activate(this);
         // A deep-linked open arms ViewManager's player-only mode ("watch, then back to the
         // launcher"). Minimizing into an in-app host means the user is now USING the app, so
