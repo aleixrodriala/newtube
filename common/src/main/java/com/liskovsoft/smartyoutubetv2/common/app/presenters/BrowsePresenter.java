@@ -87,6 +87,24 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
     private static final long SECTION_FRESH_MS = 5 * 60 * 1_000;
     private final Map<Integer, Long> mSectionFetchTimeMs = new HashMap<>();
     private boolean mForceSectionUpdate;
+    /**
+     * Phone gates (set once from MobileMainApplication, never on TV — TV keeps upstream
+     * behavior). Row-pad: the eager MIN_ROW_GROUP_SIZE continuations exist to fill short
+     * TV shelf rows; the phone flattens every row into one grid, so they only add serial
+     * round trips before first paint. Refocus guard: at boot the view selects the boot
+     * section twice (refreshSections tail + onViewInitialized tail) — the second focus
+     * disposed the in-flight load and resubscribed the same observable.
+     */
+    private static volatile boolean sRowPadContinuationsDisabled;
+    private static volatile boolean sSkipRedundantRefocusLoad;
+
+    public static void setRowPadContinuationsDisabled(boolean disabled) {
+        sRowPadContinuationsDisabled = disabled;
+    }
+
+    public static void setSkipRedundantRefocusLoad(boolean skip) {
+        sSkipRedundantRefocusLoad = skip;
+    }
 
     private BrowsePresenter(Context context) {
         super(context);
@@ -506,6 +524,14 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
 
     @Override
     public void onSectionFocused(int sectionId) {
+        // Same section re-focused while its load is still in flight (the boot double-select):
+        // updateCurrentSection would dispose that load and resubscribe the same observable.
+        if (sSkipRedundantRefocusLoad && mCurrentSection != null && mCurrentSection.getId() == sectionId
+                && RxHelper.isAnyActionRunning(mActions)) {
+            Log.d(TAG, "Section %s load already in flight — skipping refocus reload", mCurrentSection.getTitle());
+            return;
+        }
+
         saveSelectedItems(); // save previous state
         mCurrentSection = findSectionById(sectionId);
         mCurrentVideo = null; // fast scroll through the sections (fix empty selected item)
@@ -973,6 +999,13 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
      * Most tiny ui has 8 cards in a row or 24 in grid.
      */
     private void continueGroupIfNeeded(VideoGroup group, boolean showLoading) {
+        // Row shelves don't exist on the phone (rows flatten into one grid), so padding
+        // short rows to MIN_ROW_GROUP_SIZE is invisible there — scroll-end pagination
+        // still continues groups the normal way. Grid sections keep the fill logic.
+        if (sRowPadContinuationsDisabled && !isGridSection()) {
+            return;
+        }
+
         if (MediaServiceManager.instance().shouldContinueTheGroup(getContext(), group, isGridSection())) {
             continueGroup(group, showLoading);
         }
@@ -1199,6 +1232,12 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         Log.d(TAG, "On account changed");
 
         mSectionFetchTimeMs.clear(); // feeds are per-account
+
+        // An in-flight load belongs to the PREVIOUS account; without this the refocus guard
+        // (onSectionFocused) would see it running and skip the new account's reload.
+        if (sSkipRedundantRefocusLoad) {
+            disposeActions();
+        }
 
         if (getView() == null) {
             return;

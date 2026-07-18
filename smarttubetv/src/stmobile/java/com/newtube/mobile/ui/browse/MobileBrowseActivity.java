@@ -52,6 +52,7 @@ import com.liskovsoft.smartyoutubetv2.common.misc.AppDataSourceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import com.newtube.mobile.SessionWarmup;
 import com.newtube.mobile.ui.common.FeedCache;
 import com.newtube.mobile.ui.common.MobileActivity;
 import com.newtube.mobile.ui.playback.MiniPlayerBridge;
@@ -645,7 +646,10 @@ public class MobileBrowseActivity extends MobileActivity
      * already on its way; {@link #mAwaitingFreshContent} makes its result replace this.
      */
     private void paintCachedSnapshot(int sectionId) {
-        List<Video> cached = FeedCache.get(sectionId);
+        // Falls back to the persisted snapshot on the process's first paint of this section,
+        // so even a cold start shows cards instead of the skeleton (display-only until the
+        // refetch replaces it — see FeedCache class doc).
+        List<Video> cached = FeedCache.getOrRestore(sectionId);
 
         mCurrentVideos.clear();
         mAwaitingFreshContent = cached != null;
@@ -976,6 +980,15 @@ public class MobileBrowseActivity extends MobileActivity
     }
 
     @Override
+    protected void onStop() {
+        super.onStop();
+
+        // Snapshot the feeds to disk so the NEXT cold start paints cards instantly. onStop fires
+        // once per backgrounding — the last reliable moment before most process deaths.
+        FeedCache.persist();
+    }
+
+    @Override
     protected void onDestroy() {
         MiniPlayerBridge.unregisterBrowseHost(this);
 
@@ -1153,6 +1166,9 @@ public class MobileBrowseActivity extends MobileActivity
             if (!mCurrentVideos.isEmpty()) {
                 setSkeletonVisible(false);
                 FeedCache.put(mCurrentSectionId, mCurrentVideos);
+                // First FRESH feed content is on screen -> the launch-critical /browse chain is
+                // done; now the heavy one-time session warmup can run without racing it.
+                SessionWarmup.start(this);
             }
         });
     }

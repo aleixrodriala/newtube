@@ -158,6 +158,23 @@ public class MobileMainApplication extends MainApplication {
         // TV never calls this -> TV keeps the combined-window sort unchanged.
         com.liskovsoft.youtubeapi.browse.v2.BrowseServiceGates.setSkipContinuationPreCombine(true);
 
+        // FEED FIRST-PAINT (mobile-only, round 2): Home's eager row-pad continuations exist to
+        // fill short TV shelf rows to MIN_ROW_GROUP_SIZE=5; the phone flattens every row into one
+        // grid, so they were ~6 invisible serial /browse continuations (~350KB) racing the first
+        // paint. Scroll-end pagination is untouched. And at boot the view used to select the boot
+        // section twice (refreshSections tail + onViewInitialized tail), disposing the in-flight
+        // load and resubscribing the same observable — skip the redundant refocus. TV never calls
+        // these -> TV shelf fill + focus behavior unchanged.
+        com.liskovsoft.smartyoutubetv2.common.app.presenters.BrowsePresenter.setRowPadContinuationsDisabled(true);
+        com.liskovsoft.smartyoutubetv2.common.app.presenters.BrowsePresenter.setSkipRedundantRefocusLoad(true);
+
+        // API COMPRESSION (mobile-only): negotiate brotli for InnerTube JSON (feeds are the big
+        // payloads — br is ~15-25% smaller than gzip on them). Upstream flip-flopped `br` four
+        // times for TV-box reasons (decompression RAM on 512MB boxes, ByeByeDPI users); neither
+        // applies here, and the br decode path (UnzippingInterceptor) has been wired all along.
+        // TV never calls this -> TV keeps gzip-only.
+        com.liskovsoft.googlecommon.common.helpers.DefaultHeaders.setBrotliEnabled(true);
+
         // TTFF FIX (mobile-only, click-to-play parallelization): kick the getVideoInfo fetch the instant a
         // video is tapped (PlaybackPresenter.openVideo) so the network round-trip - the single biggest
         // chunk of click-to-play - overlaps the player Activity's bring-up (layout inflation + ExoPlayer
@@ -240,15 +257,37 @@ public class MobileMainApplication extends MainApplication {
 
         // FIRST-RUN FIX (mobile-only): run the one-time YouTube session setup (visitor identity,
         // app info, player-JS de-scrambler parse, client probing - ~15-20s on a fresh install) in
-        // the background at app start, while the user is still browsing Home, instead of inside
-        // their FIRST video tap. See SessionWarmup for the locking/caching guarantees. TV never
-        // calls this -> TV startup unchanged.
-        SessionWarmup.start(this);
+        // the background, instead of inside the user's FIRST video tap. Round 2: the fetch itself
+        // now waits for the first feed paint (MobileBrowseActivity kicks SessionWarmup.start) so
+        // its /player + JS parse never race the launch-critical /browse chain; init() restores
+        // the persisted warm flag and arms a 15s fallback for offline/deep-link launches. See
+        // SessionWarmup for the locking/caching guarantees. TV never calls this.
+        SessionWarmup.init(this);
 
         // FEED SNAPSHOTS (mobile-only): the grids repaint their last-known content instantly
-        // while the presenters refetch (see FeedCache). Feeds are per-account, so an account
-        // switch must drop every snapshot or the next repaint shows the previous user's feed.
+        // while the presenters refetch (see FeedCache), and since round 2 the last session's
+        // feeds also persist to disk so even a COLD start paints cards immediately (display-only
+        // until the refetch lands — a disk-restored Video has no live VideoGroup to paginate).
+        // Feeds are per-account, so an account switch must drop every snapshot (memory + disk)
+        // or the next repaint shows the previous user's feed.
+        FeedCache.init(this);
         MediaServiceManager.instance().addAccountListener(account -> FeedCache.clear());
+
+        // API PRECONNECT (mobile-only): warm the www.youtube.com TLS/H2 session the instant the
+        // process starts. RetrofitOkHttpHelper's InnerTube client is built via newBuilder() off
+        // OkHttpManager's base client, so they SHARE one ConnectionPool — a completed handshake
+        // here is the connection the first /browse rides, taking DNS+TCP+TLS off the cold-start
+        // critical path (the googlevideo preconnect above covers only the media host).
+        Thread preconnect = new Thread(() -> {
+            try {
+                OkHttpManager.instance().warmUpConnection("https://www.youtube.com/generate_204");
+                android.util.Log.d("NetPath", "preconnected www.youtube.com");
+            } catch (Throwable e) {
+                android.util.Log.d("NetPath", "www.youtube.com preconnect skipped: " + e.getMessage());
+            }
+        }, "TubePreconnect");
+        preconnect.setDaemon(true);
+        preconnect.start();
 
         ViewManager viewManager = ViewManager.instance(this);
 

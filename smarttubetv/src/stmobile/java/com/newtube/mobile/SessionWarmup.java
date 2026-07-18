@@ -18,7 +18,7 @@ import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
  * video-independent, so it can run in the background while the user is still browsing Home.
  *
  * This fires a throwaway blocking format fetch for a stable public video on a low-priority
- * thread shortly after app start. Every stage it warms is cached (and partly persisted) by
+ * thread once the first feed has painted (launch fallback: 15s). Every stage it warms is cached (and partly persisted) by
  * MediaServiceCore, so the user's first real video open drops to the normal ~1-2s. If the user
  * taps a video WHILE the warmup is mid-flight, the two requests serialize on MediaServiceCore's
  * internal locks (mAppInfoSync/mPlayerSync/mClientDataSync) and share the caches - the tap waits
@@ -35,13 +35,40 @@ public final class SessionWarmup {
     private static final String KEY_SETUP_DONE = "first_setup_done";
     /** Big Buck Bunny (Blender Foundation) - public, stable for a decade, region-free. */
     private static final String WARMUP_VIDEO_ID = "aqz-KE-bpKQ";
-    /** Let Home's own feed request out of the gate first; the warmup is heavy (JS parse). */
+    /** Let the feed's own image loads out of the gate first; the warmup is heavy (JS parse). */
     private static final long START_DELAY_MS = 1_200;
+    /**
+     * The warmup is normally kicked by the first feed paint (MobileBrowseActivity) so it never
+     * competes with the launch-critical /browse chain. This fallback covers the paths where no
+     * feed ever paints: offline first launch, or a deep link straight into playback.
+     */
+    private static final long LAUNCH_FALLBACK_DELAY_MS = 15_000;
 
     private static volatile boolean sStarted;
     private static volatile boolean sWarm;
 
     private SessionWarmup() {
+    }
+
+    /**
+     * Call once from Application.onCreate: restores the persisted warm flag (isWarm feeds the
+     * player's first-run hint, which may be consulted before any feed paints) and arms the
+     * launch fallback. Does NOT fire the warmup fetch — that waits for the first feed paint.
+     */
+    public static void init(Context context) {
+        Context appContext = context.getApplicationContext();
+        sWarm = prefs(appContext).getBoolean(KEY_SETUP_DONE, false);
+
+        Thread fallback = new Thread(() -> {
+            try {
+                Thread.sleep(LAUNCH_FALLBACK_DELAY_MS);
+                start(appContext);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "session-warmup-fallback");
+        fallback.setDaemon(true);
+        fallback.start();
     }
 
     /** Kick the one-shot background warmup. Safe to call more than once; only the first acts. */
@@ -52,7 +79,6 @@ public final class SessionWarmup {
         sStarted = true;
 
         Context appContext = context.getApplicationContext();
-        sWarm = prefs(appContext).getBoolean(KEY_SETUP_DONE, false);
 
         Thread thread = new Thread(() -> {
             try {

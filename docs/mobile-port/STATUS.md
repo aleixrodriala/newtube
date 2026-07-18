@@ -256,6 +256,61 @@ All device-verified on the Pixel 9 (WiFi, signed in, wireless adb
   zero reloads across Mumford/RAYE/Sting/Parcels; their historical difficulty
   is carrier-attestation dynamics (HANDOFF §8), not content.
 
+## Works (added 2026-07-18 — feed-load round, tier 2)
+All six approved tier-2 items shipped (Pixel 9 WiFi-verified same day, cold
+start × 2 + subs + TTL switches + pull-to-refresh + playback soak):
+- **Disk-backed FeedCache snapshot**: sections persist to
+  `files/feed_snapshots/<sectionId>.snap` on Browse onStop (top 40 videos,
+  `Helpers.mergeList` of `Video.toString`, atomic tmp+rename) and restore on
+  the process's first in-memory miss — verified cold start paints 40 Home
+  cards at ~0.6s, BEFORE the first /browse even leaves ("Restored 40 videos
+  from disk"). Display-only until the refetch replaces it (a deserialized
+  Video has no live VideoGroup → no page key; the refetch ALWAYS follows
+  because the browse TTL map is in-memory and empty on a fresh process).
+  Account switch wipes memory + disk via the existing FeedCache.clear()
+  listener — whatever is on disk always belongs to the selected account.
+- **SessionWarmup deferred to first feed paint**: the throwaway BBB format
+  fetch (JS parse + /player) used to fire at +1.2s and race the launch
+  /browse chain; now MobileBrowseActivity kicks it after the first FRESH
+  content paint (verified ordering in logcat), with a 15s launch fallback
+  (offline / deep-link paths) and `init()` restoring the persisted warm flag
+  early (the first-run player hint reads it before any feed paints).
+- **Brotli for InnerTube JSON (phone-gated)**: `DefaultHeaders.brotliEnabled`
+  + request-time Accept-Encoding resolution in RetrofitOkHttpHelper; decode
+  side (UnzippingInterceptor) was wired all along. Verified "brotli active:
+  first br response /youtubei/v1/visitor_id" + feeds/watch-page/playback all
+  parse fine. Upstream's four `br` reverts were TV-box RAM + ByeByeDPI
+  concerns — neither applies to phones; TV keeps gzip-only (gate off).
+- **www.youtube.com preconnect at app start**: background HEAD to
+  /generate_204 through OkHttpManager (whose pool the InnerTube client
+  SHARES via newBuilder) — verified 204 in ~190ms before the first API call.
+  OkHttpManager.instance()/getClient() made synchronized in SharedModules
+  (the preconnect thread racing the first API call could otherwise build two
+  clients with separate pools, silently voiding the warmup).
+- **Boot double-load guard**: onViewInitialized used to select the boot
+  section twice (refreshSections tail + its own tail) → dispose+resubscribe
+  of the same in-flight observable. Phone gate in BrowsePresenter
+  .onSectionFocused skips a same-section refocus while its load is running —
+  verified "Section Inicio load already in flight — skipping refocus
+  reload" on both cold starts. onAccountChanged disposes in-flight loads
+  first (gate-tied) so the guard can never pin a stale account's fetch.
+- **Row-pad continuations gated off** (`setRowPadContinuationsDisabled`):
+  the MIN_ROW_GROUP_SIZE=5 eager fills exist for TV shelf rows; the phone
+  flattens rows into one grid. NOTE the audit mis-attributed Home's
+  continuation storm to this — the real driver is YouTubeContentService
+  .emitGroupsPartial's while-loop draining EVERY home section-list
+  continuation (~6 × ~35KB, growing ctoken bodies). That drain was
+  DELIBERATELY KEPT: it runs after first paint (page 1 emits before
+  continuation 2 fires, verified), and it is what fills the phone grid's
+  whole scroll depth, which the 5-min TTL then serves for free. Capping it
+  would shorten Home's scroll depth for a post-paint-only saving. A proper
+  fix would be a lazy scroll-driven section-list continuation (new plumbing:
+  BrowsePresenter has no notion of a section-list key) — future item.
+- Net cold-start on WiFi: launch → painted cards ~0.6s (disk snapshot) with
+  the fresh replace landing ~1.4s later; zero auth requests (tier-1 token
+  restore, verified again at age 41 min); subs still 1 request; TTL switches
+  still zero; pull-to-refresh bypass intact; 95s playback soak clean.
+
 ## Works (added 2026-07-18 — feed-load round, tier 1)
 Root cause was measured 2026-07-16 on LTE ROAMING (~800ms RTT amplifies every
 serial round trip): cold→Home first cards 5.2s = token refresh 1.9s →
@@ -304,24 +359,19 @@ Fixes (Pixel 9 WiFi-verified 2026-07-18):
   auth requests; subs tap→cards 1 request; tab switches free. On the roaming
   profile this removes ~2.7s of the 5.2s cold chain and ~3.7s of the 4.6s
   subs wait per the 2026-07-16 request-level measurements.
-Tier 2 (approved by Aleix "then we do tier 2", not yet built): defer
-SessionWarmup until first feed emission, brotli for API calls (phone-gated),
-disk-backed FeedCache snapshot (account-keyed), lazier Home per-row eager
-continuations (MIN_ROW_GROUP_SIZE=5 is TV-tuned; do NOT touch the empty-group
-3× retry loop itself — upstream-churned), boot double-load guard
-(onViewInitialized re-selects the boot section → dispose+resubscribe),
-preconnect www.youtube.com at app start (distinct from googlevideo
-preconnect). Rejected by verify: switching feeds TV→WEB client (upstream:
-WEB home breaks signed-in parity).
+Tier 2 shipped 2026-07-18 — see the tier-2 section above. Rejected by
+verify (do not re-propose): switching feeds TV→WEB client (upstream: WEB
+home breaks signed-in parity).
 
 ## Open — network audit backlog (2026-07-16, verified findings not yet built)
 From the 69-agent audit (21 confirmed after 2-lens adversarial verify; the
 items above are done). Ordered roughly by value:
 - ~~Browse section switches refetch /browse every time~~ DONE 2026-07-18
   (per-section 5-min TTL, see the feed-load round above).
-- SessionWarmup fires a throwaway Big Buck Bunny /player + googlevideo
-  preconnect every launch (SessionWarmup:64; preconnect-skip is the safe
-  half — full skip needs an nsig-extractor freshness probe).
+- ~~SessionWarmup fires a throwaway Big Buck Bunny /player + googlevideo
+  preconnect every launch~~ DEFERRED to first feed paint 2026-07-18 (tier 2)
+  so it never races the launch /browse chain; a FULL skip (needs an
+  nsig-extractor freshness probe) remains open.
 - FailFastLoadErrorPolicy: treat Cronet net::ERR_NAME_NOT_RESOLVED /
   ERR_INTERNET_DISCONNECTED as fatal (currently 6 futile retries ~5s).
 - Fixed 1000ms reload delay on the 403-remint path (VideoLoaderController:461;
@@ -329,9 +379,8 @@ items above are done). Ordered roughly by value:
 - ABR seed persists across network types (Media3SourceFactory:151; use the
   per-networkType setInitialBitrateEstimate overload).
 - No metered cap on buffer-ahead (75s of 1080p prefetch on abandoned videos).
-- Brotli for InnerTube JSON (decode path already wired; CAUTION: MSC fork
-  history flip-flopped `br` 4×, last REVERTED — gate phone-only, verify on
-  cellular).
+- ~~Brotli for InnerTube JSON~~ DONE 2026-07-18 (tier 2, phone-gated;
+  WiFi-verified — still worth a one-off sanity check on cellular/roaming).
 - 10s connect timeout for non-open-path API calls (currently 20s).
 - CronetManager.getEngine catches only UnsatisfiedLinkError → broaden to
   Throwable, keep null-fallback.
