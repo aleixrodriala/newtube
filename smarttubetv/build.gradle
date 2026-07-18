@@ -128,11 +128,6 @@ android {
             if (keystorePropertiesFile.exists()) {
                 signingConfig signingConfigs.release
             }
-            // TEMP(handoff-probe): side-by-side install for on-device debugging without
-            // touching the release-signed main install. Remove before committing.
-            if (project.hasProperty('probeSuffix')) {
-                applicationIdSuffix ".probe"
-            }
         }
     }
 
