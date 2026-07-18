@@ -70,3 +70,6 @@ tmp/
 fabric.properties
 *BAK.java
 hs_err_pid*.log
+
+# UI audit captures (local only, not tracked)
+tools/ui-audit/
