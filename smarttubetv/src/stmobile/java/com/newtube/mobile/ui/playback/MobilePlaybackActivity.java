@@ -993,6 +993,14 @@ public class MobilePlaybackActivity extends MobileActivity
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
 
+        // PiP entry delivers a config change right AFTER onPictureInPictureModeChanged(true) hid
+        // the watch UI; reapplying the portrait layout here un-hid it again, squeezing the whole
+        // watch page into the tiny PiP window. PiP owns its video-only layout; the exit branch of
+        // onPictureInPictureModeChanged restores everything below.
+        if (mIsInPip) {
+            return;
+        }
+
         refreshContentInsets();
         applyWatchLayoutForOrientation(newConfig.orientation);
         applySystemBarsForOrientation(newConfig.orientation);
@@ -1162,8 +1170,10 @@ public class MobilePlaybackActivity extends MobileActivity
 
         builder.setAspectRatio(getVideoAspectRatio());
 
-        // Smooth expand/collapse animation anchored on the current video box.
-        if (mVideoArea != null) {
+        // Smooth expand/collapse animation anchored on the current video box. Skip while already
+        // pinned: the video area's global rect is then in PiP-window coordinates (observed pushing
+        // an off-screen hint mid-PiP), and the entry hint the system captured stays valid anyway.
+        if (mVideoArea != null && !mIsInPip) {
             Rect sourceRect = new Rect();
             mVideoArea.getGlobalVisibleRect(sourceRect);
             if (!sourceRect.isEmpty()) {

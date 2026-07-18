@@ -915,21 +915,31 @@ public class MobileBrowseActivity extends MobileActivity
             mPresenter.onViewResumed();
         }
 
-        // Android may satisfy a launcher tap by merely bringing this existing Browse task to the
-        // front (no Splash onCreate/onNewIntent callback at all) while the player remains in its
-        // separate pinned task. onResume is the reliable signal that the user reopened the app;
-        // immediately expand the exact live player instead of showing Browse under a stale PiP.
-        // Do this after the presenter callback so the ensuing onPause remains lifecycle-balanced.
-        if (SystemPipBridge.restoreFromLauncher(this)) {
-            return;
-        }
-
         updateAccountRow();
         syncMiniPlayer();
         // Home may have been paused while the player crossed landscape/PiP configurations. Those
         // callbacks can arrive while DisplayMetrics still describe the player window, so always
         // reconcile the retained GridLayoutManager against Home's current configuration on resume.
         updateGridSpanCount(computeSpanCount());
+    }
+
+    /**
+     * Launcher tap while the player floats in a pinned PiP task: expand the exact live player
+     * instead of showing Browse under a stale PiP. Android may satisfy that tap by merely bringing
+     * this existing Browse task to the front (no Splash onCreate/onNewIntent callback at all), so
+     * a Browse lifecycle signal is the only reliable hook. It must be focus, NOT onResume: the
+     * home-gesture auto-PiP briefly resumes Browse while the player is re-parented into its pinned
+     * task (Android 16+), and restoring from there re-expands the player the instant it minimizes -
+     * the app looked impossible to leave. Focus never lands on Browse during that hand-off (it goes
+     * to the launcher), but a real reopen always gains it.
+     */
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+
+        if (hasFocus) {
+            SystemPipBridge.restoreFromLauncher(this);
+        }
     }
 
     /** Drawer-header account row label: account name when signed in, "Sign in" otherwise. */
