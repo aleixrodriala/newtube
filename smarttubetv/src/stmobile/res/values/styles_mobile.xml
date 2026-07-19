@@ -134,11 +134,12 @@
         <item name="cornerSize">28dp</item>
     </style>
 
-    <!-- 10sp like the real YouTube bar labels (12sp read visibly wider/heavier than theirs
-         side-by-side, and truncated "Listas de reproducción" earlier). -->
+    <!-- Regular weight at 11sp tracks the YouTube bar labels (medium/bold read heavier than
+         theirs side-by-side; the old 10sp-medium choice predates dropping the long
+         "Listas de reproducción" label from the bar). -->
     <style name="MobileBottomNavText" parent="TextAppearance.MaterialComponents.Caption">
-        <item name="android:textSize">10sp</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:fontFamily">sans-serif</item>
     </style>
 
     <!-- Watch-page loading skeleton (alpha-pulsed from code while related videos load). -->

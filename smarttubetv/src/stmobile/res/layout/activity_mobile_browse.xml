@@ -245,6 +245,7 @@
             app:itemIconSize="24dp"
             app:itemIconTint="@color/mobile_bottom_nav_item"
             app:itemTextAppearanceActive="@style/MobileBottomNavText"
+            app:itemTextAppearanceActiveBoldEnabled="false"
             app:itemTextAppearanceInactive="@style/MobileBottomNavText"
             app:paddingBottomSystemWindowInsets="true"
             app:itemTextColor="@color/mobile_bottom_nav_item"

@@ -76,11 +76,9 @@ import java.util.List;
  * {@code BottomNavigationView} hard-caps at 5 items, but {@code BrowsePresenter} can
  * deliver 10+ sections (Home, Shorts, Trending, Subscriptions, History, Music,
  * Gaming, News, Playlists, Settings, ...). Rather than rebuild the section selector
- * (a scrollable tab strip is a later wave), this slice shows only the 5 main
- * sections - {@link #PREFERRED_SECTION_IDS} - in delivery order, falling back to
- * the next available non-Settings sections if any preferred one is missing. The
- * remaining sections are simply not shown in this slice (a "more"/drawer entry for
- * them is future work).
+ * (a scrollable tab strip is a later wave), the bottom nav shows only the curated
+ * {@link #PREFERRED_SECTION_IDS} - no backfill; every other delivered section is
+ * reachable through the navigation drawer instead.
  *
  * Wave 2: tapping a card routes through {@link BrowsePresenter#onVideoItemClicked} into
  * the real touch player ({@code MobilePlaybackActivity}).
@@ -106,15 +104,13 @@ public class MobileBrowseActivity extends MobileActivity
             MediaGroup.TYPE_HOME,
             MediaGroup.TYPE_SUBSCRIPTIONS,
             MediaGroup.TYPE_HISTORY,
-            MediaGroup.TYPE_USER_PLAYLISTS,
-            MediaGroup.TYPE_TRENDING,
+            MediaGroup.TYPE_SHORTS,
     };
     private static final int[] PREFERRED_SECTION_TITLE_RES = {
             R.string.header_home,
             R.string.header_subscriptions,
             R.string.header_history,
-            R.string.header_playlists,
-            R.string.header_trending,
+            R.string.header_shorts,
     };
 
     private BrowsePresenter mPresenter;
@@ -807,7 +803,10 @@ public class MobileBrowseActivity extends MobileActivity
 
             android.view.MenuItem item = menu.add(Menu.NONE, toMenuItemId(section.getId()), i, section.getTitle());
 
-            if (section.getResId() > 0) {
+            int navIcon = navIconFor(section.getId());
+            if (navIcon != 0) {
+                item.setIcon(navIcon);
+            } else if (section.getResId() > 0) {
                 item.setIcon(section.getResId());
             }
         }
@@ -818,6 +817,27 @@ public class MobileBrowseActivity extends MobileActivity
         }
 
         mSuppressNavCallback = false;
+    }
+
+    /**
+     * State-list icons (outline when idle, filled when selected - the YouTube bar's
+     * active-tab signal, since both states tint plain white) for the curated bottom-nav
+     * sections. Sections without a pair (drawer-only ones) keep their stock
+     * {@link BrowseSection#getResId()} icon.
+     */
+    private static int navIconFor(int sectionId) {
+        switch (sectionId) {
+            case MediaGroup.TYPE_HOME:
+                return R.drawable.ic_nav_home;
+            case MediaGroup.TYPE_SUBSCRIPTIONS:
+                return R.drawable.ic_nav_subscriptions;
+            case MediaGroup.TYPE_HISTORY:
+                return R.drawable.ic_nav_history;
+            case MediaGroup.TYPE_SHORTS:
+                return R.drawable.ic_nav_shorts;
+            default:
+                return 0;
+        }
     }
 
     /**
@@ -881,11 +901,11 @@ public class MobileBrowseActivity extends MobileActivity
     }
 
     /**
-     * BottomNavigationView hard-caps at {@link #MAX_NAV_ITEMS} items, but
-     * BrowsePresenter can deliver many more sections. Pick the up-to-5 main sections
-     * to show: the {@link #PREFERRED_SECTION_IDS}, in priority order, if present and
-     * enabled; then fill any remaining slots with the next available enabled,
-     * non-Settings sections in delivery order.
+     * The bottom nav shows ONLY the {@link #PREFERRED_SECTION_IDS} (in priority
+     * order, when present and enabled) — no backfill from the other delivered
+     * sections; everything else is drawer-only. BrowsePresenter can deliver many
+     * more sections, and the {@link BottomNavigationView} itself hard-caps at
+     * {@link #MAX_NAV_ITEMS}.
      */
     private List<BrowseSection> selectNavSections() {
         List<BrowseSection> enabledSections = new ArrayList<>();
@@ -904,16 +924,6 @@ public class MobileBrowseActivity extends MobileActivity
 
             if (match != null) {
                 chosen.add(match);
-            }
-        }
-
-        for (BrowseSection section : enabledSections) {
-            if (chosen.size() == MAX_NAV_ITEMS) {
-                break;
-            }
-
-            if (!chosen.contains(section)) {
-                chosen.add(section);
             }
         }
 

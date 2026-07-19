@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Bottom-nav icon/label tint: white when selected, dimmed otherwise (YouTube-style). -->
+<!--
+     Bottom-nav icon/label tint: white in BOTH states, like the YouTube app.
+     The active tab is signaled by the outline->filled icon swap (ic_nav_* state
+     lists), not by dimming the inactive items.
+-->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:color="@color/mobile_color_on_surface" android:state_checked="true" />
-    <item android:color="@color/mobile_color_on_surface_secondary" />
+    <item android:color="@color/mobile_color_on_surface" />
 </selector>
