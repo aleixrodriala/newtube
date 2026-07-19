@@ -139,9 +139,27 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
         for (Video item : items) {
             for (int i = 0; i < current.size(); i++) {
                 if (current.get(i).equals(item)) {
-                    notifyItemChanged(i);
+                    // Payloaded change: RecyclerView reuses the bound holder (no change-animation
+                    // cross-fade of the whole card) and the partial bind below skips the Glide
+                    // reload unless the thumbnail URL actually changed. A bare notifyItemChanged
+                    // here made the just-watched card visibly blink on every Browse resume (the
+                    // resume sync only carries a percentWatched update).
+                    notifyItemChanged(i, PAYLOAD_SYNC);
                 }
             }
+        }
+    }
+
+    /** Marker payload for in-place item mutations (watch progress, DeArrow overrides). */
+    private static final Object PAYLOAD_SYNC = new Object();
+
+    @Override
+    public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position,
+            @NonNull java.util.List<Object> payloads) {
+        if (!payloads.isEmpty() && holder instanceof VideoViewHolder) {
+            ((VideoViewHolder) holder).bindPartial(getItem(position));
+        } else {
+            super.onBindViewHolder(holder, position, payloads);
         }
     }
 
@@ -158,6 +176,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
         private final TextView mMeta;
         private final View mOverflow;
         private Video mVideo;
+        private String mBoundThumbUrl;
 
         public VideoViewHolder(@NonNull View itemView, OnVideoClickListener clickListener) {
             super(itemView);
@@ -210,6 +229,29 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             bindBadge(context, video);
             bindProgress(video);
             bindThumbnail(context, video);
+        }
+
+        /**
+         * Sync rebind for an item mutated in place (ACTION_SYNC): refresh the text/progress
+         * views and only touch the thumbnail if its resolved URL changed (DeArrow override
+         * arriving). Keeping the ImageView untouched for a same-URL sync is what stops the
+         * just-watched card from blinking when Browse resumes after playback.
+         */
+        void bindPartial(Video video) {
+            mVideo = video;
+            Context context = itemView.getContext();
+
+            mTitle.setText(video.getTitle());
+            CharSequence meta = video.getSecondTitle();
+            mMeta.setText(meta == null || meta.length() == 0 ? video.getAuthor() : meta);
+
+            bindBadge(context, video);
+            bindProgress(video);
+
+            String thumbnailUrl = ClickbaitRemover.updateThumbnail(video, MainUIData.instance(context).getThumbQuality());
+            if (thumbnailUrl == null ? mBoundThumbUrl != null : !thumbnailUrl.equals(mBoundThumbUrl)) {
+                bindThumbnail(context, video);
+            }
         }
 
         private void bindBadge(Context context, Video video) {
@@ -269,6 +311,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
         private void bindThumbnail(Context context, Video video) {
             int thumbQuality = MainUIData.instance(context).getThumbQuality();
             String thumbnailUrl = ClickbaitRemover.updateThumbnail(video, thumbQuality);
+            mBoundThumbUrl = thumbnailUrl;
 
             int w = thumbWidth(context);
             com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable> request = Glide.with(context)
@@ -297,6 +340,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
 
         public void unbind() {
             mVideo = null;
+            mBoundThumbUrl = null;
             Glide.with(itemView.getContext().getApplicationContext()).clear(mThumbnail);
         }
     }
