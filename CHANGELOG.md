@@ -2,6 +2,20 @@
 
 All notable user-facing changes to NewTube ("SmartTube for phones").
 
+## 1.4.2 — 2026-07-19
+
+- **Fixed the real "thumbnail flicker" on minimize**: the feed card of the
+  video you just watched visibly blinked/reloaded the moment the minimize
+  gesture ended (the resume-time watch-progress sync was rebinding the whole
+  card). Now only the red progress bar updates, in place.
+
+## 1.4.1 — 2026-07-19
+
+- **Hotfix: 1.4.0 crashed on every player minimize.** The 1.4.0 "wrong-size
+  video snap" fix released the player's video surface out from under the
+  mini-player and was rolled back; minimize, expand, and close all work
+  again. (The cosmetic snap fix returns in 1.4.2 done properly — see above.)
+
 ## 1.4.0 — 2026-07-18
 
 The polish round: the app now looks and moves like a native phone video app,
