@@ -261,6 +261,12 @@ dependencies {
     implementation 'io.reactivex.rxjava3:rxandroid:' + rxAndroidVersion
     implementation 'io.reactivex.rxjava3:rxjava:' + rxJavaVersion
 
+    // Casting (Route B): DialDiscovery drives DIAL device probes through OkHttpManager's shared
+    // client, which needs okhttp on this module's own compile classpath (sharedutils declares it
+    // as `implementation`, so it isn't exposed transitively). Same version-pinned coordinate the
+    // :common module already declares for WebProxyDialog; the root build forces okhttpVersion.
+    implementation 'com.squareup.okhttp3:okhttp:' + okhttpVersion
+
     // debugImplementation 'com.squareup.leakcanary:leakcanary-android:2.14'
 
     // ByeByeDPI fix

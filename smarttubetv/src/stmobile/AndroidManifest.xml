@@ -38,6 +38,17 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
+    <!-- Casting (Route B): SSDP/DIAL discovery needs multicast (Android filters multicast in
+         hardware unless a MulticastLock is held - see DialDiscovery); the cast session service
+         holds a WifiLock + partial wakelock so the Lounge status stream survives screen-off.
+         All three are normal, auto-granted permissions. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- Android 16+ Local Network Protection: runtime permission gating LAN multicast/unicast
+         (SSDP/DIAL discovery). Unknown on older releases; requested before the cast picker. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!-- LAUNCH MODES: every touch activity is singleTop (NOT the TV's singleInstance) so ALL
          screens share ONE task, like a normal phone app. singleInstance put each screen in its
          own task, and Android 12+ plays a non-overridable system slide/zoom for every cross-TASK
@@ -94,6 +105,18 @@
         -->
         <service
             android:name="com.newtube.mobile.ui.playback.MobilePlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <!--
+          Cast-session foreground service (casting wave). While a Lounge session is active the
+          phone is only a remote, but the process must survive backgrounding so the status
+          subscription keeps flowing: holds a WifiLock + partial wakelock and a media-style
+          notification with play/pause + disconnect. Same FGS pattern as MobilePlaybackService
+          (first startForeground reached from the foreground; API 31+ rejection tolerated).
+        -->
+        <service
+            android:name="com.newtube.mobile.casting.CastSessionService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 

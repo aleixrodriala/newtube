@@ -42,6 +42,7 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
@@ -94,6 +95,9 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
+import com.newtube.mobile.casting.CastPickerSheet;
+import com.newtube.mobile.casting.CastSessionManager;
+import com.newtube.mobile.casting.CastTarget;
 import com.newtube.mobile.player.Media3DebugInfoManager;
 import com.newtube.mobile.player.Media3PlayerController;
 import com.newtube.mobile.player.Media3PlayerInitializer;
@@ -172,6 +176,18 @@ public class MobilePlaybackActivity extends MobileActivity
     private ImageButton mPrevButton;
     private ImageButton mNextButton;
     private ViewGroup mDebugViewGroup;
+
+    // Casting (Route B scaffolding): cast button + the "Playing on TV" remote panel. The panel is
+    // self-contained (own seek bar driven by CastEvents) so the local transport stays untouched.
+    private ImageButton mCastButton;
+    private View mCastOverlay;
+    private TextView mCastOverlayTitle;
+    private ImageButton mCastPlayPause;
+    private TextView mCastPosition;
+    private TextView mCastDuration;
+    private SeekBar mCastSeekBar;
+    private CastSessionManager mCastSessionManager;
+    private boolean mCastScrubbing;
 
     // Subtitle styling + debug overlay. Both mirror the TV PlaybackFragment wiring: the subtitle
     // manager applies the user's stored SubtitleStyle to the PlayerView's built-in SubtitleView;
@@ -348,6 +364,15 @@ public class MobilePlaybackActivity extends MobileActivity
         createPlayerObjects();
 
         registerPipReceiver();
+
+        // Casting: observe the (process-wide) session so the "Playing on TV" panel follows
+        // whatever session connects/updates/ends while this player is open. A session that
+        // already exists (activity recreated mid-cast) restores the panel immediately.
+        mCastSessionManager = CastSessionManager.instance(this);
+        mCastSessionManager.addListener(mCastListener);
+        if (mCastSessionManager.isConnected()) {
+            showCastOverlay();
+        }
     }
 
     @Override
@@ -380,6 +405,13 @@ public class MobilePlaybackActivity extends MobileActivity
         mProgressBar = findViewById(R.id.mobile_player_progress);
         mSetupHint = findViewById(R.id.mobile_player_setup_hint);
         mQualityButton = findViewById(R.id.mobile_player_quality);
+        mCastButton = findViewById(R.id.mobile_player_cast);
+        mCastOverlay = findViewById(R.id.mobile_cast_overlay);
+        mCastOverlayTitle = findViewById(R.id.mobile_cast_overlay_title);
+        mCastPlayPause = findViewById(R.id.mobile_cast_play_pause);
+        mCastPosition = findViewById(R.id.mobile_cast_position);
+        mCastDuration = findViewById(R.id.mobile_cast_duration);
+        mCastSeekBar = findViewById(R.id.mobile_cast_seekbar);
         mSubtitlesButton = findViewById(R.id.mobile_player_subtitles);
         mSpeedButton = findViewById(R.id.mobile_player_speed);
         mPipButton = findViewById(R.id.mobile_player_pip);
@@ -494,6 +526,12 @@ public class MobilePlaybackActivity extends MobileActivity
         // The exhaustive TV HQ dialog (every codec/fps variant) stays reachable via the overflow
         // menu for power users; this button is the everyday path and had to stop being scary.
         mQualityButton.setOnClickListener(v -> showQualitySheet());
+        // Cast picker (Route B). The button stays visible even while the sender implementation is
+        // pending in the submodule - the picker degrades to browse-only with a toast on connect.
+        if (mCastButton != null) {
+            mCastButton.setOnClickListener(v -> openCastPicker());
+        }
+        setupCastOverlay();
         mSubtitlesButton.setOnClickListener(v -> openPlayerOption(R.id.lb_control_closed_captioning, true));
         mSpeedButton.setOnClickListener(v -> openPlayerOption(R.id.action_video_speed, true));
 
@@ -1034,6 +1072,13 @@ public class MobilePlaybackActivity extends MobileActivity
         cancelAutoHide();
         hideRelatedSkeleton(); // cancels the pulse animator + pending timeout
 
+        // Casting: stop observing the session. The session itself (manager + foreground service)
+        // deliberately outlives this activity - the phone is just a remote.
+        if (mCastSessionManager != null) {
+            mCastSessionManager.removeListener(mCastListener);
+        }
+        Utils.removeCallbacks(mCastProgressRunnable);
+
         if (mWatchRoot != null) {
             mWatchRoot.removeOnLayoutChangeListener(mWatchRootLayoutListener);
         }
@@ -1555,6 +1600,212 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     // ---------------------------------------------------------------------------------
+    // Casting (Route B scaffolding, CASTING.md): picker entry point + "Playing on TV" panel.
+    //
+    // The integration is deliberately tiny: the CastSessionManager singleton owns the session
+    // (it outlives this activity - the phone is a remote); this activity only (1) opens the
+    // picker, (2) pauses local playback while a session is active (never tears it down),
+    // (3) mirrors CastEvents into the self-contained overlay panel, and (4) routes newly
+    // selected videos to the TV (see the hooks in setVideo/handleUiStateChange).
+    // ---------------------------------------------------------------------------------
+
+    /** Not in Manifest.permission yet with compileSdk 36's stubs; exists on Android 16+. */
+    private static final String PERM_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK";
+    private static final int REQUEST_CODE_LOCAL_NETWORK = 112;
+
+    private void openCastPicker() {
+        cancelAutoHide();
+        // Android 16+ Local Network Protection: LAN multicast/unicast (SSDP/DIAL) is gated
+        // behind a runtime permission; without it the SSDP send dies with EPERM.
+        if (Build.VERSION.SDK_INT >= 36
+                && checkSelfPermission(PERM_LOCAL_NETWORK) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{PERM_LOCAL_NETWORK}, REQUEST_CODE_LOCAL_NETWORK);
+            return;
+        }
+        // Discovery runs while the sheet is open and stops on dismiss (CastPickerSheet).
+        new CastPickerSheet(this).show(this::showPlayerSheet);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_CODE_LOCAL_NETWORK) {
+            // Open the picker on denial too: discovery will find nothing, but manual
+            // "Link with TV code" pairing is a plain internet call and still works.
+            new CastPickerSheet(this).show(this::showPlayerSheet);
+        }
+    }
+
+    private void setupCastOverlay() {
+        if (mCastOverlay == null) {
+            return;
+        }
+
+        if (mCastPlayPause != null) {
+            mCastPlayPause.setOnClickListener(v -> {
+                if (mCastSessionManager != null) {
+                    if (mCastSessionManager.isPlayingOnTv()) {
+                        mCastSessionManager.pause();
+                    } else {
+                        mCastSessionManager.play();
+                    }
+                    updateCastOverlay();
+                }
+            });
+        }
+
+        View disconnect = findViewById(R.id.mobile_cast_disconnect);
+        if (disconnect != null) {
+            disconnect.setOnClickListener(v -> {
+                if (mCastSessionManager != null) {
+                    mCastSessionManager.disconnect(); // onCastSessionEnded resumes local playback
+                }
+            });
+        }
+
+        if (mCastSeekBar != null) {
+            // Seconds-granularity bar (int progress can't overflow on any real duration).
+            mCastSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                    if (fromUser && mCastPosition != null) {
+                        mCastPosition.setText(formatTime(progress * 1_000L));
+                    }
+                }
+
+                @Override
+                public void onStartTrackingTouch(SeekBar seekBar) {
+                    mCastScrubbing = true;
+                }
+
+                @Override
+                public void onStopTrackingTouch(SeekBar seekBar) {
+                    mCastScrubbing = false;
+                    if (mCastSessionManager != null && mCastSessionManager.isConnected()) {
+                        mCastSessionManager.seekTo(seekBar.getProgress() * 1_000L);
+                    }
+                }
+            });
+        }
+    }
+
+    private final CastSessionManager.Listener mCastListener = new CastSessionManager.Listener() {
+        @Override
+        public void onCastSessionStarted(CastTarget target) {
+            // Hand playback to the TV: pause the LOCAL player (keep it loaded so disconnect can
+            // resume seamlessly), send the current video at the current position, show the panel.
+            long resumeMs = Math.max(getPositionMs(), 0);
+            if (mPlayer != null) {
+                mPlayer.setPlayWhenReady(false);
+            }
+            Video video = getVideo();
+            if (video != null && video.videoId != null) {
+                mCastSessionManager.loadVideo(video.videoId, resumeMs);
+            }
+            showCastOverlay();
+        }
+
+        @Override
+        public void onCastSessionState(String videoId, long positionMs, long durationMs, boolean playing) {
+            updateCastOverlay();
+        }
+
+        @Override
+        public void onCastSessionEnded(String reason) {
+            // Resume locally where the TV left off. Listeners fire before the manager resets its
+            // state, so the last cast position is still readable here.
+            long castPositionMs = mCastSessionManager != null ? mCastSessionManager.getPositionMs() : -1;
+            hideCastOverlay();
+            if (castPositionMs > 0) {
+                setPositionMs(castPositionMs);
+            }
+            setPlayWhenReady(true);
+        }
+    };
+
+    private void showCastOverlay() {
+        if (mCastOverlay == null) {
+            return;
+        }
+        CastTarget target = mCastSessionManager != null ? mCastSessionManager.getTarget() : null;
+        if (mCastOverlayTitle != null) {
+            mCastOverlayTitle.setText(getString(R.string.mobile_cast_playing_on,
+                    target != null ? target.getName() : ""));
+        }
+        mCastOverlay.setVisibility(View.VISIBLE);
+        hideControls();
+        updateCastOverlay();
+        // 1s remote ticker: CastEvents only arrive on changes; the position interpolates between
+        // them (CastSessionManager.getPositionMs) so the bar moves like a normal player's.
+        Utils.removeCallbacks(mCastProgressRunnable);
+        Utils.postDelayed(mCastProgressRunnable, 1_000);
+    }
+
+    private void hideCastOverlay() {
+        Utils.removeCallbacks(mCastProgressRunnable);
+        if (mCastOverlay != null) {
+            mCastOverlay.setVisibility(View.GONE);
+        }
+    }
+
+    private void updateCastOverlay() {
+        if (mCastOverlay == null || mCastOverlay.getVisibility() != View.VISIBLE
+                || mCastSessionManager == null) {
+            return;
+        }
+
+        long positionMs = Math.max(mCastSessionManager.getPositionMs(), 0);
+        long durationMs = Math.max(mCastSessionManager.getDurationMs(), 0);
+
+        if (mCastPlayPause != null) {
+            boolean playing = mCastSessionManager.isPlayingOnTv();
+            mCastPlayPause.setImageResource(playing ? R.drawable.ic_player_pause : R.drawable.ic_player_play);
+            mCastPlayPause.setContentDescription(
+                    getString(playing ? R.string.mobile_player_pause : R.string.mobile_player_play));
+        }
+        if (mCastDuration != null) {
+            mCastDuration.setText(formatTime(durationMs));
+        }
+        if (mCastSeekBar != null) {
+            mCastSeekBar.setMax((int) (durationMs / 1_000));
+            if (!mCastScrubbing) {
+                mCastSeekBar.setProgress((int) (positionMs / 1_000));
+            }
+        }
+        if (mCastPosition != null && !mCastScrubbing) {
+            mCastPosition.setText(formatTime(positionMs));
+        }
+    }
+
+    private final Runnable mCastProgressRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (mCastOverlay != null && mCastOverlay.getVisibility() == View.VISIBLE) {
+                updateCastOverlay();
+                Utils.postDelayed(this, 1_000);
+            }
+        }
+    };
+
+    /**
+     * setVideo hook: while a session is active a newly selected video (related tap, queue,
+     * auto-advance) routes to the TV instead of playing locally. The local engine still loads it
+     * paused underneath, so state/controllers stay consistent and disconnect resumes instantly.
+     */
+    private void maybeRouteVideoToCast(String videoId) {
+        if (mCastSessionManager == null || !mCastSessionManager.isConnected() || videoId == null) {
+            return;
+        }
+        if (!Helpers.equals(videoId, mCastSessionManager.getVideoId())) {
+            mCastSessionManager.loadVideo(videoId, 0);
+        }
+        if (mPlayer != null) {
+            mPlayer.setPlayWhenReady(false);
+        }
+        showCastOverlay(); // refresh the "Playing on <TV>" panel over the new video
+    }
+
+    // ---------------------------------------------------------------------------------
     // Custom touch controls
     // ---------------------------------------------------------------------------------
 
@@ -2073,6 +2324,13 @@ public class MobilePlaybackActivity extends MobileActivity
                 case Player.STATE_READY:
                     showProgressBar(false);
                     mIsEnded = false;
+                    // CASTING: the TV owns playback while a session is active - the local engine
+                    // may load/buffer (so disconnect can resume instantly) but must never audibly
+                    // play. Re-pause the moment any (re)load reaches READY.
+                    if (mCastSessionManager != null && mCastSessionManager.isConnected()
+                            && mPlayer != null && mPlayer.getPlayWhenReady()) {
+                        mPlayer.setPlayWhenReady(false);
+                    }
                     // A stream reached READY = the one-time session setup is complete (whether the
                     // background warmup or this very load did the work). Persists; kills the
                     // first-run hint for good.
@@ -3966,6 +4224,12 @@ public class MobilePlaybackActivity extends MobileActivity
         // yet. Covers the FIRST open too (clearSuggestions only fires on subsequent loads).
         if (item != null && mRelatedVideos.isEmpty()) {
             runOnUiThread(this::showRelatedSkeleton);
+        }
+
+        // CASTING: an active session claims every newly selected video (see maybeRouteVideoToCast).
+        if (item != null && item.videoId != null) {
+            final String videoId = item.videoId;
+            runOnUiThread(() -> maybeRouteVideoToCast(videoId));
         }
     }
 

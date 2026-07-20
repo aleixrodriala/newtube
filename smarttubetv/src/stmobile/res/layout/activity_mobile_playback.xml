@@ -102,8 +102,8 @@
                     android:src="@drawable/ic_mobile_back_arrow" />
 
                 <!-- paddingEnd must clear the full top-right options row (mobile_player_options):
-                     up to 5 icon buttons * 40dp + 4dp end margin = 204dp. Otherwise the wrapped
-                     title runs under the leftmost option (quality/settings) icon. -->
+                     up to 6 icon buttons * 40dp + 4dp end margin = 244dp. Otherwise the wrapped
+                     title runs under the leftmost option (cast) icon. -->
                 <TextView
                     android:id="@+id/mobile_player_title"
                     android:layout_width="match_parent"
@@ -113,7 +113,7 @@
                     android:maxLines="2"
                     android:paddingStart="56dp"
                     android:paddingTop="12dp"
-                    android:paddingEnd="208dp"
+                    android:paddingEnd="248dp"
                     android:paddingBottom="12dp"
                     android:shadowColor="#80000000"
                     android:shadowDx="0"
@@ -137,6 +137,18 @@
                     android:layout_marginEnd="4dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
+
+                    <!-- Cast picker (casting wave): lists DIAL-discovered TVs + paired screens.
+                         Route B only for now; see com.newtube.mobile.casting. -->
+                    <ImageButton
+                        android:id="@+id/mobile_player_cast"
+                        android:layout_width="@dimen/mobile_player_icon_button"
+                        android:layout_height="@dimen/mobile_player_icon_button"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_cast_button"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_mobile_cast" />
 
                     <ImageButton
                         android:id="@+id/mobile_player_quality"
@@ -399,6 +411,113 @@
                 android:clickable="false"
                 android:focusable="false"
                 android:visibility="gone" />
+
+            <!-- "Playing on TV" panel (casting wave): covers the whole video box while a cast
+                 session is active. Local playback is paused underneath (never torn down); this
+                 panel is a self-contained remote - play/pause + disconnect + its own seek bar
+                 driven by CastEvents (see the cast hooks in MobilePlaybackActivity). clickable so
+                 taps never reach the player controls below it. -->
+            <LinearLayout
+                android:id="@+id/mobile_cast_overlay"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="#E6101010"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <ImageView
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_mobile_cast" />
+
+                <TextView
+                    android:id="@+id/mobile_cast_overlay_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:paddingHorizontal="24dp"
+                    android:textColor="@android:color/white"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    tools:text="Playing on Living room TV" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageButton
+                        android:id="@+id/mobile_cast_play_pause"
+                        android:layout_width="@dimen/mobile_player_icon_button"
+                        android:layout_height="@dimen/mobile_player_icon_button"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_player_play"
+                        android:padding="8dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_player_pause" />
+
+                    <TextView
+                        android:id="@+id/mobile_cast_disconnect"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:background="@drawable/mobile_watch_pill_bg"
+                        android:paddingHorizontal="16dp"
+                        android:paddingVertical="8dp"
+                        android:text="@string/mobile_cast_disconnect"
+                        android:textColor="@android:color/white"
+                        android:textSize="14sp" />
+
+                </LinearLayout>
+
+                <!-- Cast seek row: mirrors the player's bottom seek row but drives the TV. -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="20dp">
+
+                    <TextView
+                        android:id="@+id/mobile_cast_position"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFeatureSettings="tnum"
+                        android:text="@string/mobile_player_time_default"
+                        android:textColor="@android:color/white"
+                        android:textSize="@dimen/mobile_player_time_text" />
+
+                    <SeekBar
+                        android:id="@+id/mobile_cast_seekbar"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginHorizontal="8dp"
+                        android:layout_weight="1"
+                        android:progressTint="@color/mobile_color_primary"
+                        android:thumbTint="@color/mobile_color_primary" />
+
+                    <TextView
+                        android:id="@+id/mobile_cast_duration"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFeatureSettings="tnum"
+                        android:text="@string/mobile_player_time_default"
+                        android:textColor="@android:color/white"
+                        android:textSize="@dimen/mobile_player_time_text" />
+
+                </LinearLayout>
+
+            </LinearLayout>
 
             <!-- Pinch-zoom hint chip ("Zoomed to fill" / "Original"), faded in/out from code. -->
             <TextView
