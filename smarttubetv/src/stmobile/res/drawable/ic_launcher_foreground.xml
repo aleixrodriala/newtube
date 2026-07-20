@@ -3,7 +3,7 @@
   NewTube adaptive-icon foreground (stmobile flavor).
 
   The NewTube "arch" mark: a lowercase-n arch (which also reads as a
-  tunnel/tube), white, centred inside the 66x66 adaptive safe zone
+  tunnel/tube), white, optically centred inside the 66x66 adaptive safe zone (nudged 2 units up: the arch is bottom-heavy, so geometric centring reads low)
   (viewport 108, safe area ~21..87) so no launcher mask clips it.
   The stroke matches the fill and only softens the corners.
   Deliberately NOT a play triangle — see docs/gtm + legal notes.
@@ -19,5 +19,5 @@
         android:strokeWidth="5"
         android:strokeLineJoin="round"
         android:strokeLineCap="round"
-        android:pathData="M32,78 L32,55 A22,22 0 0 1 76,55 L76,78 L63,78 L63,55 A9,9 0 0 0 45,55 L45,78 Z" />
+        android:pathData="M32,76 L32,53 A22,22 0 0 1 76,53 L76,76 L63,76 L63,53 A9,9 0 0 0 45,53 L45,76 Z" />
 </vector>
