@@ -132,6 +132,11 @@ public class PlayerContainerLayout extends FrameLayout {
                 mDragging = false;
                 mDownInDragRegion = isInDragRegion(ev) && !isInTopSystemGestureBand(ev);
                 break;
+            case MotionEvent.ACTION_POINTER_DOWN:
+                // A second finger means pinch-zoom (PinchZoomLayout); a dismiss drag must not
+                // start off one of the pinching fingers drifting downward.
+                mDownInDragRegion = false;
+                break;
             case MotionEvent.ACTION_MOVE:
                 if (!mDragging && mDownInDragRegion) {
                     float dy = ev.getRawY() - mDownRawY;

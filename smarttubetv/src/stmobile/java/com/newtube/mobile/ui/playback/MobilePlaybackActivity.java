@@ -48,6 +48,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
+import androidx.core.view.OneShotPreDrawListener;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.widget.NestedScrollView;
@@ -146,7 +147,8 @@ public class MobilePlaybackActivity extends MobileActivity
     private static final int SUGGESTIONS_PAGE_THRESHOLD_PX = 800;
 
     private PlayerContainerLayout mContainer;
-    private View mVideoArea;
+    private PinchZoomLayout mVideoArea;
+    private TextView mZoomHintView;
     private DoubleTapPlayerViewImpl mPlayerView;
     private YouTubeOverlay mYouTubeOverlay;
     private View mControlsRoot;
@@ -361,6 +363,7 @@ public class MobilePlaybackActivity extends MobileActivity
     private void bindViews() {
         mContainer = findViewById(R.id.mobile_player_container);
         mVideoArea = findViewById(R.id.mobile_video_area);
+        mZoomHintView = findViewById(R.id.mobile_player_zoom_hint);
         mPlayerView = findViewById(R.id.mobile_player_view);
         mYouTubeOverlay = findViewById(R.id.mobile_player_yt_overlay);
         mControlsRoot = findViewById(R.id.mobile_controls_root);
@@ -418,6 +421,10 @@ public class MobilePlaybackActivity extends MobileActivity
         mContainer.setDragListener(this);
         // Only let a swipe-to-dismiss begin over the video box, so the watch content scrolls freely.
         mContainer.setDragStartBoundView(mVideoArea);
+
+        // Pinch on the video = YouTube's zoom-to-fill toggle. Enabled in landscape/fullscreen only
+        // (applyWatchLayoutForOrientation), like the official app.
+        mVideoArea.setPinchListener(this::onPinchZoom);
 
         // PLAYER LAYOUT POLISH. The controls overlay fills the video box.
         //  * LANDSCAPE/fullscreen: the video is full-bleed to the screen edges, so inset the whole
@@ -606,6 +613,10 @@ public class MobilePlaybackActivity extends MobileActivity
 
         LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) mVideoArea.getLayoutParams();
 
+        // Pinch-zoom is a fullscreen gesture (the portrait 16:9 box keeps its two-finger touches
+        // for nothing - matching YouTube, which only zooms in fullscreen).
+        mVideoArea.setPinchEnabled(orientation == Configuration.ORIENTATION_LANDSCAPE);
+
         if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
             lp.height = LinearLayout.LayoutParams.MATCH_PARENT;
             lp.weight = 0;
@@ -640,6 +651,72 @@ public class MobilePlaybackActivity extends MobileActivity
                 mTitleView.setVisibility(View.GONE);
             }
         }
+    }
+
+    /**
+     * A pinch crossed the trigger ratio: snap between "fill the screen" (crop) and "original"
+     * (fit). Writes the same PlayerData pair as the overflow "Zoom / aspect ratio" dialog
+     * (AppDialogUtil.createVideoZoomCategory), so the gesture, the dialog selection and the
+     * PlayerUIController restore-on-init all stay one setting.
+     */
+    private void onPinchZoom(boolean zoomIn) {
+        int mode = zoomIn ? RESIZE_MODE_FIT_BOTH : RESIZE_MODE_DEFAULT;
+        PlayerData playerData = PlayerData.instance(this);
+        playerData.setResizeMode(mode);
+        playerData.setZoomPercents(-1);
+        animateResizeMode(mode);
+        showZoomHint(zoomIn ? R.string.mobile_player_zoom_fill : R.string.mobile_player_zoom_original);
+    }
+
+    /**
+     * Apply a resize mode with YouTube's smooth grow/shrink instead of a one-frame snap: capture
+     * the content frame's current VISUAL size, switch the mode, then on the first pre-draw of the
+     * new layout start scaled to the old size and animate to 1. Aspect is preserved in both fit
+     * and zoom modes, so a single uniform factor is exact.
+     */
+    private void animateResizeMode(int mode) {
+        ViewGroup contentFrame = mPlayerView != null ? mPlayerView.getContentFrame() : null;
+        if (contentFrame == null || contentFrame.getWidth() == 0 || getResizeMode() == mode) {
+            setResizeMode(mode);
+            return;
+        }
+        final float visualWidth = contentFrame.getWidth() * contentFrame.getScaleX();
+        contentFrame.animate().cancel();
+        setResizeMode(mode);
+        OneShotPreDrawListener.add(contentFrame, () -> {
+            if (contentFrame.getWidth() == 0) {
+                return;
+            }
+            float startScale = visualWidth / contentFrame.getWidth();
+            contentFrame.setScaleX(startScale);
+            contentFrame.setScaleY(startScale);
+            contentFrame.animate().scaleX(1f).scaleY(1f).setDuration(220)
+                    .setInterpolator(new DecelerateInterpolator()).start();
+        });
+    }
+
+    private final Runnable mHideZoomHint = new Runnable() {
+        @Override
+        public void run() {
+            mZoomHintView.animate().alpha(0f).setDuration(250)
+                    .withEndAction(() -> mZoomHintView.setVisibility(View.GONE)).start();
+        }
+    };
+
+    /** Show the YouTube-style zoom chip, re-arming the fade-out if a pinch fires again mid-show. */
+    private void showZoomHint(int textRes) {
+        if (mZoomHintView == null) {
+            return;
+        }
+        mZoomHintView.removeCallbacks(mHideZoomHint);
+        mZoomHintView.animate().cancel();
+        mZoomHintView.setText(textRes);
+        if (mZoomHintView.getVisibility() != View.VISIBLE) {
+            mZoomHintView.setAlpha(0f);
+            mZoomHintView.setVisibility(View.VISIBLE);
+        }
+        mZoomHintView.animate().alpha(1f).setDuration(120).start();
+        mZoomHintView.postDelayed(mHideZoomHint, 900);
     }
 
     private void createPlayerObjects() {
@@ -3837,7 +3914,8 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     public void setZoomPercents(int percents) {
-        // TODO Wave N: pinch-to-zoom gesture (no touch surface yet).
+        // Pinch-to-zoom itself is handled by PinchZoomLayout -> onPinchZoom (snap fill/fit via
+        // resize mode). TODO Wave N: the dialog's percent-based zoom values (50%-300%).
     }
 
     @Override

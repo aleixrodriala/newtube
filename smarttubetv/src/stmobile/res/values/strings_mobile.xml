@@ -16,6 +16,9 @@
     <string name="mobile_player_previous">Previous</string>
     <string name="mobile_player_next">Next</string>
     <string name="mobile_playlist_play_all">Play all</string>
+    <!-- Pinch-zoom hint chip, same copy as the YouTube app -->
+    <string name="mobile_player_zoom_fill">Zoomed to fill</string>
+    <string name="mobile_player_zoom_original">Original</string>
 
     <!-- Player overflow ("⋮") bottom-sheet menu -->
     <string name="mobile_player_more">More options</string>

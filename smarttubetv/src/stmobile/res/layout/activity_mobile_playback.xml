@@ -33,8 +33,9 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- Video area: 16:9 in portrait (set in code), match_parent in landscape. -->
-        <FrameLayout
+        <!-- Video area: 16:9 in portrait (set in code), match_parent in landscape.
+             PinchZoomLayout adds the YouTube pinch gesture (fill <-> original) over all of it. -->
+        <com.newtube.mobile.ui.playback.PinchZoomLayout
             android:id="@+id/mobile_video_area"
             android:layout_width="match_parent"
             android:layout_height="0dp"
@@ -399,7 +400,23 @@
                 android:focusable="false"
                 android:visibility="gone" />
 
-        </FrameLayout>
+            <!-- Pinch-zoom hint chip ("Zoomed to fill" / "Original"), faded in/out from code. -->
+            <TextView
+                android:id="@+id/mobile_player_zoom_hint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|center_horizontal"
+                android:layout_marginTop="64dp"
+                android:background="@drawable/bg_mobile_zoom_hint"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="6dp"
+                android:textColor="@android:color/white"
+                android:textSize="13sp"
+                android:visibility="gone"
+                tools:text="@string/mobile_player_zoom_fill"
+                tools:visibility="visible" />
+
+        </com.newtube.mobile.ui.playback.PinchZoomLayout>
 
         <!-- Scrollable watch content (portrait only). -->
         <androidx.core.widget.NestedScrollView
