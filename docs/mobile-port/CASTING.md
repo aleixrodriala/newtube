@@ -35,6 +35,10 @@ shim, each verified end-to-end on a Pixel 9 + a Cast-built-in TV.**
 - **Volume slider** (`CastVolumeOverlay`): volume keys pop a draggable
   top-center slider pill (accent tint, auto-hide 2s) instead of the old toast;
   drags are throttled (200 ms) because Lounge setVolume is an HTTP POST each.
+- **Connecting indicator**: `CastSessionManager.isConnecting()` +
+  `Listener.onCastConnectingChanged` (deduped, covers the fallback's mdx
+  window too); the Browse cast icon dims with an accent spinner overlay from
+  tap until connected/failed.
 - **Later** (user-parked): the player top-bar icon count is getting crowded —
   study how the official app arranges its player/top-bar actions and redesign
   then; no design work now.

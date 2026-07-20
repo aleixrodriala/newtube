@@ -70,6 +70,15 @@ public class CastSessionManager {
 
         /** The session ended - user disconnect, TV-side stop or error (main thread). */
         void onCastSessionEnded(@Nullable String reason);
+
+        /**
+         * The manager entered/left the "connecting" window (main thread): a session is being
+         * established (or an auto-fallback is resolving) but isn't usable yet. UI hint only -
+         * the browse/player cast icons show a spinner. Fired on CHANGE, deduped. Default no-op
+         * keeps existing listeners source-compatible.
+         */
+        default void onCastConnectingChanged(boolean connecting) {
+        }
     }
 
     /**
@@ -171,10 +180,12 @@ public class CastSessionManager {
         mFallbackArmed = false;
         mFallbackToken = null;
         if (target == null || !target.isConnectable()) {
+            notifyConnectingState(); // the token clear above may have ended a pending fallback
             return false;
         }
         boolean castV2 = target.getRoute() == CastTarget.Route.CAST_V2;
         if (!castV2 && getSender() == null) {
+            notifyConnectingState();
             return false;
         }
 
@@ -184,6 +195,7 @@ public class CastSessionManager {
         resetPlaybackState();
         mConnection = castV2 ? new CastV2Connection(target) : new LoungeConnection(target);
         mConnection.start();
+        notifyConnectingState(); // spinner on: session in flight
         return true;
     }
 
@@ -259,6 +271,9 @@ public class CastSessionManager {
             // After the ended/reset fanout, so the fallback's connect() starts from clean state.
             startFallback(endedTarget, reason);
         }
+        // Once the fallback decision ran: a started fallback keeps the spinner up (new session
+        // or pending mdx read), a plain end turns it off.
+        notifyConnectingState();
     }
 
     /** Dead-session guard: callbacks from a torn-down connection must never touch manager state. */
@@ -285,6 +300,7 @@ public class CastSessionManager {
     /** Shared TYPE_CONNECTED flow: mark connected, start the FGS, tell the UI (main thread). */
     private void handleConnected() {
         mConnected = true;
+        notifyConnectingState(); // spinner off before the started fanout repaints the icons
         CastSessionService.start(mContext);
         CastTarget target = mTarget;
         for (Listener listener : mListeners) {
@@ -298,6 +314,30 @@ public class CastSessionManager {
 
     public boolean isConnected() {
         return mConnected;
+    }
+
+    /**
+     * A connect attempt is in flight but not usable yet: session starting (picker tap ->
+     * onConnected takes the DMR ~4s, a Lounge bind ~1-2s) or an auto-fallback resolving its
+     * screenId over the mdx shim (up to 15s). Drives the cast-icon spinner.
+     */
+    public boolean isConnecting() {
+        return (mConnection != null && !mConnected) || mFallbackToken != null;
+    }
+
+    /** Last value handed to {@link Listener#onCastConnectingChanged} (dedupe on change). */
+    private boolean mNotifiedConnecting;
+
+    /** Recompute + fan out the connecting hint; call after every state transition. */
+    private void notifyConnectingState() {
+        boolean connecting = isConnecting();
+        if (connecting == mNotifiedConnecting) {
+            return;
+        }
+        mNotifiedConnecting = connecting;
+        for (Listener listener : mListeners) {
+            listener.onCastConnectingChanged(connecting);
+        }
     }
 
     @Nullable
@@ -506,6 +546,7 @@ public class CastSessionManager {
 
         Object token = new Object();
         mFallbackToken = token;
+        notifyConnectingState(); // spinner stays up through the mdx resolve
         MdxScreenIdReader.readScreenId(device.getCastHost(), device.getCastPort(),
                 FALLBACK_MDX_TIMEOUT_MS, new MdxScreenIdReader.Callback() {
                     @Override
@@ -532,6 +573,7 @@ public class CastSessionManager {
                                 return;
                             }
                             mFallbackToken = null;
+                            notifyConnectingState();
                             // Both modes are dead: surface the ORIGINAL direct-cast failure (the
                             // mdx reason is a symptom of the same unreachable device).
                             MessageHelpers.showMessage(mContext, reason);

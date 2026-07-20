@@ -60,6 +60,22 @@
             app:layout_constraintEnd_toStartOf="@id/mobile_search_button"
             app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
 
+        <!-- Session-connecting spinner over the (dimmed) cast icon; not clickable, so taps still
+             reach the button beneath (MobileBrowseActivity.updateCastIconTint). -->
+        <ProgressBar
+            android:id="@+id/mobile_cast_connecting"
+            style="?android:attr/progressBarStyleSmall"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:elevation="1dp"
+            android:indeterminateTint="@color/mobile_color_accent"
+            android:indeterminateTintMode="src_in"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="@id/mobile_cast_button"
+            app:layout_constraintEnd_toEndOf="@id/mobile_cast_button"
+            app:layout_constraintStart_toStartOf="@id/mobile_cast_button"
+            app:layout_constraintTop_toTopOf="@id/mobile_cast_button" />
+
         <ImageButton
             android:id="@+id/mobile_search_button"
             android:layout_width="48dp"
