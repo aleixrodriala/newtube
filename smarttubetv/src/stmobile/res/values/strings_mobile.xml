@@ -133,6 +133,18 @@
     <string name="mobile_cast_badge_lounge">Plays on the TV · has ads · phone can disconnect</string>
     <!-- DIAL device whose YouTube app isn't running yet: tapping launches it, then connects. -->
     <string name="mobile_cast_badge_needs_launch">Tap to open YouTube on the TV</string>
+    <!-- Route A (Direct cast): ad-free by construction, but every media byte relays through the
+         phone - the badge must say so honestly. -->
+    <string name="mobile_cast_badge_direct">Direct cast · Ad-free · plays through your phone</string>
+    <!-- Row title for a Cast device's second (YouTube-app / Lounge-via-mdx) row. -->
+    <string name="mobile_cast_row_youtube_app">%1$s — YouTube app</string>
+    <!-- mdx shim in flight: launching the TV's YouTube app and reading its Lounge screenId. -->
+    <string name="mobile_cast_connecting_youtube_app">Connecting to the YouTube app on the TV…</string>
+    <!-- Route A load refusals: the session stays up, only this video can't be direct-cast. -->
+    <string name="mobile_cast_direct_live_unsupported">Live streams can\'t be direct-cast yet — try the “YouTube app” row instead</string>
+    <string name="mobile_cast_direct_incompatible">This video can\'t be direct-cast (no format the TV can play)</string>
+    <string name="mobile_cast_direct_load_failed">Couldn\'t prepare this video for direct cast</string>
+    <string name="mobile_cast_direct_no_wifi">Direct cast needs the phone and TV on the same Wi-Fi</string>
     <string name="mobile_cast_link_code">Link with TV code</string>
     <string name="mobile_cast_code_hint">12-digit code</string>
     <string name="mobile_cast_code_help">On the TV: YouTube app → Settings → Link with TV code</string>

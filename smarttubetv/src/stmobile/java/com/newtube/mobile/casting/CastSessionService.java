@@ -24,6 +24,9 @@ import com.newtube.mobile.ui.playback.MobilePlaybackActivity;
  * Foreground service for an active cast session: while the phone is only a remote (Route B) the
  * process must survive backgrounding so the Lounge status subscription keeps flowing. Holds a
  * WifiLock + partial wakelock and shows a media-style notification with play/pause + disconnect.
+ * Route A ("Direct cast") raised the stakes on those locks: every media byte the TV plays relays
+ * phone&rarr;TV through the on-phone proxy, so a dozing radio doesn't just stall a remote - it
+ * stops TV playback outright.
  *
  * <p>FGS pattern mirrors {@link com.newtube.mobile.ui.playback.MobilePlaybackService}: type
  * {@code mediaPlayback} (declared in the stmobile manifest), the first {@code startForeground} is

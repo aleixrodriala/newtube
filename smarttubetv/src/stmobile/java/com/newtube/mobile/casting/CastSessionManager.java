@@ -2,6 +2,8 @@ package com.newtube.mobile.casting;
 
 import android.content.Context;
 import android.content.Intent;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.text.TextUtils;
 
@@ -11,10 +13,18 @@ import androidx.core.content.ContextCompat;
 import com.liskovsoft.mediaserviceinterfaces.CastSenderService;
 import com.liskovsoft.mediaserviceinterfaces.RemoteControlService;
 import com.liskovsoft.mediaserviceinterfaces.data.CastEvent;
+import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
+import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.sharedutils.rx.RxHelper;
+import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
+import com.newtube.mobile.casting.castv2.CastV2Session;
+import com.newtube.mobile.casting.proxy.CastProxyServer;
+import com.newtube.mobile.casting.proxy.MpdRewriter;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -26,15 +36,27 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
 /**
  * App-side owner of the one active cast session (CASTING.md "Shared architecture").
  *
- * <p>Owns the {@link CastSenderService#connectObserve} subscription (io thread; events observed on
- * main), tracks session state (target, videoId, position/duration/play-state), fans it out to
- * {@link Listener}s and routes transport commands back to the sender. Also starts/stops
- * {@link CastSessionService}, the foreground service that keeps the session alive (wifi lock +
- * notification) while the app is backgrounded.</p>
+ * <p>Public API + {@link Listener} contract are route-agnostic: the player overlay and
+ * {@link CastSessionService} talk only to this class. Internally a session is exactly one
+ * {@link Connection} - {@link LoungeConnection} (Route B: Lounge sender in the MediaServiceCore
+ * fork) or {@link CastV2Connection} (Route A: Cast v2 Default Media Receiver fed by the on-phone
+ * {@link CastProxyServer}). The manager tracks shared session state (target, videoId,
+ * position/duration/play-state), fans it out to {@link Listener}s on the main thread and routes
+ * transport commands to the connection. It also starts/stops {@link CastSessionService}, the
+ * foreground service that keeps the session alive (wifi lock + notification) while the app is
+ * backgrounded.</p>
  *
- * <p>The sender implementation lives in the MediaServiceCore fork and may not have landed yet:
- * {@code getCastSenderService()} defaults to null. Everything here null-checks it and degrades
- * gracefully ({@link #isSenderAvailable()} gates the UI affordances).</p>
+ * <p><b>One-session invariant + dead-connection guarding</b> (the CLAUDE.md eviction-timeline
+ * rule): {@code connect()} tears the previous session down IMMEDIATELY (the async
+ * {@code disconnect()} would race the new session), and {@link #endSession} nulls
+ * {@link #mConnection} BEFORE destroying it, so every connection callback - all of which hop to
+ * the main thread first - re-checks {@link #isCurrent} and becomes a no-op once its session is
+ * dead. The Lounge path additionally relies on Rx disposal (disposing the connect stream stops
+ * its callbacks at the source).</p>
+ *
+ * <p>The Lounge sender implementation lives in the MediaServiceCore fork and may not have landed
+ * yet: {@code getCastSenderService()} defaults to null. Lounge paths null-check it and degrade
+ * gracefully ({@link #isSenderAvailable()} gates the UI affordances); Route A never needs it.</p>
  */
 public class CastSessionManager {
 
@@ -49,15 +71,41 @@ public class CastSessionManager {
         void onCastSessionEnded(@Nullable String reason);
     }
 
+    /**
+     * One route's session implementation. Lifecycle: {@code start()} once; then either the user's
+     * {@code disconnect()} (route-specific semantics, must end in {@link #endSession}) or the
+     * manager's {@link #endSession} calling {@code destroy()} (immediate, no remote stop, never
+     * calls back into the manager). Transport commands are only routed while {@link #mConnected}.
+     */
+    private interface Connection {
+        void start();
+
+        void disconnect();
+
+        void destroy();
+
+        void loadVideo(String videoId, long positionMs);
+
+        void play();
+
+        void pause();
+
+        void seekTo(long positionMs);
+
+        void stopVideo();
+    }
+
     private static final String TAG = CastSessionManager.class.getSimpleName();
 
     @SuppressWarnings("StaticFieldLeak") // holds the application context only
     private static CastSessionManager sInstance;
 
     private final Context mContext;
+    private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     private final List<Listener> mListeners = new CopyOnWriteArrayList<>();
 
-    private Disposable mConnectAction;
+    @Nullable
+    private Connection mConnection;
     @Nullable
     private CastTarget mTarget;
     private boolean mConnected;
@@ -81,7 +129,7 @@ public class CastSessionManager {
     }
 
     // ---------------------------------------------------------------------------------
-    // Sender availability
+    // Sender availability (Lounge routes only - Route A is self-contained)
     // ---------------------------------------------------------------------------------
 
     /** The Lounge sender (MediaServiceCore fork). Null until the submodule implementation lands. */
@@ -103,13 +151,17 @@ public class CastSessionManager {
     // ---------------------------------------------------------------------------------
 
     /**
-     * Open a session on the target. Any previous session is torn down first.
+     * Open a session on the target. Any previous session (either route) is torn down first.
      *
-     * @return false when the sender isn't available or the target can't be connected yet
+     * @return false when the target can't be connected yet, or (Lounge routes) the sender isn't
+     *         available
      */
     public boolean connect(CastTarget target) {
-        CastSenderService sender = getSender();
-        if (sender == null || target == null || !target.isConnectable()) {
+        if (target == null || !target.isConnectable()) {
+            return false;
+        }
+        boolean castV2 = target.getRoute() == CastTarget.Route.CAST_V2;
+        if (!castV2 && getSender() == null) {
             return false;
         }
 
@@ -117,111 +169,49 @@ public class CastSessionManager {
 
         mTarget = target;
         resetPlaybackState();
-
-        // Long-lived stream; disposing it tears the Lounge session down (interface contract).
-        mConnectAction = sender.connectObserve(target.getScreen())
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                        this::handleEvent,
-                        error -> {
-                            Log.e(TAG, "Cast session error: " + error);
-                            endSession(error.getMessage());
-                        },
-                        () -> endSession(null));
+        mConnection = castV2 ? new CastV2Connection(target) : new LoungeConnection(target);
+        mConnection.start();
         return true;
     }
 
     /**
-     * User-initiated disconnect (overlay button / notification action). Stops playback on the TV
-     * FIRST, then tears the session down: the phone resumes local playback on session end, so
-     * without the remote stop both screens play at once. Ordering matters - disposing the session
-     * sets the sender's stopped flag, after which it refuses commands, so the teardown waits for
-     * the stop POST (bounded by a timeout in case the TV is gone).
-     *
-     * <p>The Route B "phone can leave" property is untouched: it covers walking away or killing
-     * the app (no disconnect runs, the TV keeps playing), not an explicit Disconnect tap.</p>
+     * User-initiated disconnect (overlay button / notification action). Route-specific:
+     * <ul>
+     *   <li>Lounge stops playback on the TV FIRST, then tears down - the phone resumes local
+     *       playback on session end, so without the remote stop both screens play at once.</li>
+     *   <li>Cast v2 just closes the session ({@link CastV2Session#close()} sends the receiver
+     *       STOP, so the TV app closes - double playback is impossible by construction) and stops
+     *       the proxy. No stop-then-wait dance; it stays snappy.</li>
+     * </ul>
      */
     public void disconnect() {
-        CastSenderService sender = mConnected ? getSender() : null;
-        if (sender == null) {
+        Connection connection = mConnection;
+        if (connection == null) {
             teardown();
             return;
         }
-        mConnected = false; // refuse further transport commands while the stop is in flight
-        RxHelper.execute(
-                sender.stopVideoObserve()
-                        .subscribeOn(Schedulers.io())
-                        .timeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                        .observeOn(AndroidSchedulers.mainThread())
-                        .doFinally(this::teardown),
-                error -> Log.e(TAG, "Stop-on-disconnect failed (tearing down anyway): " + error));
+        connection.disconnect();
     }
 
     /** Immediate session teardown - no remote stop. Also called defensively before a new connect. */
     private void teardown() {
-        if (mConnectAction != null && !mConnectAction.isDisposed()) {
-            mConnectAction.dispose(); // tears the session down sender-side
-        }
-        mConnectAction = null;
-        if (mConnected || mTarget != null) {
+        if (mConnection != null || mConnected || mTarget != null) {
             endSession(null);
         }
     }
 
-    private void handleEvent(CastEvent event) {
-        switch (event.getType()) {
-            case CastEvent.TYPE_CONNECTED:
-                mConnected = true;
-                CastSessionService.start(mContext);
-                CastTarget target = mTarget;
-                for (Listener listener : mListeners) {
-                    listener.onCastSessionStarted(target);
-                }
-                break;
-            case CastEvent.TYPE_NOW_PLAYING:
-                if (!TextUtils.isEmpty(event.getVideoId())) {
-                    mVideoId = event.getVideoId();
-                }
-                applyTiming(event);
-                notifyState();
-                break;
-            case CastEvent.TYPE_STATE_CHANGE:
-                applyTiming(event);
-                notifyState();
-                break;
-            case CastEvent.TYPE_VOLUME_CHANGE:
-                // Volume routing is not surfaced in the scaffolding UI yet.
-                break;
-            case CastEvent.TYPE_DISCONNECTED:
-                endSession(event.getReason());
-                break;
-            default:
-                break;
-        }
-    }
-
-    private void applyTiming(CastEvent event) {
-        long position = event.getPositionMs();
-        long duration = event.getDurationMs();
-        if (duration > 0) {
-            mDurationMs = duration;
-        }
-        if (position >= 0) {
-            mPositionMs = position;
-            mPositionTimestamp = SystemClock.elapsedRealtime();
-        }
-        if (event.getState() >= 0) {
-            mState = event.getState();
-        }
-    }
-
+    /**
+     * The one place a session dies. Order matters for the dead-callback guard: {@link #mConnection}
+     * is nulled BEFORE {@code destroy()}, so any callback the dying connection still emits fails
+     * its {@link #isCurrent} check instead of touching the (possibly brand-new) session state.
+     */
     private void endSession(@Nullable String reason) {
-        boolean wasActive = mConnected || mTarget != null;
-        if (mConnectAction != null && !mConnectAction.isDisposed()) {
-            mConnectAction.dispose();
+        boolean wasActive = mConnection != null || mConnected || mTarget != null;
+        Connection connection = mConnection;
+        mConnection = null;
+        if (connection != null) {
+            connection.destroy();
         }
-        mConnectAction = null;
         mConnected = false;
         mTarget = null;
         CastSessionService.stop(mContext);
@@ -231,6 +221,11 @@ public class CastSessionManager {
             }
         }
         resetPlaybackState();
+    }
+
+    /** Dead-session guard: callbacks from a torn-down connection must never touch manager state. */
+    private boolean isCurrent(Connection connection) {
+        return mConnection == connection;
     }
 
     private void resetPlaybackState() {
@@ -245,6 +240,16 @@ public class CastSessionManager {
     private void notifyState() {
         for (Listener listener : mListeners) {
             listener.onCastSessionState(mVideoId, getPositionMs(), mDurationMs, isPlayingOnTv());
+        }
+    }
+
+    /** Shared TYPE_CONNECTED flow: mark connected, start the FGS, tell the UI (main thread). */
+    private void handleConnected() {
+        mConnected = true;
+        CastSessionService.start(mContext);
+        CastTarget target = mTarget;
+        for (Listener listener : mListeners) {
+            listener.onCastSessionStarted(target);
         }
     }
 
@@ -287,15 +292,15 @@ public class CastSessionManager {
     }
 
     // ---------------------------------------------------------------------------------
-    // Transport commands (valid only while connected; all fire-and-forget on io)
+    // Transport commands (valid only while connected; optimistic local state, real work async)
     // ---------------------------------------------------------------------------------
 
     public void loadVideo(String videoId, long positionMs) {
         if (TextUtils.isEmpty(videoId)) {
             return;
         }
-        CastSenderService sender = getSender();
-        if (sender == null || !mConnected) {
+        Connection connection = mConnection;
+        if (connection == null || !mConnected) {
             return;
         }
         // Optimistic: remember what the TV is (about to be) playing so a locally initiated load
@@ -303,52 +308,525 @@ public class CastSessionManager {
         mVideoId = videoId;
         mPositionMs = Math.max(positionMs, 0);
         mPositionTimestamp = SystemClock.elapsedRealtime();
-        runCommand(sender.loadVideoObserve(videoId, positionMs), "loadVideo");
+        connection.loadVideo(videoId, positionMs);
     }
 
     public void play() {
-        CastSenderService sender = getSender();
-        if (sender != null && mConnected) {
+        Connection connection = mConnection;
+        if (connection != null && mConnected) {
             mState = RemoteControlService.STATE_PLAYING;
-            runCommand(sender.playObserve(), "play");
+            connection.play();
             notifyState();
         }
     }
 
     public void pause() {
-        CastSenderService sender = getSender();
-        if (sender != null && mConnected) {
+        Connection connection = mConnection;
+        if (connection != null && mConnected) {
             // Fold the interpolated head start into the stored position before freezing it.
             mPositionMs = getPositionMs();
             mPositionTimestamp = SystemClock.elapsedRealtime();
             mState = RemoteControlService.STATE_PAUSED;
-            runCommand(sender.pauseObserve(), "pause");
+            connection.pause();
             notifyState();
         }
     }
 
     public void seekTo(long positionMs) {
-        CastSenderService sender = getSender();
-        if (sender != null && mConnected) {
+        Connection connection = mConnection;
+        if (connection != null && mConnected) {
             mPositionMs = Math.max(positionMs, 0);
             mPositionTimestamp = SystemClock.elapsedRealtime();
-            runCommand(sender.seekToObserve(positionMs), "seekTo");
+            connection.seekTo(positionMs);
             notifyState();
         }
     }
 
     public void stopVideo() {
-        CastSenderService sender = getSender();
-        if (sender != null && mConnected) {
-            runCommand(sender.stopVideoObserve(), "stopVideo");
+        Connection connection = mConnection;
+        if (connection != null && mConnected) {
+            connection.stopVideo();
         }
     }
 
-    private void runCommand(Observable<Void> command, String name) {
-        // Fire-and-forget off the main thread; RxHelper supplies the error-swallowing subscriber.
-        RxHelper.execute(
-                command.subscribeOn(Schedulers.io()),
-                error -> Log.e(TAG, "Cast command '" + name + "' failed: " + error));
+    // ---------------------------------------------------------------------------------
+    // Route B: Lounge connection (behavior preserved verbatim from the pre-refactor manager)
+    // ---------------------------------------------------------------------------------
+
+    private class LoungeConnection implements Connection {
+        private final CastTarget mLoungeTarget;
+        private Disposable mConnectAction;
+
+        LoungeConnection(CastTarget target) {
+            mLoungeTarget = target;
+        }
+
+        @Override
+        public void start() {
+            CastSenderService sender = getSender();
+            if (sender == null) {
+                endSession("Lounge sender unavailable");
+                return;
+            }
+            // Long-lived stream; disposing it tears the Lounge session down (interface contract).
+            mConnectAction = sender.connectObserve(mLoungeTarget.getScreen())
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(
+                            this::handleEvent,
+                            error -> {
+                                Log.e(TAG, "Cast session error: " + error);
+                                if (isCurrent(this)) {
+                                    endSession(error.getMessage());
+                                }
+                            },
+                            () -> {
+                                if (isCurrent(this)) {
+                                    endSession(null);
+                                }
+                            });
+        }
+
+        /**
+         * Stops playback on the TV FIRST, then tears the session down. Ordering matters -
+         * disposing the session sets the sender's stopped flag, after which it refuses commands,
+         * so the teardown waits for the stop POST (bounded by a timeout in case the TV is gone).
+         *
+         * <p>The Route B "phone can leave" property is untouched: it covers walking away or
+         * killing the app (no disconnect runs, the TV keeps playing), not an explicit
+         * Disconnect tap.</p>
+         */
+        @Override
+        public void disconnect() {
+            CastSenderService sender = mConnected ? getSender() : null;
+            if (sender == null) {
+                teardown();
+                return;
+            }
+            mConnected = false; // refuse further transport commands while the stop is in flight
+            RxHelper.execute(
+                    sender.stopVideoObserve()
+                            .subscribeOn(Schedulers.io())
+                            .timeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                            .observeOn(AndroidSchedulers.mainThread())
+                            .doFinally(CastSessionManager.this::teardown),
+                    error -> Log.e(TAG, "Stop-on-disconnect failed (tearing down anyway): " + error));
+        }
+
+        @Override
+        public void destroy() {
+            if (mConnectAction != null && !mConnectAction.isDisposed()) {
+                mConnectAction.dispose(); // tears the session down sender-side
+            }
+            mConnectAction = null;
+        }
+
+        private void handleEvent(CastEvent event) {
+            if (!isCurrent(this)) {
+                return; // dead session (dispose raced an in-flight main-thread delivery)
+            }
+            switch (event.getType()) {
+                case CastEvent.TYPE_CONNECTED:
+                    handleConnected();
+                    break;
+                case CastEvent.TYPE_NOW_PLAYING:
+                    if (!TextUtils.isEmpty(event.getVideoId())) {
+                        mVideoId = event.getVideoId();
+                    }
+                    applyTiming(event);
+                    notifyState();
+                    break;
+                case CastEvent.TYPE_STATE_CHANGE:
+                    applyTiming(event);
+                    notifyState();
+                    break;
+                case CastEvent.TYPE_VOLUME_CHANGE:
+                    // Volume routing is not surfaced in the scaffolding UI yet.
+                    break;
+                case CastEvent.TYPE_DISCONNECTED:
+                    endSession(event.getReason());
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        private void applyTiming(CastEvent event) {
+            long position = event.getPositionMs();
+            long duration = event.getDurationMs();
+            if (duration > 0) {
+                mDurationMs = duration;
+            }
+            if (position >= 0) {
+                mPositionMs = position;
+                mPositionTimestamp = SystemClock.elapsedRealtime();
+            }
+            if (event.getState() >= 0) {
+                mState = event.getState();
+            }
+        }
+
+        @Override
+        public void loadVideo(String videoId, long positionMs) {
+            CastSenderService sender = getSender();
+            if (sender != null) {
+                runCommand(sender.loadVideoObserve(videoId, positionMs), "loadVideo");
+            }
+        }
+
+        @Override
+        public void play() {
+            CastSenderService sender = getSender();
+            if (sender != null) {
+                runCommand(sender.playObserve(), "play");
+            }
+        }
+
+        @Override
+        public void pause() {
+            CastSenderService sender = getSender();
+            if (sender != null) {
+                runCommand(sender.pauseObserve(), "pause");
+            }
+        }
+
+        @Override
+        public void seekTo(long positionMs) {
+            CastSenderService sender = getSender();
+            if (sender != null) {
+                runCommand(sender.seekToObserve(positionMs), "seekTo");
+            }
+        }
+
+        @Override
+        public void stopVideo() {
+            CastSenderService sender = getSender();
+            if (sender != null) {
+                runCommand(sender.stopVideoObserve(), "stopVideo");
+            }
+        }
+
+        private void runCommand(Observable<Void> command, String name) {
+            // Fire-and-forget off the main thread; RxHelper supplies the error-swallowing subscriber.
+            RxHelper.execute(
+                    command.subscribeOn(Schedulers.io()),
+                    error -> Log.e(TAG, "Cast command '" + name + "' failed: " + error));
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Route A: Cast v2 connection (Default Media Receiver + phone-side proxy)
+    // ---------------------------------------------------------------------------------
+
+    /** A Route A load refused for an honest, user-readable reason (live stream, no avc1, ...). */
+    private static final class DirectCastRefusedException extends RuntimeException {
+        DirectCastRefusedException(String message) {
+            super(message);
+        }
+    }
+
+    /** What the io-thread prepare step hands the main thread: rewritten manifest + receiver metadata. */
+    private static final class PreparedLoad {
+        final byte[] mMpdBytes;
+        @Nullable
+        final String mTitle;
+
+        PreparedLoad(byte[] mpdBytes, @Nullable String title) {
+            mMpdBytes = mpdBytes;
+            mTitle = title;
+        }
+    }
+
+    /**
+     * Map a Cast MEDIA_STATUS playerState onto the Lounge state model the overlay already speaks.
+     *
+     * <p>BUFFERING maps to STATE_PLAYING deliberately: the overlay's play/pause button reads
+     * {@link #isPlayingOnTv()}, and a buffering TV showing a "play" button would invite a
+     * double-toggle. Tradeoff: {@link #getPositionMs()} interpolates forward on STATE_PLAYING, so
+     * the position drifts ahead during a stall - but {@link CastV2Session} polls MEDIA_STATUS
+     * every 5s and each status rewrites the stored position, bounding the drift to &le;5s.</p>
+     */
+    static int mapCastV2PlayerState(@Nullable String playerState) {
+        if ("PLAYING".equals(playerState) || "BUFFERING".equals(playerState)) {
+            return RemoteControlService.STATE_PLAYING;
+        }
+        if ("PAUSED".equals(playerState)) {
+            return RemoteControlService.STATE_PAUSED;
+        }
+        return RemoteControlService.STATE_IDLE; // "IDLE" + anything unknown
+    }
+
+    private class CastV2Connection implements Connection, CastV2Session.Listener {
+        private final CastTarget mV2Target;
+        private final CastProxyServer mProxy = new CastProxyServer();
+        /** Guards session create-vs-destroy (start() runs on a worker, destroy() on main). */
+        private final Object mSessionLock = new Object();
+        @Nullable
+        private CastV2Session mSession;
+        private volatile boolean mDestroyed;
+        /** Main-thread confined. Disposing it is the drop-stale half of the load serialization. */
+        @Nullable
+        private Disposable mLoadAction;
+        /** videoId of the most recent load; a slower older chain's result is dropped by comparison. */
+        @Nullable
+        private volatile String mLoadVideoId;
+
+        CastV2Connection(CastTarget target) {
+            mV2Target = target;
+        }
+
+        @Override
+        public void start() {
+            // Off-main: proxy.start() binds a server socket. The CastV2Session itself is safe to
+            // create/start from any thread (its channel does all network on its own threads).
+            Thread starter = new Thread(() -> {
+                String failure = null;
+                try {
+                    mProxy.start();
+                } catch (IOException e) {
+                    Log.e(TAG, "Cast proxy failed to start: " + e);
+                    failure = mContext.getString(R.string.mobile_cast_direct_load_failed);
+                }
+                if (failure == null && mProxy.getBaseUrl() == null) {
+                    // Bound but no LAN IPv4: the receiver could never reach us.
+                    failure = mContext.getString(R.string.mobile_cast_direct_no_wifi);
+                }
+                if (failure != null) {
+                    mProxy.stop();
+                    String reason = failure;
+                    mMainHandler.post(() -> {
+                        if (isCurrent(this)) {
+                            endSession(reason);
+                        }
+                    });
+                    return;
+                }
+                synchronized (mSessionLock) {
+                    if (mDestroyed) {
+                        mProxy.stop(); // connect() raced us with a teardown - leave nothing running
+                        return;
+                    }
+                    mSession = CastV2Session.forDefaultMediaReceiver(
+                            mV2Target.getCastHost(), mV2Target.getCastPort(), this);
+                    mSession.start();
+                }
+            }, "CastV2Connect");
+            starter.setDaemon(true);
+            starter.start();
+        }
+
+        /**
+         * No stop-then-wait dance (contrast Lounge): {@link CastV2Session#close()} already sends
+         * the receiver STOP, which closes the TV app outright - double playback is impossible.
+         */
+        @Override
+        public void disconnect() {
+            endSession(null); // endSession -> destroy() does the close+stop
+        }
+
+        @Override
+        public void destroy() {
+            mDestroyed = true;
+            if (mLoadAction != null && !mLoadAction.isDisposed()) {
+                mLoadAction.dispose();
+            }
+            mLoadAction = null;
+            CastV2Session session;
+            synchronized (mSessionLock) {
+                session = mSession;
+                mSession = null;
+            }
+            // Socket closes off-main; both calls are idempotent and safe on a dead peer.
+            Thread closer = new Thread(() -> {
+                if (session != null) {
+                    session.close(); // receiver STOP + channel close - tears the TV app down
+                }
+                mProxy.stop();
+            }, "CastV2Teardown");
+            closer.setDaemon(true);
+            closer.start();
+        }
+
+        // ---- CastV2Session.Listener (internal threads - hop to main, then guard) ----
+
+        @Override
+        public void onConnected() {
+            mMainHandler.post(() -> {
+                if (isCurrent(this)) {
+                    // Same flow as Lounge TYPE_CONNECTED; the activity's onCastSessionStarted
+                    // then calls loadVideo(videoId, positionMs) exactly like today.
+                    handleConnected();
+                }
+            });
+        }
+
+        @Override
+        public void onMediaStatus(String playerState, long positionMs, long durationMs) {
+            mMainHandler.post(() -> {
+                if (!isCurrent(this)) {
+                    return;
+                }
+                mState = mapCastV2PlayerState(playerState);
+                if (durationMs > 0) {
+                    mDurationMs = durationMs;
+                }
+                if (positionMs >= 0) {
+                    mPositionMs = positionMs;
+                    mPositionTimestamp = SystemClock.elapsedRealtime();
+                }
+                notifyState();
+            });
+        }
+
+        @Override
+        public void onLaunchError(String reason) {
+            postSessionEnd("Launch failed: " + reason);
+        }
+
+        @Override
+        public void onChannelError(String reason) {
+            // phoneFree=false is honest here: a dead channel IS a dead session (the TV has no
+            // independent playback to keep going - it was streaming through the now-gone proxy).
+            postSessionEnd(reason);
+        }
+
+        @Override
+        public void onClosed() {
+            postSessionEnd(null);
+        }
+
+        private void postSessionEnd(@Nullable String reason) {
+            mMainHandler.post(() -> {
+                if (isCurrent(this)) {
+                    endSession(reason);
+                }
+            });
+        }
+
+        // ---- Load pipeline ----
+
+        @Override
+        public void loadVideo(String videoId, long positionMs) {
+            // Serialize loads: dispose the previous chain (drop-stale) and remember which videoId
+            // owns the slot. The proxy manifest swap happens on MAIN, after the staleness check -
+            // doing it on io would let a slow old chain overwrite a newer video's manifest
+            // (single-slot eviction rule, CLAUDE.md).
+            if (mLoadAction != null && !mLoadAction.isDisposed()) {
+                mLoadAction.dispose();
+            }
+            mLoadVideoId = videoId;
+            mLoadAction = YouTubeServiceManager.instance().getMediaItemService()
+                    .getFormatInfoObserve(videoId)
+                    .subscribeOn(Schedulers.io())
+                    .map(this::prepareLoad)
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(prepared -> {
+                        if (!isCurrent(this) || !videoId.equals(mLoadVideoId)) {
+                            return; // session died or a newer load took the slot
+                        }
+                        CastV2Session session;
+                        synchronized (mSessionLock) {
+                            session = mSession;
+                        }
+                        String manifestUrl = mProxy.getManifestUrl();
+                        if (session == null || manifestUrl == null) {
+                            failLoad(mContext.getString(R.string.mobile_cast_direct_no_wifi));
+                            return;
+                        }
+                        mProxy.loadVideo(prepared.mMpdBytes);
+                        session.load(manifestUrl, MpdRewriter.MIME_TYPE, prepared.mTitle,
+                                null /* no thumb getter on MediaItemFormatInfo */,
+                                Math.max(positionMs, 0));
+                    }, error -> {
+                        if (!isCurrent(this) || !videoId.equals(mLoadVideoId)) {
+                            return;
+                        }
+                        Log.e(TAG, "Direct-cast load failed: " + error);
+                        failLoad(error instanceof DirectCastRefusedException
+                                ? error.getMessage()
+                                : mContext.getString(R.string.mobile_cast_direct_load_failed));
+                    });
+        }
+
+        /** io thread: fetch-independent policy checks + manifest rewrite. Throws to refuse. */
+        private PreparedLoad prepareLoad(MediaItemFormatInfo formatInfo) throws IOException {
+            // LIVE IS NOT SUPPORTED on Route A v1: segment tokens wrap complete VOD URLs; live
+            // needs proxied HLS (post-v1). isLive() = live RIGHT NOW - a finished stream
+            // (isLiveContent) demuxes as normal VOD and casts fine, so only isLive() refuses.
+            if (formatInfo.isLive()) {
+                throw new DirectCastRefusedException(
+                        mContext.getString(R.string.mobile_cast_direct_live_unsupported));
+            }
+            String baseUrl = mProxy.getBaseUrl();
+            if (baseUrl == null) {
+                throw new DirectCastRefusedException(
+                        mContext.getString(R.string.mobile_cast_direct_no_wifi));
+            }
+            InputStream mpdStream = formatInfo.createMpdStream();
+            if (mpdStream == null) {
+                throw new DirectCastRefusedException(
+                        mContext.getString(R.string.mobile_cast_direct_incompatible));
+            }
+            MpdRewriter.Result result = MpdRewriter.rewrite(mpdStream, baseUrl);
+            if (result.isEmpty() || !result.hasCompatibleVideo()) {
+                // Covers isVideoDroppedForCompatibility (had video, none avc1) AND audio-only:
+                // silently casting sound with a black screen would read as a bug, not a feature.
+                throw new DirectCastRefusedException(
+                        mContext.getString(R.string.mobile_cast_direct_incompatible));
+            }
+            return new PreparedLoad(result.getMpdBytes(), formatInfo.getTitle());
+        }
+
+        /**
+         * A load failed but the SESSION is fine - keep it, surface the reason, and push a
+         * non-playing state so the overlay's optimistic "loading" read doesn't spin forever.
+         */
+        private void failLoad(String reason) {
+            MessageHelpers.showMessage(mContext, reason);
+            mState = RemoteControlService.STATE_IDLE;
+            notifyState();
+        }
+
+        // ---- Transport (optimistic local updates already applied by the manager wrappers) ----
+
+        @Override
+        public void play() {
+            CastV2Session session = currentSession();
+            if (session != null) {
+                session.play();
+            }
+        }
+
+        @Override
+        public void pause() {
+            CastV2Session session = currentSession();
+            if (session != null) {
+                session.pause();
+            }
+        }
+
+        @Override
+        public void seekTo(long positionMs) {
+            CastV2Session session = currentSession();
+            if (session != null) {
+                session.seekTo(positionMs);
+            }
+        }
+
+        @Override
+        public void stopVideo() {
+            CastV2Session session = currentSession();
+            if (session != null) {
+                session.stop();
+            }
+        }
+
+        @Nullable
+        private CastV2Session currentSession() {
+            synchronized (mSessionLock) {
+                return mSession;
+            }
+        }
     }
 
     // ---------------------------------------------------------------------------------

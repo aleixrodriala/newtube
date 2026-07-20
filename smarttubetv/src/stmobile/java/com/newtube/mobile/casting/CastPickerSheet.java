@@ -22,23 +22,38 @@ import com.liskovsoft.mediaserviceinterfaces.data.CastScreen;
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import com.newtube.mobile.casting.castv2.CastV2Discovery;
+import com.newtube.mobile.casting.castv2.MdxScreenIdReader;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 
 /**
- * The cast device picker (CASTING.md UX): one bottom sheet listing persisted TV-code screens and
- * DIAL-discovered TVs (each with its one-line honesty badge) plus the universal "Link with TV
- * code" fallback. DIAL discovery runs only while the sheet is open (stopped on dismiss).
+ * The cast device picker (CASTING.md UX): one bottom sheet listing persisted TV-code screens,
+ * DIAL-discovered TVs and mDNS-discovered Cast receivers (each with its one-line honesty badge)
+ * plus the universal "Link with TV code" fallback. Both discoveries run only while the sheet is
+ * open (stopped on dismiss); either failing silently is fine - the caller already gated on the
+ * local-network permission.
+ *
+ * <p>Each Cast receiver produces TWO adjacent rows - "Direct cast" (Route A) and "YouTube app"
+ * (Lounge via the mdx shim). That's the v1 take on the doc's "one row with a mode choice": two
+ * plain rows are simpler inside a sheet; revisit if the list gets crowded. If the same physical
+ * device also answers DIAL, the DIAL Lounge row is dropped in favor of the Cast pair (Cast
+ * devices answering DIAL is rare - don't over-engineer the merge).</p>
  *
  * <p>The sheet is presented through the host player's immersive-safe presenter
  * (MobilePlaybackActivity.showPlayerSheet) so it behaves like the quality/overflow sheets.
  * When the Lounge sender hasn't landed yet ({@code getCastSenderService()} == null) the picker
- * still opens and lists targets, but connect/pair attempts toast "not available yet".</p>
+ * still opens and lists targets, but Lounge connect/pair attempts toast "not available yet"
+ * (Direct cast is self-contained and unaffected).</p>
  */
 public class CastPickerSheet {
 
@@ -49,24 +64,33 @@ public class CastPickerSheet {
 
     private static final String TAG = CastPickerSheet.class.getSimpleName();
     private static final int TV_CODE_LENGTH = 12;
+    /** mdx shim budget: channel open + YouTube-app launch + first mdxSessionStatus answer. */
+    private static final long MDX_READ_TIMEOUT_MS = 15_000;
 
     private final Activity mActivity;
     private final CastSessionManager mSessionManager;
     private final DialDiscovery mDiscovery;
+    private final CastV2Discovery mCastDiscovery;
     /** Dedupe key -> row view, so re-discoveries update in place instead of duplicating rows. */
     private final Map<String, View> mRows = new HashMap<>();
+    /** Dedupe key -> target, so the mDNS-vs-DIAL merge can inspect what a row represents. */
+    private final Map<String, CastTarget> mRowTargets = new HashMap<>();
+    /** Hosts seen over mDNS; DIAL rows resolving to one of these are suppressed (Cast pair wins). */
+    private final Set<String> mCastHosts = new HashSet<>();
 
     private BottomSheetDialog mDialog;
     private LinearLayout mTargetsContainer;
     private View mProgressRow;
     private TextView mEmptyView;
     private Disposable mPairAction;
+    /** One launch/pairing flow at a time - shared by the DIAL launch and the mdx shim. */
     private boolean mLaunchInFlight;
 
     public CastPickerSheet(Activity activity) {
         mActivity = activity;
         mSessionManager = CastSessionManager.instance(activity);
         mDiscovery = new DialDiscovery(activity);
+        mCastDiscovery = new CastV2Discovery(activity);
     }
 
     /** Build and present the picker; discovery starts now and stops when the sheet is dismissed. */
@@ -105,11 +129,15 @@ public class CastPickerSheet {
             }
         });
 
+        // mDNS Cast discovery in parallel (callbacks on main, deduped by host inside).
+        mCastDiscovery.start(this::onCastDeviceFound);
+
         presenter.present(mDialog);
     }
 
     private void teardown() {
         mDiscovery.stop();
+        mCastDiscovery.stop();
         if (mPairAction != null && !mPairAction.isDisposed()) {
             mPairAction.dispose();
         }
@@ -120,8 +148,40 @@ public class CastPickerSheet {
     // Target rows
     // ---------------------------------------------------------------------------------
 
+    /** One Cast receiver -> two adjacent rows: Direct cast (Route A) + its YouTube app (mdx->Lounge). */
+    private void onCastDeviceFound(String name, String host, int port) {
+        mCastHosts.add(host);
+        removeDialRowsForHost(host);
+        addOrUpdateRow(CastTarget.fromCastDevice(name, host, port));
+        addOrUpdateRow(CastTarget.fromCastDeviceYouTubeApp(name, host, port));
+    }
+
+    /** Same physical device seen via both DIAL and mDNS: the Cast row pair replaces the DIAL row. */
+    private void removeDialRowsForHost(String host) {
+        List<String> stale = new ArrayList<>();
+        for (Map.Entry<String, CastTarget> entry : mRowTargets.entrySet()) {
+            CastTarget target = entry.getValue();
+            if (target.getRoute() == CastTarget.Route.LOUNGE_DIAL
+                    && host.equals(hostOfUrl(target.getDialLocation()))) {
+                stale.add(entry.getKey());
+            }
+        }
+        for (String key : stale) {
+            View row = mRows.remove(key);
+            mRowTargets.remove(key);
+            if (row != null && mTargetsContainer != null) {
+                mTargetsContainer.removeView(row);
+            }
+        }
+    }
+
     private void addOrUpdateRow(CastTarget target) {
         if (mTargetsContainer == null) {
+            return;
+        }
+        // A DIAL discovery arriving AFTER the same device showed over mDNS: Cast pair wins.
+        if (target.getRoute() == CastTarget.Route.LOUNGE_DIAL
+                && mCastHosts.contains(hostOfUrl(target.getDialLocation()))) {
             return;
         }
         if (mEmptyView != null) {
@@ -138,24 +198,53 @@ public class CastPickerSheet {
             mRows.put(key, row);
             mTargetsContainer.addView(row);
         }
+        mRowTargets.put(key, target);
 
         TextView name = row.findViewById(R.id.cast_target_name);
         TextView badge = row.findViewById(R.id.cast_target_badge);
-        name.setText(target.getName());
-        // All Lounge targets carry the generic badge for now: a SmartTube receiver can't be told
-        // apart from stock YouTube automatically (CASTING.md), so never over-promise ad-freedom.
-        badge.setText(target.isConnectable()
-                ? R.string.mobile_cast_badge_lounge
-                : R.string.mobile_cast_badge_needs_launch);
+        name.setText(target.getRoute() == CastTarget.Route.LOUNGE_MDX
+                // "<Name> — YouTube app": the row title carries the mode; the target keeps the
+                // plain device name (it becomes the overlay/notification "Playing on <Name>").
+                ? mActivity.getString(R.string.mobile_cast_row_youtube_app, target.getName())
+                : target.getName());
+        badge.setText(badgeFor(target));
 
         View finalRow = row;
         row.setOnClickListener(v -> onTargetClicked(target, finalRow));
     }
 
+    private int badgeFor(CastTarget target) {
+        switch (target.getRoute()) {
+            case CAST_V2:
+                return R.string.mobile_cast_badge_direct;
+            case LOUNGE_MDX:
+                // Same honesty line as every other YouTube-app target (CASTING.md badge).
+                return R.string.mobile_cast_badge_lounge;
+            default:
+                // All Lounge targets carry the generic badge for now: a SmartTube receiver can't
+                // be told apart from stock YouTube automatically (CASTING.md), so never
+                // over-promise ad-freedom.
+                return target.isConnectable()
+                        ? R.string.mobile_cast_badge_lounge
+                        : R.string.mobile_cast_badge_needs_launch;
+        }
+    }
+
     private void onTargetClicked(CastTarget target, View row) {
+        // Route A is self-contained (no Lounge sender involved) - connect straight away.
+        if (target.getRoute() == CastTarget.Route.CAST_V2) {
+            connectAndDismiss(target);
+            return;
+        }
+
         if (!mSessionManager.isSenderAvailable()) {
             // Submodule sender implementation hasn't landed: browsing works, connecting doesn't.
             MessageHelpers.showMessage(mActivity, R.string.mobile_cast_unavailable);
+            return;
+        }
+
+        if (target.getRoute() == CastTarget.Route.LOUNGE_MDX) {
+            startMdxPairing(target, row);
             return;
         }
 
@@ -189,6 +278,68 @@ public class CastPickerSheet {
         });
     }
 
+    /**
+     * The mdx shim: read the Lounge screenId out of the Cast device's YouTube app (launching it if
+     * needed - MdxScreenIdReader leaves it running so the Lounge session can attach right after),
+     * then connect exactly like any paired Lounge target. Also persisted via CastPrefs so the
+     * screen shows up as a saved row next time without the shim round-trip.
+     */
+    private void startMdxPairing(CastTarget target, View row) {
+        if (mLaunchInFlight) {
+            return;
+        }
+        mLaunchInFlight = true;
+        row.setEnabled(false);
+        ProgressBar progress = row.findViewById(R.id.cast_target_progress);
+        TextView badge = row.findViewById(R.id.cast_target_badge);
+        if (progress != null) {
+            progress.setVisibility(View.VISIBLE);
+        }
+        if (badge != null) {
+            badge.setText(R.string.mobile_cast_connecting_youtube_app);
+        }
+
+        MdxScreenIdReader.readScreenId(target.getCastHost(), target.getCastPort(), MDX_READ_TIMEOUT_MS,
+                new MdxScreenIdReader.Callback() {
+                    @Override
+                    public void onScreenId(String screenId) {
+                        // Callback arrives on the reader's internal thread - hop to main.
+                        mActivity.runOnUiThread(() -> {
+                            mLaunchInFlight = false;
+                            resetMdxRow(row, progress, badge);
+                            if (mDialog == null || !mDialog.isShowing()) {
+                                return; // sheet dismissed mid-shim: don't connect out of the blue
+                            }
+                            CastTarget resolved = target.withScreenId(screenId);
+                            CastPrefs.addPairedScreen(mActivity, resolved.getScreen());
+                            connectAndDismiss(resolved);
+                        });
+                    }
+
+                    @Override
+                    public void onError(String reason) {
+                        Log.e(TAG, "mdx screenId read failed: " + reason);
+                        mActivity.runOnUiThread(() -> {
+                            mLaunchInFlight = false;
+                            resetMdxRow(row, progress, badge);
+                            if (mDialog != null && mDialog.isShowing()) {
+                                MessageHelpers.showMessage(mActivity, R.string.mobile_cast_launch_failed);
+                            }
+                        });
+                    }
+                });
+    }
+
+    private void resetMdxRow(View row, @Nullable ProgressBar progress, @Nullable TextView badge) {
+        row.setEnabled(true);
+        if (progress != null) {
+            progress.setVisibility(View.GONE);
+        }
+        if (badge != null) {
+            badge.setText(R.string.mobile_cast_badge_lounge);
+        }
+    }
+
     private void connectAndDismiss(CastTarget target) {
         if (mSessionManager.connect(target)) {
             MessageHelpers.showMessage(mActivity,
@@ -198,6 +349,19 @@ public class CastPickerSheet {
             }
         } else {
             MessageHelpers.showMessage(mActivity, R.string.mobile_cast_unavailable);
+        }
+    }
+
+    /** Host of an http(s) URL (DIAL LOCATION) for the mDNS-vs-DIAL device merge; null when unparsable. */
+    @Nullable
+    private static String hostOfUrl(@Nullable String url) {
+        if (TextUtils.isEmpty(url)) {
+            return null;
+        }
+        try {
+            return java.net.URI.create(url).getHost();
+        } catch (Exception e) {
+            return null;
         }
     }
 

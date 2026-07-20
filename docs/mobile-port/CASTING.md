@@ -1,13 +1,30 @@
 # Casting to the TV — design (decided 2026-07-20)
 
-**Status (2026-07-20): scaffolding + Route B SHIPPED — verified end-to-end on a
-Pixel 9 + TV** (pair via TV code, reconnect from saved screen, load/play/pause/
-seek, position overlay, disconnect). Disconnect semantics: an explicit
-Disconnect sends `stopVideo` to the TV before teardown (phone resumes locally —
-without the stop both screens play at once); "phone can leave" covers walking
-away/killing the app, where no stop is sent and the TV keeps playing. Known
-gap: Google Cast devices (Chromecast, Cast-built-in TVs) don't answer DIAL —
-they only appear via manual TV-code pairing until the mdx shim (step 3) lands.
+**Status (2026-07-20): ALL THREE STEPS SHIPPED — Route B, Route A and the mdx
+shim, each verified end-to-end on a Pixel 9 + a Cast-built-in TV.**
+
+- **Route B** (Lounge): pair via TV code, saved-screen reconnect, transport,
+  position overlay, disconnect. Disconnect semantics: an explicit Disconnect
+  sends `stopVideo` to the TV before teardown (phone resumes locally — without
+  the stop both screens play at once); "phone can leave" covers walking
+  away/killing the app, where no stop is sent and the TV keeps playing.
+- **Route A** (Direct cast): mDNS discovery, hand-rolled CASTV2 (no protobuf
+  dep, TLS :8009), Default Media Receiver, phone-side proxy serving the
+  rewritten MPD (avc1/mp4a only, ≤1080p, VOD only). **Hard-won:** the DMR is an
+  https gstatic page fetching adaptive media via XHR — every proxy response
+  (manifest, segments, errors) MUST carry `Access-Control-Allow-Origin: *` +
+  expose headers, and OPTIONS preflights MUST allow the `Range` header, or the
+  LOAD dies as `LOAD_FAILED` with zero visible cause (requests DO reach the
+  proxy; the receiver's browser discards the responses). Same recipe as
+  Grayjay's cast handlers. Plain http is fine (media XHR from the receiver is
+  not mixed-content-blocked); progressive-vs-adaptive is NOT the issue.
+  A Cast *audio* device (soundbar) rejects the video DASH LOAD — expected.
+- **mdx shim**: the "— YouTube app" row on a Cast device reads the Lounge
+  screenId over `urn:x-cast:com.google.youtube.mdx` (launching/reusing appId
+  233637DE, never stopping it) and hands off to a normal Lounge session; the
+  screen persists as a saved row. This is what makes Cast-built-in devices
+  (which don't answer DIAL) appear organically for Route B.
+
 Sender lives in the MediaServiceCore fork
 (`youtubeapi/lounge/sender/` + `YouTubeCastSenderService`, 20 unit tests on
 framing/encoding/events); app side in `stmobile .../casting/` (DIAL discovery,
