@@ -102,7 +102,7 @@
                     android:src="@drawable/ic_mobile_back_arrow" />
 
                 <!-- paddingEnd must clear the full top-right options row (mobile_player_options):
-                     up to 6 icon buttons * 40dp + 4dp end margin = 244dp. Otherwise the wrapped
+                     3 icon buttons * 40dp + 4dp end margin = 124dp. Otherwise the wrapped
                      title runs under the leftmost option (cast) icon. -->
                 <TextView
                     android:id="@+id/mobile_player_title"
@@ -113,7 +113,7 @@
                     android:maxLines="2"
                     android:paddingStart="56dp"
                     android:paddingTop="12dp"
-                    android:paddingEnd="248dp"
+                    android:paddingEnd="128dp"
                     android:paddingBottom="12dp"
                     android:shadowColor="#80000000"
                     android:shadowDx="0"
@@ -124,10 +124,9 @@
                     android:textStyle="bold"
                     tools:text="Video title goes here and may wrap onto a second line" />
 
-                <!-- Top-right player options: Quality, Subtitles/CC, Speed. Each dispatches an
-                     R.id.action_* through PlaybackPresenter.onButtonClicked/onButtonLongClicked so
-                     the existing controllers open their AppDialog option lists (rendered by the
-                     touch MobileAppDialogActivity). -->
+                <!-- Top-right player options, YouTube-style trio: Cast, Subtitles/CC, and the
+                     gear. Everything else (quality, speed, PiP, the long tail) lives one level
+                     down in the gear's bottom sheet (openPlayerMenu). -->
                 <LinearLayout
                     android:id="@+id/mobile_player_options"
                     android:layout_width="wrap_content"
@@ -151,16 +150,6 @@
                         android:src="@drawable/ic_mobile_cast" />
 
                     <ImageButton
-                        android:id="@+id/mobile_player_quality"
-                        android:layout_width="@dimen/mobile_player_icon_button"
-                        android:layout_height="@dimen/mobile_player_icon_button"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="@string/mobile_player_quality"
-                        android:padding="8dp"
-                        android:scaleType="fitCenter"
-                        android:src="@drawable/ic_player_quality" />
-
-                    <ImageButton
                         android:id="@+id/mobile_player_subtitles"
                         android:layout_width="@dimen/mobile_player_icon_button"
                         android:layout_height="@dimen/mobile_player_icon_button"
@@ -170,29 +159,10 @@
                         android:scaleType="fitCenter"
                         android:src="@drawable/ic_player_cc" />
 
-                    <ImageButton
-                        android:id="@+id/mobile_player_speed"
-                        android:layout_width="@dimen/mobile_player_icon_button"
-                        android:layout_height="@dimen/mobile_player_icon_button"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="@string/mobile_player_speed"
-                        android:padding="8dp"
-                        android:scaleType="fitCenter"
-                        android:src="@drawable/ic_player_speed" />
-
-                    <ImageButton
-                        android:id="@+id/mobile_player_pip"
-                        android:layout_width="@dimen/mobile_player_icon_button"
-                        android:layout_height="@dimen/mobile_player_icon_button"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="@string/mobile_player_pip"
-                        android:padding="8dp"
-                        android:scaleType="fitCenter"
-                        android:src="@drawable/ic_player_pip" />
-
-                    <!-- Overflow: opens the bottom-sheet menu of the long-tail player actions
-                         (repeat/shuffle/zoom/background/screen-off/stats/rotate-lock/playlist/queue),
-                         each dispatched through PlaybackPresenter.onButtonClicked/onButtonLongClicked. -->
+                    <!-- Gear: opens the player-options bottom sheet (quality / speed / PiP up
+                         top, then repeat/shuffle/zoom/background/stats/rotate-lock/playlist/
+                         queue), each dispatched through PlaybackPresenter.onButtonClicked /
+                         onButtonLongClicked. -->
                     <ImageButton
                         android:id="@+id/mobile_player_more"
                         android:layout_width="@dimen/mobile_player_icon_button"
@@ -201,7 +171,7 @@
                         android:contentDescription="@string/mobile_player_more"
                         android:padding="8dp"
                         android:scaleType="fitCenter"
-                        android:src="@drawable/ic_player_more" />
+                        android:src="@drawable/ic_mobile_settings" />
 
                 </LinearLayout>
 

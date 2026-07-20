@@ -5,13 +5,13 @@ import android.animation.ValueAnimator;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
-import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.graphics.drawable.AnimationDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.KeyEvent;
+import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.TextureView;
 import android.view.View;
@@ -20,12 +20,11 @@ import android.view.ViewTreeObserver;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
-import androidx.core.view.GravityCompat;
-import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
@@ -34,7 +33,6 @@ import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.navigation.NavigationView;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaGroup;
 import com.liskovsoft.mediaserviceinterfaces.oauth.Account;
 import com.liskovsoft.sharedutils.helpers.Helpers;
@@ -81,11 +79,11 @@ import java.util.List;
  * wave per ROADMAP.md Wave 2).
  *
  * {@code BottomNavigationView} hard-caps at 5 items, but {@code BrowsePresenter} can
- * deliver 10+ sections (Home, Shorts, Trending, Subscriptions, History, Music,
- * Gaming, News, Playlists, Settings, ...). Rather than rebuild the section selector
- * (a scrollable tab strip is a later wave), the bottom nav shows only the curated
- * {@link #PREFERRED_SECTION_IDS} - no backfill; every other delivered section is
- * reachable through the navigation drawer instead.
+ * deliver 10+ sections (Home, Trending, Subscriptions, History, Music, Gaming, News,
+ * Playlists, Settings, ...). The bar shows only the curated
+ * {@link #PREFERRED_SECTION_IDS} plus the synthetic You tab - no backfill; every other
+ * delivered section (and Settings, and the account entry) is reachable through the You
+ * tab's list instead (YouTube's "You" model - there is no drawer).
  *
  * Wave 2: tapping a card routes through {@link BrowsePresenter#onVideoItemClicked} into
  * the real touch player ({@code MobilePlaybackActivity}).
@@ -97,8 +95,11 @@ public class MobileBrowseActivity extends MobileActivity
     private static final int SCROLL_END_THRESHOLD_ITEMS = 6;
     /** BottomNavigationView hard-caps at this many items. */
     private static final int MAX_NAV_ITEMS = 5;
-    /** Single checkable group id for the navigation-drawer section list. */
-    private static final int DRAWER_GROUP_ID = 1;
+    /**
+     * Menu item id of the synthetic "You" tab (account + extra sections + settings). Far above
+     * {@link #ITEM_ID_OFFSET} + any real section id, so it can never collide with one.
+     */
+    private static final int YOU_ITEM_ID = 2_000_000;
     private static final int REQUEST_POST_NOTIFICATIONS = 1;
 
     /**
@@ -111,13 +112,11 @@ public class MobileBrowseActivity extends MobileActivity
             MediaGroup.TYPE_HOME,
             MediaGroup.TYPE_SUBSCRIPTIONS,
             MediaGroup.TYPE_HISTORY,
-            MediaGroup.TYPE_SHORTS,
     };
     private static final int[] PREFERRED_SECTION_TITLE_RES = {
             R.string.header_home,
             R.string.header_subscriptions,
             R.string.header_history,
-            R.string.header_shorts,
     };
 
     private BrowsePresenter mPresenter;
@@ -129,17 +128,22 @@ public class MobileBrowseActivity extends MobileActivity
     private GridLayoutManager mLayoutManager;
     private VideoCardAdapter mAdapter;
     private BottomNavigationView mBottomNav;
-    private DrawerLayout mDrawerLayout;
-    private NavigationView mNavView;
-    /** Drawer-header account row label (sign-in entry / current account name). */
-    private TextView mNavAccountText;
+    // "You" tab panel (account header + grouped section rows + Settings row; replaces the drawer).
+    private View mYouPanel;
+    private LinearLayout mYouRows;
+    /** You-tab account header views (sign-in entry / current account name+email+avatar). */
+    private TextView mYouAccountText;
+    private TextView mYouAccountSub;
+    private ImageView mYouAvatar;
+    /** True while the You panel covers the content grid (the You tab is selected). */
+    private boolean mYouShowing;
+    /** True when the current grid section was opened from a You-panel row (back returns to You). */
+    private boolean mSectionFromYou;
     private View mErrorContainer;
     private ImageView mErrorIcon;
     private TextView mErrorMessage;
     private MaterialButton mErrorAction;
     private ImageButton mSearchButton;
-    private ImageButton mSettingsButton;
-    private ImageButton mMenuButton;
     private ImageButton mCastButton;
     /** Process-wide cast session singleton; Browse only reads state + opens the picker. */
     private CastSessionManager mCastSessionManager;
@@ -193,10 +197,9 @@ public class MobileBrowseActivity extends MobileActivity
         bindViews();
         setupContentGrid();
         setupBottomNav();
-        setupDrawer();
+        setupYouPanel();
         setupErrorAction();
         setupSearchButton();
-        setupSettingsButton();
         setupCastButton();
 
         mPresenter = BrowsePresenter.instance(this);
@@ -219,16 +222,17 @@ public class MobileBrowseActivity extends MobileActivity
         mFeedSkeleton = findViewById(R.id.mobile_feed_skeleton);
         setupSwipeRefresh();
         mBottomNav = findViewById(R.id.mobile_bottom_nav);
-        mDrawerLayout = findViewById(R.id.mobile_drawer_layout);
-        mNavView = findViewById(R.id.mobile_nav_view);
+        mYouPanel = findViewById(R.id.mobile_you_panel);
+        mYouRows = findViewById(R.id.mobile_you_rows);
+        mYouAccountText = findViewById(R.id.mobile_you_account_text);
+        mYouAccountSub = findViewById(R.id.mobile_you_account_sub);
+        mYouAvatar = findViewById(R.id.mobile_you_avatar);
 
         mErrorContainer = findViewById(R.id.mobile_error_container);
         mErrorIcon = findViewById(R.id.mobile_error_icon);
         mErrorMessage = findViewById(R.id.mobile_error_message);
         mErrorAction = findViewById(R.id.mobile_error_action);
         mSearchButton = findViewById(R.id.mobile_search_button);
-        mSettingsButton = findViewById(R.id.mobile_settings_button);
-        mMenuButton = findViewById(R.id.mobile_menu_button);
         mCastButton = findViewById(R.id.mobile_cast_button);
 
         mMiniPlayerBar = findViewById(R.id.mobile_mini_player);
@@ -558,10 +562,6 @@ public class MobileBrowseActivity extends MobileActivity
         mSearchButton.setOnClickListener(v -> SearchPresenter.instance(this).startSearch(null));
     }
 
-    private void setupSettingsButton() {
-        mSettingsButton.setOnClickListener(v -> openSettings());
-    }
-
     // ---------------------------------------------------------------------------------
     // Casting: top-bar entry point (same flow as the player's icon) + connected-state tint.
     //
@@ -679,66 +679,167 @@ public class MobileBrowseActivity extends MobileActivity
     private void setupBottomNav() {
         mBottomNav.setOnItemSelectedListener(item -> {
             if (!mSuppressNavCallback) {
-                onSectionChosen(item.getItemId() - ITEM_ID_OFFSET);
+                if (item.getItemId() == YOU_ITEM_ID) {
+                    showYouPanel();
+                } else {
+                    mSectionFromYou = false;
+                    hideYouPanel();
+                    onSectionChosen(item.getItemId() - ITEM_ID_OFFSET);
+                }
             }
             return true;
         });
     }
 
-    /**
-     * All-sections access (Wave 7a). The bottom nav hard-caps at {@link #MAX_NAV_ITEMS},
-     * but BrowsePresenter can deliver many more sections (Music, Gaming, News, ...) via
-     * {@link #addSection}. The drawer lists EVERY delivered section (icon + title) and
-     * routes a tap through the exact same {@link #onSectionChosen} path the bottom nav
-     * uses, so a drawer-only section loads its content into the same grid.
-     */
-    private void setupDrawer() {
-        mMenuButton.setOnClickListener(v -> mDrawerLayout.openDrawer(GravityCompat.START));
+    // ---------------------------------------------------------------------------------
+    // "You" tab: the YouTube-style personal surface that replaced the navigation drawer
+    // and the top-bar settings icon. Account row on top, then a row for every enabled
+    // BrowsePresenter section that didn't make the bottom nav (Playlists, Music, ...),
+    // then Settings. Section rows route through the same onSectionChosen() path the nav
+    // uses; back from such a section returns to the panel (mSectionFromYou).
+    // ---------------------------------------------------------------------------------
 
-        // Gesture-nav: the system back gesture owns the screen edges, so a left-edge swipe never
-        // reached the DrawerLayout (user expectation: it opens the drawer, like most drawer apps).
-        // Claim a strip of the left edge back via a gesture-exclusion rect. Android hard-caps app
-        // exclusions at 200dp per edge, so a single 200dp strip - vertically centered over the
-        // content grid, the natural thumb zone - is the most the platform allows; the hamburger
-        // button remains the always-working entry.
-        if (Build.VERSION.SDK_INT >= 29) {
-            final float density = getResources().getDisplayMetrics().density;
-            final int edgeWidthPx = Math.round(32 * density);
-            final int stripHeightPx = Math.round(200 * density);
-            mDrawerLayout.addOnLayoutChangeListener((v, left, top, right, bottom, ol, ot, or, ob) -> {
-                int centerY = (bottom - top) / 2;
-                Rect strip = new Rect(0, centerY - stripHeightPx / 2, edgeWidthPx, centerY + stripHeightPx / 2);
-                v.setSystemGestureExclusionRects(java.util.Collections.singletonList(strip));
-            });
+    private void setupYouPanel() {
+        // Account row: the one always-visible sign-in entry point (the other is the signed-out
+        // Subscriptions/Playlists "Sign in" button). Signed out -> device-code sign-in;
+        // signed in -> accounts dialog (switch / add / sign out).
+        View accountRow = findViewById(R.id.mobile_you_account_row);
+        accountRow.setOnClickListener(v -> {
+            if (MediaServiceManager.instance().getSelectedAccount() != null) {
+                AccountSettingsPresenter.instance(this).show();
+            } else {
+                YTSignInPresenter.instance(this).start();
+            }
+        });
+    }
+
+    /** Show the You panel over the content area (the panel is opaque; the grid stays put). */
+    private void showYouPanel() {
+        mYouShowing = true;
+        mSectionFromYou = false;
+        rebuildYouRows();
+        updateAccountRow();
+        mContentSwipe.setRefreshing(false);
+        mYouPanel.setVisibility(View.VISIBLE);
+    }
+
+    private void hideYouPanel() {
+        mYouShowing = false;
+        mYouPanel.setVisibility(View.GONE);
+    }
+
+    /**
+     * Personal-content section ids (the user's own stuff). These lead the You list, official-app
+     * style; every other non-nav section is a discovery feed and goes under the "Explore" label.
+     */
+    private static boolean isPersonalSection(int sectionId) {
+        switch (sectionId) {
+            case MediaGroup.TYPE_USER_PLAYLISTS:
+            case MediaGroup.TYPE_MY_VIDEOS:
+            case MediaGroup.TYPE_CHANNEL_UPLOADS:
+            case MediaGroup.TYPE_PLAYBACK_QUEUE:
+            case MediaGroup.TYPE_NOTIFICATIONS:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Rebuild the panel's section list, grouped like the official You page: the user's own
+     * content first (Playlists, My videos, Channels, ...), then the discovery feeds under an
+     * "Explore" label, then Settings behind a divider. Sections shown in the bottom nav (and
+     * Settings/Shorts) are excluded - Settings gets its own trailing row, Shorts is retired on
+     * the phone shell. Long-press on a section row opens the section-management menu (the old
+     * drawer rows' "..." overflow).
+     */
+    private void rebuildYouRows() {
+        mYouRows.removeAllViews();
+
+        List<BrowseSection> navSections = selectNavSections();
+        List<BrowseSection> personal = new ArrayList<>();
+        List<BrowseSection> explore = new ArrayList<>();
+
+        for (BrowseSection section : mSections) {
+            if (!section.isEnabled()
+                    || navSections.contains(section)
+                    || section.getId() == MediaGroup.TYPE_SETTINGS
+                    || section.getId() == MediaGroup.TYPE_SHORTS) {
+                continue;
+            }
+            (isPersonalSection(section.getId()) ? personal : explore).add(section);
         }
 
-        // Account row in the drawer header: the one always-visible sign-in entry point (the other
-        // is the signed-out Subscriptions/Playlists "Sign in" button). Signed out -> device-code
-        // sign-in; signed in -> accounts dialog (switch / add / sign out).
-        View headerView = mNavView.getHeaderView(0);
-        if (headerView != null) {
-            View accountRow = headerView.findViewById(R.id.mobile_nav_account_row);
-            mNavAccountText = headerView.findViewById(R.id.mobile_nav_account_text);
-            if (accountRow != null) {
-                accountRow.setOnClickListener(v -> {
-                    mDrawerLayout.closeDrawer(GravityCompat.START);
-                    if (MediaServiceManager.instance().getSelectedAccount() != null) {
-                        AccountSettingsPresenter.instance(this).show();
-                    } else {
-                        YTSignInPresenter.instance(this).start();
-                    }
-                });
+        for (BrowseSection section : personal) {
+            addYouSectionRow(section);
+        }
+
+        if (!explore.isEmpty()) {
+            addYouGroupLabel(getString(R.string.mobile_you_explore));
+            for (BrowseSection section : explore) {
+                addYouSectionRow(section);
             }
         }
 
-        mNavView.setNavigationItemSelectedListener(item -> {
-            mDrawerLayout.closeDrawer(GravityCompat.START);
-            int sectionId = item.getItemId() - ITEM_ID_OFFSET;
+        addYouDivider();
+        addYouRow(R.drawable.ic_mobile_settings, getString(R.string.header_settings),
+                this::openSettings);
+    }
+
+    private void addYouSectionRow(BrowseSection section) {
+        int sectionId = section.getId();
+        View row = addYouRow(section.getResId(), section.getTitle(), () -> {
+            mSectionFromYou = true;
+            hideYouPanel();
             onSectionChosen(sectionId);
-            // Return true to keep a browsable section visually selected in the drawer; return
-            // false for Settings so it isn't left highlighted (it opens a dialog, not a grid).
-            return sectionId != MediaGroup.TYPE_SETTINGS;
         });
+        row.setOnLongClickListener(v -> {
+            if (mPresenter != null) {
+                mPresenter.onSectionLongPressed(sectionId);
+            }
+            return true;
+        });
+    }
+
+    /** Small secondary-color group label, official-You-page style. */
+    private void addYouGroupLabel(CharSequence text) {
+        TextView label = new TextView(this);
+        label.setText(text);
+        label.setTextColor(getColorInt(R.color.mobile_color_on_surface_secondary));
+        label.setTextSize(14);
+        label.setTypeface(label.getTypeface(), android.graphics.Typeface.BOLD);
+        int pad = Math.round(20 * getResources().getDisplayMetrics().density);
+        int padV = Math.round(10 * getResources().getDisplayMetrics().density);
+        label.setPadding(pad, padV, pad, padV / 2);
+        mYouRows.addView(label);
+    }
+
+    private void addYouDivider() {
+        View divider = new View(this);
+        float density = getResources().getDisplayMetrics().density;
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, Math.round(density)));
+        int margin = Math.round(20 * density);
+        int marginV = Math.round(8 * density);
+        lp.setMargins(margin, marginV, margin, marginV);
+        divider.setLayoutParams(lp);
+        divider.setBackgroundColor(getColorInt(R.color.mobile_color_divider));
+        mYouRows.addView(divider);
+    }
+
+    private View addYouRow(int iconRes, CharSequence title, Runnable action) {
+        View row = LayoutInflater.from(this).inflate(R.layout.item_mobile_you_row, mYouRows, false);
+
+        ImageView icon = row.findViewById(R.id.mobile_you_row_icon);
+        if (iconRes > 0) {
+            icon.setImageResource(iconRes);
+        }
+        TextView label = row.findViewById(R.id.mobile_you_row_label);
+        label.setText(title);
+
+        row.setOnClickListener(v -> action.run());
+        mYouRows.addView(row);
+        return row;
     }
 
     /**
@@ -791,7 +892,10 @@ public class MobileBrowseActivity extends MobileActivity
         }
     }
 
-    /** Highlight the given section in whichever nav surface(s) contain it (bottom nav + drawer). */
+    /**
+     * Highlight the given section's bottom-nav tab when it has one. A section opened from a
+     * You-panel row has no tab of its own; the You tab simply stays selected (YouTube-style).
+     */
     private void syncNavHighlight(int sectionId) {
         int itemId = toMenuItemId(sectionId);
 
@@ -799,10 +903,6 @@ public class MobileBrowseActivity extends MobileActivity
             mSuppressNavCallback = true;
             mBottomNav.setSelectedItemId(itemId);
             mSuppressNavCallback = false;
-        }
-
-        if (mNavView.getMenu().findItem(itemId) != null) {
-            mNavView.setCheckedItem(itemId);
         }
     }
 
@@ -883,10 +983,12 @@ public class MobileBrowseActivity extends MobileActivity
         return sectionId + ITEM_ID_OFFSET;
     }
 
-    /** Rebuild both nav surfaces (bottom nav = quick access to the main 5; drawer = all). */
+    /** Rebuild both nav surfaces (bottom nav = the main tabs + You; You panel = the rest). */
     private void rebuildNavigation() {
         rebuildBottomNav();
-        rebuildDrawer();
+        if (mYouShowing) {
+            rebuildYouRows();
+        }
     }
 
     private void rebuildBottomNav() {
@@ -910,12 +1012,37 @@ public class MobileBrowseActivity extends MobileActivity
             }
         }
 
-        // Re-assert the highlight after clear()/add() wiped it, so the current section stays lit.
-        if (mCurrentSectionId >= 0 && menu.findItem(toMenuItemId(mCurrentSectionId)) != null) {
+        // The synthetic You tab always sits last (account + extra sections + settings).
+        menu.add(Menu.NONE, YOU_ITEM_ID, navSections.size(), R.string.mobile_nav_you)
+                .setIcon(R.drawable.ic_nav_you);
+
+        // Re-assert the highlight after clear()/add() wiped it, so the current tab stays lit.
+        if (mYouShowing) {
+            mBottomNav.setSelectedItemId(YOU_ITEM_ID);
+        } else if (mCurrentSectionId >= 0 && menu.findItem(toMenuItemId(mCurrentSectionId)) != null) {
             mBottomNav.setSelectedItemId(toMenuItemId(mCurrentSectionId));
         }
 
         mSuppressNavCallback = false;
+
+        // Long-press on a section tab opens the section-management menu (Refresh / Rename /
+        // Move / Mark watched / Clear history, ...) - the touch equivalent of the TV D-pad
+        // section long-press, formerly the drawer rows' "..." overflow. Item views exist only
+        // after the menu inflates into the bar, hence the post.
+        mBottomNav.post(() -> {
+            for (BrowseSection section : navSections) {
+                View itemView = mBottomNav.findViewById(toMenuItemId(section.getId()));
+                if (itemView != null) {
+                    int sectionId = section.getId();
+                    itemView.setOnLongClickListener(v -> {
+                        if (mPresenter != null) {
+                            mPresenter.onSectionLongPressed(sectionId);
+                        }
+                        return true;
+                    });
+                }
+            }
+        });
     }
 
     /**
@@ -932,78 +1059,16 @@ public class MobileBrowseActivity extends MobileActivity
                 return R.drawable.ic_nav_subscriptions;
             case MediaGroup.TYPE_HISTORY:
                 return R.drawable.ic_nav_history;
-            case MediaGroup.TYPE_SHORTS:
-                return R.drawable.ic_nav_shorts;
             default:
                 return 0;
         }
     }
 
     /**
-     * Rebuild the navigation drawer to list EVERY enabled section BrowsePresenter delivered
-     * (icon via {@link BrowseSection#getResId()} + {@link BrowseSection#getTitle()}) - not just
-     * the up-to-5 shown in the bottom nav. Settings is included so the drawer is a complete
-     * index; {@link #onSectionChosen} routes it to the AppDialog settings screen.
-     */
-    private void rebuildDrawer() {
-        Menu menu = mNavView.getMenu();
-        menu.clear();
-
-        int order = 0;
-        for (BrowseSection section : mSections) {
-            if (!section.isEnabled()) {
-                continue;
-            }
-
-            android.view.MenuItem item =
-                    menu.add(DRAWER_GROUP_ID, toMenuItemId(section.getId()), order++, section.getTitle());
-            item.setCheckable(true);
-
-            if (section.getResId() > 0) {
-                item.setIcon(section.getResId());
-            }
-
-            // Per-row "..." overflow = the touch equivalent of the TV D-pad section long-press.
-            // NavigationView menu rows don't expose a long-press, so hang the section-management menu
-            // (Refresh / Rename / Move / Unpin / Mark watched / Create playlist / Toggle-Clear history)
-            // off an actionView button that drives BrowsePresenter.onSectionLongPressed(sectionId) ->
-            // SectionMenuPresenter -> AppDialogPresenter (rendered by MobileAppDialogActivity).
-            addSectionOverflow(item, section.getId());
-        }
-
-        // Single-choice highlight: only one section can be the current one.
-        menu.setGroupCheckable(DRAWER_GROUP_ID, true, true);
-
-        if (mCurrentSectionId >= 0 && menu.findItem(toMenuItemId(mCurrentSectionId)) != null) {
-            mNavView.setCheckedItem(toMenuItemId(mCurrentSectionId));
-        }
-    }
-
-    /**
-     * Attach a trailing "..." overflow button to a drawer row that opens the section-management
-     * menu - the touch replacement for SmartTube's TV D-pad section long-press. Tapping it closes
-     * the drawer and calls {@link BrowsePresenter#onSectionLongPressed(int)}, which builds the menu
-     * via {@code SectionMenuPresenter} and shows it through {@code AppDialogPresenter} (rendered by
-     * {@code MobileAppDialogActivity}). If the resulting menu is empty for a given section,
-     * {@code SectionMenuPresenter} simply shows nothing (it guards on {@code !isEmpty()}).
-     */
-    private void addSectionOverflow(android.view.MenuItem item, int sectionId) {
-        ImageButton overflow = (ImageButton) android.view.LayoutInflater.from(this)
-                .inflate(R.layout.item_mobile_section_overflow, mNavView, false);
-        overflow.setOnClickListener(v -> {
-            mDrawerLayout.closeDrawer(GravityCompat.START);
-            if (mPresenter != null) {
-                mPresenter.onSectionLongPressed(sectionId);
-            }
-        });
-        item.setActionView(overflow);
-    }
-
-    /**
      * The bottom nav shows ONLY the {@link #PREFERRED_SECTION_IDS} (in priority
      * order, when present and enabled) — no backfill from the other delivered
-     * sections; everything else is drawer-only. BrowsePresenter can deliver many
-     * more sections, and the {@link BottomNavigationView} itself hard-caps at
+     * sections; everything else lives in the You panel. BrowsePresenter can deliver
+     * many more sections, and the {@link BottomNavigationView} itself hard-caps at
      * {@link #MAX_NAV_ITEMS}.
      */
     private List<BrowseSection> selectNavSections() {
@@ -1091,18 +1156,39 @@ public class MobileBrowseActivity extends MobileActivity
         }
     }
 
-    /** Drawer-header account row label: account name when signed in, "Sign in" otherwise. */
+    /**
+     * You-tab account header: name + email + circular avatar when signed in (official-app
+     * style), the "Sign in" entry otherwise.
+     */
     private void updateAccountRow() {
-        if (mNavAccountText == null) {
+        if (mYouAccountText == null) {
             return;
         }
 
         Account account = MediaServiceManager.instance().getSelectedAccount();
         if (account != null) {
-            String label = account.getName() != null ? account.getName() : account.getEmail();
-            mNavAccountText.setText(label != null ? label : getString(R.string.settings_accounts));
+            String name = account.getName() != null ? account.getName() : account.getEmail();
+            mYouAccountText.setText(name != null ? name : getString(R.string.settings_accounts));
+
+            String email = account.getEmail();
+            boolean showEmail = email != null && !email.equals(name);
+            mYouAccountSub.setText(showEmail ? email : null);
+            mYouAccountSub.setVisibility(showEmail ? View.VISIBLE : View.GONE);
+
+            String avatarUrl = account.getAvatarImageUrl();
+            if (avatarUrl != null && !avatarUrl.isEmpty()) {
+                com.bumptech.glide.Glide.with(this)
+                        .load(avatarUrl)
+                        .circleCrop()
+                        .placeholder(R.drawable.ic_mobile_account)
+                        .into(mYouAvatar);
+            } else {
+                mYouAvatar.setImageResource(R.drawable.ic_mobile_account);
+            }
         } else {
-            mNavAccountText.setText(R.string.dialog_add_account);
+            mYouAccountText.setText(R.string.dialog_add_account);
+            mYouAccountSub.setVisibility(View.GONE);
+            mYouAvatar.setImageResource(R.drawable.ic_mobile_account);
         }
     }
 
@@ -1163,11 +1249,20 @@ public class MobileBrowseActivity extends MobileActivity
     }
 
     private void handleBack() {
-        // Back closes an open drawer first (standard Material drawer behavior); only then
-        // does it fall through to MobileActivity's finish()/app-exit handling.
-        if (mDrawerLayout != null && mDrawerLayout.isDrawerOpen(GravityCompat.START)) {
-            mDrawerLayout.closeDrawer(GravityCompat.START);
+        // A grid section opened from a You-panel row: back returns to the panel (its natural
+        // parent surface), like YouTube's You-tab sub-screens.
+        if (mSectionFromYou && !mYouShowing) {
+            showYouPanel();
             return;
+        }
+
+        // On the You tab itself, back goes Home (YouTube behavior) instead of exiting.
+        if (mYouShowing) {
+            int homeItemId = toMenuItemId(MediaGroup.TYPE_HOME);
+            if (mBottomNav.getMenu().findItem(homeItemId) != null) {
+                mBottomNav.setSelectedItemId(homeItemId); // listener hides the panel + loads Home
+                return;
+            }
         }
 
         finish();
@@ -1235,14 +1330,14 @@ public class MobileBrowseActivity extends MobileActivity
                 return;
             }
 
+            hideYouPanel();
             mCurrentSectionId = section.getId();
             paintCachedSnapshot(section.getId());
 
-            // The section may not be one of the (up to 5) sections shown in the bottom
-            // nav - e.g. the sign-out boot fallback can select Music, which can be bumped
-            // out by the preferred-5 selection. It IS always in the drawer, though. Still
-            // drive the presenter so the grid loads; syncNavHighlight lights up whichever
-            // surface(s) contain it and no-ops on the ones that don't.
+            // The section may not be one of the sections shown in the bottom nav - e.g. the
+            // sign-out boot fallback can select Music, which the preferred-tab selection
+            // doesn't include (it lives in the You panel). Still drive the presenter so the
+            // grid loads; syncNavHighlight no-ops when the section has no tab.
             syncNavHighlight(section.getId());
 
             if (mPresenter != null) {
@@ -1337,10 +1432,11 @@ public class MobileBrowseActivity extends MobileActivity
     /**
      * Browse sections are video feeds, not discovery results. YouTube occasionally injects a
      * channel-shaped recommendation into Home/Trending; rendering that with the shared search
-     * adapter creates an avatar-only row in the middle of otherwise full-thumbnail cards. Home
-     * also mixes Shorts into regular shelves, but the touch shell already has a dedicated Shorts
-     * destination. Keep true playlists (which use a similar service shape), keep Shorts outside
-     * Home, and leave channel discovery to Search.
+     * adapter creates an avatar-only row in the middle of otherwise full-thumbnail cards. The
+     * phone shell has no Shorts destination at all (retired with the You-tab redesign), so the
+     * Shorts YouTube mixes into the Home and Subscriptions shelves are filtered out too; History
+     * keeps them - it is a record of what was actually watched. Keep true playlists (which use a
+     * similar service shape), and leave channel discovery to Search.
      */
     private static List<Video> visibleFeedItems(List<Video> videos, int sectionId) {
         List<Video> visible = new ArrayList<>();
@@ -1356,8 +1452,10 @@ public class MobileBrowseActivity extends MobileActivity
     }
 
     private static boolean isVisibleFeedItem(Video video, int sectionId) {
+        boolean shortsFiltered = sectionId == MediaGroup.TYPE_HOME
+                || sectionId == MediaGroup.TYPE_SUBSCRIPTIONS;
         return video != null
-                && (sectionId != MediaGroup.TYPE_HOME || !video.isShorts)
+                && (!shortsFiltered || !video.isShorts)
                 && (!video.isChannel() || video.isPlaylistAsChannel());
     }
 

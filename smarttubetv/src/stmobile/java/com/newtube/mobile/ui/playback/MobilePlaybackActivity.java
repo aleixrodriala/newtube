@@ -170,10 +170,7 @@ public class MobilePlaybackActivity extends MobileActivity
     private ProgressBar mProgressBar;
     /** First-run only: "one-time setup" line under the spinner while the session is cold. */
     private TextView mSetupHint;
-    private ImageButton mQualityButton;
     private ImageButton mSubtitlesButton;
-    private ImageButton mSpeedButton;
-    private ImageButton mPipButton;
     private ImageButton mMoreButton;
     private ImageButton mPrevButton;
     private ImageButton mNextButton;
@@ -407,7 +404,6 @@ public class MobilePlaybackActivity extends MobileActivity
         mSegmentsView = findViewById(R.id.mobile_player_segments);
         mProgressBar = findViewById(R.id.mobile_player_progress);
         mSetupHint = findViewById(R.id.mobile_player_setup_hint);
-        mQualityButton = findViewById(R.id.mobile_player_quality);
         mCastButton = findViewById(R.id.mobile_player_cast);
         mCastOverlay = findViewById(R.id.mobile_cast_overlay);
         mCastOverlayTitle = findViewById(R.id.mobile_cast_overlay_title);
@@ -416,8 +412,6 @@ public class MobilePlaybackActivity extends MobileActivity
         mCastDuration = findViewById(R.id.mobile_cast_duration);
         mCastSeekBar = findViewById(R.id.mobile_cast_seekbar);
         mSubtitlesButton = findViewById(R.id.mobile_player_subtitles);
-        mSpeedButton = findViewById(R.id.mobile_player_speed);
-        mPipButton = findViewById(R.id.mobile_player_pip);
         mMoreButton = findViewById(R.id.mobile_player_more);
         mPrevButton = findViewById(R.id.mobile_player_previous);
         mNextButton = findViewById(R.id.mobile_player_next);
@@ -517,35 +511,22 @@ public class MobilePlaybackActivity extends MobileActivity
             });
         }
 
-        // Overflow "⋮" menu: the long tail of SmartTube player actions.
+        // Gear menu: quality/speed/PiP plus the long tail of SmartTube player actions
+        // (see openPlayerMenu). The top-right row stays a YouTube-style trio: cast, CC, gear.
         if (mMoreButton != null) {
             mMoreButton.setOnClickListener(v -> openPlayerMenu());
         }
 
-        // Player options row (Quality / Subtitles / Speed). Each dispatches an R.id.action_* through
-        // the presenter so the existing controllers open their AppDialog option lists (rendered by
-        // MobileAppDialogActivity). See openPlayerOption() for why some use the long-click path.
-        // Simple YouTube-style picker (Auto + resolutions, plus audio language when dubbed).
-        // The exhaustive TV HQ dialog (every codec/fps variant) stays reachable via the overflow
-        // menu for power users; this button is the everyday path and had to stop being scary.
-        mQualityButton.setOnClickListener(v -> showQualitySheet());
         // Cast picker (Route B). The button stays visible even while the sender implementation is
         // pending in the submodule - the picker degrades to browse-only with a toast on connect.
         if (mCastButton != null) {
             mCastButton.setOnClickListener(v -> openCastPicker());
         }
         setupCastOverlay();
+        // CC dispatches through the presenter so the existing controller opens its AppDialog
+        // track list (rendered by MobileAppDialogActivity); long-click path always opens the
+        // picker (plain click would just toggle the last track) - see openPlayerOption().
         mSubtitlesButton.setOnClickListener(v -> openPlayerOption(R.id.lb_control_closed_captioning, true));
-        mSpeedButton.setOnClickListener(v -> openPlayerOption(R.id.action_video_speed, true));
-
-        // Picture-in-Picture control button. Only offered when the device supports PiP.
-        if (mPipButton != null) {
-            if (Helpers.isPictureInPictureSupported(this)) {
-                mPipButton.setOnClickListener(v -> enterPipMode());
-            } else {
-                mPipButton.setVisibility(View.GONE);
-            }
-        }
 
         mTimeBar.addListener(new TimeBar.OnScrubListener() {
             @Override
@@ -2032,15 +2013,16 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     // ---------------------------------------------------------------------------------
-    // Overflow ("⋮") menu: the long tail of SmartTube player actions.
+    // Gear menu: every player option beyond the overlay's YouTube-style trio (cast/CC/gear)
+    // + transport + fullscreen.
     //
-    // The top controls only expose Quality/Subtitles/Speed/PiP + prev/next + play-pause. Everything
-    // else SmartTube offers on the player is reached from here. Each row dispatches an R.id.action_*
-    // through PlaybackPresenter (same vocabulary the TV VideoPlayerGlue used) so the reused
-    // PlayerUIController does the real work: dialog-opening actions (repeat/zoom/playlist/queue) show
-    // their AppDialog via the touch MobileAppDialogActivity; simple toggles (stats/screen-off) flip
-    // and are reflected here. Actions with no mobile meaning (AFR) are omitted; "Rotate lock" is a
-    // native screen-orientation lock rather than the TV video-frame rotate.
+    // The everyday actions (Quality / Speed / PiP) head the sheet; the long tail follows. Each
+    // row dispatches an R.id.action_* through PlaybackPresenter (same vocabulary the TV
+    // VideoPlayerGlue used) so the reused PlayerUIController does the real work: dialog-opening
+    // actions (repeat/zoom/playlist/queue) show their AppDialog via the touch
+    // MobileAppDialogActivity; simple toggles (stats/screen-off) flip and are reflected here.
+    // Actions with no mobile meaning (AFR) are omitted; "Rotate lock" is a native
+    // screen-orientation lock rather than the TV video-frame rotate.
     // ---------------------------------------------------------------------------------
 
     private void openPlayerMenu() {
@@ -2051,7 +2033,80 @@ public class MobilePlaybackActivity extends MobileActivity
         cancelAutoHide();
 
         BottomSheetDialog sheet = new BottomSheetDialog(this);
+        LinearLayout content = createSheetContent();
 
+        // Mirrors the official app's gear sheet: no title, at most five rows, icon + current
+        // value on every everyday action; the long tail nests behind "More". Quality opens the
+        // simple YouTube-style picker (Auto + resolutions, plus audio language when dubbed) -
+        // the exhaustive TV HQ dialog stays reachable for power users deeper in that sheet.
+        addMenuRow(content, sheet, R.drawable.ic_player_quality, R.string.mobile_player_quality,
+                currentQualityLabel(), true, this::showQualitySheet);
+        // Speed uses the long-click path so it always opens the list (plain click would just
+        // toggle the remembered speed).
+        addMenuRow(content, sheet, R.drawable.ic_player_speed, R.string.mobile_player_speed,
+                currentSpeedLabel(), true, () -> openPlayerOption(R.id.action_video_speed, true));
+        if (Helpers.isPictureInPictureSupported(this)) {
+            addMenuRow(content, sheet, R.drawable.ic_player_pip, R.string.mobile_player_pip,
+                    null, false, this::enterPipMode);
+        }
+        // Rotate lock (native screen-orientation lock) - the phone-holdable equivalent of the
+        // official sheet's "Lock screen" slot.
+        addMenuRow(content, sheet, R.drawable.ic_player_lock, R.string.mobile_menu_rotate_lock,
+                stateLabel(mOrientationLocked), false, this::toggleRotateLock);
+        addMenuRow(content, sheet, R.drawable.ic_mobile_settings, R.string.mobile_menu_more,
+                null, true, this::openPlayerMoreMenu);
+
+        sheet.setContentView(content);
+        sheet.setOnDismissListener(d -> armAutoHide());
+        showPlayerSheet(sheet);
+    }
+
+    /** The gear sheet's "More" level: the long tail of SmartTube player actions. */
+    private void openPlayerMoreMenu() {
+        if (mPresenter == null) {
+            return;
+        }
+
+        cancelAutoHide();
+
+        BottomSheetDialog sheet = new BottomSheetDialog(this);
+        LinearLayout content = createSheetContent();
+
+        boolean shuffleOn = PlayerData.instance(this).getPlaybackMode() == PlayerConstants.PLAYBACK_MODE_SHUFFLE;
+        boolean statsOn = getButtonState(R.id.action_video_stats) == BUTTON_ON;
+
+        // Repeat mode -> playback-mode dialog (long-click path always opens the picker; the plain
+        // click just cycles). The dialog includes Shuffle among its radio options too.
+        addMenuRow(content, sheet, R.drawable.ic_player_repeat, R.string.mobile_menu_repeat,
+                null, true, () -> openPlayerOption(R.id.action_repeat, true));
+        // Dedicated Shuffle toggle (SHUFFLE <-> ALL) for quick access.
+        addMenuRow(content, sheet, R.drawable.ic_player_shuffle, R.string.mobile_menu_shuffle,
+                stateLabel(shuffleOn), false, this::toggleShuffleMode);
+        // Video zoom / aspect ratio / rotate dialog.
+        addMenuRow(content, sheet, R.drawable.ic_player_zoom, R.string.mobile_menu_zoom,
+                null, true, () -> openPlayerOption(R.id.action_video_zoom, false));
+        // Play as audio / background mode (PiP-on-home etc.).
+        addMenuRow(content, sheet, R.drawable.ic_player_background, R.string.mobile_menu_background,
+                null, true, this::openBackgroundModeDialog);
+        // (No screen-off/dimming row: the TV screensaver doesn't exist on mobile - power button +
+        // background playback cover that use case.)
+        // Add to playlist.
+        addMenuRow(content, sheet, R.drawable.ic_player_playlist_add, R.string.mobile_menu_playlist_add,
+                null, true, () -> openPlayerOption(R.id.action_playlist_add, false));
+        // Playback queue.
+        addMenuRow(content, sheet, R.drawable.ic_player_queue, R.string.mobile_menu_queue,
+                null, true, () -> openPlayerOption(R.id.action_playback_queue, false));
+        // Stats for nerds (debug overlay) toggle.
+        addMenuRow(content, sheet, R.drawable.ic_player_stats, R.string.mobile_menu_stats,
+                stateLabel(statsOn), false, () -> openPlayerOption(R.id.action_video_stats, false));
+
+        sheet.setContentView(content);
+        sheet.setOnDismissListener(d -> armAutoHide());
+        showPlayerSheet(sheet);
+    }
+
+    /** Shared scaffold for the gear sheets: rounded background + drag handle, no title. */
+    private LinearLayout createSheetContent() {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setBackgroundResource(R.drawable.bg_mobile_sheet);
@@ -2065,40 +2120,37 @@ public class MobilePlaybackActivity extends MobileActivity
         handle.setBackgroundResource(R.drawable.bg_mobile_sheet_handle);
         content.addView(handle);
 
-        TextView title = new TextView(this);
-        title.setText(R.string.mobile_menu_title);
-        title.setTextColor(getColorInt(R.color.mobile_color_on_surface));
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
-        title.setPadding(dp(20), dp(4), dp(20), dp(12));
-        content.addView(title);
+        return content;
+    }
 
-        boolean shuffleOn = PlayerData.instance(this).getPlaybackMode() == PlayerConstants.PLAYBACK_MODE_SHUFFLE;
-        boolean statsOn = getButtonState(R.id.action_video_stats) == BUTTON_ON;
+    /**
+     * Trailing value for the Quality row, official-app style: "Auto (720p)" while adaptive
+     * (the rung actually playing right now), the pinned rung's label otherwise.
+     */
+    private String currentQualityLabel() {
+        PlayerData playerData = PlayerData.instance(this);
+        FormatItem tempOverride = playerData.getTempVideoFormat();
+        FormatItem chosen = tempOverride != null ? tempOverride : playerData.getFormat(FormatItem.TYPE_VIDEO);
 
-        // Repeat mode -> playback-mode dialog (long-click path always opens the picker; the plain
-        // click just cycles). The dialog includes Shuffle among its radio options too.
-        addMenuRow(content, sheet, R.string.mobile_menu_repeat, null, () -> openPlayerOption(R.id.action_repeat, true));
-        // Dedicated Shuffle toggle (SHUFFLE <-> ALL) for quick access.
-        addMenuRow(content, sheet, R.string.mobile_menu_shuffle, stateLabel(shuffleOn), this::toggleShuffleMode);
-        // Video zoom / aspect ratio / rotate dialog.
-        addMenuRow(content, sheet, R.string.mobile_menu_zoom, null, () -> openPlayerOption(R.id.action_video_zoom, false));
-        // Play as audio / background mode (PiP-on-home etc.).
-        addMenuRow(content, sheet, R.string.mobile_menu_background, null, this::openBackgroundModeDialog);
-        // (No screen-off/dimming row: the TV screensaver doesn't exist on mobile - power button +
-        // background playback cover that use case.)
-        // Stats for nerds (debug overlay) toggle.
-        addMenuRow(content, sheet, R.string.mobile_menu_stats, stateLabel(statsOn), () -> openPlayerOption(R.id.action_video_stats, false));
-        // Rotate lock (native screen-orientation lock).
-        addMenuRow(content, sheet, R.string.mobile_menu_rotate_lock, stateLabel(mOrientationLocked), this::toggleRotateLock);
-        // Add to playlist.
-        addMenuRow(content, sheet, R.string.mobile_menu_playlist_add, null, () -> openPlayerOption(R.id.action_playlist_add, false));
-        // Playback queue.
-        addMenuRow(content, sheet, R.string.mobile_menu_queue, null, () -> openPlayerOption(R.id.action_playback_queue, false));
+        if (!isAutoFormat(chosen) && chosen.getHeight() > 0) {
+            return qualityLabel(chosen);
+        }
 
-        sheet.setContentView(content);
-        sheet.setOnDismissListener(d -> armAutoHide());
-        showPlayerSheet(sheet);
+        FormatItem playing = mExoPlayerController != null ? mExoPlayerController.getVideoFormat() : null;
+        return playing != null && playing.getHeight() > 0
+                ? getString(R.string.mobile_quality_auto_current, qualityLabel(playing))
+                : getString(R.string.mobile_quality_auto_short);
+    }
+
+    /** Trailing value for the Speed row: "1x", "1.5x", ... */
+    private String currentSpeedLabel() {
+        float speed = mExoPlayerController != null ? mExoPlayerController.getSpeed() : -1;
+        if (speed <= 0) {
+            speed = 1f;
+        }
+        String number = speed == Math.floor(speed)
+                ? String.valueOf((int) speed) : String.valueOf(speed);
+        return number + "x";
     }
 
     /**
@@ -2137,17 +2189,29 @@ public class MobilePlaybackActivity extends MobileActivity
         dialog.show();
     }
 
-    private void addMenuRow(LinearLayout container, BottomSheetDialog sheet, int labelRes,
-                            String trailing, Runnable action) {
+    /**
+     * One gear-sheet row, official-app anatomy: leading icon, label, then (optionally) the
+     * current value in secondary color and a chevron when the row opens a sub-picker.
+     */
+    private void addMenuRow(LinearLayout container, BottomSheetDialog sheet, int iconRes,
+                            int labelRes, String trailing, boolean chevron, Runnable action) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setClickable(true);
         row.setFocusable(true);
         row.setBackgroundResource(resolveSelectableItemBackground());
-        row.setPadding(dp(20), dp(14), dp(20), dp(14));
+        row.setPadding(dp(20), dp(14), dp(16), dp(14));
         row.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(getColorInt(R.color.mobile_color_on_surface));
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(22), dp(22));
+        iconLp.setMarginEnd(dp(20));
+        icon.setLayoutParams(iconLp);
+        row.addView(icon);
 
         TextView label = new TextView(this);
         label.setText(labelRes);
@@ -2161,8 +2225,18 @@ public class MobilePlaybackActivity extends MobileActivity
             TextView state = new TextView(this);
             state.setText(trailing);
             state.setTextColor(getColorInt(R.color.mobile_color_on_surface_secondary));
-            state.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            state.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
             row.addView(state);
+        }
+
+        if (chevron) {
+            ImageView arrow = new ImageView(this);
+            arrow.setImageResource(R.drawable.ic_chevron_right);
+            arrow.setColorFilter(getColorInt(R.color.mobile_color_on_surface_secondary));
+            LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(20), dp(20));
+            arrowLp.setMarginStart(dp(4));
+            arrow.setLayoutParams(arrowLp);
+            row.addView(arrow);
         }
 
         row.setOnClickListener(v -> {

@@ -1,285 +1,342 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Home shell. The DrawerLayout hosts the browse content plus a navigation drawer
-     that exposes EVERY section BrowsePresenter delivers via addSection() (the 5-item
-     bottom nav can only show the main ones). Tapping a drawer item drives the exact
-     same BrowsePresenter.onSectionFocused() path the bottom nav uses. -->
-<androidx.drawerlayout.widget.DrawerLayout
+<!-- Home shell. One bottom nav (Home / Subscriptions / History / You) is the only structural
+     navigation: the You tab hosts the account row, every extra BrowsePresenter section
+     (Playlists, Music, ...) and the Settings entry, so there is no drawer and no settings
+     icon in the top bar. -->
+<androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/mobile_drawer_layout"
+    android:id="@+id/mobile_browse_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"><!--
+    android:layout_height="match_parent"
+    android:background="@color/mobile_color_background"><!--
     No fitsSystemWindows needed: MobileActivity.applyMobileSystemBars() keeps the decor fitting
-    the system windows (solid app-colored status/nav bars), so the DrawerLayout never renders
+    the system windows (solid app-colored status/nav bars), so this layout never renders
     under the bars regardless of what the player did to the display in between. -->
 
-    <androidx.constraintlayout.widget.ConstraintLayout
-        android:id="@+id/mobile_browse_root"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@color/mobile_color_background">
+    <TextView
+        android:id="@+id/mobile_title_bar"
+        android:layout_width="0dp"
+        android:layout_height="@dimen/mobile_title_bar_height"
+        android:background="@color/mobile_color_background"
+        android:gravity="center_vertical|start"
+        android:paddingStart="16dp"
+        android:text="@string/app_name"
+        android:textColor="@color/mobile_color_on_surface"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toStartOf="@id/mobile_cast_button"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
-        <ImageButton
-            android:id="@+id/mobile_menu_button"
-            android:layout_width="48dp"
-            android:layout_height="@dimen/mobile_title_bar_height"
-            android:layout_marginStart="4dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/mobile_menu_button"
-            android:padding="12dp"
-            android:src="@drawable/ic_mobile_menu"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
+    <!-- Cast picker entry on the home feed, like the official app's top bar. Tinted with the
+         accent while a session is connected (MobileBrowseActivity.updateCastIconTint). -->
+    <ImageButton
+        android:id="@+id/mobile_cast_button"
+        android:layout_width="48dp"
+        android:layout_height="@dimen/mobile_title_bar_height"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/mobile_cast_button"
+        android:padding="12dp"
+        android:src="@drawable/ic_mobile_cast"
+        app:layout_constraintEnd_toStartOf="@id/mobile_search_button"
+        app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
+
+    <ImageButton
+        android:id="@+id/mobile_search_button"
+        android:layout_width="48dp"
+        android:layout_height="@dimen/mobile_title_bar_height"
+        android:layout_marginEnd="4dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/mobile_search_button"
+        android:padding="12dp"
+        android:src="@drawable/ic_mobile_search"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
+
+    <!-- Pull-to-refresh drives BrowsePresenter.refresh() - also the natural retry
+         gesture when a section shows the error placeholder (the error overlay doesn't
+         consume touches, so the pull still reaches this layout). -->
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/mobile_content_swipe"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/mobile_title_bar">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/mobile_content_grid"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingHorizontal="@dimen/mobile_card_spacing"
+            android:paddingBottom="@dimen/mobile_card_spacing"
+            android:scrollbars="vertical"
+            tools:listitem="@layout/item_video_card" />
+
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+    <include
+        layout="@layout/mobile_feed_skeleton"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/mobile_title_bar" />
+
+    <!--
+         The empty/error placeholder is anchored to the title bar / bottom nav / parent
+         (NOT to the content grid): when a section is empty or sign-in gated the grid is
+         set GONE, and ConstraintLayout collapses any view constrained to a GONE view to
+         a zero-size point - which is exactly why the signed-out Subscriptions/Playlists
+         sections used to render as a blank black area with no message. Independent
+         anchors keep the placeholder centered and visible over the (empty) content area.
+         (First-load progress is the card skeleton above, not a spinner.)
+    -->
+    <LinearLayout
+        android:id="@+id/mobile_error_container"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/mobile_title_bar">
+
+        <ImageView
+            android:id="@+id/mobile_error_icon"
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:layout_marginBottom="16dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_mobile_empty" />
 
         <TextView
-            android:id="@+id/mobile_title_bar"
-            android:layout_width="0dp"
-            android:layout_height="@dimen/mobile_title_bar_height"
-            android:background="@color/mobile_color_background"
-            android:gravity="center_vertical|start"
-            android:paddingStart="8dp"
-            android:text="@string/app_name"
-            android:textColor="@color/mobile_color_on_surface"
-            android:textSize="22sp"
-            android:textStyle="bold"
-            app:layout_constraintEnd_toStartOf="@id/mobile_cast_button"
-            app:layout_constraintStart_toEndOf="@id/mobile_menu_button"
-            app:layout_constraintTop_toTopOf="parent" />
-
-        <!-- Cast picker entry on the home feed, like the official app's top bar. Tinted with the
-             accent while a session is connected (MobileBrowseActivity.updateCastIconTint). -->
-        <ImageButton
-            android:id="@+id/mobile_cast_button"
-            android:layout_width="48dp"
-            android:layout_height="@dimen/mobile_title_bar_height"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/mobile_cast_button"
-            android:padding="12dp"
-            android:src="@drawable/ic_mobile_cast"
-            app:layout_constraintEnd_toStartOf="@id/mobile_search_button"
-            app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
-
-        <ImageButton
-            android:id="@+id/mobile_search_button"
-            android:layout_width="48dp"
-            android:layout_height="@dimen/mobile_title_bar_height"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/mobile_search_button"
-            android:padding="12dp"
-            android:src="@drawable/ic_mobile_search"
-            app:layout_constraintEnd_toStartOf="@id/mobile_settings_button"
-            app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
-
-        <ImageButton
-            android:id="@+id/mobile_settings_button"
-            android:layout_width="48dp"
-            android:layout_height="@dimen/mobile_title_bar_height"
-            android:layout_marginEnd="4dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/mobile_settings_button"
-            android:padding="12dp"
-            android:src="@drawable/ic_mobile_settings"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
-
-        <!-- Pull-to-refresh drives BrowsePresenter.refresh() - also the natural retry
-             gesture when a section shows the error placeholder (the error overlay doesn't
-             consume touches, so the pull still reaches this layout). -->
-        <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-            android:id="@+id/mobile_content_swipe"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/mobile_title_bar">
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/mobile_content_grid"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:clipToPadding="false"
-                android:paddingHorizontal="@dimen/mobile_card_spacing"
-                android:paddingBottom="@dimen/mobile_card_spacing"
-                android:scrollbars="vertical"
-                tools:listitem="@layout/item_video_card" />
-
-        </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
-
-        <include
-            layout="@layout/mobile_feed_skeleton"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:visibility="gone"
-            app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/mobile_title_bar" />
-
-        <!--
-             The empty/error placeholder is anchored to the title bar / bottom nav / parent
-             (NOT to the content grid): when a section is empty or sign-in gated the grid is
-             set GONE, and ConstraintLayout collapses any view constrained to a GONE view to
-             a zero-size point - which is exactly why the signed-out Subscriptions/Playlists
-             sections used to render as a blank black area with no message. Independent
-             anchors keep the placeholder centered and visible over the (empty) content area.
-             (First-load progress is the card skeleton above, not a spinner.)
-        -->
-        <LinearLayout
-            android:id="@+id/mobile_error_container"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
+            android:id="@+id/mobile_error_message"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:gravity="center"
+            android:textColor="@color/mobile_color_on_surface"
+            android:textSize="16sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/mobile_error_action"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+    <!-- "You" tab (replaces the old navigation drawer + top-bar settings icon): account row,
+         every enabled BrowsePresenter section that isn't in the bottom nav, then Settings.
+         Rows are inflated from item_mobile_you_row in MobileBrowseActivity.rebuildYouRows(). -->
+    <ScrollView
+        android:id="@+id/mobile_you_panel"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="@color/mobile_color_background"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/mobile_title_bar"
+        tools:visibility="visible">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="24dp"
-            android:visibility="gone"
-            app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/mobile_title_bar">
+            android:paddingBottom="16dp">
 
-            <ImageView
-                android:id="@+id/mobile_error_icon"
-                android:layout_width="96dp"
-                android:layout_height="96dp"
-                android:layout_marginBottom="16dp"
-                android:contentDescription="@null"
-                android:src="@drawable/ic_mobile_empty" />
-
-            <TextView
-                android:id="@+id/mobile_error_message"
-                android:layout_width="wrap_content"
+            <!-- Account header, official-app style: circular avatar (real account image via
+                 Glide when signed in), name + email, chevron. Tap = sign in when signed out,
+                 manage/switch accounts when signed in. -->
+            <LinearLayout
+                android:id="@+id/mobile_you_account_row"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center"
-                android:textColor="@color/mobile_color_on_surface"
-                android:textSize="16sp" />
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="20dp">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/mobile_error_action"
-                android:layout_width="wrap_content"
+                <ImageView
+                    android:id="@+id/mobile_you_avatar"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_mobile_account" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/mobile_you_account_text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="@string/dialog_add_account"
+                        android:textColor="@color/mobile_color_on_surface"
+                        android:textSize="20sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/mobile_you_account_sub"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="@color/mobile_color_on_surface_secondary"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
+
+                </LinearLayout>
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_chevron_right"
+                    app:tint="@color/mobile_color_on_surface_secondary" />
+
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginHorizontal="20dp"
+                android:layout_marginBottom="8dp"
+                android:background="@color/mobile_color_divider" />
+
+            <LinearLayout
+                android:id="@+id/mobile_you_rows"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:visibility="gone" />
+                android:orientation="vertical" />
 
         </LinearLayout>
 
-        <!-- YouTube-style FLOATING mini-player: just the live video (no bar), a rounded card
-             hovering over the grid's bottom-right corner above the bottom nav. GONE by default;
-             it floats OVER content (like YouTube), so the grid keeps its bottom-nav constraint.
-             The video is NOT a PlayerView: the card re-parents the playback activity's
-             session-long SurfaceTexture into a code-managed TextureView inside the frame below
-             (see MobileBrowseActivity#attachMiniTexture + MiniPlayerBridge.getSessionTexture) -
-             the codec's surface never changes, so the hand-off never freezes playback. The
-             freeze ImageView shows the last captured frame during attach/detach beats.
-             Tap video = expand; overlaid play/pause + X; 2dp progress. -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/mobile_mini_player"
-            android:layout_width="180dp"
-            android:layout_height="102dp"
-            android:layout_marginEnd="12dp"
-            android:layout_marginBottom="12dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:visibility="gone"
-            app:cardBackgroundColor="@android:color/black"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="8dp"
-            app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
-            app:layout_constraintEnd_toEndOf="parent"
-            tools:visibility="visible">
+    </ScrollView>
+
+    <!-- YouTube-style FLOATING mini-player: just the live video (no bar), a rounded card
+         hovering over the grid's bottom-right corner above the bottom nav. GONE by default;
+         it floats OVER content (like YouTube), so the grid keeps its bottom-nav constraint.
+         The video is NOT a PlayerView: the card re-parents the playback activity's
+         session-long SurfaceTexture into a code-managed TextureView inside the frame below
+         (see MobileBrowseActivity#attachMiniTexture + MiniPlayerBridge.getSessionTexture) -
+         the codec's surface never changes, so the hand-off never freezes playback. The
+         freeze ImageView shows the last captured frame during attach/detach beats.
+         Tap video = expand; overlaid play/pause + X; 2dp progress. -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/mobile_mini_player"
+        android:layout_width="180dp"
+        android:layout_height="102dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="12dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone"
+        app:cardBackgroundColor="@android:color/black"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="8dp"
+        app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+        app:layout_constraintEnd_toEndOf="parent"
+        tools:visibility="visible">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
 
             <FrameLayout
+                android:id="@+id/mobile_mini_player_frame"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent">
 
-                <FrameLayout
-                    android:id="@+id/mobile_mini_player_frame"
+                <ImageView
+                    android:id="@+id/mobile_mini_freeze"
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent">
-
-                    <ImageView
-                        android:id="@+id/mobile_mini_freeze"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:importantForAccessibility="no"
-                        android:scaleType="fitXY"
-                        android:visibility="gone" />
-
-                </FrameLayout>
-
-                <ImageButton
-                    android:id="@+id/mobile_mini_play_pause"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:layout_gravity="center"
-                    android:background="@drawable/bg_mini_scrim_circle"
-                    android:contentDescription="@string/mobile_mini_play_pause"
-                    android:padding="9dp"
-                    android:src="@drawable/ic_player_pause" />
-
-                <!-- 40dp touch target (was 28dp - too fiddly to hit on-device). -->
-                <ImageButton
-                    android:id="@+id/mobile_mini_close"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:layout_gravity="top|end"
-                    android:layout_margin="2dp"
-                    android:background="@drawable/bg_mini_scrim_circle"
-                    android:contentDescription="@string/mobile_mini_close"
-                    android:padding="11dp"
-                    android:src="@drawable/ic_sheet_close" />
-
-                <ProgressBar
-                    android:id="@+id/mobile_mini_progress"
-                    style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="2dp"
-                    android:layout_gravity="bottom"
-                    android:max="1000"
-                    android:progressBackgroundTint="@color/mobile_color_progress_track"
-                    android:progressTint="@color/mobile_color_progress"
-                    tools:progress="400" />
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitXY"
+                    android:visibility="gone" />
 
             </FrameLayout>
 
-        </com.google.android.material.card.MaterialCardView>
+            <ImageButton
+                android:id="@+id/mobile_mini_play_pause"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_gravity="center"
+                android:background="@drawable/bg_mini_scrim_circle"
+                android:contentDescription="@string/mobile_mini_play_pause"
+                android:padding="9dp"
+                android:src="@drawable/ic_player_pause" />
 
-        <!-- Matched against the real YouTube app on a Pixel 9 (2026-07): their icon/label row
-             measures ~51dp with 24dp icons and ~10sp labels, content centered, gesture inset
-             absorbed below. Stock M2 wrap_content (56dp row) is the closest the widget allows;
-             the view pads itself by the gesture-navigation inset (paddingBottomSystemWindowInsets)
-             so the bar paints through to the display edge without squeezing the row. -->
-        <com.google.android.material.bottomnavigation.BottomNavigationView
-            android:id="@+id/mobile_bottom_nav"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:background="@color/mobile_color_background"
-            app:itemIconSize="24dp"
-            app:itemIconTint="@color/mobile_bottom_nav_item"
-            app:itemTextAppearanceActive="@style/MobileBottomNavText"
-            app:itemTextAppearanceActiveBoldEnabled="false"
-            app:itemTextAppearanceInactive="@style/MobileBottomNavText"
-            app:paddingBottomSystemWindowInsets="true"
-            app:itemTextColor="@color/mobile_bottom_nav_item"
-            app:labelVisibilityMode="labeled"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent" />
+            <!-- 40dp touch target (was 28dp - too fiddly to hit on-device). -->
+            <ImageButton
+                android:id="@+id/mobile_mini_close"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_gravity="top|end"
+                android:layout_margin="2dp"
+                android:background="@drawable/bg_mini_scrim_circle"
+                android:contentDescription="@string/mobile_mini_close"
+                android:padding="11dp"
+                android:src="@drawable/ic_sheet_close" />
 
-    </androidx.constraintlayout.widget.ConstraintLayout>
+            <ProgressBar
+                android:id="@+id/mobile_mini_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="2dp"
+                android:layout_gravity="bottom"
+                android:max="1000"
+                android:progressBackgroundTint="@color/mobile_color_progress_track"
+                android:progressTint="@color/mobile_color_progress"
+                tools:progress="400" />
 
-    <com.google.android.material.navigation.NavigationView
-        android:id="@+id/mobile_nav_view"
-        android:layout_width="wrap_content"
-        android:layout_height="match_parent"
-        android:layout_gravity="start"
-        android:background="@color/mobile_color_surface"
-        app:headerLayout="@layout/nav_header_mobile"
+        </FrameLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Matched against the real YouTube app on a Pixel 9 (2026-07): their icon/label row
+         measures ~51dp with 24dp icons and ~10sp labels, content centered, gesture inset
+         absorbed below. Stock M2 wrap_content (56dp row) is the closest the widget allows;
+         the view pads itself by the gesture-navigation inset (paddingBottomSystemWindowInsets)
+         so the bar paints through to the display edge without squeezing the row. -->
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/mobile_bottom_nav"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:background="@color/mobile_color_background"
         app:itemIconSize="24dp"
-        app:itemIconTint="@null"
-        app:itemShapeAppearanceOverlay="@style/MobileDrawerItemShape"
-        app:itemTextAppearance="@style/MobileDrawerItemText"
-        app:itemTextColor="@color/mobile_color_on_surface" />
+        app:itemIconTint="@color/mobile_bottom_nav_item"
+        app:itemTextAppearanceActive="@style/MobileBottomNavText"
+        app:itemTextAppearanceActiveBoldEnabled="false"
+        app:itemTextAppearanceInactive="@style/MobileBottomNavText"
+        app:paddingBottomSystemWindowInsets="true"
+        app:itemTextColor="@color/mobile_bottom_nav_item"
+        app:labelVisibilityMode="labeled"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
 
-</androidx.drawerlayout.widget.DrawerLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>

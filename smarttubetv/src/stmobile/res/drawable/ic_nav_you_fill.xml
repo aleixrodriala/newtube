@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Material "person" filled - You tab selected state. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -6,5 +7,5 @@
     android:viewportHeight="24">
     <path
         android:fillColor="@android:color/white"
-        android:pathData="m13.974,2.052 l-8,4.7a4,4 0,0 0,0.385 7.097l0.942,0.423 -1.327,0.78a4,4 0,0 0,4.052 6.897l8,-4.7a4.001,4.001 0,0 0,-0.384 -7.096L16.7,9.73l1.326,-0.78a4,4 0,1 0,-4.052 -6.897ZM10,15V9l5,3 -5,3Z" />
+        android:pathData="M12,12c2.21,0 4,-1.79 4,-4s-1.79,-4 -4,-4 -4,1.79 -4,4 1.79,4 4,4zM12,14c-2.67,0 -8,1.34 -8,4v2h16v-2c0,-2.66 -5.33,-4 -8,-4z" />
 </vector>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spanish overrides for user-visible mobile strings. The bottom-nav tab labels come from
+     the (already localized) shared header_* strings; "You" is ours, so it needs a
+     translation or the bar reads "Inicio / Suscripciones / Historial / You". -->
+<resources>
+    <string name="mobile_nav_you">Tú</string>
+    <string name="mobile_you_explore">Explorar</string>
+</resources>

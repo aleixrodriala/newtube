@@ -20,9 +20,12 @@
     <string name="mobile_player_zoom_fill">Zoomed to fill</string>
     <string name="mobile_player_zoom_original">Original</string>
 
-    <!-- Player overflow ("⋮") bottom-sheet menu -->
+    <!-- Player gear bottom-sheet menu -->
     <string name="mobile_player_more">More options</string>
-    <string name="mobile_menu_title">Player options</string>
+    <string name="mobile_menu_more">More</string>
+    <!-- Trailing value on the Quality row while adaptive: "Auto (720p)". -->
+    <string name="mobile_quality_auto_current">Auto (%1$s)</string>
+    <string name="mobile_quality_auto_short">Auto</string>
     <string name="mobile_menu_repeat">Repeat mode</string>
     <string name="mobile_menu_shuffle">Shuffle</string>
     <string name="mobile_menu_zoom">Zoom / aspect ratio</string>
@@ -71,7 +74,6 @@
     <string name="mobile_dialog_back">Back</string>
     <!-- Read-only fallback shown for dialog categories not yet rendered on mobile (chat / comments). -->
     <string name="mobile_dialog_unavailable">Not available on mobile yet.</string>
-    <string name="mobile_settings_button">Settings</string>
     <string name="mobile_back">Back</string>
     <string name="mobile_search_button">Search</string>
     <string name="mobile_search_voice">Voice search</string>
@@ -83,10 +85,10 @@
     <!-- Fallback tab label for a channel section the API delivered without a title. -->
     <string name="mobile_channel_tab_videos">Videos</string>
 
-    <!-- Navigation drawer (all browse sections) -->
-    <string name="mobile_menu_button">Open sections</string>
-    <string name="mobile_nav_header_subtitle">Browse sections</string>
-    <string name="mobile_section_menu">Section options</string>
+    <!-- Bottom-nav "You" tab (account + extra sections + settings) -->
+    <string name="mobile_nav_you">You</string>
+    <!-- You-tab group label over the discovery feeds (Music, Gaming, News, ...). -->
+    <string name="mobile_you_explore">Explore</string>
 
     <!-- External-link handoff (MobileWebBrowserActivity) -->
     <string name="mobile_no_browser">No app found to open this link</string>

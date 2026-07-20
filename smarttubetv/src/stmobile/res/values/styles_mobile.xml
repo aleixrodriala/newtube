@@ -121,19 +121,6 @@
         <item name="android:windowAnimationStyle">@null</item>
     </style>
 
-    <!-- Stock Material navigation metrics: the bottom bar is its default 56dp labeled row (plus
-         the gesture inset it pads itself with), 24dp icons, 12sp medium labels; drawer rows are
-         14sp medium with a pill-shaped selected highlight. -->
-    <style name="MobileDrawerItemText" parent="TextAppearance.MaterialComponents.Subtitle2">
-        <item name="android:textSize">14sp</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
-    </style>
-
-    <style name="MobileDrawerItemShape" parent="">
-        <item name="cornerFamily">rounded</item>
-        <item name="cornerSize">28dp</item>
-    </style>
-
     <!-- Regular weight at 11sp tracks the YouTube bar labels (medium/bold read heavier than
          theirs side-by-side; the old 10sp-medium choice predates dropping the long
          "Listas de reproducción" label from the bar). -->
