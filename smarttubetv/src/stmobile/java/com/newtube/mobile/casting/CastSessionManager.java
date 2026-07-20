@@ -20,6 +20,7 @@ import com.liskovsoft.sharedutils.rx.RxHelper;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
 import com.newtube.mobile.casting.castv2.CastV2Session;
+import com.newtube.mobile.casting.castv2.MdxScreenIdReader;
 import com.newtube.mobile.casting.proxy.CastProxyServer;
 import com.newtube.mobile.casting.proxy.MpdRewriter;
 
@@ -165,6 +166,10 @@ public class CastSessionManager {
      *         available
      */
     public boolean connect(CastTarget target) {
+        // Any connect supersedes an armed/pending auto-fallback (the fallback's own connect
+        // included - the switch is one-shot by construction).
+        mFallbackArmed = false;
+        mFallbackToken = null;
         if (target == null || !target.isConnectable()) {
             return false;
         }
@@ -183,6 +188,20 @@ public class CastSessionManager {
     }
 
     /**
+     * One-tap connect for a picker device row: open the recommended Direct-cast session, and if
+     * it fails before playback is proven, automatically switch to the device's YouTube app
+     * instead of stranding the user with an error toast (the picker's "one click, it just
+     * works" contract). Non-CAST_V2 targets simply {@link #connect} - they have exactly one mode.
+     */
+    public boolean connectWithFallback(CastTarget target) {
+        boolean started = connect(target);
+        if (started && target.getRoute() == CastTarget.Route.CAST_V2) {
+            mFallbackArmed = true; // after connect() - which always disarms first
+        }
+        return started;
+    }
+
+    /**
      * User-initiated disconnect (overlay button / notification action). Route-specific:
      * <ul>
      *   <li>Lounge stops playback on the TV FIRST, then tears down - the phone resumes local
@@ -193,6 +212,9 @@ public class CastSessionManager {
      * </ul>
      */
     public void disconnect() {
+        // Explicit user disconnect also cancels any armed/pending auto-fallback.
+        mFallbackArmed = false;
+        mFallbackToken = null;
         Connection connection = mConnection;
         if (connection == null) {
             teardown();
@@ -214,6 +236,10 @@ public class CastSessionManager {
      * its {@link #isCurrent} check instead of touching the (possibly brand-new) session state.
      */
     private void endSession(@Nullable String reason) {
+        CastTarget endedTarget = mTarget;
+        boolean fallback = shouldAutoFallback(mFallbackArmed, reason,
+                endedTarget != null ? endedTarget.getRoute() : null);
+        mFallbackArmed = false; // one-shot: a failing fallback session must not re-fallback
         boolean wasActive = mConnection != null || mConnected || mTarget != null;
         Connection connection = mConnection;
         mConnection = null;
@@ -229,6 +255,10 @@ public class CastSessionManager {
             }
         }
         resetPlaybackState();
+        if (fallback) {
+            // After the ended/reset fanout, so the fallback's connect() starts from clean state.
+            startFallback(endedTarget, reason);
+        }
     }
 
     /** Dead-session guard: callbacks from a torn-down connection must never touch manager state. */
@@ -411,6 +441,109 @@ public class CastSessionManager {
     static int applyVolumeDelta(int currentPercent, int deltaPercent) {
         int base = currentPercent >= 0 ? currentPercent : VOLUME_BASELINE_PERCENT;
         return clampVolumePercent(base + deltaPercent);
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Auto-fallback: Direct cast first, the device's YouTube app when it fails
+    // ---------------------------------------------------------------------------------
+
+    /** mdx shim budget when the fallback has no saved screenId (mirrors CastPickerSheet). */
+    private static final long FALLBACK_MDX_TIMEOUT_MS = 15_000;
+
+    /**
+     * Armed by {@link #connectWithFallback} until direct playback is proven (first raw "PLAYING"
+     * media status - deliberately not BUFFERING, which can precede a LOAD_FAILED). While armed, a
+     * session-level failure or a refused/rejected load switches routes instead of just toasting.
+     */
+    private boolean mFallbackArmed;
+    /**
+     * Identity of the mdx read a pending fallback is waiting on. Any explicit connect() or
+     * disconnect() nulls it, so a user action always supersedes the automatic switch.
+     */
+    @Nullable
+    private Object mFallbackToken;
+
+    /** Pure decision core (static for JVM tests): switch only for a FAILED armed direct session. */
+    static boolean shouldAutoFallback(boolean armed, @Nullable String endReason,
+            @Nullable CastTarget.Route route) {
+        // reason == null covers every deliberate teardown: user disconnect, the teardown before a
+        // new connect, and graceful remote closes.
+        return armed && endReason != null && route == CastTarget.Route.CAST_V2;
+    }
+
+    /** Load-level fallback hook (session still alive). True = switch started, suppress the toast. */
+    private boolean maybeStartFallbackForLoad(String reason) {
+        CastTarget target = mTarget;
+        if (!shouldAutoFallback(mFallbackArmed, reason, target != null ? target.getRoute() : null)) {
+            return false;
+        }
+        mFallbackArmed = false;
+        startFallback(target, reason);
+        return true;
+    }
+
+    /**
+     * The automatic Direct-cast -> YouTube-app switch. With a merged saved screenId the Lounge
+     * connect is immediate; otherwise the mdx shim resolves one first (launching the TV's YouTube
+     * app - which is where playback is headed anyway, so the on-screen effect reads as progress,
+     * not noise). The pairing persists exactly like the picker's explicit flow, so the next
+     * fallback - and the explicit chooser option - is instant.
+     */
+    private void startFallback(CastTarget device, String reason) {
+        if (!isSenderAvailable() || TextUtils.isEmpty(device.getCastHost())) {
+            MessageHelpers.showMessage(mContext, reason); // no fallback possible - honest error
+            return;
+        }
+        Log.d(TAG, "Direct cast failed (" + reason + ") - falling back to the YouTube app on "
+                + device.getName());
+        MessageHelpers.showMessage(mContext, R.string.mobile_cast_fallback_switching);
+
+        String savedScreenId = device.getSavedScreenId();
+        if (savedScreenId != null) {
+            connect(youTubeAppTarget(device, savedScreenId));
+            return;
+        }
+
+        Object token = new Object();
+        mFallbackToken = token;
+        MdxScreenIdReader.readScreenId(device.getCastHost(), device.getCastPort(),
+                FALLBACK_MDX_TIMEOUT_MS, new MdxScreenIdReader.Callback() {
+                    @Override
+                    public void onScreenId(String screenId) {
+                        // Reader's internal thread - hop to main before touching manager state.
+                        mMainHandler.post(() -> {
+                            CastTarget resolved = youTubeAppTarget(device, screenId);
+                            // The pairing is real regardless of what the user did meanwhile, and
+                            // persisting it under the device name powers the picker-row merge.
+                            CastPrefs.addPairedScreen(mContext, resolved.getScreen());
+                            if (mFallbackToken != token) {
+                                return; // a user connect/disconnect superseded the fallback
+                            }
+                            mFallbackToken = null;
+                            connect(resolved);
+                        });
+                    }
+
+                    @Override
+                    public void onError(String mdxReason) {
+                        Log.e(TAG, "Fallback mdx read failed: " + mdxReason);
+                        mMainHandler.post(() -> {
+                            if (mFallbackToken != token) {
+                                return;
+                            }
+                            mFallbackToken = null;
+                            // Both modes are dead: surface the ORIGINAL direct-cast failure (the
+                            // mdx reason is a symptom of the same unreachable device).
+                            MessageHelpers.showMessage(mContext, reason);
+                        });
+                    }
+                });
+    }
+
+    /** The Lounge target for a Cast device's YouTube-app mode (mirrors CastPickerSheet's helper). */
+    private static CastTarget youTubeAppTarget(CastTarget device, String screenId) {
+        return CastTarget.fromCastDeviceYouTubeApp(
+                device.getName(), device.getCastHost(), device.getCastPort()).withScreenId(screenId);
     }
 
     // ---------------------------------------------------------------------------------
@@ -742,6 +875,12 @@ public class CastSessionManager {
                 if (!isCurrent(this)) {
                     return;
                 }
+                if ("PLAYING".equals(playerState)) {
+                    // Direct playback proven: from here on failures are real errors, not fallback
+                    // fodder (auto-switching routes mid-session would be more surprising than the
+                    // problem it solves).
+                    mFallbackArmed = false;
+                }
                 mState = mapCastV2PlayerState(playerState);
                 if (durationMs > 0) {
                     mDurationMs = durationMs;
@@ -766,6 +905,17 @@ public class CastSessionManager {
         @Override
         public void onLaunchError(String reason) {
             postSessionEnd("Launch failed: " + reason);
+        }
+
+        @Override
+        public void onLoadFailed(String type) {
+            // Receiver rejected the LOAD (media error, session alive). Same handling as a local
+            // load failure: toast - or, on a one-tap connect, the auto-fallback.
+            mMainHandler.post(() -> {
+                if (isCurrent(this)) {
+                    failLoad(mContext.getString(R.string.mobile_cast_direct_load_failed));
+                }
+            });
         }
 
         @Override
@@ -863,13 +1013,17 @@ public class CastSessionManager {
         }
 
         /**
-         * A load failed but the SESSION is fine - keep it, surface the reason, and push a
-         * non-playing state so the overlay's optimistic "loading" read doesn't spin forever.
+         * A load failed but the SESSION is fine - push a non-playing state so the overlay's
+         * optimistic "loading" read doesn't spin forever, then either auto-fallback (one-tap
+         * connects, pre-playback) or surface the reason. State goes FIRST: the fallback path may
+         * connect() a new session, and this session's state must not leak into it.
          */
         private void failLoad(String reason) {
-            MessageHelpers.showMessage(mContext, reason);
             mState = RemoteControlService.STATE_IDLE;
             notifyState();
+            if (!maybeStartFallbackForLoad(reason)) {
+                MessageHelpers.showMessage(mContext, reason);
+            }
         }
 
         // ---- Transport (optimistic local updates already applied by the manager wrappers) ----

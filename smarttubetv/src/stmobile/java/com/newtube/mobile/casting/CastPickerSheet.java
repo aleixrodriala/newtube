@@ -49,11 +49,15 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * device, the strongest correlation we have). Saved screens and DIAL TVs with no live Cast twin
  * stay their own "YouTube app on the TV" row and connect immediately on tap.</p>
  *
- * <p>A mode choice is only shown when a choice exists: tapping a Cast-device row swaps the sheet
- * content IN PLACE (same sheet, no stacked dialog) for a two-option chooser - "Cast without ads"
- * (default, Route A) and "Use the TV's YouTube app" (saved screenId, else the mdx shim with an
- * inline spinner). The chooser header and the system back key both return to the device list;
- * the tradeoff copy lives in the option subtitles, exactly where the decision happens.</p>
+ * <p>ONE tap connects (second UX review: even the in-place two-option chooser read as "too many
+ * clicks"): tapping a Cast-device row starts the recommended ad-free Direct cast immediately via
+ * {@link CastSessionManager#connectWithFallback}, which auto-switches to the TV's YouTube app if
+ * direct casting fails before playback starts (unreachable receiver, live stream, no compatible
+ * format, receiver LOAD rejection). The explicit two-option chooser survives behind the row's
+ * "⋮" button for the cases the default can't guess - mainly "I want to put my phone away, give
+ * me the YouTube app on purpose". Chooser picks are explicit choices and never auto-switch. The
+ * chooser still swaps the sheet content in place; its header and the system back key both return
+ * to the device list.</p>
  *
  * <p>Both discoveries run only while the sheet is open (stopped on dismiss); either failing
  * silently is fine - the caller already gated on the local-network permission. The sheet is
@@ -333,6 +337,7 @@ public class CastPickerSheet {
 
         TextView name = row.findViewById(R.id.cast_target_name);
         TextView subtitle = row.findViewById(R.id.cast_target_badge);
+        View more = row.findViewById(R.id.cast_target_more);
         name.setText(target.getName());
         // Plain words only. The Cast row promises the default mode; the full tradeoff story
         // waits for the chooser, where the user is actually deciding.
@@ -341,9 +346,16 @@ public class CastPickerSheet {
                 : R.string.mobile_cast_subtitle_youtube_app);
 
         View finalRow = row;
-        row.setOnClickListener(target.getRoute() == CastTarget.Route.CAST_V2
-                ? v -> showChooser(target)
-                : v -> onLoungeRowClicked(target, finalRow));
+        if (target.getRoute() == CastTarget.Route.CAST_V2) {
+            // One tap = recommended mode with auto-fallback; the "⋮" holds the explicit choice.
+            row.setOnClickListener(v -> connectAndDismiss(target, true));
+            more.setVisibility(View.VISIBLE);
+            more.setOnClickListener(v -> showChooser(target));
+        } else {
+            row.setOnClickListener(v -> onLoungeRowClicked(target, finalRow));
+            more.setVisibility(View.GONE);
+            more.setOnClickListener(null);
+        }
     }
 
     /** Lounge-only rows (saved screen / DIAL TV) have no mode choice: tap connects immediately. */
@@ -544,7 +556,19 @@ public class CastPickerSheet {
     // ---------------------------------------------------------------------------------
 
     private void connectAndDismiss(CastTarget target) {
-        if (mSessionManager.connect(target)) {
+        connectAndDismiss(target, false);
+    }
+
+    /**
+     * @param withFallback one-tap device rows only: arm the Direct-cast -> YouTube-app
+     *                     auto-switch. Explicit chooser picks pass false - the user chose a mode
+     *                     on purpose, silently overriding that choice would be worse than failing.
+     */
+    private void connectAndDismiss(CastTarget target, boolean withFallback) {
+        boolean started = withFallback
+                ? mSessionManager.connectWithFallback(target)
+                : mSessionManager.connect(target);
+        if (started) {
             MessageHelpers.showMessage(mActivity,
                     mActivity.getString(R.string.mobile_cast_connecting, target.getName()));
             if (mDialog != null && mDialog.isShowing()) {

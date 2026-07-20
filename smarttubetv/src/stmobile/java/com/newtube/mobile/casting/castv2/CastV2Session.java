@@ -67,6 +67,14 @@ public class CastV2Session {
          */
         default void onVolume(double level) {
         }
+
+        /**
+         * The receiver rejected/aborted a LOAD ("LOAD_FAILED"/"LOAD_CANCELLED"). NON-terminal:
+         * the app and channel are still up; only this playback attempt is dead. Default no-op
+         * keeps existing integrators source-compatible.
+         */
+        default void onLoadFailed(String type) {
+        }
     }
 
     private static final String TAG = CastV2Session.class.getSimpleName();
@@ -390,9 +398,12 @@ public class CastV2Session {
             }
             case "LOAD_FAILED":
             case "LOAD_CANCELLED":
-                // Not a channel death, but the integrator must know playback never started.
+                // Not a channel death, but the integrator must know playback never started. The
+                // IDLE status keeps position/overlay consumers unstuck; onLoadFailed carries the
+                // actual failure signal (the session manager's auto-fallback hangs off it).
                 Log.e(TAG, "Receiver rejected LOAD: " + type);
                 dispatch(() -> mListener.onMediaStatus("IDLE", -1, -1));
+                dispatch(() -> mListener.onLoadFailed(type));
                 break;
             case "INVALID_REQUEST":
                 Log.e(TAG, "INVALID_REQUEST from receiver: " + payload.optString("reason"));

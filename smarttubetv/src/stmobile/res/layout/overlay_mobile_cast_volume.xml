@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TV-volume slider overlay (CastVolumeOverlay): floats top-center over whichever activity the
+     volume keys were pressed in while a cast session is connected. Accent tint matches the
+     "connected" cast-icon tint. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/mobile_cast_volume_overlay"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_gravity="top|center_horizontal"
+    android:layout_marginTop="48dp"
+    android:background="@drawable/bg_mobile_cast_volume"
+    android:elevation="8dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingHorizontal="16dp"
+    android:paddingVertical="8dp">
+
+    <ImageView
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:contentDescription="@string/mobile_cast_tv_volume_label"
+        android:src="@drawable/ic_mobile_cast"
+        android:tint="@color/mobile_color_accent" />
+
+    <SeekBar
+        android:id="@+id/cast_volume_slider"
+        android:layout_width="180dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="4dp"
+        android:max="100"
+        android:progressBackgroundTint="@color/mobile_color_progress_track"
+        android:progressTint="@color/mobile_color_accent"
+        android:thumbTint="@color/mobile_color_accent" />
+
+    <TextView
+        android:id="@+id/cast_volume_value"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="4dp"
+        android:gravity="end"
+        android:minWidth="40dp"
+        android:textColor="@color/mobile_color_on_surface"
+        android:textSize="14sp"
+        tools:text="45%" />
+
+</LinearLayout>

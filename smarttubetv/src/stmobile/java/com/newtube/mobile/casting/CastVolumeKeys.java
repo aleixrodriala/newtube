@@ -1,12 +1,9 @@
 package com.newtube.mobile.casting;
 
-import android.content.Context;
+import android.app.Activity;
 import android.view.KeyEvent;
 
 import androidx.annotation.Nullable;
-
-import com.liskovsoft.sharedutils.helpers.MessageHelpers;
-import com.liskovsoft.smartyoutubetv2.tv.R;
 
 /**
  * Routes hardware volume keys to the TV while a cast session is connected (official-app
@@ -18,9 +15,8 @@ import com.liskovsoft.smartyoutubetv2.tv.R;
  * volume panel over our adjustment. KEYCODE_VOLUME_MUTE deliberately passes through untouched
  * (muting the phone locally while casting is a reasonable thing to want).</p>
  *
- * <p>Indicator: a plain toast ("TV volume: 45%"). MessageHelpers cancels the previous toast on
- * each show, so repeated presses read as one updating indicator - deliberately no custom overlay
- * in v1.</p>
+ * <p>Indicator: {@link CastVolumeOverlay}, a floating slider pill - key presses nudge and show
+ * it, and the slider itself is draggable for coarse jumps.</p>
  */
 public final class CastVolumeKeys {
 
@@ -28,7 +24,7 @@ public final class CastVolumeKeys {
     }
 
     /** @return true when the event was consumed (TV volume adjusted, or the paired UP swallowed). */
-    public static boolean onDispatchKeyEvent(Context context, @Nullable KeyEvent event) {
+    public static boolean onDispatchKeyEvent(Activity activity, @Nullable KeyEvent event) {
         if (event == null) {
             return false;
         }
@@ -36,7 +32,7 @@ public final class CastVolumeKeys {
         if (keyCode != KeyEvent.KEYCODE_VOLUME_UP && keyCode != KeyEvent.KEYCODE_VOLUME_DOWN) {
             return false;
         }
-        CastSessionManager manager = CastSessionManager.instance(context);
+        CastSessionManager manager = CastSessionManager.instance(activity);
         if (!manager.isConnected()) {
             return false;
         }
@@ -46,8 +42,7 @@ public final class CastVolumeKeys {
                     : -CastSessionManager.VOLUME_STEP_PERCENT;
             int volumePercent = manager.adjustVolume(delta);
             if (volumePercent >= 0) {
-                MessageHelpers.showMessage(context,
-                        context.getString(R.string.mobile_cast_tv_volume, volumePercent));
+                CastVolumeOverlay.show(activity, volumePercent);
             }
         }
         return true;

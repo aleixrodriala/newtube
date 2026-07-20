@@ -24,6 +24,17 @@ shim, each verified end-to-end on a Pixel 9 + a Cast-built-in TV.**
   233637DE, never stopping it) and hands off to a normal Lounge session; the
   screen persists as a saved row. This is what makes Cast-built-in devices
   (which don't answer DIAL) appear organically for Route B.
+- **One-tap picker + auto-fallback** (second UX round, 2026-07-20): tapping a
+  device row connects immediately with Direct cast and, if it fails before
+  playback is proven (unreachable receiver, live stream, no avc1, receiver
+  LOAD rejection), auto-switches to the TV's YouTube app
+  (`CastSessionManager.connectWithFallback`; saved screenId when merged, else
+  the mdx shim). The two-option chooser lives behind the row's "⋮"; explicit
+  chooser picks never auto-switch. Verified live: a live-stream load refused →
+  instant Lounge fallback via the saved pairing.
+- **Volume slider** (`CastVolumeOverlay`): volume keys pop a draggable
+  top-center slider pill (accent tint, auto-hide 2s) instead of the old toast;
+  drags are throttled (200 ms) because Lounge setVolume is an HTTP POST each.
 - **Later** (user-parked): the player top-bar icon count is getting crowded —
   study how the official app arranges its player/top-bar actions and redesign
   then; no design work now.
@@ -85,19 +96,16 @@ is a stopgap for the other.
   before. Shared fate with ytcast (alive, v1.4.1 Mar 2026) and upstream SmartTube's
   receiver — fixes propagate through the fork. Mark the route "best-effort" in UI.
 
-## UX
+## UX (as shipped, after two on-device review rounds)
 
-One cast icon → one device picker. A physical Chromecast offers **both** modes
-(default = Direct cast). Rows carry short badges, not paragraphs:
-
-- Direct cast → `Ad-free · plays through your phone`
-- YouTube app on TV → `Plays on the TV · has ads · phone can disconnect`
-- SmartTube on TV → `Ad-free · plays on the TV`
-
-First use shows a one-time explainer sheet (what the badges mean, why "through your
-phone" exists). Same physical device may be discovered via both mDNS and DIAL —
-dedupe by IP into one row with a mode choice. Manual IP / TV-code entry lives at the
-bottom of the picker (mDNS on Android is flaky).
+One cast icon → one device picker → **one tap connects**. One row per physical
+device (mDNS/DIAL/saved-screen merged), subtitle in plain words ("No ads" /
+"YouTube app on the TV"). A Cast-device tap starts Direct cast and
+auto-falls-back to the TV's YouTube app on pre-playback failure; the explicit
+two-mode chooser is behind the row's "⋮" and never auto-switches. "Link with
+TV code" lives at the bottom of the picker (mDNS on Android is flaky). The
+original badge-row + explainer-sheet design and the tap-opens-chooser design
+both died in review ("too technical", "too many clicks").
 
 ## Shared architecture
 
