@@ -122,26 +122,29 @@
          one-time YouTube session setup is still running on a fresh install. -->
     <string name="mobile_first_run_setup">One-time setup — getting YouTube ready…</string>
 
-    <!-- Casting (Route B scaffolding: picker, TV-code pairing, session service, player overlay).
-         Badges follow CASTING.md: short honesty lines, never paragraphs. -->
+    <!-- Casting (picker, TV-code pairing, session service, player overlay). Picker copy is plain
+         words - no protocol names; one row per physical device; the tradeoff explanations live in
+         the mode-chooser subtitles, shown exactly when the choice exists. -->
     <string name="mobile_cast_button">Cast to TV</string>
     <string name="mobile_cast_picker_title">Cast to</string>
     <string name="mobile_cast_searching">Looking for devices…</string>
     <string name="mobile_cast_empty">No devices found on this Wi-Fi network</string>
-    <!-- Generic Lounge badge: used for ALL YouTube-app targets for now (a SmartTube receiver
-         can't be distinguished automatically, so never promise ad-freedom). -->
-    <string name="mobile_cast_badge_lounge">Plays on the TV · has ads · phone can disconnect</string>
-    <!-- DIAL device whose YouTube app isn't running yet: tapping launches it, then connects. -->
-    <string name="mobile_cast_badge_needs_launch">Tap to open YouTube on the TV</string>
-    <!-- Route A (Direct cast): ad-free by construction, but every media byte relays through the
-         phone - the badge must say so honestly. -->
-    <string name="mobile_cast_badge_direct">Direct cast · Ad-free · plays through your phone</string>
-    <!-- Row title for a Cast device's second (YouTube-app / Lounge-via-mdx) row. -->
-    <string name="mobile_cast_row_youtube_app">%1$s — YouTube app</string>
+    <!-- Cast-device row: the default mode's promise, nothing else. -->
+    <string name="mobile_cast_subtitle_no_ads">No ads</string>
+    <!-- Lounge-only row (saved screen / DIAL TV): plain statement of what will play. -->
+    <string name="mobile_cast_subtitle_youtube_app">YouTube app on the TV</string>
+    <!-- Chooser header for a Cast device offering both modes; tapping it goes back to the list. -->
+    <string name="mobile_cast_chooser_title">Cast to %1$s</string>
+    <!-- Chooser option 1 (default, listed first): Route A. Subtitle carries the one real cost. -->
+    <string name="mobile_cast_option_direct_title">Cast without ads</string>
+    <string name="mobile_cast_option_direct_subtitle">The video streams through your phone — keep it nearby on this Wi-Fi</string>
+    <!-- Chooser option 2: Lounge via saved screen or the mdx shim. -->
+    <string name="mobile_cast_option_app_title">Use the TV\'s YouTube app</string>
+    <string name="mobile_cast_option_app_subtitle">Has ads — but you can put your phone away</string>
     <!-- mdx shim in flight: launching the TV's YouTube app and reading its Lounge screenId. -->
     <string name="mobile_cast_connecting_youtube_app">Connecting to the YouTube app on the TV…</string>
     <!-- Route A load refusals: the session stays up, only this video can't be direct-cast. -->
-    <string name="mobile_cast_direct_live_unsupported">Live streams can\'t be direct-cast yet — try the “YouTube app” row instead</string>
+    <string name="mobile_cast_direct_live_unsupported">Live streams can\'t be cast without ads yet — use the TV\'s YouTube app instead</string>
     <string name="mobile_cast_direct_incompatible">This video can\'t be direct-cast (no format the TV can play)</string>
     <string name="mobile_cast_direct_load_failed">Couldn\'t prepare this video for direct cast</string>
     <string name="mobile_cast_direct_no_wifi">Direct cast needs the phone and TV on the same Wi-Fi</string>
@@ -161,4 +164,6 @@
     <string name="mobile_cast_disconnect">Disconnect</string>
     <string name="mobile_cast_channel_name">Casting</string>
     <string name="mobile_cast_channel_desc">Controls for the TV casting session</string>
+    <!-- Volume-key routing while a session is connected: lightweight toast indicator. -->
+    <string name="mobile_cast_tv_volume">TV volume: %1$d%%</string>
 </resources>

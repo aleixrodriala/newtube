@@ -11,10 +11,11 @@ import com.liskovsoft.mediaserviceinterfaces.data.CastScreen;
  * One row in the cast picker: a discovered or manually paired receiver the phone can drive.
  *
  * <p>Route model (CASTING.md "Shared architecture"): each target carries the {@link Route} it will
- * be driven over plus honest capability flags for the picker badges. Lounge routes (Route B) and
- * the Direct-cast route (Route A, {@link Route#CAST_V2}) share this one data model; a physical
- * Cast device produces one target per mode ({@link #fromCastDevice} and
- * {@link #fromCastDeviceYouTubeApp}) so the picker can list both honestly.</p>
+ * be driven over plus honest capability flags. Lounge routes (Route B) and the Direct-cast route
+ * (Route A, {@link Route#CAST_V2}) share this one data model. A physical Cast device is ONE picker
+ * row (a {@link #fromCastDevice} target, optionally carrying a {@link #getSavedScreenId saved
+ * Lounge screenId}); its YouTube-app mode ({@link #fromCastDeviceYouTubeApp}) only materializes as
+ * a target when the user picks that mode in the chooser — it is never a row of its own.</p>
  */
 public final class CastTarget {
 
@@ -57,10 +58,19 @@ public final class CastTarget {
     @Nullable
     private final String mCastHost;
     private final int mCastPort;
+    /**
+     * CAST_V2 rows only: the Lounge screenId of a previously paired screen the picker merged into
+     * this device (by name, or learned from a past mdx read). Lets the "Use the TV's YouTube app"
+     * chooser option connect instantly instead of re-running the 15s mdx shim. Distinct from
+     * {@link #mScreen} on purpose: this target still connects over Route A, and the session
+     * manager must keep seeing the exact CAST_V2 shape it always has.
+     */
+    @Nullable
+    private final String mSavedScreenId;
 
     private CastTarget(Route route, String name, boolean adFree, boolean phoneFree,
                        @Nullable CastScreen screen, @Nullable String dialAppUrl, @Nullable String dialLocation,
-                       @Nullable String castHost, int castPort) {
+                       @Nullable String castHost, int castPort, @Nullable String savedScreenId) {
         mRoute = route;
         mName = name;
         mAdFree = adFree;
@@ -70,38 +80,39 @@ public final class CastTarget {
         mDialLocation = dialLocation;
         mCastHost = castHost;
         mCastPort = castPort;
+        mSavedScreenId = savedScreenId;
     }
 
     /** A DIAL-discovered TV. {@code screenId} may be null: present-but-needs-launch (see DialDiscovery). */
     public static CastTarget fromDial(String friendlyName, @Nullable String screenId,
                                       String appUrl, String location) {
         CastScreen screen = TextUtils.isEmpty(screenId) ? null : new CastScreen(screenId, friendlyName);
-        // Honest generic badge: a SmartTube receiver can't be told apart from stock YouTube
+        // Honest default: a SmartTube receiver can't be told apart from stock YouTube
         // automatically, so every Lounge target advertises "has ads" (adFree=false) for now.
-        return new CastTarget(Route.LOUNGE_DIAL, friendlyName, false, true, screen, appUrl, location, null, -1);
+        return new CastTarget(Route.LOUNGE_DIAL, friendlyName, false, true, screen, appUrl, location, null, -1, null);
     }
 
     /** A manually paired (TV-code) screen, fresh from pairing or restored from prefs. */
     public static CastTarget fromPairedScreen(CastScreen screen) {
-        return new CastTarget(Route.LOUNGE_MANUAL, screen.getName(), false, true, screen, null, null, null, -1);
+        return new CastTarget(Route.LOUNGE_MANUAL, screen.getName(), false, true, screen, null, null, null, -1, null);
     }
 
     /**
      * An mDNS-discovered Cast receiver, driven directly (Route A). Ad-free by construction (the
      * phone feeds the Default Media Receiver our own proxied stream), but NOT phone-free: every
-     * media byte relays through the phone, so the honesty badge must say so.
+     * media byte relays through the phone - the chooser subtitle says so.
      */
     public static CastTarget fromCastDevice(String name, String host, int port) {
-        return new CastTarget(Route.CAST_V2, name, true, false, null, null, null, host, port);
+        return new CastTarget(Route.CAST_V2, name, true, false, null, null, null, host, port, null);
     }
 
     /**
      * The same Cast device's YouTube app, driven over Lounge (Route B semantics: TV plays natively,
-     * has ads, phone can leave). Not connectable yet - the picker runs the mdx shim on tap and
-     * upgrades this target with {@link #withScreenId}.
+     * has ads, phone can leave). Not connectable yet - the picker runs the mdx shim (or reuses a
+     * {@link #getSavedScreenId saved screenId}) and upgrades this target with {@link #withScreenId}.
      */
     public static CastTarget fromCastDeviceYouTubeApp(String name, String host, int port) {
-        return new CastTarget(Route.LOUNGE_MDX, name, false, true, null, null, null, host, port);
+        return new CastTarget(Route.LOUNGE_MDX, name, false, true, null, null, null, host, port, null);
     }
 
     public Route getRoute() {
@@ -157,24 +168,33 @@ public final class CastTarget {
         return mCastPort;
     }
 
+    /** Saved Lounge screenId merged into a CAST_V2 row; null when the YouTube-app mode still needs the mdx read. */
+    @Nullable
+    public String getSavedScreenId() {
+        return mSavedScreenId;
+    }
+
     /** Same device, now with a screenId (post DIAL launch/poll or mdx shim). Keeps route + endpoint data. */
     public CastTarget withScreenId(String screenId) {
         return new CastTarget(mRoute, mName, mAdFree, mPhoneFree,
-                new CastScreen(screenId, mName), mDialAppUrl, mDialLocation, mCastHost, mCastPort);
+                new CastScreen(screenId, mName), mDialAppUrl, mDialLocation, mCastHost, mCastPort, mSavedScreenId);
+    }
+
+    /** Same CAST_V2 device, now remembering a paired Lounge screen for its YouTube-app mode. */
+    public CastTarget withSavedScreenId(@Nullable String savedScreenId) {
+        return new CastTarget(mRoute, mName, mAdFree, mPhoneFree,
+                mScreen, mDialAppUrl, mDialLocation, mCastHost, mCastPort, savedScreenId);
     }
 
     /**
-     * Picker dedupe key. Cast-device targets key on route + host so re-discoveries update in place
-     * and the two modes of one physical device stay two distinct rows; paired screens and DIAL
-     * devices that resolve to the same Lounge screen collapse into one row; un-launched DIAL
-     * devices key on their SSDP location.
+     * Picker dedupe key = one row per physical device: both modes of a Cast device share the
+     * {@code cast:<host>} key (only CAST_V2 targets become rows; LOUNGE_MDX maps to the same key
+     * defensively); paired screens and DIAL devices that resolve to the same Lounge screen
+     * collapse into one row; un-launched DIAL devices key on their SSDP location.
      */
     public String getDedupeKey() {
-        if (mRoute == Route.CAST_V2) {
-            return "castv2:" + mCastHost;
-        }
-        if (mRoute == Route.LOUNGE_MDX) {
-            return "mdx:" + mCastHost;
+        if (mRoute == Route.CAST_V2 || mRoute == Route.LOUNGE_MDX) {
+            return "cast:" + mCastHost;
         }
         if (mScreen != null && !TextUtils.isEmpty(mScreen.getScreenId())) {
             return "screen:" + mScreen.getScreenId();

@@ -47,6 +47,10 @@ public class CastV2Discovery {
     private static final String SERVICE_TYPE = "_googlecast._tcp";
     /** TXT record key carrying the user-visible friendly name ("Living Room TV"). */
     private static final String TXT_FRIENDLY_NAME = "fn";
+    /** TXT record key carrying the decimal capabilities bitmask; bit 0 = VIDEO_OUT. */
+    private static final String TXT_CAPABILITIES = "ca";
+    /** {@code ca} bit 0: the device can render video. Audio-only receivers (soundbars) lack it. */
+    private static final long CAPABILITY_VIDEO_OUT = 1;
     /** CASTV2 default; used only if a resolve somehow reports no port. */
     private static final int DEFAULT_CAST_PORT = 8009;
 
@@ -219,6 +223,14 @@ public class CastV2Discovery {
         }
         int port = serviceInfo.getPort() > 0 ? serviceInfo.getPort() : DEFAULT_CAST_PORT;
         String name = friendlyName(serviceInfo);
+        // Audio-only receivers (soundbars, speakers, Chromecast Audio) are dropped HERE, before
+        // the picker ever sees them: they advertise Cast and even accept a LOAD, but then reject
+        // the video DASH - both picker rows (Direct cast AND "- YouTube app") would be pure noise.
+        // Dropping inside discovery keeps the Listener contract untouched.
+        if (!hasVideoOut(attribute(serviceInfo, TXT_CAPABILITIES))) {
+            Log.d(TAG, "hiding audio-only device " + name);
+            return;
+        }
         Listener listener = mListener;
         if (mStopped || listener == null) {
             return;
@@ -233,17 +245,39 @@ public class CastV2Discovery {
 
     /** TXT "fn" is the user-visible name ("Living Room TV"); the service name is a device-id fallback. */
     private static String friendlyName(NsdServiceInfo serviceInfo) {
-        try {
-            Map<String, byte[]> attributes = serviceInfo.getAttributes();
-            if (attributes != null) {
-                byte[] fn = attributes.get(TXT_FRIENDLY_NAME);
-                if (fn != null && fn.length > 0) {
-                    return new String(fn, StandardCharsets.UTF_8);
-                }
-            }
-        } catch (Exception e) {
-            // fall through to the service name
+        byte[] fn = attribute(serviceInfo, TXT_FRIENDLY_NAME);
+        if (fn != null && fn.length > 0) {
+            return new String(fn, StandardCharsets.UTF_8);
         }
         return serviceInfo.getServiceName();
+    }
+
+    /** Raw TXT attribute value; null when absent (or the platform throws on the lookup). */
+    @Nullable
+    private static byte[] attribute(NsdServiceInfo serviceInfo, String key) {
+        try {
+            Map<String, byte[]> attributes = serviceInfo.getAttributes();
+            return attributes != null ? attributes.get(key) : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Does the {@code ca} TXT capabilities bitmask claim VIDEO_OUT (bit 0)?
+     *
+     * <p>Fails OPEN: a missing or unparseable {@code ca} counts as video-capable - hiding a real
+     * TV whose TXT record we couldn't read is far worse than listing a soundbar.</p>
+     */
+    static boolean hasVideoOut(@Nullable byte[] caValue) {
+        if (caValue == null || caValue.length == 0) {
+            return true;
+        }
+        try {
+            long capabilities = Long.parseLong(new String(caValue, StandardCharsets.UTF_8).trim());
+            return (capabilities & CAPABILITY_VIDEO_OUT) != 0;
+        } catch (NumberFormatException e) {
+            return true;
+        }
     }
 }

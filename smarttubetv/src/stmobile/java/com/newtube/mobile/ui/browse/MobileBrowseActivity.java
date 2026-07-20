@@ -9,6 +9,7 @@ import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.TextureView;
 import android.view.View;
@@ -54,6 +55,10 @@ import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.SessionWarmup;
+import com.newtube.mobile.casting.CastPickerLauncher;
+import com.newtube.mobile.casting.CastSessionManager;
+import com.newtube.mobile.casting.CastTarget;
+import com.newtube.mobile.casting.CastVolumeKeys;
 import com.newtube.mobile.ui.common.FeedCache;
 import com.newtube.mobile.ui.common.MobileActivity;
 import com.newtube.mobile.ui.playback.MiniPlayerBridge;
@@ -133,6 +138,9 @@ public class MobileBrowseActivity extends MobileActivity
     private ImageButton mSearchButton;
     private ImageButton mSettingsButton;
     private ImageButton mMenuButton;
+    private ImageButton mCastButton;
+    /** Process-wide cast session singleton; Browse only reads state + opens the picker. */
+    private CastSessionManager mCastSessionManager;
 
     // Floating in-app mini-player (YouTube-style video-only card over the grid's bottom-right
     // corner; renders the playback activity's live player after a swipe-down minimize - see
@@ -187,6 +195,7 @@ public class MobileBrowseActivity extends MobileActivity
         setupErrorAction();
         setupSearchButton();
         setupSettingsButton();
+        setupCastButton();
 
         mPresenter = BrowsePresenter.instance(this);
         mPresenter.setView(this);
@@ -218,6 +227,7 @@ public class MobileBrowseActivity extends MobileActivity
         mSearchButton = findViewById(R.id.mobile_search_button);
         mSettingsButton = findViewById(R.id.mobile_settings_button);
         mMenuButton = findViewById(R.id.mobile_menu_button);
+        mCastButton = findViewById(R.id.mobile_cast_button);
 
         mMiniPlayerBar = findViewById(R.id.mobile_mini_player);
         mMiniPlayerFrame = findViewById(R.id.mobile_mini_player_frame);
@@ -548,6 +558,71 @@ public class MobileBrowseActivity extends MobileActivity
 
     private void setupSettingsButton() {
         mSettingsButton.setOnClickListener(v -> openSettings());
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Casting: top-bar entry point (same flow as the player's icon) + connected-state tint.
+    //
+    // Connecting from here with NO video playing is fine: the session comes up (foreground
+    // service + notification), nothing plays yet, and the FIRST video opened afterwards is
+    // claimed by MobilePlaybackActivity's setVideo hook (maybeRouteVideoToCast) - it loads on
+    // the TV while the local player stays paused underneath.
+    // ---------------------------------------------------------------------------------
+
+    private void setupCastButton() {
+        // CastPickerLauncher owns the Android 16+ ACCESS_LOCAL_NETWORK gate (shared with the
+        // player); Browse has no immersive window, so the plain presenter is enough.
+        mCastButton.setOnClickListener(v -> CastPickerLauncher.open(this, CastPickerLauncher::presentPlain));
+
+        mCastSessionManager = CastSessionManager.instance(this);
+        mCastSessionManager.addListener(mCastListener);
+        updateCastIconTint();
+    }
+
+    /** Mirrors the player's registration pattern: listen for the activity's whole lifetime. */
+    private final CastSessionManager.Listener mCastListener = new CastSessionManager.Listener() {
+        @Override
+        public void onCastSessionStarted(CastTarget target) {
+            updateCastIconTint();
+        }
+
+        @Override
+        public void onCastSessionState(String videoId, long positionMs, long durationMs, boolean playing) {
+            // Browse has no transport UI; only the connected/idle tint matters here.
+        }
+
+        @Override
+        public void onCastSessionEnded(String reason) {
+            updateCastIconTint();
+        }
+    };
+
+    /** Accent while connected, stock white when idle - same visual as the player's cast icon. */
+    private void updateCastIconTint() {
+        if (mCastButton == null) {
+            return;
+        }
+        if (mCastSessionManager != null && mCastSessionManager.isConnected()) {
+            mCastButton.setColorFilter(getColorInt(R.color.mobile_color_accent));
+        } else {
+            mCastButton.clearColorFilter();
+        }
+    }
+
+    /** Hardware volume keys drive the TV while casting; everything else falls through. */
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (CastVolumeKeys.onDispatchKeyEvent(this, event)) {
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        // Cast picker's local-network gate (the POST_NOTIFICATIONS request needs no follow-up).
+        CastPickerLauncher.handlePermissionResult(this, requestCode, CastPickerLauncher::presentPlain);
     }
 
     /**
@@ -961,6 +1036,8 @@ public class MobileBrowseActivity extends MobileActivity
         }
 
         updateAccountRow();
+        // Cheap re-sync; listener callbacks already cover changes while resumed.
+        updateCastIconTint();
         // Last-resumed host wins: while this screen is (or is about to be) the one under the
         // player, minimize docks its card here.
         MiniPlayerBridge.registerMiniHost(this);
@@ -1035,6 +1112,11 @@ public class MobileBrowseActivity extends MobileActivity
     @Override
     protected void onDestroy() {
         MiniPlayerBridge.unregisterMiniHost(this);
+
+        // Stop observing the cast session; the session itself outlives this screen by design.
+        if (mCastSessionManager != null) {
+            mCastSessionManager.removeListener(mCastListener);
+        }
 
         if (mPresenter != null) {
             mPresenter.onViewDestroyed();

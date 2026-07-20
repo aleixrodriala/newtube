@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One row in the cast picker: cast glyph + device name + one-line capability badge
-     (CASTING.md "Rows carry short badges, not paragraphs"). -->
+<!-- One row in the cast picker, doing double duty: a merged device row (icon + name + short
+     plain-words subtitle) AND a mode-chooser option (icon hidden, title + explanatory subtitle).
+     CastPickerSheet fills both. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
@@ -43,10 +44,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:ellipsize="end"
-            android:maxLines="1"
+            android:maxLines="2"
             android:textColor="@color/mobile_color_on_surface_secondary"
             android:textSize="13sp"
-            tools:text="Plays on the TV · has ads · phone can disconnect" />
+            tools:text="No ads" />
 
     </LinearLayout>
 

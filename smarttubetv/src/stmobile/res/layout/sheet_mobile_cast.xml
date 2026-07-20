@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Cast device picker (CASTING.md UX): one sheet listing every castable target - persisted
-  ("Link with TV code") screens plus DIAL-discovered TVs, each with a one-line honesty badge -
-  and the universal manual-pairing fallback row at the bottom. Rows are item_mobile_cast_target,
-  filled by CastPickerSheet. Styled after sheet_mobile_quality.
+  Cast device picker: ONE row per physical device in plain words (CastPickerSheet merges saved
+  Lounge screens, DIAL TVs and mDNS Cast receivers - the old per-protocol row list was rejected
+  as too technical). Two states inside the same sheet:
+    - cast_sheet_list (default): merged device rows + the universal "Link with TV code" fallback.
+    - cast_sheet_chooser (GONE): swapped in IN PLACE when a Cast device offers a mode choice -
+      no stacked dialog; the header row is the back affordance.
+  Rows and chooser options are both item_mobile_cast_target. Styled after sheet_mobile_quality.
 -->
 <androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/bg_mobile_sheet">
@@ -23,96 +27,158 @@
             android:layout_marginTop="8dp"
             android:background="@drawable/bg_mobile_sheet_handle" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingHorizontal="20dp"
-            android:paddingTop="12dp"
-            android:paddingBottom="4dp"
-            android:text="@string/mobile_cast_picker_title"
-            android:textColor="@color/mobile_color_on_surface"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <!-- Discovered + persisted targets (CastPickerSheet appends item_mobile_cast_target rows). -->
+        <!-- Device list (default state). -->
         <LinearLayout
-            android:id="@+id/cast_sheet_targets"
+            android:id="@+id/cast_sheet_list"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical" />
-
-        <!-- Discovery-in-progress state (visible while the SSDP collect window is open). -->
-        <LinearLayout
-            android:id="@+id/cast_sheet_progress"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="20dp"
-            android:paddingVertical="12dp">
-
-            <ProgressBar
-                style="?android:attr/progressBarStyleSmall"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:indeterminateTint="@color/mobile_color_primary"
-                android:indeterminateTintMode="src_in" />
+            android:orientation="vertical">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:text="@string/mobile_cast_searching"
+                android:paddingHorizontal="20dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="4dp"
+                android:text="@string/mobile_cast_picker_title"
+                android:textColor="@color/mobile_color_on_surface"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <!-- Merged device rows (CastPickerSheet appends item_mobile_cast_target rows). -->
+            <LinearLayout
+                android:id="@+id/cast_sheet_targets"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <!-- Discovery-in-progress state (visible while the SSDP collect window is open). -->
+            <LinearLayout
+                android:id="@+id/cast_sheet_progress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="12dp">
+
+                <ProgressBar
+                    style="?android:attr/progressBarStyleSmall"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:indeterminateTint="@color/mobile_color_primary"
+                    android:indeterminateTintMode="src_in" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:text="@string/mobile_cast_searching"
+                    android:textColor="@color/mobile_color_on_surface_secondary"
+                    android:textSize="14sp" />
+
+            </LinearLayout>
+
+            <!-- Empty state: discovery finished and nothing (discovered or persisted) to show. -->
+            <TextView
+                android:id="@+id/cast_sheet_empty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="12dp"
+                android:text="@string/mobile_cast_empty"
                 android:textColor="@color/mobile_color_on_surface_secondary"
-                android:textSize="14sp" />
+                android:textSize="14sp"
+                android:visibility="gone" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="4dp"
+                android:background="@color/mobile_color_divider" />
+
+            <!-- Universal fallback: manual TV-code pairing (works with any YouTube-app receiver). -->
+            <LinearLayout
+                android:id="@+id/cast_sheet_link_code"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="14dp">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_mobile_dialpad"
+                    android:tint="@color/mobile_color_on_surface" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:text="@string/mobile_cast_link_code"
+                    android:textColor="@color/mobile_color_on_surface"
+                    android:textSize="15sp" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
-        <!-- Empty state: discovery finished and nothing (discovered or persisted) to show. -->
-        <TextView
-            android:id="@+id/cast_sheet_empty"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingHorizontal="20dp"
-            android:paddingVertical="12dp"
-            android:text="@string/mobile_cast_empty"
-            android:textColor="@color/mobile_color_on_surface_secondary"
-            android:textSize="14sp"
-            android:visibility="gone" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginTop="4dp"
-            android:background="@color/mobile_color_divider" />
-
-        <!-- Universal fallback: manual TV-code pairing (works with any YouTube-app receiver). -->
+        <!-- Mode chooser for one Cast device: "Cast to <name>" header (tap = back) + two option
+             rows CastPickerSheet inflates. Replaces cast_sheet_list in place. -->
         <LinearLayout
-            android:id="@+id/cast_sheet_link_code"
+            android:id="@+id/cast_sheet_chooser"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="?attr/selectableItemBackground"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="20dp"
-            android:paddingVertical="14dp">
+            android:orientation="vertical"
+            android:visibility="gone"
+            tools:visibility="visible">
 
-            <ImageView
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:contentDescription="@null"
-                android:src="@drawable/ic_mobile_dialpad"
-                android:tint="@color/mobile_color_on_surface" />
-
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:id="@+id/cast_chooser_back"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:text="@string/mobile_cast_link_code"
-                android:textColor="@color/mobile_color_on_surface"
-                android:textSize="15sp" />
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="20dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="8dp">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_mobile_back_arrow"
+                    android:tint="@color/mobile_color_on_surface" />
+
+                <TextView
+                    android:id="@+id/cast_chooser_title"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@color/mobile_color_on_surface"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    tools:text="Cast to Living room TV" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/cast_chooser_options"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
 
         </LinearLayout>
 

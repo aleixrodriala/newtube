@@ -118,6 +118,7 @@ public final class MpdRewriter {
         boolean hasAudio = false;
 
         for (MpdXml.Element period : doc.root.childElements("Period")) {
+            keepOnlyOriginalAudio(period);
             Iterator<Object> setIterator = period.children.iterator();
             while (setIterator.hasNext()) {
                 Object child = setIterator.next();
@@ -167,6 +168,51 @@ public final class MpdRewriter {
                 + " audio=" + hasAudio + " sourceHadVideo=" + sourceHadVideo
                 + " bytes=" + bytes.length);
         return new Result(bytes, maxHeight, hasVideo, sourceHadVideo, hasAudio);
+    }
+
+    /**
+     * YouTube ships auto-dub audio languages as extra AdaptationSets, and the Default Media
+     * Receiver ignores DASH roles when free-picking a track (observed live: it chose a Portuguese
+     * auto-dub - which, being TTS-generated, also sounds artifact-y/sped-up). Keep exactly ONE
+     * audio set: the original among the {@code audio/mp4} sets (YouTubeMPDBuilder gives only the
+     * original {@code Role=main}; dubs get dub/alternate/description), else the first audio/mp4
+     * set. The pick is restricted to audio/mp4 because webm/opus sets are codec-dropped later -
+     * electing a webm "original" here would leave the manifest with no audio at all.
+     */
+    private static void keepOnlyOriginalAudio(MpdXml.Element period) {
+        MpdXml.Element keep = null;
+        for (MpdXml.Element set : period.childElements("AdaptationSet")) {
+            String mime = set.attr("mimeType");
+            if (mime == null || !mime.startsWith("audio/mp4")) {
+                continue;
+            }
+            if (keep == null) {
+                keep = set;
+            }
+            MpdXml.Element role = set.firstChild("Role");
+            if (role != null && "main".equals(role.attr("value"))) {
+                keep = set;
+                break;
+            }
+        }
+        if (keep == null) {
+            return; // no audio/mp4 at all - leave the codec filter to do its usual thing
+        }
+        Iterator<Object> iterator = period.children.iterator();
+        while (iterator.hasNext()) {
+            Object child = iterator.next();
+            if (!(child instanceof MpdXml.Element)
+                    || !"AdaptationSet".equals(((MpdXml.Element) child).name)) {
+                continue;
+            }
+            MpdXml.Element set = (MpdXml.Element) child;
+            String mime = set.attr("mimeType");
+            if (mime != null && mime.startsWith("audio") && set != keep) {
+                ProxyLog.d(TAG, "dropping non-original audio set lang=" + set.attr("lang")
+                        + " role=" + (set.firstChild("Role") != null ? set.firstChild("Role").attr("value") : null));
+                iterator.remove();
+            }
+        }
     }
 
     /** v1 keep policy: avc1 video capped at 1080p, mp4a audio; everything else (and OTF) drops. */

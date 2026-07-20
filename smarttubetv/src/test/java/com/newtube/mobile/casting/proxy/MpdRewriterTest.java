@@ -277,4 +277,52 @@ public class MpdRewriterTest {
     public void malformedXmlThrows() throws IOException {
         MpdRewriter.rewrite(stream("<MPD><Period></MPD>"), LOCAL_BASE);
     }
+
+    /**
+     * Auto-dub layout (observed live: the receiver free-picked a Portuguese TTS dub): several
+     * audio/mp4 sets, only the ORIGINAL carries Role=main - and it is deliberately NOT listed
+     * first, so "keep the first" would be wrong. Only the main set may survive; the audio/webm
+     * original must not be elected (it gets codec-dropped and would leave no audio).
+     */
+    @Test
+    public void keepsOnlyOriginalAudioAmongDubs() throws IOException {
+        String dubbed = "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>\n"
+                + "<MPD type=\"static\" mediaPresentationDuration=\"PT100S\">\n"
+                + "  <Period duration=\"PT100S\">\n"
+                + "    <AdaptationSet id=\"0\" mimeType=\"video/mp4\">\n"
+                + "      <Representation id=\"136\" codecs=\"avc1.4d401f\" bandwidth=\"2000000\""
+                + " width=\"1280\" height=\"720\">\n"
+                + "        <BaseURL>" + escape(VIDEO_720_URL) + "</BaseURL>\n"
+                + "      </Representation>\n"
+                + "    </AdaptationSet>\n"
+                + "    <AdaptationSet id=\"1\" mimeType=\"audio/mp4\" lang=\"pt\" label=\"pt (dubbed-auto)\">\n"
+                + "      <Role schemeIdUri=\"urn:mpeg:DASH:role:2011\" value=\"dub\" />\n"
+                + "      <Representation id=\"140-pt\" codecs=\"mp4a.40.2\" bandwidth=\"129000\">\n"
+                + "        <BaseURL>" + escape(AUDIO_AAC_URL + "&xtags=lang%3Dpt") + "</BaseURL>\n"
+                + "      </Representation>\n"
+                + "    </AdaptationSet>\n"
+                + "    <AdaptationSet id=\"2\" mimeType=\"audio/webm\" lang=\"es\" label=\"es (original)\">\n"
+                + "      <Role schemeIdUri=\"urn:mpeg:DASH:role:2011\" value=\"main\" />\n"
+                + "      <Representation id=\"251-es\" codecs=\"opus\" bandwidth=\"110000\">\n"
+                + "        <BaseURL>" + escape(AUDIO_OPUS_URL) + "</BaseURL>\n"
+                + "      </Representation>\n"
+                + "    </AdaptationSet>\n"
+                + "    <AdaptationSet id=\"3\" mimeType=\"audio/mp4\" lang=\"es\" label=\"es (original)\">\n"
+                + "      <Role schemeIdUri=\"urn:mpeg:DASH:role:2011\" value=\"main\" />\n"
+                + "      <Representation id=\"140-es\" codecs=\"mp4a.40.2\" bandwidth=\"129000\">\n"
+                + "        <BaseURL>" + escape(AUDIO_AAC_URL) + "</BaseURL>\n"
+                + "      </Representation>\n"
+                + "    </AdaptationSet>\n"
+                + "  </Period>\n"
+                + "</MPD>";
+
+        MpdRewriter.Result result = MpdRewriter.rewrite(stream(dubbed), LOCAL_BASE);
+        String xml = new String(result.getMpdBytes(), java.nio.charset.StandardCharsets.UTF_8);
+
+        assertTrue(result.hasCompatibleVideo());
+        assertFalse(xml.contains("dubbed-auto"));
+        assertFalse(xml.contains("140-pt"));
+        assertFalse(xml.contains("251-es")); // webm original codec-dropped, not elected
+        assertTrue(xml.contains("140-es")); // the mp4a original survives
+    }
 }

@@ -24,6 +24,9 @@ shim, each verified end-to-end on a Pixel 9 + a Cast-built-in TV.**
   233637DE, never stopping it) and hands off to a normal Lounge session; the
   screen persists as a saved row. This is what makes Cast-built-in devices
   (which don't answer DIAL) appear organically for Route B.
+- **Later** (user-parked): the player top-bar icon count is getting crowded —
+  study how the official app arranges its player/top-bar actions and redesign
+  then; no design work now.
 
 Sender lives in the MediaServiceCore fork
 (`youtubeapi/lounge/sender/` + `YouTubeCastSenderService`, 20 unit tests on

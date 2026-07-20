@@ -43,9 +43,22 @@
             android:textColor="@color/mobile_color_on_surface"
             android:textSize="22sp"
             android:textStyle="bold"
-            app:layout_constraintEnd_toStartOf="@id/mobile_search_button"
+            app:layout_constraintEnd_toStartOf="@id/mobile_cast_button"
             app:layout_constraintStart_toEndOf="@id/mobile_menu_button"
             app:layout_constraintTop_toTopOf="parent" />
+
+        <!-- Cast picker entry on the home feed, like the official app's top bar. Tinted with the
+             accent while a session is connected (MobileBrowseActivity.updateCastIconTint). -->
+        <ImageButton
+            android:id="@+id/mobile_cast_button"
+            android:layout_width="48dp"
+            android:layout_height="@dimen/mobile_title_bar_height"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/mobile_cast_button"
+            android:padding="12dp"
+            android:src="@drawable/ic_mobile_cast"
+            app:layout_constraintEnd_toStartOf="@id/mobile_search_button"
+            app:layout_constraintTop_toTopOf="@id/mobile_title_bar" />
 
         <ImageButton
             android:id="@+id/mobile_search_button"

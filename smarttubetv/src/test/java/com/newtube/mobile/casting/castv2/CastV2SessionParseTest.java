@@ -74,4 +74,28 @@ public class CastV2SessionParseTest {
                 + "\"status\":{\"applications\":[{\"appId\":\"CC1AD845\",\"sessionId\":\"s\"}]}}");
         assertNull(CastV2Session.findApp(payload, "CC1AD845"));
     }
+
+    // ---- RECEIVER_STATUS volume (feeds the phone's volume-key routing) ----
+
+    @Test
+    public void parsesVolumeLevelFromReceiverStatus() throws Exception {
+        JSONObject payload = new JSONObject(
+                "{\"type\":\"RECEIVER_STATUS\",\"status\":{\"volume\":{\"level\":0.6,\"muted\":false}}}");
+        assertEquals(0.6, CastV2Session.parseVolumeLevel(payload), 1e-9);
+    }
+
+    @Test
+    public void volumeLevelZeroIsValid() throws Exception {
+        JSONObject payload = new JSONObject(
+                "{\"type\":\"RECEIVER_STATUS\",\"status\":{\"volume\":{\"level\":0}}}");
+        assertEquals(0, CastV2Session.parseVolumeLevel(payload), 1e-9);
+    }
+
+    @Test
+    public void missingVolumeReportsUnknown() throws Exception {
+        assertEquals(-1, CastV2Session.parseVolumeLevel(
+                new JSONObject("{\"type\":\"RECEIVER_STATUS\",\"status\":{}}")), 1e-9);
+        assertEquals(-1, CastV2Session.parseVolumeLevel(
+                new JSONObject("{\"type\":\"RECEIVER_STATUS\"}")), 1e-9);
+    }
 }

@@ -10,8 +10,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Persistence for manually paired ("Link with TV code") Lounge screens, so they reappear in the
- * cast picker across sessions. DIAL-discovered TVs are NOT stored - they rediscover themselves.
+ * Persistence for paired Lounge screens ("Link with TV code" + mdx-shim pairings), so they
+ * reappear in the cast picker across sessions. DIAL-discovered TVs are NOT stored - they
+ * rediscover themselves. The stored NAME matters beyond display: mdx pairings persist under the
+ * mDNS device name, which is the key CastPickerSheet uses to merge a saved screen back into its
+ * live Cast device's row.
  *
  * <p>Storage: a private {@link SharedPreferences} file (the mobile flavor's other one-off stores,
  * e.g. FeedCache/SessionWarmup, use plain app-private files the same way rather than growing the

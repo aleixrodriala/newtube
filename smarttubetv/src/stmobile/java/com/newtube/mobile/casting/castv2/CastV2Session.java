@@ -59,6 +59,14 @@ public class CastV2Session {
 
         /** Session ended without error: local close() or the receiver closed our connection. Terminal. */
         void onClosed();
+
+        /**
+         * Receiver (device-level) volume, 0.0 - 1.0, parsed out of RECEIVER_STATUS. Fires on the
+         * LAUNCH response and on every volume-bearing status broadcast (e.g. after SET_VOLUME).
+         * Default no-op keeps existing integrators source-compatible.
+         */
+        default void onVolume(double level) {
+        }
     }
 
     private static final String TAG = CastV2Session.class.getSimpleName();
@@ -339,6 +347,12 @@ public class CastV2Session {
         if (!"RECEIVER_STATUS".equals(type)) {
             return;
         }
+        // Device volume rides along on most statuses; surface it whenever present so the
+        // phone-side volume-key routing has a state to adjust from.
+        double volumeLevel = parseVolumeLevel(payload);
+        if (volumeLevel >= 0) {
+            dispatch(() -> mListener.onVolume(volumeLevel));
+        }
         // Both the LAUNCH response and unsolicited broadcasts arrive as RECEIVER_STATUS; requestId
         // matching is pointless here - the app entry is what we want, wherever it shows up.
         AppSession app = findApp(payload, mAppId);
@@ -430,6 +444,16 @@ public class CastV2Session {
             }
         }
         return null;
+    }
+
+    /**
+     * Device volume level (0.0 - 1.0) from a RECEIVER_STATUS payload
+     * ({@code {"status":{"volume":{"level":0.6,...}}}}); -1 when the status carries no volume.
+     */
+    static double parseVolumeLevel(JSONObject receiverStatusPayload) {
+        JSONObject status = receiverStatusPayload.optJSONObject("status");
+        JSONObject volume = status != null ? status.optJSONObject("volume") : null;
+        return volume != null ? volume.optDouble("level", -1) : -1;
     }
 
     // ---------------------------------------------------------------------------------

@@ -93,6 +93,9 @@ public class CastSessionManager {
         void seekTo(long positionMs);
 
         void stopVideo();
+
+        /** Absolute receiver volume, already clamped to 0-100 by the manager. */
+        void setVolume(int volumePercent);
     }
 
     private static final String TAG = CastSessionManager.class.getSimpleName();
@@ -116,6 +119,11 @@ public class CastSessionManager {
     private int mState = RemoteControlService.STATE_IDLE;
     /** elapsedRealtime of the last position-bearing event, for playing-state interpolation. */
     private long mPositionTimestamp;
+    /**
+     * TV volume as a 0-100 percentage; -1 until either route reports it (Lounge
+     * TYPE_VOLUME_CHANGE / Cast v2 RECEIVER_STATUS) or a local set establishes a baseline.
+     */
+    private int mVolumePercent = -1;
 
     private CastSessionManager(Context context) {
         mContext = context.getApplicationContext();
@@ -235,6 +243,7 @@ public class CastSessionManager {
         mDurationMs = -1;
         mState = RemoteControlService.STATE_IDLE;
         mPositionTimestamp = 0;
+        mVolumePercent = -1;
     }
 
     private void notifyState() {
@@ -350,6 +359,61 @@ public class CastSessionManager {
     }
 
     // ---------------------------------------------------------------------------------
+    // TV volume (hardware volume keys route here while a session is connected)
+    // ---------------------------------------------------------------------------------
+
+    /** Baseline when a volume key arrives before any route reported the TV's real volume. */
+    static final int VOLUME_BASELINE_PERCENT = 50;
+    /** Per-volume-key-press step. */
+    public static final int VOLUME_STEP_PERCENT = 5;
+
+    /** Last known TV volume, 0-100; -1 while unknown (no volume event / local set yet). */
+    public int getVolumePercent() {
+        return mVolumePercent;
+    }
+
+    /** Set absolute TV volume (clamped to 0-100). Tracked optimistically like the transport state. */
+    public void setVolumePercent(int volumePercent) {
+        Connection connection = mConnection;
+        if (connection == null || !mConnected) {
+            return;
+        }
+        // Optimistic local tracking (mirrors play/pause/seek): both routes echo the real value
+        // back asynchronously (Lounge TYPE_VOLUME_CHANGE / Cast v2 RECEIVER_STATUS) and correct us.
+        mVolumePercent = clampVolumePercent(volumePercent);
+        connection.setVolume(mVolumePercent);
+    }
+
+    /**
+     * Relative TV volume change (volume keys: +/-{@link #VOLUME_STEP_PERCENT}).
+     *
+     * <p>Known limitation: both routes take ABSOLUTE volume on the wire, so when no volume event
+     * has arrived yet the first press jumps to {@link #VOLUME_BASELINE_PERCENT} +/- delta rather
+     * than nudging the TV's actual level. The very next status/volume event re-syncs; not worth a
+     * query round-trip on the key path.</p>
+     *
+     * @return the volume percent just sent, or -1 when not connected (caller shows no indicator)
+     */
+    public int adjustVolume(int deltaPercent) {
+        if (mConnection == null || !mConnected) {
+            return -1;
+        }
+        setVolumePercent(applyVolumeDelta(mVolumePercent, deltaPercent));
+        return mVolumePercent;
+    }
+
+    /** Pure clamp to the 0-100 wire range (static for JVM tests). */
+    static int clampVolumePercent(int volumePercent) {
+        return Math.max(0, Math.min(100, volumePercent));
+    }
+
+    /** Pure delta application with the unknown-state baseline (static for JVM tests). */
+    static int applyVolumeDelta(int currentPercent, int deltaPercent) {
+        int base = currentPercent >= 0 ? currentPercent : VOLUME_BASELINE_PERCENT;
+        return clampVolumePercent(base + deltaPercent);
+    }
+
+    // ---------------------------------------------------------------------------------
     // Route B: Lounge connection (behavior preserved verbatim from the pre-refactor manager)
     // ---------------------------------------------------------------------------------
 
@@ -441,7 +505,10 @@ public class CastSessionManager {
                     notifyState();
                     break;
                 case CastEvent.TYPE_VOLUME_CHANGE:
-                    // Volume routing is not surfaced in the scaffolding UI yet.
+                    // Lounge wire volume is absolute 0-100 - same scale as ours.
+                    if (event.getVolume() >= 0) {
+                        mVolumePercent = clampVolumePercent(event.getVolume());
+                    }
                     break;
                 case CastEvent.TYPE_DISCONNECTED:
                     endSession(event.getReason());
@@ -503,6 +570,15 @@ public class CastSessionManager {
             CastSenderService sender = getSender();
             if (sender != null) {
                 runCommand(sender.stopVideoObserve(), "stopVideo");
+            }
+        }
+
+        @Override
+        public void setVolume(int volumePercent) {
+            CastSenderService sender = getSender();
+            if (sender != null) {
+                // setVolumeObserve takes absolute 0-100 (SenderCommand.setVolume javadoc).
+                runCommand(sender.setVolumeObserve(volumePercent), "setVolume");
             }
         }
 
@@ -679,6 +755,15 @@ public class CastSessionManager {
         }
 
         @Override
+        public void onVolume(double level) {
+            mMainHandler.post(() -> {
+                if (isCurrent(this)) {
+                    mVolumePercent = clampVolumePercent((int) Math.round(level * 100));
+                }
+            });
+        }
+
+        @Override
         public void onLaunchError(String reason) {
             postSessionEnd("Launch failed: " + reason);
         }
@@ -818,6 +903,14 @@ public class CastSessionManager {
             CastV2Session session = currentSession();
             if (session != null) {
                 session.stop();
+            }
+        }
+
+        @Override
+        public void setVolume(int volumePercent) {
+            CastV2Session session = currentSession();
+            if (session != null) {
+                session.setVolume(volumePercent / 100d); // Cast wire scale is 0.0-1.0
             }
         }
 

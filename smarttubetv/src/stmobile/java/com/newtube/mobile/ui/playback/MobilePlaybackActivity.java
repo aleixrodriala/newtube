@@ -28,6 +28,7 @@ import android.util.Rational;
 import android.util.SparseIntArray;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
@@ -95,9 +96,10 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
-import com.newtube.mobile.casting.CastPickerSheet;
+import com.newtube.mobile.casting.CastPickerLauncher;
 import com.newtube.mobile.casting.CastSessionManager;
 import com.newtube.mobile.casting.CastTarget;
+import com.newtube.mobile.casting.CastVolumeKeys;
 import com.newtube.mobile.player.Media3DebugInfoManager;
 import com.newtube.mobile.player.Media3PlayerController;
 import com.newtube.mobile.player.Media3PlayerInitializer;
@@ -373,6 +375,7 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mCastSessionManager.isConnected()) {
             showCastOverlay();
         }
+        updateCastIconTint();
     }
 
     @Override
@@ -1609,31 +1612,29 @@ public class MobilePlaybackActivity extends MobileActivity
     // selected videos to the TV (see the hooks in setVideo/handleUiStateChange).
     // ---------------------------------------------------------------------------------
 
-    /** Not in Manifest.permission yet with compileSdk 36's stubs; exists on Android 16+. */
-    private static final String PERM_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK";
-    private static final int REQUEST_CODE_LOCAL_NETWORK = 112;
-
     private void openCastPicker() {
         cancelAutoHide();
-        // Android 16+ Local Network Protection: LAN multicast/unicast (SSDP/DIAL) is gated
-        // behind a runtime permission; without it the SSDP send dies with EPERM.
-        if (Build.VERSION.SDK_INT >= 36
-                && checkSelfPermission(PERM_LOCAL_NETWORK) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{PERM_LOCAL_NETWORK}, REQUEST_CODE_LOCAL_NETWORK);
-            return;
-        }
-        // Discovery runs while the sheet is open and stops on dismiss (CastPickerSheet).
-        new CastPickerSheet(this).show(this::showPlayerSheet);
+        // Permission gate + picker open live in CastPickerLauncher (shared with Browse);
+        // presentation stays ours - showPlayerSheet is the immersive-safe presenter.
+        CastPickerLauncher.open(this, this::showPlayerSheet);
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_CODE_LOCAL_NETWORK) {
-            // Open the picker on denial too: discovery will find nothing, but manual
-            // "Link with TV code" pairing is a plain internet call and still works.
-            new CastPickerSheet(this).show(this::showPlayerSheet);
+        CastPickerLauncher.handlePermissionResult(this, requestCode, this::showPlayerSheet);
+    }
+
+    /**
+     * Hardware volume keys drive the TV while casting (official-app behavior); everything else -
+     * including volume keys with no session - falls through to normal dispatch.
+     */
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (CastVolumeKeys.onDispatchKeyEvent(this, event)) {
+            return true;
         }
+        return super.dispatchKeyEvent(event);
     }
 
     private void setupCastOverlay() {
@@ -1703,6 +1704,7 @@ public class MobilePlaybackActivity extends MobileActivity
                 mCastSessionManager.loadVideo(video.videoId, resumeMs);
             }
             showCastOverlay();
+            updateCastIconTint();
         }
 
         @Override
@@ -1716,12 +1718,30 @@ public class MobilePlaybackActivity extends MobileActivity
             // state, so the last cast position is still readable here.
             long castPositionMs = mCastSessionManager != null ? mCastSessionManager.getPositionMs() : -1;
             hideCastOverlay();
+            updateCastIconTint();
             if (castPositionMs > 0) {
                 setPositionMs(castPositionMs);
             }
             setPlayWhenReady(true);
         }
     };
+
+    /**
+     * Connected-state affordance on the top-bar cast icon: theme accent while a session is live,
+     * stock white otherwise (matches the official app's colored connected icon). Same accent as
+     * the theme's {@code colorAccent}/dialog headers - the app's "active accent", distinct from
+     * the playback-red used by like/progress states.
+     */
+    private void updateCastIconTint() {
+        if (mCastButton == null) {
+            return;
+        }
+        if (mCastSessionManager != null && mCastSessionManager.isConnected()) {
+            mCastButton.setColorFilter(getColorInt(R.color.mobile_color_accent));
+        } else {
+            mCastButton.clearColorFilter();
+        }
+    }
 
     private void showCastOverlay() {
         if (mCastOverlay == null) {
