@@ -2,6 +2,46 @@
 
 All notable user-facing changes to NewTube ("SmartTube for phones").
 
+## 1.5.0 — 2026-07-20
+
+Two big rounds: casting to the TV (without Play Services), and a deep
+simplification of the whole UI modeled on the official YouTube app.
+
+### Cast to TV
+- **Cast to your TV with no ads.** New Cast button on the home screen and in
+  the player. The default mode streams the video through your phone straight
+  to the Cast device — completely ad-free, no Google Play Services involved.
+- **Or use the TV's YouTube app**: every Cast/DIAL TV also offers the classic
+  mode (the TV's own YouTube app plays; your phone is the remote), and
+  TVs that can't be reached directly can be linked with a 12-digit TV code.
+- One tap connects; if ad-free casting can't handle a video (e.g. live
+  streams), the session falls back to the TV's YouTube app automatically.
+- Control the **TV's volume** from the phone, see "Playing on <TV>" in the
+  player and a persistent notification with a disconnect action, and a subtle
+  pulse animation while a session is connecting.
+
+### Simpler, cleaner UI
+- **Bottom navigation is now Home / Subscriptions / History / You**, styled
+  and metered like the official app. The side drawer, the hamburger icon,
+  and the top-bar settings icon are gone — the top bar is just the title,
+  Cast, and Search.
+- **New "You" tab**: your account (real profile picture, name, email), your
+  content (Channels, Playlists, My videos), an "Explore" group with the
+  discovery feeds (Kids, Sports, LIVE, Gaming, News, Music), and Settings —
+  all in one place, like YouTube's You page.
+- **Shorts are gone**: the Shorts tab was removed and Shorts no longer
+  appear in the Home or Subscriptions feeds (History still shows watched
+  ones).
+- **The player went from 11 overlay icons to 8**, and the gear now opens a
+  YouTube-style sheet: Quality with its live value ("Auto (1080p60)"),
+  Playback speed, Picture-in-picture, Rotate lock — and everything else
+  nested under "More", each row with a proper icon.
+- Long-press a bottom tab or a You row for section management
+  (rename / move / refresh / clear history — nothing was lost with the
+  drawer).
+- **Pinch to zoom** in fullscreen: snap between "Zoomed to fill" and
+  "Original", exactly like the official app.
+
 ## 1.4.2 — 2026-07-19
 
 - **Fixed the real "thumbnail flicker" on minimize**: the feed card of the
