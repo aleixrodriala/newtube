@@ -37,8 +37,10 @@ shim, each verified end-to-end on a Pixel 9 + a Cast-built-in TV.**
   drags are throttled (200 ms) because Lounge setVolume is an HTTP POST each.
 - **Connecting indicator**: `CastSessionManager.isConnecting()` +
   `Listener.onCastConnectingChanged` (deduped, covers the fallback's mdx
-  window too); the Browse cast icon dims with an accent spinner overlay from
-  tap until connected/failed.
+  window too); the Browse cast icon plays the official-style arc-pulse
+  animation (`ic_mobile_cast_connecting` animation-list, arcs fill 1→2→3)
+  from tap until connected/failed. A spinner overlaid on the icon was tried
+  first and rejected in review ("looks weird").
 - **Later** (user-parked): the player top-bar icon count is getting crowded —
   study how the official app arranges its player/top-bar actions and redesign
   then; no design work now.

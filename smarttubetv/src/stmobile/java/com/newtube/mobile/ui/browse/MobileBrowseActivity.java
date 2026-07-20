@@ -7,6 +7,8 @@ import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
+import android.graphics.drawable.AnimationDrawable;
+import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.KeyEvent;
@@ -139,7 +141,6 @@ public class MobileBrowseActivity extends MobileActivity
     private ImageButton mSettingsButton;
     private ImageButton mMenuButton;
     private ImageButton mCastButton;
-    private ProgressBar mCastConnectingSpinner;
     /** Process-wide cast session singleton; Browse only reads state + opens the picker. */
     private CastSessionManager mCastSessionManager;
 
@@ -229,7 +230,6 @@ public class MobileBrowseActivity extends MobileActivity
         mSettingsButton = findViewById(R.id.mobile_settings_button);
         mMenuButton = findViewById(R.id.mobile_menu_button);
         mCastButton = findViewById(R.id.mobile_cast_button);
-        mCastConnectingSpinner = findViewById(R.id.mobile_cast_connecting);
 
         mMiniPlayerBar = findViewById(R.id.mobile_mini_player);
         mMiniPlayerFrame = findViewById(R.id.mobile_mini_player_frame);
@@ -604,20 +604,28 @@ public class MobileBrowseActivity extends MobileActivity
         }
     };
 
+    /** Guards against restarting the connecting animation on every listener event. */
+    private boolean mCastIconAnimating;
+
     /**
-     * Accent while connected, spinner over a dimmed icon while a session is being established
-     * (picker tap -> connected takes seconds; the auto-fallback's mdx resolve up to 15s),
-     * stock white when idle - same visual family as the player's cast icon.
+     * Official-app visual states for the cast icon: while a session is being established (picker
+     * tap -> connected takes seconds; the auto-fallback's mdx resolve up to 15s) the glyph's wifi
+     * arcs pulse (animation-list swaps the icon); accent tint once connected; stock white idle.
      */
     private void updateCastIconTint() {
         if (mCastButton == null) {
             return;
         }
         boolean connecting = mCastSessionManager != null && mCastSessionManager.isConnecting();
-        if (mCastConnectingSpinner != null) {
-            mCastConnectingSpinner.setVisibility(connecting ? View.VISIBLE : View.GONE);
+        if (connecting != mCastIconAnimating) {
+            mCastIconAnimating = connecting;
+            mCastButton.setImageResource(connecting
+                    ? R.drawable.ic_mobile_cast_connecting : R.drawable.ic_mobile_cast);
+            Drawable drawable = mCastButton.getDrawable();
+            if (connecting && drawable instanceof AnimationDrawable) {
+                ((AnimationDrawable) drawable).start();
+            }
         }
-        mCastButton.setAlpha(connecting ? 0.35f : 1f);
         if (mCastSessionManager != null && mCastSessionManager.isConnected()) {
             mCastButton.setColorFilter(getColorInt(R.color.mobile_color_accent));
         } else {
