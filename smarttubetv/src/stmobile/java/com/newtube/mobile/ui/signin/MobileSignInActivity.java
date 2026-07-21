@@ -3,6 +3,7 @@ package com.newtube.mobile.ui.signin;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.View;
@@ -22,43 +23,48 @@ import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.common.MobileActivity;
 
 /**
- * Touch device-code sign-in screen - Wave 5 (ARCHITECTURE.md section 7, "Account-login seam").
+ * Touch device-code sign-in screen - Wave 5 (ARCHITECTURE.md section 7, "Account-login seam"),
+ * reworked into a guided-onboarding flow (2026-07).
  *
  * <p>The account/auth backend ({@link YTSignInPresenter}, {@code SignInService},
  * {@code YouTubeAccountManager}, token storage) is reused UNCHANGED. This Activity is only the
- * touch re-skin of the Leanback {@code SignInFragment} (GuidedStep) - it implements the plain
- * {@link SignInView} interface and renders whatever the presenter pushes through it.
+ * touch re-skin of the device-code OAuth flow - it implements the plain {@link SignInView}
+ * interface and renders whatever the presenter pushes through it.
  *
- * <h3>Presenter wiring</h3>
- * Mirrors {@code SignInFragment} but talks to {@link YTSignInPresenter} directly (per
- * ARCHITECTURE.md section 7 / Wave-5 brief): {@code setView(this)} + {@code onViewInitialized()}
- * in {@link #onCreate}, {@code onViewDestroyed()} in {@link #onDestroy}. The base
- * {@code SignInPresenter.onViewInitialized()} no-ops for the YT subclass (it only dispatches when
- * invoked on the base instance), then {@code YTSignInPresenter.onViewInitialized()} kicks off the
- * device-code OAuth poll via {@code SignInService.signInObserve()} and calls back into
- * {@link #showCode}. The Rx stream observes on the main thread, so the callbacks below run on the
- * UI thread - {@code runOnUiThread} is used defensively anyway.
+ * <h3>Why guidance is the whole design</h3>
+ * The device-code grant is a TV flow (no redirect URI, approval happens on Google's "activate"
+ * pages worded for TVs) that here runs on the same phone. The screen therefore walks the user
+ * through it: a 3-step list (tap Continue -> approve on Google's page -> come back), the pairing
+ * code kept small but visible (Google's approval UI shows the same code; users compare), and a
+ * {@code https://yt.be/activate} manual fallback link.
  *
- * <h3>What it renders</h3>
- * Unlike the TV path (which shows a QR meant to be scanned from a second device), this is a phone,
- * so there is nothing to scan: the activation page is opened right here in the device browser.
+ * <h3>States</h3>
  * <ul>
- *   <li>When the first code arrives the screen explains the flow; "Continue with Google" opens
- *       the code-prefilled activation page ({@code https://youtube.com/qr/activate/<code>}) via
- *       {@link Utils#openLinkExt} so the user approves on this same device. Deliberately NOT
- *       auto-opened: bouncing into the browser with no context read as clunky (user feedback).</li>
- *   <li>The <b>user code</b> large + monospace, in a card that copies it to the clipboard on tap
- *       (fallback for entering it manually).</li>
- *   <li>The <b>verification URL</b> ({@code https://yt.be/activate}) as a tappable link.</li>
- *   <li>A prominent <b>"Open sign-in page"</b> button that re-opens the activation page in the
- *       browser (for when the user backgrounds / dismisses the auto-opened tab).</li>
+ *   <li>{@code LOADING}: spinner until the first code arrives ({@link #showCode}).</li>
+ *   <li>{@code READY}: steps + code row + "Continue with Google" (opens the code-prefilled
+ *       {@code https://youtube.com/qr/activate/<code>} page via {@link Utils#openLinkExt} -
+ *       a Custom Tab in OUR OWN task, unless the installed YouTube app intercepts the link
+ *       into its own task with a native approval sheet).</li>
+ *   <li>{@code WAITING}: entered when the user opens the approval page - spinner, the code to
+ *       match, and a re-open button for a dismissed tab.</li>
+ *   <li>{@code SUCCESS}: the 3-second token poll landed. {@link #showSuccess()} relaunches this
+ *       activity {@code CLEAR_TOP|SINGLE_TOP}, which pops the Custom Tab sitting above it in the
+ *       same task (the standard OAuth auto-return trick; allowed from the background because this
+ *       activity is in the foreground task's back stack - silently blocked in the YouTube-app
+ *       path, where the presenter's toast is the feedback and the user returns manually). Shows
+ *       the checkmark briefly once resumed, then finishes.</li>
+ *   <li>{@code ERROR}: human-readable headline + raw-detail line + "Try again" minting a FRESH
+ *       code (a failed sign-in is never resumed - the old code may be expired anyway).</li>
  * </ul>
- * A spinner shows until the first code arrives; the {@link #showCode(String, String)} 2-arg error
- * path (empty {@code signInUrl}) renders a human-readable error with a "Try again" button that
- * restarts the flow with a fresh device code (the raw backend error is kept as a small detail
- * line for bug reports). A failed sign-in is never resumed - retrying always mints a new code.
+ * The Rx stream observes on the main thread, so callbacks run on the UI thread -
+ * {@code runOnUiThread} is used defensively anyway. Rotation does not recreate (manifest
+ * {@code configChanges}), so states and the live poll survive it.
  */
 public class MobileSignInActivity extends MobileActivity implements SignInView {
+
+    private enum State { LOADING, READY, WAITING, SUCCESS, ERROR }
+
+    private static final long SUCCESS_LINGER_MS = 1_400;
 
     private YTSignInPresenter mSignInPresenter;
 
@@ -72,23 +78,24 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
     private TextView mCodeView;
     private TextView mUrlView;
     private MaterialButton mOpenButton;
+    private View mWaitingContainer;
+    private TextView mWaitingCodeView;
+    private MaterialButton mReopenButton;
+    private View mSuccessContainer;
     private ImageButton mBackButton;
+
+    private State mState = State.LOADING;
+    private boolean mResumed;
+    private boolean mFinishScheduled;
 
     private String mUserCode;
     private String mSignInUrl;
     /** The QR/full URL (code pre-filled); falls back to {@link #mSignInUrl} when absent. */
     private String mFullSignInUrl;
-    /**
-     * Guards the one-shot auto-open of the browser. Only {@code true} on a fresh launch
-     * ({@code savedInstanceState == null}); a config change / rotation recreates the Activity with a
-     * non-null bundle, so we do NOT re-launch the browser on the user - the button is there for that.
-     */
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        // Only auto-open the browser on the very first launch of this screen, never on rotation.
 
         setContentView(R.layout.activity_mobile_signin);
 
@@ -96,8 +103,10 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
 
         mBackButton.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
         mCodeCard.setOnClickListener(v -> copyCodeToClipboard());
+        mWaitingCodeView.setOnClickListener(v -> copyCodeToClipboard());
         mUrlView.setOnClickListener(v -> openSignInUrl());
         mOpenButton.setOnClickListener(v -> openSignInUrl());
+        mReopenButton.setOnClickListener(v -> openSignInUrl());
         mRetryButton.setOnClickListener(v -> restartSignIn());
 
         mSignInPresenter = YTSignInPresenter.instance(this);
@@ -116,12 +125,36 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
         mCodeView = findViewById(R.id.mobile_signin_code);
         mUrlView = findViewById(R.id.mobile_signin_url);
         mOpenButton = findViewById(R.id.mobile_signin_open_button);
+        mWaitingContainer = findViewById(R.id.mobile_signin_waiting_container);
+        mWaitingCodeView = findViewById(R.id.mobile_signin_waiting_code);
+        mReopenButton = findViewById(R.id.mobile_signin_reopen_button);
+        mSuccessContainer = findViewById(R.id.mobile_signin_success_container);
         mBackButton = findViewById(R.id.mobile_signin_back);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        mResumed = true;
+
+        // Auto-return landed (or the user came back on their own) after the poll succeeded:
+        // let the checkmark linger, then hand back to Browse.
+        if (mState == State.SUCCESS) {
+            scheduleFinish();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        mResumed = false;
+        super.onPause();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        // CLEAR_TOP|SINGLE_TOP self-relaunch from showSuccess() lands here after popping the
+        // Custom Tab - the success state is already rendered, nothing to do.
+        super.onNewIntent(intent);
     }
 
     @Override
@@ -160,16 +193,40 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
             mSignInUrl = signInUrl;
             mFullSignInUrl = !TextUtils.isEmpty(fullSignInUrl) ? fullSignInUrl : signInUrl;
 
-            mProgress.setVisibility(View.GONE);
-            mErrorContainer.setVisibility(View.GONE);
-            mContent.setVisibility(View.VISIBLE);
-
             mCodeView.setText(userCode);
+            mWaitingCodeView.setText(userCode);
             mUrlView.setText(signInUrl);
 
-            // No auto-open: bouncing straight into the browser with zero context read as clunky
-            // (user feedback). This screen explains what's about to happen; "Open sign-in page"
-            // launches the code-prefilled approval page when the user is ready.
+            // Never auto-open the browser: this screen's job is to explain what's about to
+            // happen first (user feedback); "Continue with Google" launches the approval page.
+            applyState(State.READY);
+        });
+    }
+
+    @Override
+    public void showSuccess() {
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed() || mState == State.SUCCESS) {
+                return;
+            }
+
+            applyState(State.SUCCESS);
+
+            // Pop the Custom Tab sitting above us in this task and bring the checkmark forward.
+            // In the YouTube-app interception path this start is silently blocked (other task is
+            // foreground) - the presenter's "signed in" toast covers that; the user returning
+            // manually still lands on this success state.
+            try {
+                Intent intent = new Intent(this, MobileSignInActivity.class);
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                startActivity(intent);
+            } catch (Exception e) {
+                // Not fatal: worst case the user returns manually.
+            }
+
+            if (mResumed) {
+                scheduleFinish();
+            }
         });
     }
 
@@ -182,13 +239,30 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
     // Internals
     // ---------------------------------------------------------------------------------
 
+    private void applyState(State state) {
+        mState = state;
+
+        mProgress.setVisibility(state == State.LOADING ? View.VISIBLE : View.GONE);
+        mContent.setVisibility(state == State.READY ? View.VISIBLE : View.GONE);
+        mWaitingContainer.setVisibility(state == State.WAITING ? View.VISIBLE : View.GONE);
+        mSuccessContainer.setVisibility(state == State.SUCCESS ? View.VISIBLE : View.GONE);
+        mErrorContainer.setVisibility(state == State.ERROR ? View.VISIBLE : View.GONE);
+    }
+
     private void showError(String message) {
-        mProgress.setVisibility(View.GONE);
-        mContent.setVisibility(View.GONE);
-        mErrorContainer.setVisibility(View.VISIBLE);
+        applyState(State.ERROR);
         mErrorView.setText(R.string.mobile_signin_error);
         mErrorDetailView.setText(message);
         mErrorDetailView.setVisibility(!TextUtils.isEmpty(message) ? View.VISIBLE : View.GONE);
+    }
+
+    private void scheduleFinish() {
+        if (mFinishScheduled) {
+            return;
+        }
+        mFinishScheduled = true;
+
+        Utils.postDelayed(this::finish, SUCCESS_LINGER_MS);
     }
 
     /**
@@ -197,9 +271,7 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
      * sign-in is never resumed - simpler and the old code may be expired anyway).
      */
     private void restartSignIn() {
-        mErrorContainer.setVisibility(View.GONE);
-        mContent.setVisibility(View.GONE);
-        mProgress.setVisibility(View.VISIBLE);
+        applyState(State.LOADING);
 
         mUserCode = null;
         mSignInUrl = null;
@@ -226,8 +298,16 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
         // Prefer the full URL (code pre-filled). Custom Tab / system browser, like the TV
         // "Login from browser" action does with the full URL.
         String url = !TextUtils.isEmpty(mFullSignInUrl) ? mFullSignInUrl : mSignInUrl;
-        if (!TextUtils.isEmpty(url)) {
-            Utils.openLinkExt(this, url);
+        if (TextUtils.isEmpty(url)) {
+            return;
+        }
+
+        Utils.openLinkExt(this, url);
+
+        // The approval hand-off started - swap the steps for the waiting state (the poll
+        // completes the flow; the button there re-opens a dismissed tab).
+        if (mState == State.READY) {
+            applyState(State.WAITING);
         }
     }
 }

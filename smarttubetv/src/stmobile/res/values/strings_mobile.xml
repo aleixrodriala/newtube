@@ -102,12 +102,29 @@
     <string name="mobile_audio_title">Audio</string>
     <string name="mobile_quality_auto">Auto (recommended)</string>
     <string name="mobile_audio_default">Default</string>
+
+    <!-- Captions sheet (sheet_mobile_captions / showCaptionsSheet) -->
+    <string name="mobile_captions_off">Off</string>
+    <string name="mobile_captions_auto_title">Auto-generated</string>
+    <string name="mobile_captions_empty">No subtitles available for this video</string>
+    <string name="mobile_captions_style">Caption style &amp; size</string>
     <string name="mobile_signin_title">Sign in</string>
-    <string name="mobile_signin_instructions">Tap the button below to open Google\'s sign-in page in your browser. Approve NewTube there, then come back \u2014 you\'ll be signed in automatically. Your device code (already filled in for you):</string>
+    <string name="mobile_signin_lead">Connect your Google account to get your subscriptions, playlists and history.</string>
+    <string name="mobile_signin_step1_title">Tap \u201cContinue with Google\u201d</string>
+    <string name="mobile_signin_step1_caption">Google\'s sign-in page opens right here.</string>
+    <string name="mobile_signin_step2_title">Choose your account and allow access</string>
+    <string name="mobile_signin_step2_caption">The page may mention a TV or another device \u2014 that\'s normal: NewTube signs in the same way a TV does, so your password never touches the app.</string>
+    <string name="mobile_signin_step3_title">Come back to NewTube</string>
+    <string name="mobile_signin_step3_caption">Sign-in finishes by itself \u2014 nothing else to do.</string>
+    <string name="mobile_signin_code_label">Google will show this code \u2014 check it matches:</string>
     <string name="mobile_signin_copy_hint">Tap the code to copy it</string>
     <string name="mobile_signin_code_copied">Code copied to clipboard</string>
     <string name="mobile_signin_open_button">Continue with Google</string>
-    <string name="mobile_signin_open_hint">Tap the address to open it in your browser</string>
+    <string name="mobile_signin_manual_hint">Button not working? Open this address in any browser and enter the code:</string>
+    <string name="mobile_signin_waiting_title">Waiting for Google\u2026</string>
+    <string name="mobile_signin_waiting_caption">Finish on the Google page: choose your account and allow access. You\'ll be signed in here automatically.</string>
+    <string name="mobile_signin_reopen_button">Re-open sign-in page</string>
+    <string name="mobile_signin_success">You\'re signed in!</string>
     <string name="mobile_signin_error">Couldn\'t complete sign-in. Check your connection and try again — you\'ll get a fresh code.</string>
     <string name="mobile_signin_retry_button">Try again</string>
 

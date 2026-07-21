@@ -1,16 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Touch device-code sign-in screen - Wave 5 (ARCHITECTURE.md section 7).
+  Touch device-code sign-in screen, guided-onboarding edition.
 
-  Renders what YTSignInPresenter pushes through SignInView.showCode(): the user code
-  (large + tap-to-copy), the verification URL (tappable link), and a prominent
-  "Open sign-in page" button. On a phone there is nothing to scan, so instead of a QR
-  the activation page is opened directly in the device browser when the code arrives
-  (see MobileSignInActivity.showCode); the button re-opens it on demand.
-  A spinner shows until the first code arrives from the backend; errors (SignInView's 2-arg
-  showCode path) render as a friendly headline + raw-detail line + "Try again" button that
-  restarts the flow with a fresh code. The account/auth backend is untouched - this view only
-  renders.
+  The device-code OAuth flow is a TV flow running on a phone, so this screen's whole job is
+  guidance: a 3-step list explains what is about to happen ("Continue with Google" -> approve on
+  Google's page -> come back), the pairing code is kept visible but demoted to a small
+  "check it matches" row (Google's approval UI displays the same code and users want to compare),
+  and the primary button sits right under the steps. Four states, one container each:
+    - progress: spinner until the first code arrives from the backend
+    - content:  the READY state described above (+ manual yt.be/activate fallback link)
+    - waiting:  after the user opens the approval page - spinner + "finish on the Google page",
+                the code to match, and a re-open button
+    - success:  checkmark confirmation; MobileSignInActivity relaunches itself CLEAR_TOP to
+                dismiss the Custom Tab, shows this briefly, then finishes
+    - error:    friendly headline + raw-detail line + "Try again" (fresh code)
+  The account/auth backend is untouched - this view only renders.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -63,14 +67,13 @@
 
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content">
+            android:layout_height="match_parent">
 
             <ProgressBar
                 android:id="@+id/mobile_signin_progress"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:layout_marginTop="64dp"
                 android:indeterminateTint="@color/mobile_color_primary" />
 
             <!--
@@ -82,12 +85,12 @@
                 android:id="@+id/mobile_signin_error_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_gravity="top"
+                android:layout_gravity="center"
                 android:gravity="center_horizontal"
                 android:orientation="vertical"
                 android:padding="24dp"
                 android:visibility="gone"
-                tools:visibility="visible">
+                tools:visibility="gone">
 
                 <TextView
                     android:id="@+id/mobile_signin_error"
@@ -109,8 +112,7 @@
                     android:textColor="@color/mobile_color_on_surface_secondary"
                     android:textSize="12sp"
                     android:visibility="gone"
-                    tools:text="java.net.UnknownHostException: Unable to resolve host"
-                    tools:visibility="visible" />
+                    tools:text="java.net.UnknownHostException: Unable to resolve host" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/mobile_signin_retry_button"
@@ -127,37 +129,183 @@
 
             </LinearLayout>
 
+            <!-- READY state: guided steps + demoted code row + primary action + manual fallback. -->
             <LinearLayout
                 android:id="@+id/mobile_signin_content"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_horizontal"
+                android:layout_gravity="top"
                 android:orientation="vertical"
                 android:paddingStart="24dp"
                 android:paddingEnd="24dp"
-                android:paddingTop="24dp"
+                android:paddingTop="16dp"
                 android:paddingBottom="32dp"
                 android:visibility="gone"
                 tools:visibility="visible">
 
                 <TextView
-                    android:id="@+id/mobile_signin_instructions"
+                    android:id="@+id/mobile_signin_lead"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:gravity="center"
-                    android:text="@string/mobile_signin_instructions"
+                    android:text="@string/mobile_signin_lead"
                     android:textColor="@color/mobile_color_on_surface_secondary"
                     android:textSize="15sp" />
+
+                <!-- Step 1 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:background="@drawable/bg_mobile_signin_step"
+                        android:gravity="center"
+                        android:text="1"
+                        android:textColor="@color/mobile_color_on_surface"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="14dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/mobile_signin_step1_title"
+                            android:textColor="@color/mobile_color_on_surface"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/mobile_signin_step1_caption"
+                            android:textColor="@color/mobile_color_on_surface_secondary"
+                            android:textSize="13sp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <!-- Step 2 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:background="@drawable/bg_mobile_signin_step"
+                        android:gravity="center"
+                        android:text="2"
+                        android:textColor="@color/mobile_color_on_surface"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="14dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/mobile_signin_step2_title"
+                            android:textColor="@color/mobile_color_on_surface"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/mobile_signin_step2_caption"
+                            android:textColor="@color/mobile_color_on_surface_secondary"
+                            android:textSize="13sp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <!-- Step 3 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:background="@drawable/bg_mobile_signin_step"
+                        android:gravity="center"
+                        android:text="3"
+                        android:textColor="@color/mobile_color_on_surface"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="14dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/mobile_signin_step3_title"
+                            android:textColor="@color/mobile_color_on_surface"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/mobile_signin_step3_caption"
+                            android:textColor="@color/mobile_color_on_surface_secondary"
+                            android:textSize="13sp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <!--
+                  The pairing code, demoted: Google's approval UI shows the same code, so keep it
+                  visible for comparison (and tap-to-copy for the manual path) without letting it
+                  dominate the screen the way the TV layout did.
+                -->
+                <TextView
+                    android:id="@+id/mobile_signin_code_label"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="28dp"
+                    android:text="@string/mobile_signin_code_label"
+                    android:textColor="@color/mobile_color_on_surface_secondary"
+                    android:textSize="13sp" />
 
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/mobile_signin_code_card"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="20dp"
+                    android:layout_marginTop="8dp"
                     android:clickable="true"
                     android:focusable="true"
                     app:cardBackgroundColor="@color/mobile_color_placeholder"
-                    app:cardCornerRadius="12dp"
+                    app:cardCornerRadius="8dp"
                     app:cardElevation="0dp"
                     app:rippleColor="@color/mobile_color_on_surface_secondary">
 
@@ -166,13 +314,13 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:fontFamily="monospace"
-                        android:letterSpacing="0.15"
-                        android:paddingStart="28dp"
-                        android:paddingEnd="28dp"
-                        android:paddingTop="18dp"
-                        android:paddingBottom="18dp"
+                        android:letterSpacing="0.1"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:paddingTop="10dp"
+                        android:paddingBottom="10dp"
                         android:textColor="@color/mobile_color_on_surface"
-                        android:textSize="34sp"
+                        android:textSize="20sp"
                         android:textStyle="bold"
                         tools:text="ABC-DEF" />
 
@@ -182,8 +330,31 @@
                     android:id="@+id/mobile_signin_copy_hint"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="6dp"
                     android:text="@string/mobile_signin_copy_hint"
+                    android:textColor="@color/mobile_color_on_surface_secondary"
+                    android:textSize="11sp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/mobile_signin_open_button"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="28dp"
+                    android:paddingTop="12dp"
+                    android:paddingBottom="12dp"
+                    android:text="@string/mobile_signin_open_button"
+                    android:textColor="@color/mobile_color_on_surface"
+                    android:textSize="16sp"
+                    app:backgroundTint="@color/mobile_color_primary"
+                    app:cornerRadius="26dp" />
+
+                <TextView
+                    android:id="@+id/mobile_signin_manual_hint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:gravity="center"
+                    android:text="@string/mobile_signin_manual_hint"
                     android:textColor="@color/mobile_color_on_surface_secondary"
                     android:textSize="12sp" />
 
@@ -191,42 +362,117 @@
                     android:id="@+id/mobile_signin_url"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="28dp"
+                    android:layout_gravity="center_horizontal"
                     android:background="?attr/selectableItemBackground"
                     android:clickable="true"
                     android:focusable="true"
                     android:padding="8dp"
                     android:textColor="@color/mobile_color_link"
-                    android:textSize="18sp"
+                    android:textSize="15sp"
                     android:textStyle="bold"
                     tools:text="https://yt.be/activate" />
 
-                <TextView
-                    android:id="@+id/mobile_signin_open_hint"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/mobile_signin_open_hint"
-                    android:textColor="@color/mobile_color_on_surface_secondary"
-                    android:textSize="12sp" />
+            </LinearLayout>
 
-                <!--
-                  Primary action: (re)open the code-prefilled activation page in the device browser.
-                  It is auto-opened once when the code arrives (see MobileSignInActivity.showCode);
-                  this button lets the user get back to it after backgrounding / dismissing the tab.
-                  Replaces the QR area of the TV path - a phone has nothing to scan from.
-                -->
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/mobile_signin_open_button"
+            <!-- WAITING state: user is (or was) on the Google approval page. -->
+            <LinearLayout
+                android:id="@+id/mobile_signin_waiting_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingStart="24dp"
+                android:paddingEnd="24dp"
+                android:visibility="gone"
+                tools:visibility="gone">
+
+                <ProgressBar
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="32dp"
+                    android:indeterminateTint="@color/mobile_color_primary" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:text="@string/mobile_signin_waiting_title"
+                    android:textColor="@color/mobile_color_on_surface"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center"
+                    android:text="@string/mobile_signin_waiting_caption"
+                    android:textColor="@color/mobile_color_on_surface_secondary"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/mobile_signin_code_label"
+                    android:textColor="@color/mobile_color_on_surface_secondary"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/mobile_signin_waiting_code"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.1"
+                    android:textColor="@color/mobile_color_on_surface"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    tools:text="ABC-DEF" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/mobile_signin_reopen_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="28dp"
                     android:paddingStart="24dp"
                     android:paddingEnd="24dp"
-                    android:text="@string/mobile_signin_open_button"
+                    android:text="@string/mobile_signin_reopen_button"
                     android:textColor="@color/mobile_color_on_surface"
-                    android:textSize="16sp"
-                    app:backgroundTint="@color/mobile_color_primary"
+                    android:textSize="15sp"
+                    app:backgroundTint="@color/mobile_color_placeholder"
                     app:cornerRadius="24dp" />
+
+            </LinearLayout>
+
+            <!-- SUCCESS state: shown briefly, then the activity finishes itself. -->
+            <LinearLayout
+                android:id="@+id/mobile_signin_success_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:paddingStart="24dp"
+                android:paddingEnd="24dp"
+                android:visibility="gone"
+                tools:visibility="gone">
+
+                <ImageView
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
+                    android:contentDescription="@string/mobile_signin_success"
+                    android:src="@drawable/ic_mobile_check"
+                    app:tint="@color/mobile_color_primary" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/mobile_signin_success"
+                    android:textColor="@color/mobile_color_on_surface"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
 
             </LinearLayout>
 

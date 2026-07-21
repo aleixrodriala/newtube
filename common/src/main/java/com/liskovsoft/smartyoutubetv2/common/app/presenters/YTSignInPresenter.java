@@ -88,15 +88,20 @@ public class YTSignInPresenter extends SignInPresenter {
                         },
                         () -> {
                             // Success
-                            if (getView() != null) {
-                                getView().close();
-                            }
-
                             if (sSilentSuccessEnabled) {
                                 // See sSilentSuccessEnabled: account already auto-selected; Home
-                                // refreshes through the account-change listener chain.
+                                // refreshes through the account-change listener chain. The toast is
+                                // the only feedback visible when approval ended in ANOTHER task
+                                // (YouTube app intercepts the activate link) — keep it even though
+                                // the view also renders a success state.
                                 MessageHelpers.showMessage(getContext(), R.string.signed_in_success);
+                                if (getView() != null) {
+                                    getView().showSuccess();
+                                }
                             } else {
+                                if (getView() != null) {
+                                    getView().close();
+                                }
                                 AccountSelectionPresenter.instance(getContext()).show(true);
                             }
                         }
