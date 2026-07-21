@@ -51,6 +51,7 @@ import android.view.WindowManager;
 import android.view.inputmethod.BaseInputConnection;
 
 import androidx.annotation.NonNull;
+import androidx.browser.customtabs.CustomTabsClient;
 import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
@@ -531,6 +532,30 @@ public class Utils {
         CustomTabsIntent.Builder builder = new CustomTabsIntent.Builder();
         CustomTabsIntent customTabsIntent = builder.build();
         customTabsIntent.launchUrl(context, Uri.parse(url));
+    }
+
+    /**
+     * Like {@link #openLinkExt} but pins the Custom Tab to an actual BROWSER package, so a
+     * verified app-link handler (the YouTube app claims youtube.com) cannot intercept the URL
+     * into its own task. The device-code sign-in flow needs this: the approval page must live
+     * in OUR task for the success auto-return (CLEAR_TOP self-relaunch) to dismiss it and bring
+     * the user straight back. Falls back to the normal resolution when no Custom-Tabs-capable
+     * browser exists.
+     */
+    public static void openLinkInBrowserTab(Context context, String url) {
+        try {
+            String browserPackage = CustomTabsClient.getPackageName(context, null);
+            if (browserPackage == null) {
+                openLinkExt(context, url);
+                return;
+            }
+
+            CustomTabsIntent customTabsIntent = new CustomTabsIntent.Builder().build();
+            customTabsIntent.intent.setPackage(browserPackage);
+            customTabsIntent.launchUrl(context, Uri.parse(url));
+        } catch (Exception e) {
+            openLinkExt(context, url);
+        }
     }
 
     public static void postDelayed(Runnable callback, long delayMs) {

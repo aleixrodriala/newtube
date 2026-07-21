@@ -159,6 +159,8 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
 
     @Override
     protected void onDestroy() {
+        MobileSignInKeepaliveService.stop(this);
+
         if (mSignInPresenter != null && mSignInPresenter.getView() == this) {
             mSignInPresenter.onViewDestroyed();
         }
@@ -210,6 +212,7 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
                 return;
             }
 
+            MobileSignInKeepaliveService.stop(this);
             applyState(State.SUCCESS);
 
             // Pop the Custom Tab sitting above us in this task and bring the checkmark forward.
@@ -250,6 +253,7 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
     }
 
     private void showError(String message) {
+        MobileSignInKeepaliveService.stop(this);
         applyState(State.ERROR);
         mErrorView.setText(R.string.mobile_signin_error);
         mErrorDetailView.setText(message);
@@ -302,7 +306,14 @@ public class MobileSignInActivity extends MobileActivity implements SignInView {
             return;
         }
 
-        Utils.openLinkExt(this, url);
+        // Browser-pinned tab: an unpinned ACTION_VIEW lets the installed YouTube app (verified
+        // youtube.com app-link) hijack the approval into ITS task, stranding the user there and
+        // defeating the success auto-return. Pinning keeps the page in our task.
+        Utils.openLinkInBrowserTab(this, url);
+
+        // Keep the token poll's network alive while the tab covers us (cached apps get their
+        // network suspended, which would stall the poll - and the auto-return - until return).
+        MobileSignInKeepaliveService.start(this);
 
         // The approval hand-off started - swap the steps for the waiting state (the poll
         // completes the flow; the button there re-opens a dismissed tab).

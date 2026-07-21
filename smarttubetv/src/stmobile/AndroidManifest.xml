@@ -189,6 +189,16 @@
             android:theme="@style/Theme.NewTube" />
 
         <!--
+          Sign-in keep-alive (shortService): keeps the device-code token poll's network alive
+          while the browser Custom Tab covers the app, so the success auto-return can fire
+          behind the tab. Started on approval hand-off, stopped on success/error/exit.
+        -->
+        <service
+            android:name="com.newtube.mobile.ui.signin.MobileSignInKeepaliveService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
+
+        <!--
           External-link handoff (parity gap). Implements WebBrowserView by launching the device
           browser via ACTION_VIEW and finishing immediately (no UI of its own), so About /
           SponsorBlock / DeArrow "open link" actions leave the app instead of showing the TV QR

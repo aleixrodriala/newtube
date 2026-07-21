@@ -121,6 +121,7 @@
     <string name="mobile_signin_code_copied">Code copied to clipboard</string>
     <string name="mobile_signin_open_button">Continue with Google</string>
     <string name="mobile_signin_manual_hint">Button not working? Open this address in any browser and enter the code:</string>
+    <string name="mobile_signin_notification">Signing in with Google\u2026</string>
     <string name="mobile_signin_waiting_title">Waiting for Google\u2026</string>
     <string name="mobile_signin_waiting_caption">Finish on the Google page: choose your account and allow access. You\'ll be signed in here automatically.</string>
     <string name="mobile_signin_reopen_button">Re-open sign-in page</string>
