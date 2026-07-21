@@ -32,6 +32,8 @@ import io.reactivex.rxjava3.disposables.Disposable;
 public class VideoLoaderController extends BasePlayerController {
     private static final String TAG = VideoLoaderController.class.getSimpleName();
     private static final int MIN_SHUFFLE_SIZE = 30;
+    /** Media3 has already unwound the failed source; only a short main-loop turn is needed. */
+    private static final int URL_REMINT_RELOAD_DELAY_MS = 100;
     private final Playlist mPlaylist;
     private Video mPendingVideo;
     private SuggestionsController mSuggestionsController;
@@ -460,6 +462,15 @@ public class VideoLoaderController extends BasePlayerController {
 
     public void reloadVideo() {
         reloadVideo(1_000);
+    }
+
+    /**
+     * ErrorFixer's source-error path already invalidated the format-info cache. Avoid spending a
+     * fixed extra second idle before starting the fresh /player + signed-URL mint; keep the shared
+     * one-second reload default for unrelated legacy callers that may rely on its settling time.
+     */
+    public void reloadVideoAfterUrlRemint() {
+        reloadVideo(URL_REMINT_RELOAD_DELAY_MS);
     }
 
     private void applyPlaybackMode(int playbackMode) {

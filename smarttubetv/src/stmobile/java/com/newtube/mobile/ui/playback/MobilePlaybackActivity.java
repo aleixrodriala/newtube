@@ -186,11 +186,18 @@ public class MobilePlaybackActivity extends MobileActivity
     private View mCastOverlay;
     private TextView mCastOverlayTitle;
     private ImageButton mCastPlayPause;
+    private TextView mCastLiveChip;
+    private View mCastTimeline;
     private TextView mCastPosition;
     private TextView mCastDuration;
     private SeekBar mCastSeekBar;
     private CastSessionManager mCastSessionManager;
     private boolean mCastScrubbing;
+    /** Optimistic receiver-caption selection; Lounge doesn't echo full track metadata. */
+    @Nullable
+    private String mCastSubtitleVssId;
+    @Nullable
+    private String mCastSubtitleLabel;
 
     // Subtitle styling + debug overlay. Both mirror the TV PlaybackFragment wiring: the subtitle
     // manager applies the user's stored SubtitleStyle to the PlayerView's built-in SubtitleView;
@@ -412,6 +419,8 @@ public class MobilePlaybackActivity extends MobileActivity
         mCastOverlay = findViewById(R.id.mobile_cast_overlay);
         mCastOverlayTitle = findViewById(R.id.mobile_cast_overlay_title);
         mCastPlayPause = findViewById(R.id.mobile_cast_play_pause);
+        mCastLiveChip = findViewById(R.id.mobile_cast_live);
+        mCastTimeline = findViewById(R.id.mobile_cast_timeline);
         mCastPosition = findViewById(R.id.mobile_cast_position);
         mCastDuration = findViewById(R.id.mobile_cast_duration);
         mCastSeekBar = findViewById(R.id.mobile_cast_seekbar);
@@ -1680,6 +1689,13 @@ public class MobilePlaybackActivity extends MobileActivity
             });
         }
 
+        View options = findViewById(R.id.mobile_cast_options);
+        if (options != null) {
+            // These are playback capabilities, not generic device settings: Direct gets a real
+            // quality cap; Lounge gets receiver subtitles and an honest TV-remote quality row.
+            options.setOnClickListener(v -> showCastPlaybackOptions());
+        }
+
         if (mCastSeekBar != null) {
             // Seconds-granularity bar (int progress can't overflow on any real duration).
             mCastSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -1716,6 +1732,8 @@ public class MobilePlaybackActivity extends MobileActivity
                 mPlayer.setPlayWhenReady(false);
             }
             Video video = getVideo();
+            mCastSubtitleVssId = null;
+            mCastSubtitleLabel = null;
             if (video != null && video.videoId != null) {
                 mCastSessionManager.loadVideo(video.videoId, resumeMs);
             }
@@ -1734,6 +1752,8 @@ public class MobilePlaybackActivity extends MobileActivity
             // state, so the last cast position is still readable here.
             long castPositionMs = mCastSessionManager != null ? mCastSessionManager.getPositionMs() : -1;
             hideCastOverlay();
+            mCastSubtitleVssId = null;
+            mCastSubtitleLabel = null;
             updateCastIconTint();
             if (castPositionMs > 0) {
                 setPositionMs(castPositionMs);
@@ -1792,12 +1812,28 @@ public class MobilePlaybackActivity extends MobileActivity
 
         long positionMs = Math.max(mCastSessionManager.getPositionMs(), 0);
         long durationMs = Math.max(mCastSessionManager.getDurationMs(), 0);
+        Video currentVideo = getVideo();
+        boolean isLive = currentVideo != null && currentVideo.isLive
+                && Helpers.equals(currentVideo.videoId, mCastSessionManager.getVideoId());
 
         if (mCastPlayPause != null) {
             boolean playing = mCastSessionManager.isPlayingOnTv();
             mCastPlayPause.setImageResource(playing ? R.drawable.ic_player_pause : R.drawable.ic_player_play);
             mCastPlayPause.setContentDescription(
                     getString(playing ? R.string.mobile_player_pause : R.string.mobile_player_play));
+        }
+        // Lounge reports long-running livestream position/duration as timestamps from the stream's
+        // original start (for example 1121:36:52), not a useful DVR window. Present the semantic
+        // state instead and disable seeking; VOD keeps the normal elapsed/total timeline.
+        if (mCastLiveChip != null) {
+            mCastLiveChip.setVisibility(isLive ? View.VISIBLE : View.GONE);
+        }
+        if (mCastTimeline != null) {
+            mCastTimeline.setVisibility(isLive ? View.GONE : View.VISIBLE);
+        }
+        if (isLive) {
+            mCastScrubbing = false;
+            return;
         }
         if (mCastDuration != null) {
             mCastDuration.setText(formatTime(durationMs));
@@ -1824,6 +1860,220 @@ public class MobilePlaybackActivity extends MobileActivity
     };
 
     /**
+     * Casting has two intentionally different capability sets. Put the real controls in one
+     * obvious sheet instead of sending users back through the device picker:
+     * Direct = phone-side adaptive quality cap; Lounge = receiver-side subtitles, with quality
+     * honestly delegated to the TV player UI.
+     */
+    private void showCastPlaybackOptions() {
+        if (mCastSessionManager == null || !mCastSessionManager.isConnected()) {
+            return;
+        }
+
+        BottomSheetDialog sheet = new BottomSheetDialog(this);
+        LinearLayout content = createSheetContent();
+        addCastSheetHeader(content, R.string.mobile_cast_controls_title,
+                mCastSessionManager.isDirectRoute()
+                        ? R.string.mobile_cast_direct_summary : R.string.mobile_cast_app_summary);
+
+        if (mCastSessionManager.isDirectRoute()) {
+            addMenuRow(content, sheet, R.drawable.ic_player_quality,
+                    R.string.mobile_player_quality, currentDirectCastQualityLabel(), true,
+                    this::showDirectCastQualitySheet);
+            addMenuRow(content, sheet, R.drawable.ic_player_cc,
+                    R.string.mobile_player_subtitles,
+                    getString(R.string.mobile_cast_subtitles_need_tv_app), true,
+                    this::confirmSwitchDirectCastForSubtitles);
+        } else {
+            addMenuRow(content, sheet, R.drawable.ic_player_quality,
+                    R.string.mobile_player_quality,
+                    getString(R.string.mobile_cast_quality_tv_remote), false,
+                    () -> showCastSnackbar(R.string.mobile_cast_quality_receiver_help));
+            addMenuRow(content, sheet, R.drawable.ic_player_cc,
+                    R.string.mobile_player_subtitles, currentReceiverCaptionsLabel(), true,
+                    this::showReceiverCaptionsSheet);
+        }
+
+        sheet.setContentView(content);
+        showPlayerSheet(sheet);
+    }
+
+    private void addCastSheetHeader(LinearLayout content, int titleRes, int summaryRes) {
+        TextView title = new TextView(this);
+        title.setText(titleRes);
+        title.setTextColor(getColorInt(R.color.mobile_color_on_surface));
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
+        title.setPadding(dp(20), dp(4), dp(20), dp(4));
+        content.addView(title);
+
+        TextView summary = new TextView(this);
+        summary.setText(summaryRes);
+        summary.setTextColor(getColorInt(R.color.mobile_color_on_surface_secondary));
+        summary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        summary.setPadding(dp(20), 0, dp(20), dp(10));
+        content.addView(summary);
+    }
+
+    private String currentDirectCastQualityLabel() {
+        int height = mCastSessionManager != null
+                ? mCastSessionManager.getDirectQualityHeight() : 0;
+        return height > 0
+                ? getString(R.string.mobile_cast_quality_cap, height)
+                : getString(R.string.mobile_cast_quality_auto_1080);
+    }
+
+    /** Direct Cast keeps every compatible rung up to this ceiling, preserving adaptive fallback. */
+    private void showDirectCastQualitySheet() {
+        if (mCastSessionManager == null || !mCastSessionManager.isDirectRoute()) {
+            return;
+        }
+
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        View content = getLayoutInflater().inflate(R.layout.sheet_mobile_quality, null);
+        dialog.setContentView(content);
+        LinearLayout qualityList = content.findViewById(R.id.quality_sheet_quality_list);
+        content.findViewById(R.id.quality_sheet_divider).setVisibility(View.GONE);
+        content.findViewById(R.id.quality_sheet_audio_title).setVisibility(View.GONE);
+        content.findViewById(R.id.quality_sheet_audio_list).setVisibility(View.GONE);
+
+        int selectedHeight = mCastSessionManager.getDirectQualityHeight();
+        addQualityRow(qualityList, getString(R.string.mobile_cast_quality_auto_1080),
+                selectedHeight == 0, () -> {
+                    if (mCastSessionManager != null) {
+                        mCastSessionManager.setDirectQualityHeight(0);
+                    }
+                    dialog.dismiss();
+                });
+
+        java.util.TreeSet<Integer> heights = new java.util.TreeSet<>(java.util.Collections.reverseOrder());
+        List<FormatItem> formats = getVideoFormats();
+        if (formats != null) {
+            for (FormatItem item : formats) {
+                if (item != null && item.getHeight() > 0
+                        && item.getHeight() <= com.newtube.mobile.casting.proxy.MpdRewriter.MAX_VIDEO_HEIGHT) {
+                    heights.add(item.getHeight());
+                }
+            }
+        }
+        for (int height : heights) {
+            addQualityRow(qualityList,
+                    getString(R.string.mobile_cast_quality_cap, height),
+                    selectedHeight == height, () -> {
+                        if (mCastSessionManager != null) {
+                            mCastSessionManager.setDirectQualityHeight(height);
+                        }
+                        dialog.dismiss();
+                    });
+        }
+        showPlayerSheet(dialog);
+    }
+
+    private String currentReceiverCaptionsLabel() {
+        return mCastSubtitleLabel != null
+                ? mCastSubtitleLabel : getString(R.string.mobile_menu_off);
+    }
+
+    /** Actual Lounge setSubtitlesTrack commands, backed by the current video's loaded track list. */
+    private void showReceiverCaptionsSheet() {
+        if (mCastSessionManager == null || mCastSessionManager.isDirectRoute()) {
+            return;
+        }
+
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        View content = getLayoutInflater().inflate(R.layout.sheet_mobile_captions, null);
+        dialog.setContentView(content);
+        content.findViewById(R.id.captions_sheet_style_divider).setVisibility(View.GONE);
+        content.findViewById(R.id.captions_sheet_style).setVisibility(View.GONE);
+        LinearLayout trackList = content.findViewById(R.id.captions_sheet_track_list);
+
+        addQualityRow(trackList, getString(R.string.mobile_captions_off),
+                mCastSubtitleVssId == null, () -> {
+                    applyReceiverCaption(null);
+                    dialog.dismiss();
+                });
+
+        List<FormatItem> tracks = new ArrayList<>();
+        List<FormatItem> formats = getSubtitleFormats();
+        if (formats != null) {
+            for (FormatItem item : formats) {
+                if (isCaptionTrack(item)) {
+                    tracks.add(item);
+                }
+            }
+        }
+        moveLastUsedCaptionsFirst(tracks);
+        for (FormatItem item : tracks) {
+            String vssId = item.getFormatId();
+            addQualityRow(trackList, captionLabel(item),
+                    Helpers.equals(vssId, mCastSubtitleVssId), () -> {
+                        applyReceiverCaption(item);
+                        dialog.dismiss();
+                    });
+        }
+        if (tracks.isEmpty()) {
+            content.findViewById(R.id.captions_sheet_empty).setVisibility(View.VISIBLE);
+        }
+        showPlayerSheet(dialog);
+    }
+
+    private void applyReceiverCaption(@Nullable FormatItem item) {
+        String vssId = item != null ? item.getFormatId() : null;
+        String languageCode = item != null
+                ? castCaptionLanguageCode(item.getFormatId(), item.getLanguage()) : null;
+        if (mCastSessionManager == null
+                || !mCastSessionManager.setReceiverSubtitle(vssId, languageCode)) {
+            showCastSnackbar(R.string.mobile_cast_subtitles_failed);
+            return;
+        }
+        mCastSubtitleVssId = vssId;
+        mCastSubtitleLabel = item != null ? captionLabel(item) : null;
+        showCastSnackbar(item != null
+                ? R.string.mobile_cast_subtitles_sent : R.string.mobile_captions_off_toast);
+    }
+
+    /** Extract BCP-47 from YouTube vss ids (.en / a.en); keep a code-shaped fallback only. */
+    @Nullable
+    static String castCaptionLanguageCode(@Nullable String vssId, @Nullable String fallback) {
+        if (vssId != null && !vssId.isEmpty()) {
+            int dot = vssId.lastIndexOf('.');
+            String candidate = dot >= 0 && dot + 1 < vssId.length()
+                    ? vssId.substring(dot + 1) : vssId;
+            if (candidate.matches("(?i)[a-z]{2,3}([_-][a-z0-9]{2,8})*")) {
+                return candidate.replace('_', '-');
+            }
+        }
+        if (fallback != null && !fallback.isEmpty()
+                && fallback.matches("(?i)[a-z]{2,3}([_-][a-z0-9]{2,8})*")) {
+            return fallback.replace('_', '-');
+        }
+        return null;
+    }
+
+    private void confirmSwitchDirectCastForSubtitles() {
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(
+                this, R.style.MobileAlertDialog)
+                .setTitle(R.string.mobile_cast_switch_subtitles_title)
+                .setMessage(R.string.mobile_cast_switch_subtitles_message)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.mobile_cast_switch_subtitles_positive,
+                        (dialog, which) -> switchDirectCastToTvApp())
+                .show();
+    }
+
+    private void switchDirectCastToTvApp() {
+        if (mCastSessionManager == null || !mCastSessionManager.switchDirectSessionToTvApp()) {
+            showCastSnackbar(R.string.mobile_cast_launch_failed);
+        }
+    }
+
+    private void showCastSnackbar(int messageRes) {
+        com.google.android.material.snackbar.Snackbar.make(
+                findViewById(android.R.id.content), messageRes,
+                com.google.android.material.snackbar.Snackbar.LENGTH_SHORT).show();
+    }
+
+    /**
      * setVideo hook: while a session is active a newly selected video (related tap, queue,
      * auto-advance) routes to the TV instead of playing locally. The local engine still loads it
      * paused underneath, so state/controllers stay consistent and disconnect resumes instantly.
@@ -1833,6 +2083,8 @@ public class MobilePlaybackActivity extends MobileActivity
             return;
         }
         if (!Helpers.equals(videoId, mCastSessionManager.getVideoId())) {
+            mCastSubtitleVssId = null;
+            mCastSubtitleLabel = null;
             mCastSessionManager.loadVideo(videoId, 0);
         }
         if (mPlayer != null) {

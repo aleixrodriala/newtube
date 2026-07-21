@@ -278,6 +278,25 @@ public class MpdRewriterTest {
         MpdRewriter.rewrite(stream("<MPD><Period></MPD>"), LOCAL_BASE);
     }
 
+    @Test
+    public void userQualityCapKeepsAdaptiveRungsAtOrBelowSelection() throws IOException {
+        MpdRewriter.Result result = MpdRewriter.rewrite(stream(fullMpd()), LOCAL_BASE, 720);
+        String xml = new String(result.getMpdBytes(), StandardCharsets.UTF_8);
+
+        assertEquals(720, result.getMaxVideoHeight());
+        assertTrue(xml.contains("id=\"136\""));
+        assertFalse(xml.contains("id=\"137\""));
+        assertFalse(xml.contains("id=\"266\""));
+        assertTrue("Audio survives a video-quality change", xml.contains("id=\"140\""));
+    }
+
+    @Test
+    public void automaticQualityStillUsesUniversalCeiling() throws IOException {
+        MpdRewriter.Result result = MpdRewriter.rewrite(stream(fullMpd()), LOCAL_BASE, 0);
+
+        assertEquals(MpdRewriter.MAX_VIDEO_HEIGHT, result.getMaxVideoHeight());
+    }
+
     /**
      * Auto-dub layout (observed live: the receiver free-picked a Portuguese TTS dub): several
      * audio/mp4 sets, only the ORIGINAL carries Role=main - and it is deliberately NOT listed

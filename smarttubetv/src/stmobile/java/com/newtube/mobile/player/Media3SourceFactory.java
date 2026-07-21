@@ -38,6 +38,8 @@ import org.chromium.net.CronetEngine;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.NoRouteToHostException;
+import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -476,19 +478,21 @@ public class Media3SourceFactory {
     /**
      * {@link DefaultLoadErrorHandlingPolicy} ({@link #LOAD_RETRY_COUNT} tries) that fails fast:
      * retry backoff capped at 1s (the stock (errorCount-1)*1000-capped-5000 stretches a dead
-     * connection into ~60s of silent retrying), and a fatal HTTP code (403/416, see
-     * {@link #isFatalHttpCode}) stops after its first rejection so {@code onPlayerError} surfaces and
+     * connection into ~60s of silent retrying), and a fatal transport error (403/416 or a known
+     * offline/DNS failure, see {@link FailFastLoadErrorPolicy#isFatalTransportError}) stops after
+     * its first rejection so
+     * {@code onPlayerError} surfaces and
      * {@code ErrorFixerController.applyNoPlaybackFix()}+{@code reloadVideo()} re-fetches fresh
      * signed URLs within seconds.
      */
-    private static final class FailFastLoadErrorPolicy extends DefaultLoadErrorHandlingPolicy {
+    static final class FailFastLoadErrorPolicy extends DefaultLoadErrorHandlingPolicy {
         FailFastLoadErrorPolicy() {
             super(LOAD_RETRY_COUNT);
         }
 
         @Override
         public long getRetryDelayMsFor(LoadErrorHandlingPolicy.LoadErrorInfo loadErrorInfo) {
-            if (isFatalHttpCode(loadErrorInfo.exception)) {
+            if (isFatalTransportError(loadErrorInfo.exception)) {
                 return C.TIME_UNSET; // don't retry: surface the error to the app-level reload
             }
             return Math.min(super.getRetryDelayMsFor(loadErrorInfo), 1000);
@@ -499,13 +503,23 @@ public class Media3SourceFactory {
          * requested byte range - retrying the SAME DataSpec can never heal it either; failing
          * fast surfaces {@code onPlayerError} so the app-level reload fetches a fresh manifest.
          */
-        private static boolean isFatalHttpCode(Throwable exception) {
+        static boolean isFatalTransportError(Throwable exception) {
             for (Throwable e = exception; e != null; e = e.getCause()) {
                 if (e instanceof HttpDataSource.InvalidResponseCodeException) {
                     int code = ((HttpDataSource.InvalidResponseCodeException) e).responseCode;
                     if (code == 403 || code == 416) {
                         return true;
                     }
+                }
+                // These cannot be healed by replaying the same media DataSpec six times. Surface
+                // immediately so the app-level connectivity recovery owns the retry lifecycle.
+                if (e instanceof UnknownHostException || e instanceof NoRouteToHostException) {
+                    return true;
+                }
+                String message = e.getMessage();
+                if (message != null && (message.contains("ERR_NAME_NOT_RESOLVED")
+                        || message.contains("ERR_INTERNET_DISCONNECTED"))) {
+                    return true;
                 }
             }
             return false;

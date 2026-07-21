@@ -1,15 +1,15 @@
 package com.newtube.mobile.casting;
 
 import android.app.Activity;
+import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.text.method.DigitsKeyListener;
 import androidx.activity.OnBackPressedCallback;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.EditText;
-import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -18,6 +18,8 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 
 import com.google.android.material.bottomsheet.BottomSheetDialog;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.textfield.TextInputLayout;
 import com.liskovsoft.mediaserviceinterfaces.CastSenderService;
 import com.liskovsoft.mediaserviceinterfaces.data.CastScreen;
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
@@ -51,9 +53,10 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  *
  * <p>ONE tap connects (second UX review: even the in-place two-option chooser read as "too many
  * clicks"): tapping a Cast-device row starts the recommended ad-free Direct cast immediately via
- * {@link CastSessionManager#connectWithFallback}, which auto-switches to the TV's YouTube app if
- * direct casting fails before playback starts (unreachable receiver, live stream, no compatible
- * format, receiver LOAD rejection). The explicit two-option chooser survives behind the row's
+ * {@link CastSessionManager#connectWithFallback}, which auto-switches to the TV app if direct
+ * casting fails before playback starts or a later selection can't load directly (unreachable
+ * receiver, live stream, no compatible format, receiver LOAD rejection). The explicit two-option
+ * chooser survives behind the row's
  * "⋮" button for the cases the default can't guess - mainly "I want to put my phone away, give
  * me the YouTube app on purpose". Chooser picks are explicit choices and never auto-switch. The
  * chooser still swaps the sheet content in place; its header and the system back key both return
@@ -597,45 +600,82 @@ public class CastPickerSheet {
     // ---------------------------------------------------------------------------------
 
     private void showCodeDialog() {
-        EditText input = new EditText(mActivity);
+        View content = LayoutInflater.from(mActivity).inflate(R.layout.dialog_mobile_cast_code, null);
+        TextInputLayout inputLayout = content.findViewById(R.id.cast_code_input_layout);
+        EditText input = content.findViewById(R.id.cast_code_input);
+        View progress = content.findViewById(R.id.cast_code_progress);
+
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
         // The TV shows the code in dash-separated groups; accept dashes/spaces and strip later.
         input.setKeyListener(DigitsKeyListener.getInstance("0123456789- "));
-        input.setHint(R.string.mobile_cast_code_hint);
-        input.setMaxLines(1);
 
-        FrameLayout wrapper = new FrameLayout(mActivity);
-        int pad = (int) (20 * mActivity.getResources().getDisplayMetrics().density);
-        wrapper.setPadding(pad, pad / 2, pad, 0);
-        wrapper.addView(input, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        AlertDialog dialog = new AlertDialog.Builder(mActivity)
+        AlertDialog dialog = new MaterialAlertDialogBuilder(mActivity, R.style.MobileAlertDialog)
                 .setTitle(R.string.mobile_cast_link_code)
-                .setMessage(R.string.mobile_cast_code_help)
-                .setView(wrapper)
+                .setView(content)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.mobile_cast_code_positive, null) // validated below
                 .create();
 
-        dialog.setOnShowListener(d ->
-                // Manual click listener so an invalid code keeps the dialog open for a retry.
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+        dialog.setOnShowListener(d -> {
+            View positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            positive.setEnabled(false);
+            input.addTextChangedListener(new TextWatcher() {
+                @Override
+                public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+                }
+
+                @Override
+                public void onTextChanged(CharSequence s, int start, int before, int count) {
+                    inputLayout.setError(null);
+                    positive.setEnabled(normalizeTvCode(s).length() == TV_CODE_LENGTH);
+                }
+
+                @Override
+                public void afterTextChanged(Editable s) {
+                }
+            });
+            // Manual click listener so a rejected code keeps the dialog open for a retry.
+            positive.setOnClickListener(v -> {
                     String code = input.getText() != null
-                            ? input.getText().toString().replaceAll("\\D", "") : "";
+                            ? normalizeTvCode(input.getText()) : "";
                     if (code.length() != TV_CODE_LENGTH) {
-                        input.setError(mActivity.getString(R.string.mobile_cast_code_invalid));
+                        inputLayout.setError(mActivity.getString(R.string.mobile_cast_code_invalid));
                         return;
                     }
-                    pairWithCode(code, dialog);
-                }));
+                    setCodeDialogPairing(dialog, input, progress, true);
+                    pairWithCode(code, dialog, inputLayout, input, progress);
+            });
+            input.setOnEditorActionListener((v, actionId, event) -> {
+                if (positive.isEnabled()) {
+                    positive.performClick();
+                } else {
+                    inputLayout.setError(mActivity.getString(R.string.mobile_cast_code_invalid));
+                }
+                return true;
+            });
+        });
 
         dialog.show();
     }
 
-    private void pairWithCode(String code, AlertDialog dialog) {
+    private static String normalizeTvCode(CharSequence value) {
+        return value == null ? "" : value.toString().replaceAll("\\D", "");
+    }
+
+    private static void setCodeDialogPairing(AlertDialog dialog, EditText input,
+                                             View progress, boolean pairing) {
+        input.setEnabled(!pairing);
+        progress.setVisibility(pairing ? View.VISIBLE : View.GONE);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(!pairing);
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setEnabled(!pairing);
+        dialog.setCancelable(!pairing);
+    }
+
+    private void pairWithCode(String code, AlertDialog dialog, TextInputLayout inputLayout,
+                              EditText input, View progress) {
         CastSenderService sender = mSessionManager.getSender();
         if (sender == null) {
+            setCodeDialogPairing(dialog, input, progress, false);
             MessageHelpers.showMessage(mActivity, R.string.mobile_cast_unavailable);
             return;
         }
@@ -656,7 +696,10 @@ public class CastPickerSheet {
                     connectAndDismiss(CastTarget.fromPairedScreen(screen));
                 }, error -> {
                     Log.e(TAG, "TV-code pairing failed: " + error);
-                    MessageHelpers.showMessage(mActivity, R.string.mobile_cast_pair_failed);
+                    if (dialog.isShowing()) {
+                        setCodeDialogPairing(dialog, input, progress, false);
+                        inputLayout.setError(mActivity.getString(R.string.mobile_cast_pair_failed));
+                    }
                 });
     }
 }

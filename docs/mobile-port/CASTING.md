@@ -1,7 +1,7 @@
 # Casting to the TV — design (decided 2026-07-20)
 
-**Status (2026-07-20): ALL THREE STEPS SHIPPED — Route B, Route A and the mdx
-shim, each verified end-to-end on a Pixel 9 + a Cast-built-in TV.**
+**Status (2026-07-21): ALL THREE STEPS SHIPPED — Route B, Route A and the mdx
+shim, each verified end-to-end on a Pixel 9 + a Philips Cast-built-in TV.**
 
 - **Route B** (Lounge): pair via TV code, saved-screen reconnect, transport,
   position overlay, disconnect. Disconnect semantics: an explicit Disconnect
@@ -24,14 +24,25 @@ shim, each verified end-to-end on a Pixel 9 + a Cast-built-in TV.**
   233637DE, never stopping it) and hands off to a normal Lounge session; the
   screen persists as a saved row. This is what makes Cast-built-in devices
   (which don't answer DIAL) appear organically for Route B.
-- **One-tap picker + auto-fallback** (second UX round, 2026-07-20): tapping a
+- **One-tap picker + auto-fallback** (second UX round, 2026-07-20; session-load fix
+  2026-07-21): tapping a
   device row connects immediately with Direct cast and, if it fails before
   playback is proven (unreachable receiver, live stream, no avc1, receiver
   LOAD rejection), auto-switches to the TV's YouTube app
-  (`CastSessionManager.connectWithFallback`; saved screenId when merged, else
-  the mdx shim). The two-option chooser lives behind the row's "⋮"; explicit
+  (`CastSessionManager.connectWithFallback`; the mdx shim always launches the
+  YouTube receiver before Lounge binds—even when a screenId was saved, because
+  Direct cast displaced the receiver app). The recommended session keeps that load-level fallback after
+  its first VOD succeeds, so VOD → live/incompatible video no longer strands
+  the session. The two-option chooser lives behind the row's "⋮"; explicit
   chooser picks never auto-switch. Verified live: a live-stream load refused →
-  instant Lounge fallback via the saved pairing.
+  YouTube receiver launch → Lounge fallback.
+- **Honest playback controls** (2026-07-21): the active-player overlay opens a
+  route-specific "TV playback options" sheet. Direct cast exposes a real
+  phone-side adaptive quality ceiling (Auto/1080p/720p/etc.); subtitles clearly
+  offer a switch to the TV app instead of pretending Direct supports them. The
+  TV-app route sends subtitle selections over Lounge, while quality is explicitly
+  delegated to the TV player's own settings. This avoids presenting the TV app
+  as another way to control a quality setting Direct already controls.
 - **Volume slider** (`CastVolumeOverlay`): volume keys pop a draggable
   top-center slider pill (accent tint, auto-hide 2s) instead of the old toast;
   drags are throttled (200 ms) because Lounge setVolume is an HTTP POST each.
@@ -50,8 +61,7 @@ Sender lives in the MediaServiceCore fork
 framing/encoding/events); app side in `stmobile .../casting/` (DIAL discovery,
 picker sheet, TV-code pairing, foreground session service, player overlay).
 Wire-protocol reference spec (extracted from ytcast/casttube/plaincast sources):
-`docs/mobile-port/lounge-protocol.md`. Route A (Cast v2 + proxy) and the dongle
-mdx shim: not started.
+`docs/mobile-port/lounge-protocol.md`.
 
 Decision (Aleix): build **both** casting routes, surfaced through **one cast picker**
 where every target row honestly states its tradeoffs (ads / phone-free / reliability).
@@ -61,7 +71,9 @@ is a stopgap for the other.
 ## The two routes
 
 ### Route A — "Direct cast" (Cast v2 + phone-side proxy, the Grayjay model)
-- **What the user gets:** ad-free, our quality ladder / SponsorBlock keep working.
+- **What the user gets:** ad-free VOD and a phone-side adaptive quality ladder.
+- **Does not support:** live streams or subtitles. Choosing subtitles offers an
+  explained switch to the TV-app route.
 - **Cost:** the phone must stay on the LAN with the app alive; all media bytes relay
   phone → TV (no transcode, network relay only).
 - **Reaches:** Google Cast receivers only — Chromecast dongles, Google TV / Android TV,
@@ -102,16 +114,28 @@ is a stopgap for the other.
   before. Shared fate with ytcast (alive, v1.4.1 Mar 2026) and upstream SmartTube's
   receiver — fixes propagate through the fork. Mark the route "best-effort" in UI.
 
+SmartTube does not advertise itself through same-Wi-Fi discovery. Open SmartTube on
+the TV, then use SmartTube Settings → Remote control and NewTube's "Link with TV
+code" row. The resulting Lounge screen is saved like a YouTube pairing; playback is
+ad-free because SmartTube is the receiver.
+
 ## UX (as shipped, after two on-device review rounds)
 
 One cast icon → one device picker → **one tap connects**. One row per physical
-device (mDNS/DIAL/saved-screen merged), subtitle in plain words ("No ads" /
-"YouTube app on the TV"). A Cast-device tap starts Direct cast and
+device (mDNS/DIAL/saved-screen merged), subtitle in plain words ("No ads · quality
+controls on your phone" / "YouTube or SmartTube on the TV"). A Cast-device tap starts Direct cast and
 auto-falls-back to the TV's YouTube app on pre-playback failure; the explicit
 two-mode chooser is behind the row's "⋮" and never auto-switches. "Link with
 TV code" lives at the bottom of the picker (mDNS on Android is flaky). The
 original badge-row + explainer-sheet design and the tap-opens-chooser design
 both died in review ("too technical", "too many clicks").
+
+While connected, "TV playback options" changes with the active route:
+
+- **Direct cast:** quality is selected on the phone; subtitles say "Switch to TV
+  app" and explain the ad/control tradeoff before doing anything.
+- **YouTube/SmartTube receiver:** subtitles are selected on the phone; quality says
+  "Use TV remote" because Lounge has no sender-side quality selector.
 
 ## Shared architecture
 

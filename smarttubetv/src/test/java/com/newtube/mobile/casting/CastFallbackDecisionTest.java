@@ -1,5 +1,7 @@
 package com.newtube.mobile.casting;
 
+import com.liskovsoft.mediaserviceinterfaces.RemoteControlService;
+
 import org.junit.Test;
 
 import static org.junit.Assert.assertFalse;
@@ -31,6 +33,36 @@ public class CastFallbackDecisionTest {
         // Disarmed = playback was proven (or fallback already used once).
         assertFalse(CastSessionManager.shouldAutoFallback(false, "channel error",
                 CastTarget.Route.CAST_V2));
+    }
+
+    @Test
+    public void laterUnsupportedLoadFallsBackForRecommendedSession() {
+        // The first VOD already reached PLAYING (armed=false), but the user entered this direct
+        // session through the default one-tap path. A later live load must switch to the TV app.
+        assertTrue(CastSessionManager.shouldAutoFallbackForLoad(false, true,
+                CastTarget.Route.CAST_V2));
+    }
+
+    @Test
+    public void explicitDirectSessionKeepsChosenRouteOnLaterLoadFailure() {
+        assertFalse(CastSessionManager.shouldAutoFallbackForLoad(false, false,
+                CastTarget.Route.CAST_V2));
+    }
+
+    @Test
+    public void loungeLoadNeverFallsBackAgain() {
+        assertFalse(CastSessionManager.shouldAutoFallbackForLoad(true, true,
+                CastTarget.Route.LOUNGE_MDX));
+    }
+
+    @Test
+    public void matchingPausedLoungeLoadNeedsExplicitPlay() {
+        assertTrue(CastSessionManager.shouldAutoPlayLoungeLoad("live", "live",
+                RemoteControlService.STATE_PAUSED));
+        assertFalse(CastSessionManager.shouldAutoPlayLoungeLoad("live", "old-video",
+                RemoteControlService.STATE_PAUSED));
+        assertFalse(CastSessionManager.shouldAutoPlayLoungeLoad("live", "live",
+                RemoteControlService.STATE_PLAYING));
     }
 
     @Test

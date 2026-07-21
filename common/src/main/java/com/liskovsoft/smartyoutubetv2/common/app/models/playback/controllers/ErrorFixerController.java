@@ -219,6 +219,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     private void applyEngineErrorAction(int type, int rendererIndex, Throwable error) {
         boolean restartEngine = true;
         boolean showMessage = true;
+        boolean freshUrlsRequested = false;
         String errorContent = error != null ? error.getMessage() : null;
         String errorTitle = getErrorTitle(type, rendererIndex);
         String errorMessage = errorTitle + "\n" + errorContent;
@@ -291,6 +292,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
                 getPlayerTweaksData().setHighBitrateFormatsEnabled(false); // Response code: 429
             } else {
                 YouTubeServiceManager.instance().applyNoPlaybackFix(); // Response code: 403
+                freshUrlsRequested = true;
             }
 
             restartEngine = false;
@@ -336,7 +338,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             mVideoLoaderController.restartEngine();
         } else {
             // Need at least to reload the video because the player becomes idle after error
-            scheduleAutoReload();
+            scheduleAutoReload(freshUrlsRequested);
         }
     }
 
@@ -637,8 +639,16 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
      * tell our own reload of the same video apart from a user-initiated open/retry.
      */
     private void scheduleAutoReload() {
+        scheduleAutoReload(false);
+    }
+
+    private void scheduleAutoReload(boolean freshUrlsRequested) {
         mAutoReloadPending = true;
-        mVideoLoaderController.reloadVideo();
+        if (freshUrlsRequested) {
+            mVideoLoaderController.reloadVideoAfterUrlRemint();
+        } else {
+            mVideoLoaderController.reloadVideo();
+        }
     }
 
     private void resetAutoFixCap() {

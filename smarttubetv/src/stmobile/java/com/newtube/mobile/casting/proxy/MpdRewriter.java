@@ -35,7 +35,8 @@ public final class MpdRewriter {
 
     public static final String MIME_TYPE = "application/dash+xml";
 
-    private static final int MAX_VIDEO_HEIGHT = 1080;
+    /** Universal Direct-cast ceiling; callers may request a lower user-selected cap. */
+    public static final int MAX_VIDEO_HEIGHT = 1080;
 
     private MpdRewriter() {
     }
@@ -103,9 +104,21 @@ public final class MpdRewriter {
      * @throws IOException on malformed XML - callers treat it as "can't direct-cast"
      */
     public static Result rewrite(InputStream originalMpd, String localBaseUrl) throws IOException {
+        return rewrite(originalMpd, localBaseUrl, MAX_VIDEO_HEIGHT);
+    }
+
+    /**
+     * Rewrite with a user-selected maximum video height. Direct cast keeps DASH adaptation below
+     * the cap instead of pinning one representation, so the TV can still step down when its
+     * connection needs it. Values {@code <= 0} mean the universal 1080p automatic ceiling.
+     */
+    public static Result rewrite(InputStream originalMpd, String localBaseUrl,
+                                 int requestedMaxVideoHeight) throws IOException {
         String xml = readFully(originalMpd);
         String base = localBaseUrl.endsWith("/")
                 ? localBaseUrl.substring(0, localBaseUrl.length() - 1) : localBaseUrl;
+        int videoHeightCap = requestedMaxVideoHeight > 0
+                ? Math.min(requestedMaxVideoHeight, MAX_VIDEO_HEIGHT) : MAX_VIDEO_HEIGHT;
 
         MpdXml.Document doc = MpdXml.parse(xml);
         if (!"MPD".equals(doc.root.name)) {
@@ -142,7 +155,7 @@ public final class MpdRewriter {
                         sourceHadVideo = true;
                     }
 
-                    if (!isCastable(rep, isVideo)) {
+                    if (!isCastable(rep, isVideo, videoHeightCap)) {
                         repIterator.remove();
                         continue;
                     }
@@ -164,7 +177,7 @@ public final class MpdRewriter {
         }
 
         byte[] bytes = MpdXml.serialize(doc).getBytes(StandardCharsets.UTF_8);
-        ProxyLog.d(TAG, "rewrite: maxHeight=" + maxHeight + " video=" + hasVideo
+        ProxyLog.d(TAG, "rewrite: cap=" + videoHeightCap + " maxHeight=" + maxHeight + " video=" + hasVideo
                 + " audio=" + hasAudio + " sourceHadVideo=" + sourceHadVideo
                 + " bytes=" + bytes.length);
         return new Result(bytes, maxHeight, hasVideo, sourceHadVideo, hasAudio);
@@ -216,7 +229,7 @@ public final class MpdRewriter {
     }
 
     /** v1 keep policy: avc1 video capped at 1080p, mp4a audio; everything else (and OTF) drops. */
-    private static boolean isCastable(MpdXml.Element rep, boolean isVideo) {
+    private static boolean isCastable(MpdXml.Element rep, boolean isVideo, int videoHeightCap) {
         String codecs = rep.attr("codecs");
         if (codecs == null) {
             return false;
@@ -228,7 +241,7 @@ public final class MpdRewriter {
             return false;
         }
         if (isVideo) {
-            return codecs.startsWith("avc1") && parseIntSafe(rep.attr("height")) <= MAX_VIDEO_HEIGHT;
+            return codecs.startsWith("avc1") && parseIntSafe(rep.attr("height")) <= videoHeightCap;
         }
         // Non-video: only AAC survives; subtitle codecs (wvtt/stpp) and opus fail this check.
         return codecs.startsWith("mp4a");

@@ -447,10 +447,40 @@
                         android:textColor="@android:color/white"
                         android:textSize="14sp" />
 
+                    <TextView
+                        android:id="@+id/mobile_cast_options"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/mobile_watch_pill_bg"
+                        android:paddingHorizontal="16dp"
+                        android:paddingVertical="8dp"
+                        android:text="@string/mobile_cast_more_options"
+                        android:textColor="@android:color/white"
+                        android:textSize="14sp" />
+
                 </LinearLayout>
+
+                <!-- Lounge exposes a livestream's absolute stream-uptime timestamps rather than a
+                     meaningful DVR window. Show a semantic state and suppress seeking instead of
+                     rendering values such as 1121:36:52 / 1134:36:26. -->
+                <TextView
+                    android:id="@+id/mobile_cast_live"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/bg_mobile_live_chip"
+                    android:paddingHorizontal="9dp"
+                    android:paddingVertical="3dp"
+                    android:text="@string/mobile_player_live"
+                    android:textColor="@android:color/white"
+                    android:textSize="@dimen/mobile_player_time_text"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
 
                 <!-- Cast seek row: mirrors the player's bottom seek row but drives the TV. -->
                 <LinearLayout
+                    android:id="@+id/mobile_cast_timeline"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
