@@ -92,9 +92,11 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.SeekBarSegme
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.ChannelPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.SubtitleSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.SubtitleTrack;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.newtube.mobile.casting.CastPickerLauncher;
 import com.newtube.mobile.casting.CastSessionManager;
@@ -523,10 +525,14 @@ public class MobilePlaybackActivity extends MobileActivity
             mCastButton.setOnClickListener(v -> openCastPicker());
         }
         setupCastOverlay();
-        // CC dispatches through the presenter so the existing controller opens its AppDialog
-        // track list (rendered by MobileAppDialogActivity); long-click path always opens the
-        // picker (plain click would just toggle the last track) - see openPlayerOption().
-        mSubtitlesButton.setOnClickListener(v -> openPlayerOption(R.id.lb_control_closed_captioning, true));
+        // CC tap toggles captions like the official app (last-used track <-> off; first use falls
+        // through to the picker). The full track picker is the native captions sheet, reachable via
+        // long-press here and the gear menu's Subtitles row - see showCaptionsSheet().
+        mSubtitlesButton.setOnClickListener(v -> toggleCaptions());
+        mSubtitlesButton.setOnLongClickListener(v -> {
+            showCaptionsSheet();
+            return true;
+        });
 
         mTimeBar.addListener(new TimeBar.OnScrubListener() {
             @Override
@@ -1986,9 +1992,6 @@ public class MobilePlaybackActivity extends MobileActivity
      * <ul>
      *   <li>Quality → {@code R.id.lb_control_high_quality} (onButtonClicked): HQDialogController's
      *       playback-settings sheet (video formats/resolutions, audio formats/language, presets, ...).</li>
-     *   <li>Subtitles/CC → {@code R.id.lb_control_closed_captioning} (onButtonLongClicked): the full
-     *       subtitle-track picker. The plain click path only toggles the last track, so we use the
-     *       long-click path to always open the list.</li>
      *   <li>Speed → {@code R.id.action_video_speed} (onButtonLongClicked): the speed list
      *       (0.25x..2x+). Same reasoning - the plain click can just toggle the remembered speed.</li>
      * </ul>
@@ -2035,12 +2038,15 @@ public class MobilePlaybackActivity extends MobileActivity
         BottomSheetDialog sheet = new BottomSheetDialog(this);
         LinearLayout content = createSheetContent();
 
-        // Mirrors the official app's gear sheet: no title, at most five rows, icon + current
-        // value on every everyday action; the long tail nests behind "More". Quality opens the
-        // simple YouTube-style picker (Auto + resolutions, plus audio language when dubbed) -
+        // Mirrors the official app's gear sheet: no title, a handful of everyday rows, icon +
+        // current value on every everyday action; the long tail nests behind "More". Quality opens
+        // the simple YouTube-style picker (Auto + resolutions, plus audio language when dubbed) -
         // the exhaustive TV HQ dialog stays reachable for power users deeper in that sheet.
         addMenuRow(content, sheet, R.drawable.ic_player_quality, R.string.mobile_player_quality,
                 currentQualityLabel(), true, this::showQualitySheet);
+        // Captions: the native captions sheet (same target as long-pressing the overlay CC button).
+        addMenuRow(content, sheet, R.drawable.ic_player_cc, R.string.mobile_player_subtitles,
+                currentCaptionsLabel(), true, this::showCaptionsSheet);
         // Speed uses the long-click path so it always opens the list (plain click would just
         // toggle the remembered speed).
         addMenuRow(content, sheet, R.drawable.ic_player_speed, R.string.mobile_player_speed,
@@ -3295,7 +3301,11 @@ public class MobilePlaybackActivity extends MobileActivity
                 || buttonId == R.id.action_video_stats
                 || buttonId == R.id.action_playlist_add
                 || buttonId == R.id.action_rotate
-                || buttonId == R.id.action_sound_off) {
+                || buttonId == R.id.action_sound_off
+                // CC toggle state: kept in sync by the controller (onMetadata ->
+                // setSubtitleButtonState) and by applyCaptionFormat(); rendered as the overlay
+                // CC button's tint.
+                || buttonId == R.id.lb_control_closed_captioning) {
             return mButtonStates.get(buttonId, BUTTON_OFF);
         }
         return BUTTON_DISABLED;
@@ -3639,6 +3649,195 @@ public class MobilePlaybackActivity extends MobileActivity
                 : Character.toUpperCase(text.charAt(0)) + text.substring(1);
     }
 
+    // ---------------------------------------------------------------------------------
+    // Captions, native YouTube-style UX. The overlay CC button toggles (last track <-> off);
+    // the captions sheet below (long-press CC, or gear -> Subtitles) is the track picker,
+    // replacing the TV AppDialog radio list.
+    // ---------------------------------------------------------------------------------
+
+    /** A real caption track, as opposed to the fake default/"disabled" entry. */
+    private static boolean isCaptionTrack(FormatItem item) {
+        return item != null && !item.isDefault() && item.getLanguage() != null;
+    }
+
+    /**
+     * Row label for a caption track. Subtitle FormatItems carry the MPD's human-readable name in
+     * the language slot ("English", "English (auto-generated)*"); autogenerated/auto-translated
+     * variants end with the TRANSLATE_MARKER, which the picker shouldn't show.
+     */
+    private static String captionLabel(FormatItem item) {
+        String label = item.getLanguage() != null ? item.getLanguage()
+                : item.getTitle() != null ? item.getTitle().toString() : "";
+        return SubtitleTrack.isAuto(label) ? label.substring(0, label.length() - 1) : label;
+    }
+
+    /** Mirrors PlayerUIController.isSubtitleSelected: a real track is actually selected. */
+    private boolean areCaptionsOn() {
+        List<FormatItem> formats = getSubtitleFormats();
+        if (formats == null) {
+            return false;
+        }
+        for (FormatItem item : formats) {
+            if (item.isSelected() && isCaptionTrack(item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * CC button tap: toggle like the official app - captions off, or the last-used track back on.
+     * Falls through to the picker when there's no usable history yet (first use, or the remembered
+     * languages don't exist on this video) and when the video has no tracks at all (the sheet
+     * shows its empty state).
+     */
+    private void toggleCaptions() {
+        cancelAutoHide();
+
+        if (areCaptionsOn()) {
+            applyCaptionFormat(FormatItem.SUBTITLE_NONE);
+            armAutoHide();
+            return;
+        }
+
+        FormatItem match = null;
+        List<FormatItem> formats = getSubtitleFormats();
+        if (formats != null) {
+            for (FormatItem last : PlayerData.instance(this).getLastSubtitleFormats()) {
+                if (formats.contains(last)) {
+                    match = last;
+                    break;
+                }
+            }
+        }
+
+        if (match != null) {
+            applyCaptionFormat(match);
+            armAutoHide();
+        } else {
+            showCaptionsSheet();
+        }
+    }
+
+    /**
+     * Select a caption track (or {@link FormatItem#SUBTITLE_NONE}): the same persistence steps as
+     * the TV picker's callback (PlayerUIController.onSubtitleLongClicked) - engine, PlayerData
+     * (which also feeds the last-used toggle list), per-channel memory - plus the CC button state.
+     */
+    private void applyCaptionFormat(FormatItem format) {
+        boolean on = isCaptionTrack(format);
+
+        setFormat(format);
+        PlayerData playerData = PlayerData.instance(this);
+        playerData.setFormat(format);
+
+        if (playerData.isSubtitlesPerChannelEnabled()) {
+            Video video = getVideo();
+            String channelId = video != null ? video.channelId : null;
+            if (on) {
+                playerData.enableSubtitlesPerChannel(channelId);
+            } else {
+                playerData.disableSubtitlesPerChannel(channelId);
+            }
+        }
+
+        setButtonState(R.id.lb_control_closed_captioning, on ? BUTTON_ON : BUTTON_OFF);
+    }
+
+    /** Last-used tracks bubble to the top, like the TV picker (PlayerUIController.reorderSubtitles). */
+    private void moveLastUsedCaptionsFirst(List<FormatItem> tracks) {
+        List<FormatItem> top = new ArrayList<>();
+        for (FormatItem last : PlayerData.instance(this).getLastSubtitleFormats()) {
+            if (last == null || last.getLanguage() == null) {
+                continue;
+            }
+            int index = tracks.indexOf(last);
+            if (index != -1) {
+                top.add(tracks.remove(index));
+            }
+        }
+        tracks.addAll(0, top);
+    }
+
+    private void showCaptionsSheet() {
+        cancelAutoHide();
+
+        List<FormatItem> tracks = new ArrayList<>();
+        List<FormatItem> autoTracks = new ArrayList<>();
+        List<FormatItem> formats = getSubtitleFormats();
+        if (formats != null) {
+            for (FormatItem item : formats) {
+                if (!isCaptionTrack(item)) {
+                    continue;
+                }
+                if (SubtitleTrack.isAuto(item.getLanguage())) {
+                    autoTracks.add(item);
+                } else {
+                    tracks.add(item);
+                }
+            }
+        }
+        moveLastUsedCaptionsFirst(tracks);
+        moveLastUsedCaptionsFirst(autoTracks);
+
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        View content = getLayoutInflater().inflate(R.layout.sheet_mobile_captions, null);
+        dialog.setContentView(content);
+
+        LinearLayout trackList = content.findViewById(R.id.captions_sheet_track_list);
+        addQualityRow(trackList, getString(R.string.mobile_captions_off), !areCaptionsOn(), () -> {
+            applyCaptionFormat(FormatItem.SUBTITLE_NONE);
+            dialog.dismiss();
+        });
+        for (FormatItem item : tracks) {
+            addQualityRow(trackList, captionLabel(item), item.isSelected(), () -> {
+                applyCaptionFormat(item);
+                dialog.dismiss();
+            });
+        }
+
+        if (tracks.isEmpty() && autoTracks.isEmpty()) {
+            content.findViewById(R.id.captions_sheet_empty).setVisibility(View.VISIBLE);
+        }
+
+        if (autoTracks.isEmpty()) {
+            content.findViewById(R.id.captions_sheet_auto_divider).setVisibility(View.GONE);
+            content.findViewById(R.id.captions_sheet_auto_title).setVisibility(View.GONE);
+        } else {
+            LinearLayout autoList = content.findViewById(R.id.captions_sheet_auto_list);
+            for (FormatItem item : autoTracks) {
+                addQualityRow(autoList, captionLabel(item), item.isSelected(), () -> {
+                    applyCaptionFormat(item);
+                    dialog.dismiss();
+                });
+            }
+        }
+
+        // Caption appearance (style/size/position + the per-channel memory switch): the existing
+        // settings dialog, rendered by MobileAppDialogActivity like the rest of settings.
+        content.findViewById(R.id.captions_sheet_style).setOnClickListener(v -> {
+            dialog.dismiss();
+            SubtitleSettingsPresenter.instance(this).show();
+        });
+
+        dialog.setOnDismissListener(d -> armAutoHide());
+        showPlayerSheet(dialog);
+    }
+
+    /** Trailing value for the gear menu's Subtitles row: the active track, or "Off". */
+    private String currentCaptionsLabel() {
+        List<FormatItem> formats = getSubtitleFormats();
+        if (formats != null) {
+            for (FormatItem item : formats) {
+                if (item.isSelected() && isCaptionTrack(item)) {
+                    return captionLabel(item);
+                }
+            }
+        }
+        return getString(R.string.mobile_menu_off);
+    }
+
     private void onCommentsEntryClicked() {
         if (mCommentsKey == null) {
             return;
@@ -3955,6 +4154,12 @@ public class MobilePlaybackActivity extends MobileActivity
         } else if (buttonId == R.id.action_thumbs_down && mWatchDislikeIcon != null) {
             mWatchDislikeIcon.setColorFilter(getColorInt(on
                     ? R.color.mobile_color_primary : R.color.mobile_color_on_surface));
+        } else if (buttonId == R.id.lb_control_closed_captioning && mSubtitlesButton != null) {
+            if (on) {
+                mSubtitlesButton.setColorFilter(getColorInt(R.color.mobile_color_primary));
+            } else {
+                mSubtitlesButton.clearColorFilter();
+            }
         } else if (buttonId == R.id.action_subscribe && mWatchSubscribe != null) {
             mWatchSubscribe.setText(on ? R.string.mobile_watch_subscribed : R.string.mobile_watch_subscribe);
             mWatchSubscribe.setBackgroundTintList(android.content.res.ColorStateList.valueOf(

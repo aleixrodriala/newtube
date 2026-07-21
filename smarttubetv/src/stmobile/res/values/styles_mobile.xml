@@ -121,6 +121,40 @@
         <item name="android:windowAnimationStyle">@null</item>
     </style>
 
+    <!--
+      App-styled MaterialAlertDialog (accounts sign-out confirm etc.): sheet-colored rounded
+      surface, white title, secondary body, sentence-case buttons - red reserved for the
+      destructive action. The stock look (grey box + all-caps red pair) read as foreign
+      next to the bottom sheets (user feedback).
+    -->
+    <style name="MobileAlertDialog" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
+        <item name="colorSurface">@color/mobile_color_surface</item>
+        <item name="android:textColorPrimary">@color/mobile_color_on_surface</item>
+        <item name="materialAlertDialogBodyTextStyle">@style/MobileAlertDialogBody</item>
+        <item name="buttonBarPositiveButtonStyle">@style/MobileAlertDialogButtonDestructive</item>
+        <item name="buttonBarNegativeButtonStyle">@style/MobileAlertDialogButton</item>
+        <item name="shapeAppearanceMediumComponent">@style/MobileAlertDialogShape</item>
+    </style>
+
+    <style name="MobileAlertDialogShape" parent="ShapeAppearance.MaterialComponents.MediumComponent">
+        <item name="cornerSize">16dp</item>
+    </style>
+
+    <style name="MobileAlertDialogBody" parent="MaterialAlertDialog.MaterialComponents.Body.Text">
+        <item name="android:textColor">@color/mobile_color_on_surface_secondary</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="MobileAlertDialogButton" parent="Widget.MaterialComponents.Button.TextButton.Dialog">
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/mobile_color_on_surface</item>
+        <item name="android:textSize">15sp</item>
+    </style>
+
+    <style name="MobileAlertDialogButtonDestructive" parent="MobileAlertDialogButton">
+        <item name="android:textColor">@color/mobile_color_primary</item>
+    </style>
+
     <!-- Regular weight at 11sp tracks the YouTube bar labels (medium/bold read heavier than
          theirs side-by-side; the old 10sp-medium choice predates dropping the long
          "Listas de reproducción" label from the bar). -->

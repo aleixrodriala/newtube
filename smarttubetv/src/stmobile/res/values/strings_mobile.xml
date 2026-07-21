@@ -129,6 +129,14 @@
     <string name="mobile_signin_error">Couldn\'t complete sign-in. Check your connection and try again — you\'ll get a fresh code.</string>
     <string name="mobile_signin_retry_button">Try again</string>
 
+    <!-- Accounts sheet (com.newtube.mobile.ui.browse.AccountsSheet) -->
+    <string name="mobile_accounts_title">Accounts</string>
+    <string name="mobile_accounts_signed_out">Use without account</string>
+    <string name="mobile_accounts_sign_out">Sign out</string>
+    <string name="mobile_accounts_sign_out_title">Sign out?</string>
+    <string name="mobile_accounts_sign_out_confirm">%1$s will be removed from this device. You can sign in again anytime.</string>
+    <string name="mobile_accounts_more">Account settings</string>
+
     <!-- Empty / sign-in-gated / errored browse section placeholders (MobileBrowseActivity) -->
     <string name="mobile_empty_signin_section">Sign in to see your %1$s</string>
     <string name="mobile_empty_signin_generic">Sign in to see this content</string>

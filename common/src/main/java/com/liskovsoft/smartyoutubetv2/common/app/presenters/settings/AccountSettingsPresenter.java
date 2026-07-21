@@ -56,6 +56,21 @@ public class AccountSettingsPresenter extends BasePresenter<Void> {
         mMediaServiceManager.loadAccounts(this::fetchImagesAndShowDialog);
     }
 
+    /**
+     * NEWTUBE(mobile): just the advanced toggles (password lock / per-account settings / choose
+     * on boot). Select/add/remove live in the native accounts sheet on mobile - this dialog is
+     * reached from its "Account settings" row.
+     */
+    public void showAdvanced() {
+        AppDialogPresenter settingsPresenter = AppDialogPresenter.instance(getContext());
+
+        appendProtectAccountWithPassword(settingsPresenter);
+        appendSeparateSettings(settingsPresenter);
+        appendSelectAccountOnBoot(settingsPresenter);
+
+        settingsPresenter.showDialog(getContext().getString(R.string.settings_accounts), this::unhold);
+    }
+
     private void fetchImagesAndShowDialog(List<Account> accounts) {
         GlideIconFetcher.fetchDrawables(getContext(),
                 Helpers.map(accounts, Account::getAvatarImageUrl),

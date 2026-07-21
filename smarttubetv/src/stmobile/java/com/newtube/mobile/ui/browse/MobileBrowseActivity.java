@@ -701,16 +701,11 @@ public class MobileBrowseActivity extends MobileActivity
 
     private void setupYouPanel() {
         // Account row: the one always-visible sign-in entry point (the other is the signed-out
-        // Subscriptions/Playlists "Sign in" button). Signed out -> device-code sign-in;
-        // signed in -> accounts dialog (switch / add / sign out).
+        // Subscriptions/Playlists "Sign in" button). AccountsSheet routes: no stored accounts
+        // -> device-code sign-in; otherwise the native switch/add/sign-out sheet (also when
+        // browsing signed-out with stored accounts, so they stay re-selectable).
         View accountRow = findViewById(R.id.mobile_you_account_row);
-        accountRow.setOnClickListener(v -> {
-            if (MediaServiceManager.instance().getSelectedAccount() != null) {
-                AccountSettingsPresenter.instance(this).show();
-            } else {
-                YTSignInPresenter.instance(this).start();
-            }
-        });
+        accountRow.setOnClickListener(v -> AccountsSheet.show(this, this::updateAccountRow));
     }
 
     /** Show the You panel over the content area (the panel is opaque; the grid stays put). */

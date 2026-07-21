@@ -2,7 +2,47 @@
 <!-- Spanish overrides for user-visible mobile strings. The bottom-nav tab labels come from
      the (already localized) shared header_* strings; "You" is ours, so it needs a
      translation or the bar reads "Inicio / Suscripciones / Historial / You". -->
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="mobile_nav_you">Tú</string>
     <string name="mobile_you_explore">Explorar</string>
+
+    <!-- Upstream es translation says "REGISTRARSE" (= create an account) on every sign-in
+         button - wrong action. App-module resources override the library's, so fix it here
+         (es-only on purpose: the library's en default is fine - hence the lint ignore). -->
+    <string name="action_signin" tools:ignore="ExtraTranslation">Iniciar sesión</string>
+    <string name="subscriptions_signin_button_text" tools:ignore="ExtraTranslation">Iniciar sesión</string>
+
+    <!-- Signed-out empty states -->
+    <string name="mobile_empty_signin_section">Inicia sesión para ver %1$s</string>
+    <string name="mobile_empty_signin_generic">Inicia sesión para ver este contenido</string>
+
+    <!-- Sign-in screen -->
+    <string name="mobile_signin_title">Iniciar sesión</string>
+    <string name="mobile_signin_lead">Conecta tu cuenta de Google para ver tus suscripciones, listas e historial.</string>
+    <string name="mobile_signin_step1_title">Toca “Continuar con Google”</string>
+    <string name="mobile_signin_step1_caption">La página de Google se abre aquí mismo.</string>
+    <string name="mobile_signin_step2_title">Elige tu cuenta y permite el acceso</string>
+    <string name="mobile_signin_step2_caption">La página puede mencionar una TV u otro dispositivo — es normal: NewTube inicia sesión igual que una TV, así tu contraseña nunca pasa por la app.</string>
+    <string name="mobile_signin_step3_title">Vuelve a NewTube</string>
+    <string name="mobile_signin_step3_caption">La sesión se completa sola — no hay que hacer nada más.</string>
+    <string name="mobile_signin_code_label">Google mostrará este código — comprueba que coincide:</string>
+    <string name="mobile_signin_copy_hint">Toca el código para copiarlo</string>
+    <string name="mobile_signin_code_copied">Código copiado</string>
+    <string name="mobile_signin_open_button">Continuar con Google</string>
+    <string name="mobile_signin_manual_hint">¿No funciona el botón? Abre esta dirección en cualquier navegador e introduce el código:</string>
+    <string name="mobile_signin_notification">Iniciando sesión con Google…</string>
+    <string name="mobile_signin_waiting_title">Esperando a Google…</string>
+    <string name="mobile_signin_waiting_caption">Termina en la página de Google: elige tu cuenta y permite el acceso. La sesión se iniciará aquí automáticamente.</string>
+    <string name="mobile_signin_reopen_button">Volver a abrir la página</string>
+    <string name="mobile_signin_success">¡Sesión iniciada!</string>
+    <string name="mobile_signin_error">No se pudo completar el inicio de sesión. Comprueba tu conexión y vuelve a intentarlo — recibirás un código nuevo.</string>
+    <string name="mobile_signin_retry_button">Reintentar</string>
+
+    <!-- Accounts sheet -->
+    <string name="mobile_accounts_title">Cuentas</string>
+    <string name="mobile_accounts_signed_out">Usar sin cuenta</string>
+    <string name="mobile_accounts_sign_out">Cerrar sesión</string>
+    <string name="mobile_accounts_sign_out_title">¿Cerrar sesión?</string>
+    <string name="mobile_accounts_sign_out_confirm">%1$s se eliminará de este dispositivo. Puedes volver a iniciar sesión cuando quieras.</string>
+    <string name="mobile_accounts_more">Ajustes de cuenta</string>
 </resources>
