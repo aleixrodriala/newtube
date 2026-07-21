@@ -3,47 +3,77 @@
 Cambios visibles para el usuario, en español. El historial completo de
 versiones anteriores está en [CHANGELOG.md](CHANGELOG.md) (en inglés).
 
-## 1.5.0 — 20-07-2026
+## 1.6.0 — 21-07-2026
 
-Dos grandes rondas: envío a la tele (sin Play Services) y una
-simplificación a fondo de toda la interfaz, tomando como modelo la app
-oficial de YouTube.
+Tres frentes en esta ronda: iniciar sesión pasa de ser un trámite de tele a
+un flujo guiado y automático; la app por fin se disfruta **sin** cuenta; y
+los subtítulos, la velocidad de reproducción y el envío a la tele estrenan
+hojas nativas. Además, icono nuevo.
 
-### Enviar a la TV
-- **Envía vídeos a tu tele sin anuncios.** Nuevo botón de Cast en la
-  pantalla principal y en el reproductor. El modo por defecto transmite el
-  vídeo a través de tu móvil directamente al dispositivo Cast: sin anuncios
-  y sin Google Play Services.
-- **O usa la app de YouTube de la tele**: cada TV Cast/DIAL ofrece también
-  el modo clásico (reproduce la app de YouTube de la tele y el móvil hace de
-  mando), y las teles que no se detectan en la red se pueden vincular con el
-  código de TV de 12 dígitos.
-- Un solo toque conecta; si el envío sin anuncios no puede con un vídeo
-  (p. ej. directos), la sesión cambia automáticamente a la app de YouTube de
-  la tele.
-- Controla el **volumen de la tele** desde el móvil, con "Reproduciendo en
-  <TV>" en el reproductor, una notificación persistente con botón de
-  desconectar y una animación de pulso sutil mientras se conecta.
+### Inicio de sesión, rehecho
+- **Inicio de sesión guiado**: la pantalla del código ahora te lleva por 3
+  pasos numerados (Continuar con Google → aprobar → volver), con el código
+  de emparejamiento reducido a una fila de "comprueba que coincide" y un
+  enlace manual de respaldo.
+- **Vuelta automática**: tras tocar Permitir en la página de Google vuelves
+  a la app en segundos — con estados de espera y de éxito (check) — sin
+  cambiar de app a mano. Una notificación de "Iniciando sesión…" mantiene
+  vivo el proceso mientras el navegador está delante.
+- **Hoja de cuentas nativa** (pestaña Tú → fila de la cuenta): toca una
+  cuenta para cambiar, "Usar sin cuenta", Añadir cuenta, Cerrar sesión (con
+  su diálogo de confirmación) y Ajustes de cuenta para las opciones
+  avanzadas. También accesible navegando sin sesión con cuentas guardadas —
+  antes ese estado moría en la pantalla de inicio de sesión.
 
-### Interfaz más simple y limpia
-- **La barra inferior ahora es Inicio / Suscripciones / Historial / Tú**,
-  con el estilo y las medidas de la app oficial. Desaparecen el menú
-  lateral, el icono de hamburguesa y el icono de ajustes de la barra
-  superior: arriba solo quedan el título, Cast y Buscar.
-- **Nueva pestaña "Tú"**: tu cuenta (foto de perfil real, nombre y correo),
-  tu contenido (Canales, Listas de reproducción, Mis vídeos), un grupo
-  "Explorar" con los feeds de descubrimiento (Niños, Deportes, EN VIVO,
-  Videojuegos, Noticias, Música) y la Configuración — todo en un sitio,
-  como la página "Tú" de YouTube.
-- **Adiós a los Shorts**: se elimina la pestaña de Shorts y ya no aparecen
-  en Inicio ni en Suscripciones (el Historial sí conserva los que hayas
-  visto).
-- **El reproductor pasa de 11 iconos a 8**, y el engranaje abre ahora una
-  hoja al estilo YouTube: Calidad con su valor en vivo ("Auto (1080p60)"),
-  Velocidad de reproducción, Pantalla en pantalla, Bloqueo de rotación — y
-  el resto agrupado en "Más", cada fila con su icono.
-- Mantén pulsada una pestaña inferior o una fila de "Tú" para gestionar la
-  sección (renombrar / mover / actualizar / borrar historial — no se
-  perdió nada con el menú lateral).
-- **Pellizca para hacer zoom** en pantalla completa: alterna entre
-  "Ampliado para llenar" y "Original", igual que la app oficial.
+### Mejor sin cuenta
+- **El Inicio sin sesión ya no está vacío**: se llena con tendencias y
+  feeds temáticos desde el primer arranque, y en cuanto ves unos vídeos se
+  personaliza de forma anónima según tu historial — sin necesidad de
+  cuenta.
+- Corregido el aviso de "inicia sesión" de Suscripciones que se quedaba
+  pegado sobre Inicio al cambiar de pestaña sin sesión.
+
+### Envío a la TV: directos y controles
+- El selector de Cast y sus opciones ahora dejan claros los pros y contras:
+  el envío directo es sin anuncios y con la calidad controlada desde el
+  móvil (sin subtítulos); el modo app de la tele tiene subtítulos y calidad
+  con el mando, y es el que necesitan los directos. El cambio automático en
+  directos es más rápido y con mensajes más claros.
+- **Nueva hoja "Opciones de reproducción en la TV"** durante el envío:
+  limita la calidad desde el móvil en el envío directo ("Auto (hasta
+  1080p)", "Hasta 720p", …), y en sesiones con la app de la tele envía tu
+  elección de subtítulos a la TV. Pasar una sesión directa a la app de la
+  tele por los subtítulos muestra antes una comparación clara.
+- **Vincular con código de TV ahora funciona con SmartTube en la tele**
+  (Ajustes → Control remoto), no solo con la app de YouTube — y con
+  SmartTube el envío sigue sin anuncios. El diálogo indica dónde encontrar
+  el código en cada app y acepta códigos con guiones o espacios.
+
+### Pulido del reproductor
+- Entrar en pantalla en pantalla desde el engranaje ya no muestra un
+  destello con toda la página comprimida dentro de la ventana que encoge —
+  la animación muestra solo el vídeo, como la app oficial.
+
+### Icono nuevo
+- El icono del launcher se rediseñó alrededor de la marca del arco-"n".
+
+### Subtítulos y velocidad, bien hechos
+- El botón CC ahora activa/desactiva los subtítulos como la app oficial,
+  con snackbar de confirmación ("Subtítulos activados (español)" /
+  "Subtítulos desactivados") y el icono relleno o con contorno según el
+  estado.
+- Nuevo selector de subtítulos nativo (mantén pulsado CC, o engranaje →
+  Subtítulos): una lista plana con check en la opción activa y un acceso a
+  "Estilo y tamaño de subtítulos". Sustituye al viejo diálogo de tele.
+- Los subtítulos por fin se ven como los de YouTube: texto blanco normal
+  sobre fondo semitransparente por línea, con tamaño relativo al vídeo
+  (pequeño bajo la página de vídeo en vertical, mayor en pantalla
+  completa). Las instalaciones existentes migran una vez desde el viejo
+  amarillo/negrita de tele; un estilo elegido por ti tras la actualización
+  se conserva.
+- Las filas de los selectores de calidad y audio usan la misma anatomía de
+  check inicial que la app oficial.
+- Nuevo selector nativo de velocidad en el engranaje: presets de 0,25x a 2x
+  con "Normal" para 1x, al estilo de la app oficial y con el mismo snackbar
+  de confirmación; la lista extendida completa vive tras "Más velocidades".
+  La fila del engranaje muestra la velocidad actual ("Normal"/"1,5x").

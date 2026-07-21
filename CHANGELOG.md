@@ -2,13 +2,60 @@
 
 All notable user-facing changes to NewTube ("SmartTube for phones").
 
-## Unreleased
+## 1.6.0 — 2026-07-21
 
+Three fronts this round: sign-in went from a TV-style chore to a guided,
+hands-off flow; the app is finally pleasant to use **without** an account;
+and subtitles, playback speed and casting all got the native-sheet
+treatment. Plus a new app icon.
+
+### Sign-in, reworked
+- **Guided sign-in**: the device-code screen now walks you through 3
+  numbered steps (Continue with Google → approve → come back), with the
+  pairing code demoted to a small "check it matches" row and a manual
+  fallback link.
+- **Automatic return**: after tapping Allow on Google's page you're back in
+  the app in seconds — waiting and success (checkmark) states included, no
+  more switching back by hand. A "Signing in…" notification keeps the
+  hand-off alive while the browser tab is up.
+- **Native accounts sheet** (You tab → account row): tap an account to
+  switch, "Use without account", Add account, Sign out (with a proper
+  confirmation dialog) and Account settings for the advanced options.
+  Also reachable while browsing signed-out with stored accounts — that
+  state used to dead-end in the sign-in screen.
+
+### Better without an account
+- **Signed-out Home is no longer empty**: it fills with trending/topic
+  feeds out of the box, and once you've watched a few videos it becomes
+  anonymously personalized to your watch history — no account needed.
+- Fixed the Subscriptions sign-in gate sticking over Home after switching
+  tabs while signed out.
+
+### Casting: live streams and TV controls
+- The cast picker and its options now state the real trade-offs up front:
+  direct cast is ad-free with quality controlled from your phone (no
+  subtitles); the TV-app mode has subtitles and TV-remote quality, and is
+  what live streams need. Falling back for a live stream is quicker and
+  the messaging clearer.
+- **New "TV playback options" sheet** while casting: cap the quality from
+  your phone on direct cast ("Auto (up to 1080p)", "Up to 720p", …), and
+  on TV-app sessions send your subtitle pick to the TV. Switching a
+  direct-cast session to the TV app for subtitles shows a clear
+  side-by-side comparison first.
+- **Link with TV code now works with SmartTube on the TV** (Settings →
+  Remote control), not just the YouTube app — and SmartTube keeps casting
+  ad-free. The dialog shows where to find the code in each app and accepts
+  codes with dashes/spaces.
+
+### Player polish
 - Entering picture-in-picture from the gear menu no longer flashes the whole
   watch page squeezed inside the shrinking window — the animation now shows
   only the video, like the official app.
 
-### Subtitles, done right
+### New app icon
+- The launcher icon was reworked around the arch-"n" mark.
+
+### Subtitles and speed, done right
 
 - The CC button now toggles subtitles on/off like the official app, with a
   confirmation snackbar ("Subtitles on (English)" / "Subtitles off") and a
