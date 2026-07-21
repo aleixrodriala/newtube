@@ -420,8 +420,13 @@ open:
 - Channel rows in search suggestions; channel page header/sort polish.
 - Age-gated videos: silent ~6 s stall then auto-skip — needs an error dialog.
 - In-player "Video buffer" row (knob currently applies at next player open).
-- UI sweep leftovers: CC dialog still TV-style, speed/CC pickers inconsistent
-  with native quality sheet, PiP enter-animation flash.
+- UI sweep leftovers: speed picker still TV-style (quality + captions are
+  native sheets now), PiP enter-animation flash.
+- Captions rework DONE (post-1.5.0): CC tap toggles with YouTube-style
+  snackbar + filled/outlined icon state; native captions sheet (long-press CC
+  or gear→Subtitles) with flat track list + "Caption style & size" footer;
+  default render = white-on-semi scrim, regular weight, fractional sizing
+  (one-shot migration off the old yellow TV default in MobileMainApplication).
 - Carry-overs: occasional first-frame black in mini player. Two minor gaps
   left by the audio-only fix (HANDOFF §10): mini-player-then-home keeps video
   enabled (needs a Browse-host hook), and screen-on-at-keyguard streams video

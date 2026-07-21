@@ -38,6 +38,14 @@
     <string name="mobile_signin_error">No se pudo completar el inicio de sesión. Comprueba tu conexión y vuelve a intentarlo — recibirás un código nuevo.</string>
     <string name="mobile_signin_retry_button">Reintentar</string>
 
+    <!-- Captions sheet + CC toggle snackbar -->
+    <string name="mobile_player_subtitles">Subtítulos</string>
+    <string name="mobile_captions_off">Desactivar subtítulos</string>
+    <string name="mobile_captions_empty">Este vídeo no tiene subtítulos</string>
+    <string name="mobile_captions_style">Estilo y tamaño de los subtítulos</string>
+    <string name="mobile_captions_on_toast">Subtítulos activados (%1$s)</string>
+    <string name="mobile_captions_off_toast">Subtítulos desactivados</string>
+
     <!-- Accounts sheet -->
     <string name="mobile_accounts_title">Cuentas</string>
     <string name="mobile_accounts_signed_out">Usar sin cuenta</string>

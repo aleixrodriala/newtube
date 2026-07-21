@@ -2,6 +2,24 @@
 
 All notable user-facing changes to NewTube ("SmartTube for phones").
 
+## Unreleased
+
+### Subtitles, done right
+
+- The CC button now toggles subtitles on/off like the official app, with a
+  confirmation snackbar ("Subtitles on (English)" / "Subtitles off") and a
+  filled-vs-outlined icon showing the current state at a glance.
+- New native subtitles picker (long-press CC, or gear → Subtitles): one flat
+  track list with a leading check on the active choice, plus a "Caption
+  style & size" shortcut. Replaces the old TV-style dialog.
+- Captions finally look like YouTube's: white regular text on a per-line
+  semi-transparent scrim, sized relative to the video (small under the
+  portrait watch page, larger in fullscreen). Existing installs are migrated
+  off the old yellow/bold TV default once; a style you picked yourself after
+  the update sticks.
+- Quality/audio picker rows now use the same leading-check anatomy as the
+  official app.
+
 ## 1.5.0 — 2026-07-20
 
 Two big rounds: casting to the TV (without Play Services), and a deep

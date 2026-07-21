@@ -157,7 +157,7 @@
                         android:contentDescription="@string/mobile_player_subtitles"
                         android:padding="8dp"
                         android:scaleType="fitCenter"
-                        android:src="@drawable/ic_player_cc" />
+                        android:src="@drawable/ic_player_cc_off" />
 
                     <!-- Gear: opens the player-options bottom sheet (quality / speed / PiP up
                          top, then repeat/shuffle/zoom/background/stats/rotate-lock/playlist/

@@ -4,7 +4,6 @@ import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Build.VERSION;
-import android.util.TypedValue;
 import android.view.View;
 import android.view.accessibility.CaptioningManager;
 import android.view.accessibility.CaptioningManager.CaptionStyle;
@@ -124,14 +123,16 @@ public class Media3SubtitleManager implements Player.Listener, OnDataChange {
         int outlineColor = ContextCompat.getColor(mContext, R.color.black);
         int backgroundColor = ContextCompat.getColor(mContext, subtitleStyle.backgroundColorResId);
 
+        // Regular weight, like the official app (the TV manager hardcoded bold - overpowering
+        // on a phone-sized video box).
         CaptionStyleCompat style =
                 new CaptionStyleCompat(textColor,
                         backgroundColor, Color.TRANSPARENT,
                         subtitleStyle.captionStyle,
-                        outlineColor, Typeface.DEFAULT_BOLD);
+                        outlineColor, Typeface.DEFAULT);
         mSubtitleView.setStyle(style);
 
-        mSubtitleView.setFixedTextSize(TypedValue.COMPLEX_UNIT_PX, getTextSizePx());
+        setTextSize(1);
     }
 
     @RequiresApi(19)
@@ -149,12 +150,18 @@ public class Media3SubtitleManager implements Player.Listener, OnDataChange {
                             userStyle.edgeColor, userStyle.getTypeface());
             mSubtitleView.setStyle(style);
 
-            mSubtitleView.setFixedTextSize(TypedValue.COMPLEX_UNIT_PX, getTextSizePx() * captioningManager.getFontScale());
+            setTextSize(captioningManager.getFontScale());
         }
     }
 
-    private float getTextSizePx() {
-        float textSizePx = mSubtitleView.getContext().getResources().getDimension(R.dimen.subtitle_text_size);
-        return textSizePx * mPlayerData.getSubtitleScale();
+    /**
+     * YouTube-style sizing: a FRACTION of the video box height (media3's own default fraction),
+     * so captions read small under the portrait watch page and grow in fullscreen - unlike the
+     * TV manager's fixed 30sp, which overwhelmed the phone's portrait player. The user's size
+     * setting (and the system caption font scale) stays a multiplier on top.
+     */
+    private void setTextSize(float systemFontScale) {
+        mSubtitleView.setFractionalTextSize(
+                SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * mPlayerData.getSubtitleScale() * systemFontScale);
     }
 }

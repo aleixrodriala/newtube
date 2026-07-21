@@ -94,6 +94,26 @@ public class MobileMainApplication extends MainApplication {
         // global exception handler and every other View->Activity mapping.
         super.onCreate();
 
+        // CAPTION DEFAULT MIGRATION (mobile-only, one-shot): the default caption look changed
+        // from the TV yellow-on-semi preset to the official app's white-on-semi. The style index
+        // is persisted inside the PlayerData blob even for users who never touched it, so
+        // existing installs would keep yellow forever - rewrite the OLD default exactly once; any
+        // style picked after this run sticks (the flag prevents re-migrating).
+        android.content.SharedPreferences migrations =
+                getSharedPreferences("newtube_migrations", MODE_PRIVATE);
+        if (!migrations.getBoolean("caption_style_white_default", false)) {
+            PlayerData playerData = PlayerData.instance(this);
+            java.util.List<com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleStyle> styles =
+                    playerData.getSubtitleStyles();
+            int oldYellowSemiIdx = 4;
+            int whiteSemiIdx = 1;
+            if (styles.size() > oldYellowSemiIdx
+                    && playerData.getSubtitleStyle() == styles.get(oldYellowSemiIdx)) {
+                playerData.setSubtitleStyle(styles.get(whiteSemiIdx));
+            }
+            migrations.edit().putBoolean("caption_style_white_default", true).apply();
+        }
+
         // NOTE(buffering): the back-buffer / start-gate / forward-buffer tuning that used to be
         // pushed into the legacy engine here (ExoPlayerInitializer.set*Override) moved into the
         // media3 engine itself - see Media3PlayerInitializer (back 120s, start gate 1000/2500ms).

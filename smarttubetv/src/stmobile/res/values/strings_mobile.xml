@@ -103,11 +103,12 @@
     <string name="mobile_quality_auto">Auto (recommended)</string>
     <string name="mobile_audio_default">Default</string>
 
-    <!-- Captions sheet (sheet_mobile_captions / showCaptionsSheet) -->
-    <string name="mobile_captions_off">Off</string>
-    <string name="mobile_captions_auto_title">Auto-generated</string>
+    <!-- Captions sheet (sheet_mobile_captions / showCaptionsSheet) + CC toggle snackbar -->
+    <string name="mobile_captions_off">Turn off subtitles</string>
     <string name="mobile_captions_empty">No subtitles available for this video</string>
     <string name="mobile_captions_style">Caption style &amp; size</string>
+    <string name="mobile_captions_on_toast">Subtitles on (%1$s)</string>
+    <string name="mobile_captions_off_toast">Subtitles off</string>
     <string name="mobile_signin_title">Sign in</string>
     <string name="mobile_signin_lead">Connect your Google account to get your subscriptions, playlists and history.</string>
     <string name="mobile_signin_step1_title">Tap \u201cContinue with Google\u201d</string>

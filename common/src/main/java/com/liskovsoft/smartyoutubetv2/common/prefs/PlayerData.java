@@ -826,7 +826,9 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
 
         String[] split = Helpers.splitData(data);
 
-        int yellowOnSemiBgSubIdx = 4;
+        // NEWTUBE: default caption look = white on semi-transparent scrim (initSubtitleStyles
+        // index 1), matching the official mobile app. The TV default was yellow-on-semi (4).
+        int whiteOnSemiBgSubIdx = 1;
         mOKButtonBehavior = Helpers.parseInt(split, 0, OK_ONLY_UI);
         mUiHideTimeoutSec = Helpers.parseInt(split, 1, 3);
         // mIsAbsoluteDateEnabled
@@ -840,7 +842,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
         mAudioFormat = Helpers.firstNonNull(ExoFormatItem.from(Helpers.parseStr(split, 10)), getDefaultAudioFormat());
         mSubtitleFormat = Helpers.firstNonNull(ExoFormatItem.from(Helpers.parseStr(split, 11)), getDefaultSubtitleFormat());
         mVideoBufferType = Helpers.parseInt(split, 12, PlayerEngine.BUFFER_MEDIUM);
-        mSubtitleStyleIndex = Helpers.parseInt(split, 13, yellowOnSemiBgSubIdx);
+        mSubtitleStyleIndex = Helpers.parseInt(split, 13, whiteOnSemiBgSubIdx);
         mResizeMode = Helpers.parseInt(split, 14, PlayerEngine.RESIZE_MODE_DEFAULT);
         mSpeed = Helpers.parseFloat(split, 15, 1.0f);
         mIsAfrEnabled = Helpers.parseBoolean(split, 16, false);
@@ -902,7 +904,7 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
         }
 
         if (mSubtitleStyleIndex >= mSubtitleStyles.size()) {
-            mSubtitleStyleIndex = yellowOnSemiBgSubIdx;
+            mSubtitleStyleIndex = whiteOnSemiBgSubIdx;
         }
     }
 
