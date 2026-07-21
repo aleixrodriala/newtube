@@ -1148,6 +1148,12 @@ public class MobilePlaybackActivity extends MobileActivity
         applyWatchLayoutForOrientation(newConfig.orientation);
         applySystemBarsForOrientation(newConfig.orientation);
         updateFullscreenIcon(newConfig.orientation);
+        // The standing auto-enter params carry a sourceRectHint captured from the video box; after
+        // a rotation that rect is stale (portrait box vs fullscreen), which degrades the
+        // home-gesture shrink animation. Re-push with the post-rotation geometry.
+        if (mVideoArea != null) {
+            mVideoArea.post(this::updatePipActions);
+        }
     }
 
     private void handleBack() {
@@ -1323,10 +1329,42 @@ public class MobilePlaybackActivity extends MobileActivity
             return;
         }
 
+        // Strip the window down to video BEFORE handing it to the system: the shrink animation
+        // captures the live window content, and waiting for onPictureInPictureModeChanged(true)
+        // to hide things meant the whole watch page + controls stayed visible squeezed inside the
+        // shrinking PiP window for its first ~300 ms (the "enter-animation flash").
+        applyPipVideoOnlyLayout();
+
+        boolean entered = false;
         try {
-            enterPictureInPictureMode(buildPipParams());
+            entered = enterPictureInPictureMode(buildPipParams());
         } catch (Exception e) {
-            // Device reported PiP support but refused (e.g. OEM restriction) - ignore, stay full-screen.
+            // Device reported PiP support but refused (e.g. OEM restriction) - stay full-screen.
+        }
+        if (!entered) {
+            // Refused: undo the pre-stripped layout so the watch page comes back.
+            int orientation = getResources().getConfiguration().orientation;
+            applyWatchLayoutForOrientation(orientation);
+            applySystemBarsForOrientation(orientation);
+            showControlsInternal(false);
+        }
+    }
+
+    /** Video-only window: what PiP shows. Idempotent; onPictureInPictureModeChanged exit undoes it. */
+    private void applyPipVideoOnlyLayout() {
+        cancelAutoHide();
+        hideControls();
+        if (mControlsRoot != null) {
+            mControlsRoot.setVisibility(View.GONE);
+        }
+        if (mWatchScroll != null) {
+            mWatchScroll.setVisibility(View.GONE);
+        }
+        if (mVideoArea != null) {
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) mVideoArea.getLayoutParams();
+            lp.height = LinearLayout.LayoutParams.MATCH_PARENT;
+            lp.weight = 0;
+            mVideoArea.setLayoutParams(lp);
         }
     }
 
@@ -1471,21 +1509,10 @@ public class MobilePlaybackActivity extends MobileActivity
 
         if (isInPictureInPictureMode) {
             mPipDismissPending = false;
-            // Video only: hide the controls overlay and the watch-page content, fill with the video.
-            cancelAutoHide();
-            hideControls();
-            if (mControlsRoot != null) {
-                mControlsRoot.setVisibility(View.GONE);
-            }
-            if (mWatchScroll != null) {
-                mWatchScroll.setVisibility(View.GONE);
-            }
-            if (mVideoArea != null) {
-                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) mVideoArea.getLayoutParams();
-                lp.height = LinearLayout.LayoutParams.MATCH_PARENT;
-                lp.weight = 0;
-                mVideoArea.setLayoutParams(lp);
-            }
+            // Video only: hide the controls overlay and the watch-page content, fill with the
+            // video. Usually already done (enterPipMode pre-applies it; the auto-enter home
+            // gesture is the path that arrives here without it).
+            applyPipVideoOnlyLayout();
             // The PiP window renders only video: an open chat sheet is invisible, so its poll is
             // pure waste (same rule as background audio in setBackgroundAudioMode).
             if (mLiveChatAction != null) {

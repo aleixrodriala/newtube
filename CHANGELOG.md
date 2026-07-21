@@ -4,6 +4,10 @@ All notable user-facing changes to NewTube ("SmartTube for phones").
 
 ## Unreleased
 
+- Entering picture-in-picture from the gear menu no longer flashes the whole
+  watch page squeezed inside the shrinking window — the animation now shows
+  only the video, like the official app.
+
 ### Subtitles, done right
 
 - The CC button now toggles subtitles on/off like the official app, with a

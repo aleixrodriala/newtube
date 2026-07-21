@@ -420,8 +420,11 @@ open:
 - Channel rows in search suggestions; channel page header/sort polish.
 - Age-gated videos: silent ~6 s stall then auto-skip — needs an error dialog.
 - In-player "Video buffer" row (knob currently applies at next player open).
-- UI sweep leftovers: PiP enter-animation flash (quality + captions + speed
-  are all native sheets now).
+- UI sweep DONE: PiP enter-animation flash fixed (gear→PiP pre-strips the
+  window to video-only BEFORE enterPictureInPictureMode, so the shrink never
+  captures the squeezed watch page; refused-entry path restores the layout;
+  rotation now re-pushes PiP params so the auto-enter sourceRectHint stays
+  fresh). Quality + captions + speed are all native sheets.
 - Captions rework DONE (post-1.5.0): CC tap toggles with YouTube-style
   snackbar + filled/outlined icon state; native captions sheet (long-press CC
   or gear→Subtitles) with flat track list + "Caption style & size" footer;
