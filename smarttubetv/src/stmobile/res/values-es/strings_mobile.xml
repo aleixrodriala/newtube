@@ -46,6 +46,12 @@
     <string name="mobile_captions_on_toast">Subtítulos activados (%1$s)</string>
     <string name="mobile_captions_off_toast">Subtítulos desactivados</string>
 
+    <!-- Speed sheet -->
+    <string name="mobile_player_speed">Velocidad de reproducción</string>
+    <string name="mobile_speed_normal">Normal</string>
+    <string name="mobile_speed_more">Más velocidades</string>
+    <string name="mobile_speed_toast">Velocidad de reproducción: %1$s</string>
+
     <!-- Accounts sheet -->
     <string name="mobile_accounts_title">Cuentas</string>
     <string name="mobile_accounts_signed_out">Usar sin cuenta</string>

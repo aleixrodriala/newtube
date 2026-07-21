@@ -19,6 +19,10 @@ All notable user-facing changes to NewTube ("SmartTube for phones").
   the update sticks.
 - Quality/audio picker rows now use the same leading-check anatomy as the
   official app.
+- New native playback-speed picker in the gear menu: 0.25x–2x presets with
+  "Normal" for 1x, official-app style, with the same confirmation snackbar;
+  the full extended speed list lives behind "More speeds". The gear row now
+  shows the current speed as "Normal"/"1.5x".
 
 ## 1.5.0 — 2026-07-20
 

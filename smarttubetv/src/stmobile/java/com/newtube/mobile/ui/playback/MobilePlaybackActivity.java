@@ -86,6 +86,8 @@ import com.liskovsoft.mediaserviceinterfaces.data.ChatItem;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerConstants;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.service.VideoStateService;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.service.VideoStateService.State;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.ChatReceiver;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionCategory;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.SeekBarSegment;
@@ -2047,10 +2049,9 @@ public class MobilePlaybackActivity extends MobileActivity
         // Captions: the native captions sheet (same target as long-pressing the overlay CC button).
         addMenuRow(content, sheet, R.drawable.ic_player_cc, R.string.mobile_player_subtitles,
                 currentCaptionsLabel(), true, this::showCaptionsSheet);
-        // Speed uses the long-click path so it always opens the list (plain click would just
-        // toggle the remembered speed).
+        // Speed: the native preset sheet; the exhaustive TV dialog nests behind its "More speeds".
         addMenuRow(content, sheet, R.drawable.ic_player_speed, R.string.mobile_player_speed,
-                currentSpeedLabel(), true, () -> openPlayerOption(R.id.action_video_speed, true));
+                currentSpeedLabel(), true, this::showSpeedSheet);
         if (Helpers.isPictureInPictureSupported(this)) {
             addMenuRow(content, sheet, R.drawable.ic_player_pip, R.string.mobile_player_pip,
                     null, false, this::enterPipMode);
@@ -2148,15 +2149,10 @@ public class MobilePlaybackActivity extends MobileActivity
                 : getString(R.string.mobile_quality_auto_short);
     }
 
-    /** Trailing value for the Speed row: "1x", "1.5x", ... */
+    /** Trailing value for the Speed row: "Normal", "1.5x", ... */
     private String currentSpeedLabel() {
         float speed = mExoPlayerController != null ? mExoPlayerController.getSpeed() : -1;
-        if (speed <= 0) {
-            speed = 1f;
-        }
-        String number = speed == Math.floor(speed)
-                ? String.valueOf((int) speed) : String.valueOf(speed);
-        return number + "x";
+        return speedLabel(speed <= 0 ? 1f : speed);
     }
 
     /**
@@ -3843,6 +3839,79 @@ public class MobilePlaybackActivity extends MobileActivity
             }
         }
         return getString(R.string.mobile_menu_off);
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Playback speed: native preset sheet, classic official-app anatomy (0.25x..2x flat
+    // list, "Normal" for 1x, leading check). The exhaustive TV dialog (0.25-4x list +
+    // remember-speed options) stays reachable behind "More speeds".
+    // ---------------------------------------------------------------------------------
+
+    private static final float[] SPEED_PRESETS = {0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f};
+
+    /** "Normal" for 1x (official-app wording), "0.5x"/"1.5x"/"2x" otherwise. */
+    private String speedLabel(float speed) {
+        if (Helpers.floatEquals(speed, 1.0f)) {
+            return getString(R.string.mobile_speed_normal);
+        }
+        String number = speed == Math.floor(speed)
+                ? String.valueOf((int) speed) : String.valueOf(speed);
+        return number + "x";
+    }
+
+    private void showSpeedSheet() {
+        cancelAutoHide();
+
+        float current = mExoPlayerController != null ? mExoPlayerController.getSpeed() : -1;
+        if (current <= 0) {
+            current = 1f;
+        }
+
+        com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+                new com.google.android.material.bottomsheet.BottomSheetDialog(this);
+        View content = getLayoutInflater().inflate(R.layout.sheet_mobile_speed, null);
+        dialog.setContentView(content);
+
+        LinearLayout list = content.findViewById(R.id.speed_sheet_list);
+        for (float speed : SPEED_PRESETS) {
+            addQualityRow(list, speedLabel(speed), Helpers.floatEquals(speed, current), () -> {
+                applySpeed(speed);
+                dialog.dismiss();
+            });
+        }
+
+        // Full TV speed dialog: extended 0.25-4x list (long-click path always opens the list).
+        content.findViewById(R.id.speed_sheet_more).setOnClickListener(v -> {
+            dialog.dismiss();
+            openPlayerOption(R.id.action_video_speed, true);
+        });
+
+        dialog.setOnDismissListener(d -> armAutoHide());
+        showPlayerSheet(dialog);
+    }
+
+    /**
+     * Apply a speed pick. The engine change fires onSpeedChanged, which VideoStateController
+     * already persists (global/per-channel memory); only the per-video State save - the TV
+     * dialog's close hook - needs mirroring here. Confirms via snackbar, same as captions.
+     */
+    private void applySpeed(float speed) {
+        setSpeed(speed);
+
+        Video video = getVideo();
+        if (video != null && PlayerData.instance(this).isSpeedPerVideoEnabled()) {
+            VideoStateService stateService = VideoStateService.instance(this);
+            State state = stateService.getByVideoId(video.videoId);
+            if (state != null) {
+                stateService.save(new State(state.video, state.positionMs, state.durationMs, speed));
+            }
+        }
+
+        com.google.android.material.snackbar.Snackbar.make(
+                        findViewById(android.R.id.content),
+                        getString(R.string.mobile_speed_toast, speedLabel(speed)),
+                        com.google.android.material.snackbar.Snackbar.LENGTH_SHORT)
+                .show();
     }
 
     private void onCommentsEntryClicked() {
