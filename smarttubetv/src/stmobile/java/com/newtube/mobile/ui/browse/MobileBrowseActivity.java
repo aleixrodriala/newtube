@@ -868,6 +868,11 @@ public class MobileBrowseActivity extends MobileActivity
      * already on its way; {@link #mAwaitingFreshContent} makes its result replace this.
      */
     private void paintCachedSnapshot(int sectionId) {
+        // The error overlay (e.g. the previous section's sign-in gate) belongs to the section
+        // that showed it - a switch repaints, so drop it here. updateSection can't be relied on
+        // for this: a fresh-within-TTL section skips the refetch and never emits a group.
+        hideError();
+
         // Falls back to the persisted snapshot on the process's first paint of this section,
         // so even a cold start shows cards instead of the skeleton (display-only until the
         // refetch replaces it — see FeedCache class doc).
