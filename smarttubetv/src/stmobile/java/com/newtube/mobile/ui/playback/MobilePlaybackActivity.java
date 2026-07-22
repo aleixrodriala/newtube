@@ -4346,6 +4346,7 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchDescription.setVisibility(View.GONE);
         mWatchDescription.setText(null);
         mWatchMeta.setText(null);
+        mWatchMeta.setMaxLines(1);
         mWatchLikeCount.setText(R.string.mobile_watch_count_placeholder);
         mWatchDislikeCount.setText(R.string.mobile_watch_count_placeholder);
         mWatchSubs.setText(null);
@@ -4406,6 +4407,13 @@ public class MobilePlaybackActivity extends MobileActivity
             String date = metadata.getPublishedDate();
             if (date != null) {
                 date = date.replaceFirst("(?i)^(published|premiered|streamed live) on ", "");
+                // Non-English locales label the date "Data de publicació: 29 de des. 2019" /
+                // "Fecha de publicación: ..." - drop the leading "Label:" too. Publish dates
+                // never contain a colon themselves, so this can't clip the date.
+                String unlabeled = date.replaceFirst("^[^:]{1,40}:\\s*", "");
+                if (!unlabeled.isEmpty()) {
+                    date = unlabeled;
+                }
             }
             String meta;
             if (!TextUtils.isEmpty(views) && !TextUtils.isEmpty(date)) {
@@ -4482,6 +4490,9 @@ public class MobilePlaybackActivity extends MobileActivity
                     new androidx.transition.AutoTransition().setDuration(180));
         }
         mWatchDescription.setVisibility(mDescriptionExpanded ? View.VISIBLE : View.GONE);
+        // Expanded: let the views/date line wrap so long localized dates (e.g. "29 de des. 2019"
+        // behind a wordy label) are fully readable instead of ellipsized.
+        mWatchMeta.setMaxLines(mDescriptionExpanded ? Integer.MAX_VALUE : 1);
         mWatchExpand.animate().rotation(mDescriptionExpanded ? 180f : 0f).setDuration(180).start();
     }
 
