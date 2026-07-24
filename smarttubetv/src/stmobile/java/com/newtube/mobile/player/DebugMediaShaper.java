@@ -11,6 +11,7 @@ import androidx.media3.datasource.TransferListener;
 
 import java.io.IOException;
 import java.io.InterruptedIOException;
+import java.net.SocketTimeoutException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   adb shell setprop debug.arc.throttle_kbps 500   # shape reads to ~500 kbit/s (0/unset = off)
  *   adb shell setprop debug.arc.poison_itag 137     # itag=137 opens fail with a synthetic 403 ("" = off)
  *   adb shell setprop debug.arc.poison_once_itag any # fail one playback episode, then recovery can play
+ *   adb shell setprop debug.arc.timeout_once_itag any # zero-byte read timeout, then clean recovery
  * </pre>
  *
  * <p>Wired by {@link Media3SourceFactory} around the leaf transport ONLY under
@@ -60,7 +62,9 @@ final class DebugMediaShaper implements DataSource {
     private static final String PROP_THROTTLE_KBPS = "debug.arc.throttle_kbps";
     private static final String PROP_POISON_ITAG = "debug.arc.poison_itag";
     private static final String PROP_POISON_ONCE_ITAG = "debug.arc.poison_once_itag";
+    private static final String PROP_TIMEOUT_ONCE_ITAG = "debug.arc.timeout_once_itag";
     private static final AtomicBoolean sPoisonOnceDisarmed = new AtomicBoolean();
+    private static final AtomicBoolean sTimeoutOnceDisarmed = new AtomicBoolean();
 
     /** Max un-throttled burst: a quarter second at the configured rate. */
     private static final double BURST_SECONDS = 0.25;
@@ -74,6 +78,7 @@ final class DebugMediaShaper implements DataSource {
     private double mTokens;
     private long mLastRefillNs;
     private long mLastPropCheckNs;
+    private boolean mTimeoutThisOpen;
 
     private DebugMediaShaper(DataSource upstream) {
         mUpstream = upstream;
@@ -92,6 +97,15 @@ final class DebugMediaShaper implements DataSource {
             throw synthetic403(dataSpec, PROP_POISON_ONCE_ITAG, poisonOnceItag);
         }
 
+        String timeoutOnceItag = prop(PROP_TIMEOUT_ONCE_ITAG);
+        mTimeoutThisOpen = !sTimeoutOnceDisarmed.get()
+                && matchesItag(timeoutOnceItag, itag);
+        if (mTimeoutThisOpen) {
+            android.util.Log.d(TAG, "shaper timeout property=" + PROP_TIMEOUT_ONCE_ITAG
+                    + " itag=" + timeoutOnceItag
+                    + " -> synthetic zero-byte SocketTimeoutException");
+        }
+
         mBytesPerSec = propInt(PROP_THROTTLE_KBPS, 0) * 125L; // kbit/s -> bytes/s
         if (mBytesPerSec > 0) {
             mTokens = mBytesPerSec * BURST_SECONDS;
@@ -104,15 +118,21 @@ final class DebugMediaShaper implements DataSource {
     }
 
     /**
-     * Called when Media3 has exhausted its own representation/source fallback and emits a terminal
-     * player error. All opens in that first playback episode are poisoned; the automatic reload is
-     * deliberately clean so it can validate client re-routing and URL reminting in the same process.
+     * Called when Media3 emits a terminal player error. A configured one-shot 403 remains armed
+     * throughout the first playback episode; a configured read timeout terminates the zero-progress
+     * initialization load. The automatic reload is deliberately clean so it can validate client/
+     * transport rerouting in the same process.
      */
     static void disarmOneShotPoisonForRecovery() {
         String configured = prop(PROP_POISON_ONCE_ITAG);
         if (!configured.isEmpty() && !"none".equalsIgnoreCase(configured)
                 && sPoisonOnceDisarmed.compareAndSet(false, true)) {
             android.util.Log.d(TAG, "shaper one-shot disarmed for recovery");
+        }
+        String timeoutConfigured = prop(PROP_TIMEOUT_ONCE_ITAG);
+        if (!timeoutConfigured.isEmpty() && !"none".equalsIgnoreCase(timeoutConfigured)
+                && sTimeoutOnceDisarmed.compareAndSet(false, true)) {
+            android.util.Log.d(TAG, "shaper one-shot timeout disarmed for recovery");
         }
     }
 
@@ -135,6 +155,11 @@ final class DebugMediaShaper implements DataSource {
 
     @Override
     public int read(byte[] buffer, int offset, int length) throws IOException {
+        if (mTimeoutThisOpen) {
+            mTimeoutThisOpen = false;
+            throw new SocketTimeoutException("synthetic startup read timeout");
+        }
+
         // A starved chunk can take tens of seconds to read, so the throttle prop is re-read
         // mid-transfer (every 500ms) - otherwise a runtime flip only lands on the NEXT chunk
         // open and the experiment timeline smears.

@@ -7,6 +7,7 @@ package=io.github.aleixrodriala.arc
 forced_client=${PLAYER_CLIENT:-}
 fresh_app_info=${FRESH_APP_INFO:-0}
 poison_once_itag=${POISON_ONCE_ITAG:-}
+timeout_once_itag=${TIMEOUT_ONCE_ITAG:-}
 adb_serial=${ADB_SERIAL:?Set ADB_SERIAL to the exact emulator/device serial}
 adb_cmd=(adb -s "$adb_serial")
 
@@ -33,11 +34,18 @@ if [[ -n "$poison_once_itag" ]]; then
 else
   "${adb_cmd[@]}" shell setprop debug.arc.poison_once_itag none
 fi
+if [[ -n "$timeout_once_itag" ]]; then
+  echo "Injecting one synthetic zero-byte timeout for itag: $timeout_once_itag"
+  "${adb_cmd[@]}" shell setprop debug.arc.timeout_once_itag "$timeout_once_itag"
+else
+  "${adb_cmd[@]}" shell setprop debug.arc.timeout_once_itag none
+fi
 cleanup() {
   "${adb_cmd[@]}" shell setprop debug.arc.player_client none >/dev/null
   "${adb_cmd[@]}" shell setprop debug.arc.fresh_app_info 0 >/dev/null
   "${adb_cmd[@]}" shell setprop debug.arc.poison_itag none >/dev/null
   "${adb_cmd[@]}" shell setprop debug.arc.poison_once_itag none >/dev/null
+  "${adb_cmd[@]}" shell setprop debug.arc.timeout_once_itag none >/dev/null
 }
 trap cleanup EXIT
 "${adb_cmd[@]}" logcat -c
@@ -55,4 +63,4 @@ while (( SECONDS < deadline )); do
 done
 
 "${adb_cmd[@]}" logcat -d -v time -s NetPath:D VideoInfoService:D | grep -a -E \
-  'open |player-ring|winning client|info |prepare |first-frame|cronet .* (403|416) |load\[E\]|load\[E-http\]|error |auto-reload|shaper poison|one-shot' || true
+  'open |player-ring|winning client|info |prepare |first-frame|cronet .* (403|416) |load\[E\]|load\[E-http\]|error |auto-reload|shaper (poison|timeout)|one-shot|startup-init-timeout|media-transport' || true

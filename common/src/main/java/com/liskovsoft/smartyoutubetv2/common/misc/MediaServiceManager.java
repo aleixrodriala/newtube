@@ -53,6 +53,7 @@ public class MediaServiceManager implements OnAccountChange {
     private Disposable mSubscribedChannelsAction;
     private Disposable mFormatInfoAction;
     private Disposable mPrefetchAction;
+    private String mPrefetchVideoId;
     private Disposable mPlaylistGroupAction;
     private Disposable mPlaylistInfosAction;
     private Disposable mHistoryAction;
@@ -266,15 +267,31 @@ public class MediaServiceManager implements OnAccountChange {
      * so the network round-trip overlaps the player Activity's bring-up (layout inflation + ExoPlayer
      * construction) instead of running after it. The player's own end-of-onCreate fetch then shares this
      * in-flight request via {@link com.liskovsoft.youtubeapi.service.YouTubeMediaItemService}'s
-     * single-flight (must be enabled), so no duplicate round-trip occurs. Fire-and-forget; result is
-     * only cached, never consumed here. Uses its own disposable so it never disturbs {@link #loadFormatInfo}.
+     * single-flight (must be enabled), so no duplicate round-trip occurs. The tap prefetch is
+     * latest-wins: a newer tap cancels stale work before its /player transform can block the video
+     * the user actually selected. It uses its own disposable, so this never disturbs
+     * {@link #loadFormatInfo}.
      */
     public void prefetchFormatInfo(Video item) {
         if (item == null || item.videoId == null) {
             return;
         }
 
-        mPrefetchAction = mItemService.getFormatInfoObserve(item.videoId)
+        mItemService.cancelStaleFormatInfoRequests(item.videoId);
+
+        if (mPrefetchAction != null && !mPrefetchAction.isDisposed()) {
+            if (item.videoId.equals(mPrefetchVideoId)) {
+                android.util.Log.d("NetPath", "format-prefetch reuse video=" + item.videoId);
+                return;
+            }
+
+            android.util.Log.d("NetPath", "format-prefetch cancel stale=" + mPrefetchVideoId
+                    + " next=" + item.videoId);
+            mPrefetchAction.dispose();
+        }
+
+        mPrefetchVideoId = item.videoId;
+        mPrefetchAction = mItemService.getLatestFormatInfoObserve(item.videoId)
                 .subscribe(
                         info -> { /* cached by the service; nothing to do here */ },
                         error -> Log.e(TAG, "prefetchFormatInfo error: %s", error.getMessage())

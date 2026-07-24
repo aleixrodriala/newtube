@@ -44,6 +44,7 @@ import org.chromium.net.CronetEngine;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.NoRouteToHostException;
+import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.Executor;
@@ -90,11 +91,10 @@ public class Media3SourceFactory {
      * network, huge in-flight segment), and every retry re-opens with a Range from where it left
      * off, so patience converts those stalls into progress. 6 tries are kept, but
      * {@link FailFastLoadErrorPolicy} caps the retry backoff at 1s (stock policy stretches to 5s
-     * per try = up to ~60s of silent in-player retrying) and gives a fatal HTTP code (403
-     * expired/invalid signed URL, 416 unsatisfiable range - retrying the same DataSpec can't heal
-     * either) only 2 tries before surfacing the error to the app-level reload, which re-fetches
-     * fresh signed URLs within seconds. A deterministic 403/416 is surfaced after its first
-     * response; replaying an identical signed URL + range only adds load and delays recovery.
+     * per try = up to ~60s of silent in-player retrying). Fatal HTTP codes (403 expired/invalid
+     * signed URL, 416 unsatisfiable range) and zero-progress initialization timeouts surface after
+     * their first failure to the app-level reload, which re-fetches fresh signed URLs within
+     * seconds. Replaying an identical signed URL + init/range only adds load and delays recovery.
      */
     private static final int LOAD_RETRY_COUNT = 6;
 
@@ -104,6 +104,14 @@ public class Media3SourceFactory {
      * stay at the 8s default.
      */
     private static final int READ_TIMEOUT_MS = 4_000;
+
+    /**
+     * A zero-progress timeout while reading DASH initialization bytes is different from a
+     * mid-stream segment stall: there is no playable buffer yet, so replaying the same QUIC stream
+     * up to six times only extends the spinner. Surface that first timeout to the app-level source
+     * recovery and temporarily build the replacement source on the regular HTTP transport.
+     */
+    private static final long CRONET_STARTUP_TIMEOUT_BYPASS_MS = 2 * 60_000L;
 
     /**
      * DISABLED after on-device verification (v1.2.1 round): googlevideo PRIORITIZES the
@@ -297,6 +305,11 @@ public class Media3SourceFactory {
     private final DefaultBandwidthMeter mBandwidthMeter;
     private final DataSource.Factory mHttpDataSourceFactory;
     private final DataSource.Factory mCachedDataSourceFactory;
+    private final boolean mCronetAvailable;
+    private long mCronetBypassUntilMs;
+    @Nullable
+    private String mCronetBypassNetwork;
+    private boolean mCronetBypassUseLogged;
 
     Media3SourceFactory(Context context) {
         mContext = context.getApplicationContext();
@@ -313,16 +326,21 @@ public class Media3SourceFactory {
         // HTTP transport - every cache tier above stays byte-identical. Cronet follows
         // http<->https redirects natively (no setAllowCrossProtocolRedirects equivalent needed).
         CronetEngine cronetEngine = CronetManager.getEngine(mContext);
+        mCronetAvailable = cronetEngine != null;
         DataSource.Factory leafFactory;
-        if (cronetEngine != null) {
+        if (mCronetAvailable) {
             Log.d(TAG, "media transport: cronet");
-            leafFactory = new CronetDataSource.Factory(cronetEngine, CRONET_EXECUTOR)
+            DataSource.Factory cronetHttp = new CronetDataSource.Factory(cronetEngine, CRONET_EXECUTOR)
                     .setUserAgent(USER_AGENT)
                     .setTransferListener(mBandwidthMeter)
                     .setConnectionTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
                     .setReadTimeoutMs(READ_TIMEOUT_MS)
                     .setKeepPostFor302Redirects(true)
                     .setFallbackFactory(defaultHttp);
+            // Factory selection happens for each newly-created chunk/source. A startup timeout
+            // marks Cronet unhealthy before ErrorFixerController remints the source, so the
+            // replacement uses DefaultHttp rather than replaying the same stalled QUIC session.
+            leafFactory = () -> createTransportDataSource(cronetHttp, defaultHttp);
         } else {
             Log.d(TAG, "media transport: http (cronet unavailable)");
             leafFactory = defaultHttp;
@@ -353,6 +371,66 @@ public class Media3SourceFactory {
         } else {
             mCachedDataSourceFactory = mHttpDataSourceFactory;
         }
+    }
+
+    private synchronized DataSource createTransportDataSource(
+            DataSource.Factory cronetFactory, DataSource.Factory fallbackFactory) {
+        if (!shouldBypassCronet()) {
+            return cronetFactory.createDataSource();
+        }
+        if (!mCronetBypassUseLogged) {
+            mCronetBypassUseLogged = true;
+            NetPath.log(NetPath.context() + " media-transport http-fallback active reason="
+                    + "startup-init-timeout net=" + mCronetBypassNetwork);
+        }
+        return fallbackFactory.createDataSource();
+    }
+
+    private synchronized void markCronetStartupTimeout() {
+        if (!mCronetAvailable) {
+            return;
+        }
+        long now = android.os.SystemClock.elapsedRealtime();
+        String network = NetPath.networkId(mContext);
+        if (now < mCronetBypassUntilMs && network.equals(mCronetBypassNetwork)) {
+            return;
+        }
+        mCronetBypassUntilMs = now + CRONET_STARTUP_TIMEOUT_BYPASS_MS;
+        mCronetBypassNetwork = network;
+        mCronetBypassUseLogged = false;
+        NetPath.log(NetPath.context() + " media-transport cronet-bypass reason="
+                + "startup-init-timeout net=" + network
+                + " cooldownMs=" + CRONET_STARTUP_TIMEOUT_BYPASS_MS);
+    }
+
+    private synchronized boolean shouldBypassCronet() {
+        if (mCronetBypassUntilMs == 0) {
+            return false;
+        }
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now >= mCronetBypassUntilMs) {
+            clearCronetBypass();
+            return false;
+        }
+        String currentNetwork = NetPath.networkId(mContext);
+        if (!currentNetwork.equals(mCronetBypassNetwork)) {
+            NetPath.log(NetPath.context() + " media-transport cronet-bypass cleared reason="
+                    + "network-change old=" + mCronetBypassNetwork + " new=" + currentNetwork);
+            clearCronetBypass();
+            return false;
+        }
+        return true;
+    }
+
+    private void clearCronetBypass() {
+        mCronetBypassUntilMs = 0;
+        mCronetBypassNetwork = null;
+        mCronetBypassUseLogged = false;
+    }
+
+    private LoadErrorHandlingPolicy newLoadErrorPolicy() {
+        return new FailFastLoadErrorPolicy(
+                mCronetAvailable ? this::markCronetStartupTimeout : null);
     }
 
     public DefaultBandwidthMeter getBandwidthMeter() {
@@ -415,7 +493,7 @@ public class Media3SourceFactory {
         return new DashMediaSource.Factory(
                         new DefaultDashChunkSource.Factory(chunkDataSourceFactory),
                         /* manifestDataSourceFactory= */ null)
-                .setLoadErrorHandlingPolicy(new FailFastLoadErrorPolicy())
+                .setLoadErrorHandlingPolicy(newLoadErrorPolicy())
                 .createMediaSource(manifest, new MediaItem.Builder()
                         .setUri(GENERATED_MANIFEST_URI)
                         .setMimeType(MimeTypes.APPLICATION_MPD)
@@ -447,7 +525,7 @@ public class Media3SourceFactory {
         return new DashMediaSource.Factory(
                         new DefaultDashChunkSource.Factory(mHttpDataSourceFactory),
                         /* manifestDataSourceFactory= */ DataSchemeDataSource::new)
-                .setLoadErrorHandlingPolicy(new FailFastLoadErrorPolicy())
+                .setLoadErrorHandlingPolicy(newLoadErrorPolicy())
                 .createMediaSource(new MediaItem.Builder()
                         .setUri(dataUri)
                         .setMimeType(MimeTypes.APPLICATION_MPD)
@@ -495,7 +573,7 @@ public class Media3SourceFactory {
                         new DefaultDashChunkSource.Factory(mHttpDataSourceFactory),
                         mHttpDataSourceFactory)
                 .setManifestParser(new LiveDashManifestParser())
-                .setLoadErrorHandlingPolicy(new FailFastLoadErrorPolicy())
+                .setLoadErrorHandlingPolicy(newLoadErrorPolicy())
                 .createMediaSource(new MediaItem.Builder()
                         .setUri(dashManifestUrl)
                         .setMimeType(MimeTypes.APPLICATION_MPD)
@@ -506,7 +584,7 @@ public class Media3SourceFactory {
     MediaSource fromHlsPlaylist(String hlsPlaylistUrl) {
         return new HlsMediaSource.Factory(mHttpDataSourceFactory)
                 .setAllowChunklessPreparation(true)
-                .setLoadErrorHandlingPolicy(new FailFastLoadErrorPolicy())
+                .setLoadErrorHandlingPolicy(newLoadErrorPolicy())
                 .createMediaSource(new MediaItem.Builder()
                         .setUri(hlsPlaylistUrl)
                         .setMimeType(MimeTypes.APPLICATION_M3U8)
@@ -521,7 +599,7 @@ public class Media3SourceFactory {
         }
 
         return new ProgressiveMediaSource.Factory(mCachedDataSourceFactory)
-                .setLoadErrorHandlingPolicy(new FailFastLoadErrorPolicy())
+                .setLoadErrorHandlingPolicy(newLoadErrorPolicy())
                 .createMediaSource(MediaItem.fromUri(urlList.get(0)));
     }
 
@@ -602,14 +680,24 @@ public class Media3SourceFactory {
      * retry backoff capped at 1s (the stock (errorCount-1)*1000-capped-5000 stretches a dead
      * connection into ~60s of silent retrying), and a fatal transport error (403/416 or a known
      * offline/DNS failure, see {@link FailFastLoadErrorPolicy#isFatalTransportError}) stops after
-     * its first rejection so
-     * {@code onPlayerError} surfaces and
+     * its first rejection. A zero-progress initialization timeout also surfaces immediately:
+     * retrying an unreadable init range cannot produce a first frame, and the replacement source
+     * can bypass a stalled Cronet/QUIC route. This lets
+     * {@code onPlayerError} surface and
      * {@code ErrorFixerController.applyNoPlaybackFix()}+{@code reloadVideo()} re-fetches fresh
      * signed URLs within seconds.
      */
     static final class FailFastLoadErrorPolicy extends DefaultLoadErrorHandlingPolicy {
+        @Nullable
+        private final Runnable mStartupTimeoutCallback;
+
         FailFastLoadErrorPolicy() {
+            this(null);
+        }
+
+        FailFastLoadErrorPolicy(@Nullable Runnable startupTimeoutCallback) {
             super(LOAD_RETRY_COUNT);
+            mStartupTimeoutCallback = startupTimeoutCallback;
         }
 
         @Override
@@ -617,7 +705,38 @@ public class Media3SourceFactory {
             if (isFatalTransportError(loadErrorInfo.exception)) {
                 return C.TIME_UNSET; // don't retry: surface the error to the app-level reload
             }
+            if (isStartupNoProgressTimeout(
+                    loadErrorInfo.mediaLoadData.dataType,
+                    loadErrorInfo.loadEventInfo.bytesLoaded,
+                    loadErrorInfo.exception)) {
+                if (mStartupTimeoutCallback != null) {
+                    mStartupTimeoutCallback.run();
+                }
+                NetPath.log(NetPath.context() + " startup-init-timeout action=source-failover"
+                        + " track=" + loadErrorInfo.mediaLoadData.trackType
+                        + " retry=" + loadErrorInfo.errorCount
+                        + " bytes=" + loadErrorInfo.loadEventInfo.bytesLoaded
+                        + " loadMs=" + loadErrorInfo.loadEventInfo.loadDurationMs);
+                return C.TIME_UNSET;
+            }
             return Math.min(super.getRetryDelayMsFor(loadErrorInfo), 1000);
+        }
+
+        static boolean isStartupNoProgressTimeout(
+                int dataType, long bytesLoaded, Throwable exception) {
+            if (dataType != C.DATA_TYPE_MEDIA_INITIALIZATION || bytesLoaded != 0) {
+                return false;
+            }
+            for (Throwable e = exception; e != null; e = e.getCause()) {
+                if (e instanceof SocketTimeoutException) {
+                    return true;
+                }
+                String message = e.getMessage();
+                if (message != null && message.contains("ERR_TIMED_OUT")) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         /**
