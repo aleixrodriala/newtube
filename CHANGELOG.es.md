@@ -3,6 +3,49 @@
 Cambios visibles para el usuario, en español. El historial completo de
 versiones anteriores está en [CHANGELOG.md](CHANGELOG.md) (en inglés).
 
+## 1.6.1 — 24-07-2026
+
+Ronda de fiabilidad: los errores de reproducción se recuperan antes y se
+repiten menos, los vídeos arrancan con la calidad adecuada para tu conexión,
+y caen varios detalles molestos (búsqueda con teclado físico, fechas
+localizadas, un fallo de PiP).
+
+### Fiabilidad de reproducción
+- **Los errores de stream se recuperan antes y dejan de repetirse.** Cuando
+  YouTube rechaza una URL de vídeo (el clásico "403" a mitad de vídeo), la
+  app ahora recuerda qué ruta de entrega falló en la red actual y aparta de
+  ella el reintento — y los siguientes vídeos que abras — durante una
+  ventana corta de autocuración, pidiendo URLs nuevas al momento.
+- **Se acabaron los spinners silenciosos de un minuto en streams muertos.**
+  Los streams rotos sin remedio (enlaces caducados, rangos inválidos) y los
+  arranques que se atascan antes del primer byte ahora fallan rápido hacia
+  una recarga automática limpia, en vez de reintentar en silencio la misma
+  petición condenada hasta un minuto.
+- **Los arranques atascados cambian de transporte.** Si la vía rápida QUIC
+  se cuelga mientras arranca un vídeo, la recarga automática pasa
+  temporalmente a HTTP normal para que el vídeo se reproduzca; la vía rápida
+  vuelve sola a los pocos minutos o al cambiar de red.
+
+### Calidad de arranque más lista
+- El reproductor ahora recuerda tu ancho de banda medido **por tipo de red**
+  (Wi-Fi, 5G, 4G, …) y arranca los vídeos con una calidad acorde a la
+  conexión que tienes en ese momento — ni primeros segundos "de Wi-Fi" con
+  datos móviles ni arranques en baja calidad sin motivo en Wi-Fi rápidas.
+- **Cambiar de vídeo rápido es "gana el último"**: tocar un vídeo nuevo
+  mientras el anterior aún se prepara cancela el trabajo obsoleto, y el
+  vídeo que has elegido arranca sin hacer cola detrás del otro.
+
+### Correcciones
+- La búsqueda ahora se envía con Enter en teclados físicos y Bluetooth
+  (algunos solo mandan eventos de tecla en bruto, que se ignoraban), y los
+  teclados que notifican el envío dos veces ya no lanzan la búsqueda doble.
+- La fecha de publicación bajo el reproductor ya no se corta en idiomas
+  distintos del inglés (p. ej. "Data de publicació:"), y salta de línea
+  correctamente con la descripción desplegada.
+- La imagen dentro de imagen (PiP) ya no puede capturar un fotograma de la
+  página del vídeo cuando la superficie se soltó durante un cambio de tarea
+  o del minirreproductor.
+
 ## 1.6.0 — 21-07-2026
 
 Tres frentes en esta ronda: iniciar sesión pasa de ser un trámite de tele a

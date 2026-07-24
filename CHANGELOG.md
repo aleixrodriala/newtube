@@ -2,6 +2,46 @@
 
 All notable user-facing changes to NewTube ("SmartTube for phones").
 
+## 1.6.1 — 2026-07-24
+
+A reliability round: playback errors recover faster and repeat less, videos
+start at the right quality for your connection, and a handful of paper cuts
+(hardware-keyboard search, localized dates, a PiP glitch) are fixed.
+
+### Playback reliability
+- **Stream errors recover faster and stop repeating.** When YouTube rejects a
+  stream URL (the classic mid-video "403" failure), the app now remembers
+  which delivery route failed on the current network and steers the retry —
+  and the next videos you open — away from it for a short self-healing
+  window, while fetching fresh URLs immediately.
+- **No more minute-long silent spinners on dead streams.** Fatally broken
+  streams (expired links, bad ranges) and startups that stall before the
+  first byte now fail fast into a clean automatic reload instead of the
+  player quietly retrying the same doomed request for up to a minute.
+- **Stalled startups reroute transport.** If the fast QUIC network path hangs
+  while a video is starting, the automatic reload temporarily switches to the
+  regular HTTP path so the video plays; the fast path comes back on its own
+  after a couple of minutes or when you change networks.
+
+### Smarter startup quality
+- The player now remembers your measured bandwidth **per network type**
+  (Wi-Fi, 5G, 4G, …) and starts videos at a quality that matches the
+  connection you're on right now — no more Wi-Fi-grade first seconds on
+  mobile data or needlessly cautious starts on fast Wi-Fi.
+- **Rapid video switching is latest-wins**: tapping a new video while the
+  previous tap is still preparing cancels the stale work, so the video you
+  actually chose starts without waiting in line behind it.
+
+### Fixes
+- Search now submits with Enter on hardware and Bluetooth keyboards (some
+  only send raw key events, which were ignored), and keyboards that report
+  the same submission twice no longer trigger a double search.
+- The publish date under the player is no longer cut off on non-English
+  locales (e.g. "Data de publicació:"), and it wraps properly while the
+  description is expanded.
+- Picture-in-picture can no longer capture a frame of the watch page when
+  the video surface got detached during a task or mini-player hand-off.
+
 ## 1.6.0 — 2026-07-21
 
 Three fronts this round: sign-in went from a TV-style chore to a guided,
