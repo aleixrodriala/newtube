@@ -1121,23 +1121,29 @@ public class MobilePlaybackActivity extends MobileActivity
 
         if (mSuppressAutoPip) {
             // Backgrounding into the Browse mini-player, not leaving the app: no system PiP.
+            logPip("leave-skip reason=mini-handoff");
             return;
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || mIsInPip || isFinishing()) {
+            logPip("leave-skip reason=state");
             return;
         }
         if (!Helpers.isPictureInPictureSupported(this)) {
+            logPip("leave-skip reason=unsupported");
             return;
         }
         // Only auto-enter PiP while actually playing (matches YouTube; avoids PiP on a paused pre-roll).
         if (mPlayer == null || !isPlaying()) {
+            logPip("leave-skip reason=not-playing");
             return;
         }
         // Don't hijack navigation to one of our own screens (e.g. opening a dialog / channel).
         if (getViewManager() != null && getViewManager().isNewViewPending()) {
+            logPip("leave-skip reason=internal-navigation");
             return;
         }
 
+        logPip("leave-enter");
         enterPipMode();
     }
 
@@ -1335,9 +1341,11 @@ public class MobilePlaybackActivity extends MobileActivity
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O
                 || !Helpers.isPictureInPictureSupported(this)
                 || mIsInPip) {
+            logPip("enter-skip");
             return;
         }
 
+        logPip("enter-request");
         // Strip the window down to video BEFORE handing it to the system: the shrink animation
         // captures the live window content, and waiting for onPictureInPictureModeChanged(true)
         // to hide things meant the whole watch page + controls stayed visible squeezed inside the
@@ -1349,6 +1357,9 @@ public class MobilePlaybackActivity extends MobileActivity
             entered = enterPictureInPictureMode(buildPipParams());
         } catch (Exception e) {
             // Device reported PiP support but refused (e.g. OEM restriction) - stay full-screen.
+            logPip("enter-exception error=" + e.getClass().getSimpleName()
+                    + ':' + com.liskovsoft.smartyoutubetv2.common.misc.NetPath.trunc(
+                            e.getMessage(), 100));
         }
         if (!entered) {
             // Refused: undo the pre-stripped layout so the watch page comes back.
@@ -1356,6 +1367,9 @@ public class MobilePlaybackActivity extends MobileActivity
             applyWatchLayoutForOrientation(orientation);
             applySystemBarsForOrientation(orientation);
             showControlsInternal(false);
+            logPip("enter-refused-restored");
+        } else {
+            logPip("enter-accepted");
         }
     }
 
@@ -1363,6 +1377,15 @@ public class MobilePlaybackActivity extends MobileActivity
     private void applyPipVideoOnlyLayout() {
         cancelAutoHide();
         hideControls();
+        // Defensive surface repair: a task/mini-player hand-off can leave the Activity-owned
+        // TextureView detached for a frame. PiP must never snapshot the watch UI with no video
+        // consumer. Do not steal a texture that is legitimately owned by an active mini card.
+        if (!MiniPlayerBridge.isActive()) {
+            reattachVideoTexture();
+        }
+        if (mVideoTexture != null) {
+            mVideoTexture.setVisibility(View.VISIBLE);
+        }
         if (mControlsRoot != null) {
             mControlsRoot.setVisibility(View.GONE);
         }
@@ -1370,6 +1393,7 @@ public class MobilePlaybackActivity extends MobileActivity
             mWatchScroll.setVisibility(View.GONE);
         }
         if (mVideoArea != null) {
+            mVideoArea.setVisibility(View.VISIBLE);
             LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) mVideoArea.getLayoutParams();
             lp.height = LinearLayout.LayoutParams.MATCH_PARENT;
             lp.weight = 0;
@@ -1475,7 +1499,7 @@ public class MobilePlaybackActivity extends MobileActivity
         try {
             setPictureInPictureParams(buildPipParams());
         } catch (Exception e) {
-            // ignore
+            logPip("params-error error=" + e.getClass().getSimpleName());
         }
     }
 
@@ -1515,6 +1539,8 @@ public class MobilePlaybackActivity extends MobileActivity
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
 
         mIsInPip = isInPictureInPictureMode;
+        logPip("mode-changed inPip=" + (isInPictureInPictureMode ? "y" : "n")
+                + " stopped=" + (mIsStopped ? "y" : "n"));
 
         if (isInPictureInPictureMode) {
             mPipDismissPending = false;
@@ -1565,6 +1591,28 @@ public class MobilePlaybackActivity extends MobileActivity
                 showControlsInternal(false);
             }
         }
+    }
+
+    /** Sparse, credential-free PiP/surface snapshot for OEM/system transition bug reports. */
+    private void logPip(String event) {
+        Video video = getVideo();
+        boolean textureAttached = mVideoTexture != null && mVideoTexture.getParent() != null;
+        boolean textureAvailable = mVideoTexture != null && mVideoTexture.isAvailable();
+        boolean surfaceValid = mSessionSurface != null && mSessionSurface.isValid();
+        int playbackState = mPlayer != null ? mPlayer.getPlaybackState() : -1;
+        boolean playWhenReady = mExoPlayerController != null
+                && mExoPlayerController.getPlayWhenReady();
+        com.liskovsoft.smartyoutubetv2.common.misc.NetPath.log(
+                com.liskovsoft.smartyoutubetv2.common.misc.NetPath.context()
+                        + " pip " + event
+                        + " video=" + (video != null ? video.videoId : "?")
+                        + " state=" + playbackState
+                        + " pwr=" + (playWhenReady ? "y" : "n")
+                        + " ended=" + (mIsEnded ? "y" : "n")
+                        + " texture=" + (textureAttached ? "attached" : "detached")
+                        + '/' + (textureAvailable ? "available" : "unavailable")
+                        + " surface=" + (surfaceValid ? "valid" : "invalid")
+                        + " mini=" + (MiniPlayerBridge.isActive() ? "y" : "n"));
     }
 
     // ---------------------------------------------------------------------------------
@@ -2824,6 +2872,8 @@ public class MobilePlaybackActivity extends MobileActivity
                 mVideoTexture.setSurfaceTexture(mSessionTexture);
                 texture.release();
             }
+            logPip("surface-available size=" + width + 'x' + height
+                    + " adopted=" + (texture == mSessionTexture ? "y" : "n"));
         }
 
         @Override
@@ -2835,7 +2885,9 @@ public class MobilePlaybackActivity extends MobileActivity
             // NEVER let a view release the session texture - that would detach the codec's
             // surface and force the re-init this whole design exists to avoid. Disposable
             // (never-adopted) textures may be released normally.
-            return texture != mSessionTexture;
+            boolean release = texture != mSessionTexture;
+            logPip("surface-destroyed release=" + (release ? "y" : "n"));
+            return release;
         }
 
         @Override
@@ -5095,24 +5147,7 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         private String activeNetwork() {
-            try {
-                android.net.ConnectivityManager manager =
-                        (android.net.ConnectivityManager) mContext.getSystemService(Context.CONNECTIVITY_SERVICE);
-                android.net.Network network = manager != null ? manager.getActiveNetwork() : null;
-                android.net.NetworkCapabilities caps = network != null
-                        ? manager.getNetworkCapabilities(network) : null;
-                if (network == null || caps == null) {
-                    return "none";
-                }
-                String transport = caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) ? "vpn"
-                        : caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) ? "wifi"
-                        : caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) ? "cell"
-                        : caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) ? "ethernet"
-                        : "other";
-                return transport + ':' + network.hashCode();
-            } catch (Exception e) {
-                return "unknown";
-            }
+            return com.liskovsoft.smartyoutubetv2.common.misc.NetPath.networkId(mContext);
         }
 
         /** Last path segment plus the identifying query params (itag/range/sq/rn), max ~80 chars. */

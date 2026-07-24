@@ -17,10 +17,12 @@ import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.MediaTrack;
 import com.liskovsoft.smartyoutubetv2.common.misc.BufferingDetector;
 import com.liskovsoft.smartyoutubetv2.common.misc.BufferingDetector.OnLongBuffering;
+import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
+import com.liskovsoft.youtubeapi.videoinfo.V2.VideoInfoService;
 
 import java.net.ConnectException;
 import java.net.SocketException;
@@ -93,6 +95,12 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     @Override
     public void onEngineError(int type, int rendererIndex, Throwable error) {
         Log.e(TAG, "Player error occurred: %s. Trying to fix…", type);
+        long positionMs = getPlayer() != null ? getPlayer().getPositionMs() : -1;
+        long durationMs = getPlayer() != null ? getPlayer().getDurationMs() : -1;
+        NetPath.log(NetPath.context() + " recovery-error type=" + type
+                + " renderer=" + rendererIndex + " pos=" + positionMs
+                + " duration=" + durationMs + ' ' + NetPath.networkSnapshot(getContext())
+                + " causes=" + NetPath.throwableSummary(error));
 
         runEngineErrorAction(type, rendererIndex, error);
     }
@@ -132,6 +140,12 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     public void onPlay() {
         mBufferingDetector.onStopBuffering();
         // Engine reached READY and is playing: playback is healthy again - reopen the fix window.
+        if (mConsecutiveAutoFixCount > 0 || mSamePositionErrorCount > 0) {
+            NetPath.log(NetPath.context() + " recovery-healthy pos="
+                    + (getPlayer() != null ? getPlayer().getPositionMs() : -1)
+                    + " clearedAttempts=" + mConsecutiveAutoFixCount
+                    + " samePos=" + mSamePositionErrorCount);
+        }
         resetAutoFixCap();
     }
 
@@ -150,6 +164,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         String videoId = item != null ? item.videoId : null;
         if (mAutoReloadPending && Helpers.equals(videoId, mAutoFixVideoId)) {
             mAutoReloadPending = false; // our automatic reload landing - keep the count
+            NetPath.log(NetPath.context() + " recovery-reload-landed video=" + videoId
+                    + " attempt=" + mConsecutiveAutoFixCount);
             // NEWTUBE(pin-rescue): VideoStateController (registered before us) has just cleared
             // tempVideoFormat in its own onNewVideo; re-assert Auto here so the reopened source's
             // restoreVideoFormat reads it back instead of the failing persisted/temp pin.
@@ -286,14 +302,25 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             maybeRescuePinnedFormat(errorContent, rendererIndex);
 
             boolean isGeneralError = Helpers.startsWithAny(errorContent, "Response code: 429", "Response code: 500");
+            boolean gvsForbidden = hasHttpStatus(error, 403);
             if (isGeneralError && isSubtitlesEnabled()) {
                 disableSubtitles(); // Response code: 429
             } else if (isGeneralError && getPlayerTweaksData().isHighBitrateFormatsEnabled()) {
                 getPlayerTweaksData().setHighBitrateFormatsEnabled(false); // Response code: 429
             } else {
+                // A proven GVS 403 from an authenticated TV route is remembered against this
+                // default network. Recovery still remints immediately; later opens avoid selecting
+                // the same doomed carrier/client route first for a short self-healing window.
+                if (gvsForbidden) {
+                    VideoInfoService.instance().markCurrentPlaybackRouteForbidden();
+                }
                 YouTubeServiceManager.instance().applyNoPlaybackFix(); // Response code: 403
                 freshUrlsRequested = true;
             }
+            NetPath.log(NetPath.context() + " recovery-source http403="
+                    + (gvsForbidden ? "y" : "n")
+                    + " freshUrls=" + (freshUrlsRequested ? "y" : "n")
+                    + " subtitles=" + (isSubtitlesEnabled() ? "on" : "off"));
 
             restartEngine = false;
             showMessage = false;
@@ -340,6 +367,11 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             // Need at least to reload the video because the player becomes idle after error
             scheduleAutoReload(freshUrlsRequested);
         }
+        NetPath.log(NetPath.context() + " recovery-action action="
+                + (restartEngine ? "restart-engine"
+                : freshUrlsRequested ? "remint-reload" : "reload")
+                + " attempt=" + mConsecutiveAutoFixCount
+                + " samePos=" + mSamePositionErrorCount);
     }
 
     @SuppressLint("StringFormatMatches")
@@ -461,6 +493,11 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             mLastErrorPositionMs = positionMs;
         }
 
+        NetPath.log(NetPath.context() + " recovery-count consecutive="
+                + mConsecutiveAutoFixCount + " samePos=" + mSamePositionErrorCount
+                + " pos=" + positionMs + ' ' + NetPath.networkSnapshot(getContext())
+                + " causes=" + NetPath.throwableSummary(error));
+
         if (mConsecutiveAutoFixCount > MAX_CONSECUTIVE_AUTO_FIXES || mSamePositionErrorCount > MAX_CONSECUTIVE_AUTO_FIXES) {
             android.util.Log.w("NetPath", "auto-reload cap hit (consecutive=" + mConsecutiveAutoFixCount
                     + " samePos=" + mSamePositionErrorCount + " at " + mLastErrorPositionMs + "ms) for " + videoId
@@ -501,6 +538,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         if (connectivity) {
             armConnectivityRetry();
         }
+        NetPath.log(NetPath.context() + " recovery-capped connectivity="
+                + (connectivity ? "y" : "n") + ' ' + NetPath.networkSnapshot(getContext()));
     }
 
     /**
@@ -554,6 +593,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         Network active = cm.getActiveNetwork();
         NetworkCapabilities activeCaps = active != null ? cm.getNetworkCapabilities(active) : null;
         boolean seedDisconnected = activeCaps == null || !activeCaps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        NetPath.log(NetPath.context() + " recovery-network-arm seedDisconnected="
+                + (seedDisconnected ? "y" : "n") + ' ' + NetPath.networkSnapshot(context));
 
         ConnectivityManager.NetworkCallback callback = new ConnectivityManager.NetworkCallback() {
             // Confined to this callback: all events of one registration are serialized on a single
@@ -565,6 +606,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
                 if (capabilities != null && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
                     if (mSeenDisconnected) {
                         mSeenDisconnected = false; // one fire per observed disconnect (disarm lands on the main thread)
+                        NetPath.log(NetPath.context() + " recovery-network-restored "
+                                + NetPath.networkSnapshot(context, network));
                         onConnectivityRestored();
                     }
                 } else {
@@ -575,6 +618,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             @Override
             public void onLost(Network network) {
                 mSeenDisconnected = true;
+                NetPath.log(NetPath.context() + " recovery-network-lost net="
+                        + network.hashCode());
             }
         };
 
@@ -601,6 +646,9 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
      * one automatic retry per episode - the listener is disarmed here before the reload is posted.
      */
     private void retryNow() {
+        NetPath.log(NetPath.context() + " recovery-retry-now pos="
+                + (getPlayer() != null ? getPlayer().getPositionMs() : -1)
+                + ' ' + NetPath.networkSnapshot(getContext()));
         clearErrorCapped();
         resetAutoFixCap();
         resetSamePositionWindow();
@@ -644,11 +692,31 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
 
     private void scheduleAutoReload(boolean freshUrlsRequested) {
         mAutoReloadPending = true;
+        NetPath.log(NetPath.context() + " recovery-schedule mode="
+                + (freshUrlsRequested ? "url-remint" : "normal")
+                + " attempt=" + mConsecutiveAutoFixCount
+                + " pos=" + (getPlayer() != null ? getPlayer().getPositionMs() : -1));
         if (freshUrlsRequested) {
             mVideoLoaderController.reloadVideoAfterUrlRemint();
         } else {
             mVideoLoaderController.reloadVideo();
         }
+    }
+
+    /** Matches the status in any nested transport exception without depending on media3 classes. */
+    private static boolean hasHttpStatus(Throwable error, int statusCode) {
+        String code = Integer.toString(statusCode);
+        Throwable cause = error;
+        for (int depth = 0; cause != null && depth < 12; cause = cause.getCause(), depth++) {
+            String message = cause.getMessage();
+            if (message != null && (message.contains("Response code: " + code)
+                    || message.contains("responseCode=" + code)
+                    || message.contains("status=" + code)
+                    || message.contains("HTTP " + code))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void resetAutoFixCap() {

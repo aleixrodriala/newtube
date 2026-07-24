@@ -1,6 +1,10 @@
 package com.newtube.mobile.player;
 
 import android.content.Context;
+import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 
 import androidx.annotation.Nullable;
@@ -27,6 +31,7 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy;
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy;
+import androidx.media3.common.util.NetworkTypeObserver;
 
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.sharedutils.cronet.CronetManager;
@@ -131,29 +136,66 @@ public class Media3SourceFactory {
         return thread;
     });
 
-    // NEWTUBE(abr-seed): persist the bandwidth meter's EWMA estimate across process restarts so
-    // the FIRST video of a cold session starts ABR from the last known real throughput instead of
-    // media3's coarse country x network-type table (which under-picks on fast connections and
-    // over-picks into an early rebuffer on slow ones). Clamped to sane bounds - a corrupt or
-    // pathological persisted value falls back to the default table.
+    // NEWTUBE(abr-seed): persist the bandwidth meter's EWMA estimate PER Android network type.
+    // A single global value made a fast home-Wi-Fi session seed the first 5G/roaming video at tens
+    // of Mbps (or a slow cellular session unnecessarily hold Wi-Fi down). Media3 resets the meter
+    // on network replacement and now finds a seed learned on the same class of link. Values remain
+    // clamped; corrupt/pathological prefs fall back to media3's country x network-type table.
     private static final String NETWORK_PREFS_NAME = "newtube_network";
+    /** Read once as a migration source for installs that predate per-network seeds. */
     private static final String KEY_BITRATE_ESTIMATE = "bw_estimate_bps";
+    private static final String KEY_BITRATE_ESTIMATE_PREFIX = "bw_estimate_bps_net_";
     private static final long MIN_PERSISTED_BITRATE = 100_000;      // 100 kbps
     private static final long MAX_PERSISTED_BITRATE = 50_000_000;   // 50 Mbps
+    private static final int[] SEEDED_NETWORK_TYPES = {
+            C.NETWORK_TYPE_WIFI,
+            C.NETWORK_TYPE_2G,
+            C.NETWORK_TYPE_3G,
+            C.NETWORK_TYPE_4G,
+            C.NETWORK_TYPE_5G_SA,
+            C.NETWORK_TYPE_5G_NSA,
+            C.NETWORK_TYPE_CELLULAR_UNKNOWN,
+            C.NETWORK_TYPE_ETHERNET,
+            C.NETWORK_TYPE_OTHER
+    };
 
     /** Process-wide meter (replaces {@code DefaultBandwidthMeter.getSingletonInstance}), seeded once. */
     private static DefaultBandwidthMeter sBandwidthMeter;
 
     private static synchronized DefaultBandwidthMeter getOrCreateBandwidthMeter(Context context) {
         if (sBandwidthMeter == null) {
-            DefaultBandwidthMeter.Builder builder = new DefaultBandwidthMeter.Builder(context);
-            long saved = context.getSharedPreferences(NETWORK_PREFS_NAME, Context.MODE_PRIVATE)
-                    .getLong(KEY_BITRATE_ESTIMATE, 0);
-            if (saved >= MIN_PERSISTED_BITRATE && saved <= MAX_PERSISTED_BITRATE) {
-                builder.setInitialBitrateEstimate(saved);
-                Log.d(TAG, "bandwidth meter seeded with persisted estimate: " + saved + " bps");
+            DefaultBandwidthMeter.Builder builder = new DefaultBandwidthMeter.Builder(context)
+                    .setResetOnNetworkTypeChange(true);
+            SharedPreferences preferences =
+                    context.getSharedPreferences(NETWORK_PREFS_NAME, Context.MODE_PRIVATE);
+            int currentType = currentNetworkType(context);
+
+            // One-time, conservative migration: assign the old global seed only to the network
+            // class active during migration. Never copy a Wi-Fi estimate into every mobile class.
+            String currentKey = bitrateKey(currentType);
+            long legacy = preferences.getLong(KEY_BITRATE_ESTIMATE, 0);
+            if (isPersistableNetworkType(currentType)
+                    && !preferences.contains(currentKey)
+                    && isValidBitrate(legacy)) {
+                preferences.edit().putLong(currentKey, legacy).remove(KEY_BITRATE_ESTIMATE).apply();
+            }
+
+            int seededTypes = 0;
+            long currentSeed = 0;
+            for (int networkType : SEEDED_NETWORK_TYPES) {
+                long saved = preferences.getLong(bitrateKey(networkType), 0);
+                if (isValidBitrate(saved)) {
+                    builder.setInitialBitrateEstimate(networkType, saved);
+                    seededTypes++;
+                    if (networkType == currentType) {
+                        currentSeed = saved;
+                    }
+                }
             }
             sBandwidthMeter = builder.build();
+            NetPath.log(NetPath.context() + " abr-init network=" + networkTypeName(currentType)
+                    + " seed=" + (currentSeed > 0 ? currentSeed : "default")
+                    + " storedTypes=" + seededTypes);
         }
         return sBandwidthMeter;
     }
@@ -165,9 +207,89 @@ public class Media3SourceFactory {
             return;
         }
         long estimate = meter.getBitrateEstimate();
-        if (estimate >= MIN_PERSISTED_BITRATE && estimate <= MAX_PERSISTED_BITRATE) {
+        int networkType = currentNetworkType(mContext);
+        if (isPersistableNetworkType(networkType) && isValidBitrate(estimate)) {
             mContext.getSharedPreferences(NETWORK_PREFS_NAME, Context.MODE_PRIVATE)
-                    .edit().putLong(KEY_BITRATE_ESTIMATE, estimate).apply();
+                    .edit().putLong(bitrateKey(networkType), estimate).apply();
+            NetPath.log(NetPath.context() + " abr-persist network=" + networkTypeName(networkType)
+                    + " estimate=" + estimate);
+        }
+    }
+
+    private static boolean isValidBitrate(long bitrate) {
+        return bitrate >= MIN_PERSISTED_BITRATE && bitrate <= MAX_PERSISTED_BITRATE;
+    }
+
+    private static boolean isPersistableNetworkType(int networkType) {
+        return networkType != C.NETWORK_TYPE_UNKNOWN && networkType != C.NETWORK_TYPE_OFFLINE;
+    }
+
+    private static String bitrateKey(int networkType) {
+        return KEY_BITRATE_ESTIMATE_PREFIX + networkType;
+    }
+
+    /**
+     * NetworkTypeObserver is callback-driven and commonly returns UNKNOWN during the first few
+     * hundred milliseconds of a cold process even though ConnectivityManager already has the
+     * default network. Fill that startup gap for seed selection/migration. Cellular generation is
+     * intentionally left as CELLULAR_UNKNOWN rather than requiring phone-state permissions.
+     */
+    private static int currentNetworkType(Context context) {
+        int observed = NetworkTypeObserver.getInstance(context).getNetworkType();
+        if (observed != C.NETWORK_TYPE_UNKNOWN) {
+            return observed;
+        }
+        try {
+            ConnectivityManager manager = (ConnectivityManager)
+                    context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            Network network = manager != null ? manager.getActiveNetwork() : null;
+            NetworkCapabilities caps = network != null
+                    ? manager.getNetworkCapabilities(network) : null;
+            if (network == null) {
+                return C.NETWORK_TYPE_OFFLINE;
+            }
+            if (caps == null) {
+                return C.NETWORK_TYPE_UNKNOWN;
+            }
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                return C.NETWORK_TYPE_WIFI;
+            }
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
+                return C.NETWORK_TYPE_ETHERNET;
+            }
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
+                return C.NETWORK_TYPE_CELLULAR_UNKNOWN;
+            }
+            return C.NETWORK_TYPE_OTHER;
+        } catch (RuntimeException e) {
+            return C.NETWORK_TYPE_UNKNOWN;
+        }
+    }
+
+    private static String networkTypeName(int networkType) {
+        switch (networkType) {
+            case C.NETWORK_TYPE_OFFLINE:
+                return "offline";
+            case C.NETWORK_TYPE_WIFI:
+                return "wifi";
+            case C.NETWORK_TYPE_2G:
+                return "2g";
+            case C.NETWORK_TYPE_3G:
+                return "3g";
+            case C.NETWORK_TYPE_4G:
+                return "4g";
+            case C.NETWORK_TYPE_5G_SA:
+                return "5g-sa";
+            case C.NETWORK_TYPE_5G_NSA:
+                return "5g-nsa";
+            case C.NETWORK_TYPE_CELLULAR_UNKNOWN:
+                return "cell";
+            case C.NETWORK_TYPE_ETHERNET:
+                return "ethernet";
+            case C.NETWORK_TYPE_OTHER:
+                return "other";
+            default:
+                return "unknown(" + networkType + ')';
         }
     }
 

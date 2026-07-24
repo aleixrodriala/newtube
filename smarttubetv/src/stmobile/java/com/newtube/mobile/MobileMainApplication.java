@@ -94,6 +94,11 @@ public class MobileMainApplication extends MainApplication {
         // global exception handler and every other View->Activity mapping.
         super.onCreate();
 
+        // NETWORK FORENSICS (mobile-only): observe default-network replacements/capability changes
+        // so a Wi-Fi -> 5G transition can be correlated with URL remints, media errors and ABR
+        // resets. The monitor is read-only and logs no SSID, carrier, IP, DNS or account data.
+        NetworkDiagnostics.start(this);
+
         // CAPTION DEFAULT MIGRATION (mobile-only, one-shot): the default caption look changed
         // from the TV yellow-on-semi preset to the official app's white-on-semi. The style index
         // is persisted inside the PlayerData blob even for users who never touched it, so

@@ -41,7 +41,11 @@ public class VideoLoaderController extends BasePlayerController {
     private long mSleepTimerStartMs;
     private Disposable mFormatInfoAction;
     private final Runnable mReloadVideo = () -> {
-        getMainController().onNewVideo(getVideo());
+        Video video = getVideo();
+        NetPath.log(NetPath.context() + " reload-dispatch video="
+                + (video != null ? video.videoId : "?")
+                + " pos=" + (getPlayer() != null ? getPlayer().getPositionMs() : -1));
+        getMainController().onNewVideo(video);
     };
     private final Runnable mLoadNext = this::loadNext;
     private final Runnable mMetadataSync = () -> {
@@ -407,6 +411,8 @@ public class VideoLoaderController extends BasePlayerController {
 
         if (getPlayer().isEngineInitialized()) {
             Log.d(TAG, "Reloading the video...");
+            NetPath.log(NetPath.context() + " reload-post delayMs=" + delayMs
+                    + " pos=" + getPlayer().getPositionMs());
             Utils.postDelayed(mReloadVideo, delayMs);
         }
     }
@@ -425,6 +431,8 @@ public class VideoLoaderController extends BasePlayerController {
     private void restartEngine(int delayMs) {
         if (getPlayer() != null) {
             Log.d(TAG, "Restarting the engine...");
+            NetPath.log(NetPath.context() + " engine-restart-post delayMs=" + delayMs
+                    + " pos=" + getPlayer().getPositionMs());
             Utils.postDelayed(mRestartEngine, delayMs);
         }
     }

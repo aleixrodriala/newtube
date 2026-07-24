@@ -9,6 +9,7 @@ import android.speech.SpeechRecognizer;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
@@ -28,6 +29,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.search.MediaServiceSearc
 import com.liskovsoft.smartyoutubetv2.common.app.models.search.vineyard.Tag;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.SearchPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SearchView;
+import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.browse.VideoCardAdapter;
 import com.newtube.mobile.ui.common.MobileActivity;
@@ -107,6 +109,10 @@ public class MobileSearchActivity extends MobileActivity
     private int mSuggestGeneration;
     /** Last query handed to the presenter - the tap-to-retry target for the empty state. */
     private String mSubmittedQuery;
+    /** Prevent an IME that emits both editor-action and raw-key callbacks from searching twice. */
+    private long mLastSubmitAtMs;
+    private String mLastSubmitText;
+    private int mSubmitSequence;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -207,8 +213,21 @@ public class MobileSearchActivity extends MobileActivity
         });
 
         mSearchInput.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                submitSearch(mSearchInput.getText().toString());
+            int keyCode = event != null ? event.getKeyCode() : KeyEvent.KEYCODE_UNKNOWN;
+            int keyAction = event != null ? event.getAction() : -1;
+            if (isSearchSubmission(actionId, keyCode, keyAction)) {
+                submitSearch(mSearchInput.getText().toString(),
+                        actionId == EditorInfo.IME_ACTION_SEARCH ? "ime-search" : "editor-enter");
+                return true;
+            }
+            return false;
+        });
+
+        // Some hardware keyboards and Android/ADB input paths deliver Enter only through OnKey
+        // (IME action is NULL); consume ACTION_UP so a DOWN+UP pair cannot submit twice.
+        mSearchInput.setOnKeyListener((v, keyCode, event) -> {
+            if (isSearchSubmission(EditorInfo.IME_NULL, keyCode, event.getAction())) {
+                submitSearch(mSearchInput.getText().toString(), "raw-enter");
                 return true;
             }
             return false;
@@ -300,19 +319,50 @@ public class MobileSearchActivity extends MobileActivity
     }
 
     private void submitSearch(String query) {
-        if (mPresenter == null || TextUtils.isEmpty(query)) {
+        submitSearch(query, "ui");
+    }
+
+    private void submitSearch(String query, String source) {
+        String normalized = query != null ? query.trim() : "";
+        if (mPresenter == null || TextUtils.isEmpty(normalized)) {
+            NetPath.log("search-submit ignored source=" + source + " reason="
+                    + (mPresenter == null ? "presenter-null" : "empty"));
             return;
         }
 
+        long now = android.os.SystemClock.uptimeMillis();
+        if (normalized.equals(mLastSubmitText) && now - mLastSubmitAtMs < 750) {
+            NetPath.log("search-submit deduped source=" + source
+                    + " chars=" + normalized.length());
+            return;
+        }
+        mLastSubmitAtMs = now;
+        mLastSubmitText = normalized;
+        int sequence = ++mSubmitSequence;
+        NetPath.log("search-submit sid=" + sequence + " source=" + source
+                + " chars=" + normalized.length()
+                + " hadFocus=" + (mSearchInput.hasFocus() ? "y" : "n"));
+
         mSearchInput.removeCallbacks(mSuggestReload); // a pending suggest reload is moot now
         mSuggestGeneration++;                         // and any in-flight response is stale
-        mSubmittedQuery = query;
+        mSubmittedQuery = normalized;
         mSearchMessage.setVisibility(View.GONE);
         hideKeyboard();
         mSearchInput.clearFocus();
         mSuggestions.setVisibility(View.GONE);
         mTagAdapter.clearTags();
-        mPresenter.onSearch(query);
+        mPresenter.onSearch(normalized);
+    }
+
+    /** Pure submission predicate kept package-visible for the hardware/IME regression test. */
+    static boolean isSearchSubmission(int actionId, int keyCode, int keyAction) {
+        boolean imeAction = actionId == EditorInfo.IME_ACTION_SEARCH
+                || actionId == EditorInfo.IME_ACTION_DONE
+                || actionId == EditorInfo.IME_ACTION_GO
+                || actionId == EditorInfo.IME_ACTION_SEND;
+        boolean enterReleased = keyCode == KeyEvent.KEYCODE_ENTER
+                && keyAction == KeyEvent.ACTION_UP;
+        return imeAction || enterReleased;
     }
 
     // ---------------------------------------------------------------------------------
@@ -485,6 +535,7 @@ public class MobileSearchActivity extends MobileActivity
         }
 
         runOnUiThread(() -> {
+            int incoming = group.getVideos() != null ? group.getVideos().size() : 0;
             switch (group.getAction()) {
                 case VideoGroup.ACTION_REPLACE:
                     mVideos.clear();
@@ -510,6 +561,9 @@ public class MobileSearchActivity extends MobileActivity
 
             mLastPaginationTriggerCount = -1; // allow pagination to fire again at the new size
             mAdapter.submitList(new ArrayList<>(mVideos));
+            NetPath.log("search-results sid=" + mSubmitSequence
+                    + " action=" + group.getAction() + " incoming=" + incoming
+                    + " total=" + mVideos.size());
             if (!mVideos.isEmpty()) {
                 mSearchMessage.setVisibility(View.GONE);
             }
@@ -571,6 +625,7 @@ public class MobileSearchActivity extends MobileActivity
             mVideos.clear();
             mLastPaginationTriggerCount = -1;
             mAdapter.submitList(new ArrayList<>());
+            NetPath.log("search-results sid=" + mSubmitSequence + " cleared");
         });
     }
 
@@ -601,6 +656,9 @@ public class MobileSearchActivity extends MobileActivity
     public void showProgressBar(boolean show) {
         runOnUiThread(() -> {
             mProgressBar.setVisibility(show ? View.VISIBLE : View.GONE);
+            NetPath.log("search-progress sid=" + mSubmitSequence
+                    + " visible=" + (show ? "y" : "n")
+                    + " results=" + mVideos.size());
             if (show) {
                 mSearchMessage.setVisibility(View.GONE);
             } else if (mVideos.isEmpty() && mSubmittedQuery != null
