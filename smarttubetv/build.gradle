@@ -127,6 +127,15 @@ android {
         debug {
             if (keystorePropertiesFile.exists()) {
                 signingConfig signingConfigs.release
+            } else {
+                // No keystore.properties on this machine, so debug falls back to the auto-generated
+                // debug key and can NOT replace an installed release build (INSTALL_FAILED_UPDATE_
+                // INCOMPATIBLE). Suffixing the applicationId lets the debug build sit side by side
+                // with the daily driver instead of forcing an uninstall that would wipe the signed-in
+                // OAuth state. All manifest authorities already interpolate ${applicationId}, so they
+                // follow the suffix automatically. When the release keystore IS present this branch
+                // is skipped and debug keeps replacing release in place, exactly as before.
+                applicationIdSuffix ".debug"
             }
         }
     }
