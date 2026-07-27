@@ -173,6 +173,13 @@ public class MobileMainApplication extends MainApplication {
                 VideoInfoService.setKeepSigRuntimeAlive(false);
                 android.util.Log.w("NetPath", "sig-runtime keep-alive disabled (debug)");
             }
+
+            // ...and for the cold-open arm of the eager watch-page fetch ("0" = the fetch waits
+            // for onVideoLoaded on a cold open, as it did before the park/replay mechanism).
+            if ("0".equals(getDebugSystemProperty("debug.arc.eager_cold"))) {
+                SuggestionsController.setEagerColdOpenEnabled(false);
+                android.util.Log.w("NetPath", "cold-open eager suggestions disabled (debug)");
+            }
         }
 
         // LIVE ROUTING (mobile-only): WEB_EMBED answers live videos HLS-only (no dashManifestUrl

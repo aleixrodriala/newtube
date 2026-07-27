@@ -91,6 +91,16 @@ public abstract class BasePlayerController implements PlayerEventListener {
         return mMainController != null ? mMainController.getPlayer() : null;
     }
 
+    /**
+     * NEWTUBE: true when there is a LIVE view to paint into. {@link #getPlayer()} deliberately
+     * keeps handing back a view whose Activity is already finishing or destroyed (see
+     * {@code PlaybackPresenter.getPlayer}); for anything that paints, that is indistinguishable
+     * from having no view at all - the calls succeed and the pixels go nowhere.
+     */
+    public boolean isPlayerAlive() {
+        return mMainController != null && mMainController.getView() != null;
+    }
+
     @Nullable
     public Video getVideo() {
         return mMainController != null ? mMainController.getVideo() : null;

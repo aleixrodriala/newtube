@@ -28,6 +28,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.misc.BrowseProcessorManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
+import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
@@ -65,10 +66,32 @@ public class SuggestionsController extends BasePlayerController {
     // VideoStateController.onMetadata restores position/speed) and must not run before the new
     // stream is actually loaded. Set from MobileMainApplication only; TV default false.
     private static volatile boolean sEagerSuggestionsEnabled;
+    // NEWTUBE(mobile): a COLD open (deep link, notification, a launch that starts on the player)
+    // runs onNewVideo BEFORE the playback Activity exists, so the eager fetch above used to be
+    // skipped there - exactly the open that needs it most, because nothing else is on the wire.
+    // Firing it that early means the metadata can land while getPlayer() is still null, and every
+    // delivery point below early-returns on a null player, so the watch page would silently stay
+    // empty. Park the document instead and replay it from onInit(), which the Activity calls once
+    // its watch UI is inflated (setContentView + setupWatchContent both run BEFORE
+    // setView/onViewInitialized - see MobilePlaybackActivity.onCreate). False restores the old
+    // wait-for-onVideoLoaded behaviour so both arms of a paired A/B run from one apk.
+    private static volatile boolean sEagerColdOpenEnabled = true;
     private String mEagerVideoId;
     private boolean mEagerDelivered;
     private MediaItemMetadata mPendingListenerMetadata;
     private String mLoadedVideoId;
+    private MediaItemMetadata mPendingViewMetadata;
+    private Video mPendingViewVideo;
+    /**
+     * Park and replay both run on the main thread as things stand: the metadata callback is
+     * delivered through {@code RxHelper.create}, which ends in
+     * {@code observeOn(AndroidSchedulers.mainThread())}, and onInit() is called from the
+     * Activity's onCreate. That ordering is exactly what makes the replay safe, so the pair is
+     * fenced here instead of resting on an assumption a future scheduler change could quietly
+     * invalidate - whichever side runs second must see the other's write, and both test
+     * isPlayerAlive() INSIDE the lock so the answer cannot go stale between test and act.
+     */
+    private final Object mPendingViewLock = new Object();
 
     public static void setRowContinuationsDisabled(boolean disabled) {
         sRowContinuationsDisabled = disabled;
@@ -76,6 +99,10 @@ public class SuggestionsController extends BasePlayerController {
 
     public static void setEagerSuggestionsEnabled(boolean enabled) {
         sEagerSuggestionsEnabled = enabled;
+    }
+
+    public static void setEagerColdOpenEnabled(boolean enabled) {
+        sEagerColdOpenEnabled = enabled;
     }
 
     private interface OnVideoGroup {
@@ -91,6 +118,39 @@ public class SuggestionsController extends BasePlayerController {
         mBrowseProcessor = new BrowseProcessorManager(getContext(), PlaybackPresenter.instance(getContext())::syncItem);
         mMediaItemService = YouTubeServiceManager.instance().getMediaItemService();
         mContentService = YouTubeServiceManager.instance().getContentService();
+
+        // NEWTUBE(mobile): the player view exists now (the Activity sets it right before calling
+        // this), so hand over anything the cold-open fetch had to park. See mPendingViewMetadata.
+        deliverPendingViewMetadata();
+    }
+
+    /**
+     * NEWTUBE(mobile): the services are cached in {@link #onInit}, but the eager fetch can run
+     * before that on a cold open. Resolving them on demand costs nothing - the service manager
+     * hands back process-wide singletons - and keeps every call site null-safe.
+     */
+    private MediaItemService mediaItemService() {
+        if (mMediaItemService == null) {
+            mMediaItemService = getMediaItemService();
+        }
+
+        return mMediaItemService;
+    }
+
+    private ContentService contentService() {
+        if (mContentService == null) {
+            mContentService = getContentService();
+        }
+
+        return mContentService;
+    }
+
+    private BrowseProcessorManager browseProcessor() {
+        if (mBrowseProcessor == null) {
+            mBrowseProcessor = new BrowseProcessorManager(getContext(), PlaybackPresenter.instance(getContext())::syncItem);
+        }
+
+        return mBrowseProcessor;
     }
 
     @Override
@@ -115,12 +175,14 @@ public class SuggestionsController extends BasePlayerController {
 
         // NEWTUBE(mobile): kick the metadata fetch NOW, in parallel with the format fetch and
         // engine load, instead of waiting for onVideoLoaded. See sEagerSuggestionsEnabled docs.
-        // mMediaItemService null = onInit hasn't run yet (very first open launches the playback
-        // view AFTER this callback) - skip; onVideoLoaded then loads the classic way.
+        // mMediaItemService null = onInit hasn't run yet, i.e. this is a COLD open (the playback
+        // view is started right after this callback). That used to be skipped; it is now covered
+        // by the park/replay mechanism - see sEagerColdOpenEnabled.
         mPendingListenerMetadata = null;
         mLoadedVideoId = null;
         mEagerDelivered = false;
-        if (sEagerSuggestionsEnabled && video != null && video.hasVideo() && mMediaItemService != null) {
+        boolean canFetch = mMediaItemService != null || sEagerColdOpenEnabled;
+        if (sEagerSuggestionsEnabled && video != null && video.hasVideo() && canFetch) {
             mEagerVideoId = video.videoId;
             loadSuggestions(video);
         } else {
@@ -133,6 +195,10 @@ public class SuggestionsController extends BasePlayerController {
      */
     @Override
     public void onVideoLoaded(Video item) {
+        // NEWTUBE(mobile): normally onInit already replayed this (it runs a whole video-load
+        // earlier); this covers the case where the view arrived without an onInit of its own.
+        deliverPendingViewMetadata();
+
         // NEWTUBE(mobile): the eager fetch from onNewVideo is either still in flight or already
         // delivered for this exact video - don't fetch the same document twice. If it FAILED
         // (not delivered, nothing running) fall through and reload the classic way.
@@ -257,14 +323,14 @@ public class SuggestionsController extends BasePlayerController {
 
         MediaGroup mediaGroup = group.getMediaGroup();
 
-        Disposable continueAction = mContentService.continueGroupObserve(mediaGroup)
+        Disposable continueAction = contentService().continueGroupObserve(mediaGroup)
                 .subscribe(
                         continueMediaGroup -> {
                             getPlayer().showProgressBar(false);
 
                             VideoGroup videoGroup = VideoGroup.from(group, continueMediaGroup);
                             getPlayer().updateSuggestions(videoGroup);
-                            mBrowseProcessor.process(videoGroup);
+                            browseProcessor().process(videoGroup);
 
                             mergeUserAndRemoteQueue(videoGroup);
 
@@ -308,6 +374,11 @@ public class SuggestionsController extends BasePlayerController {
             return;
         }
 
+        if (sEagerSuggestionsEnabled) {
+            NetPath.log(NetPath.context() + " suggest fetch +" + NetPath.elapsedMs()
+                    + " view=" + (isPlayerAlive() ? "y" : "n"));
+        }
+
         clearSuggestionsIfNeeded(video);
         loadMetadata(video, metadata -> updateSuggestions(metadata, video));
     }
@@ -324,7 +395,7 @@ public class SuggestionsController extends BasePlayerController {
 
         // NOTE: Load suggestions from mediaItem isn't robust. Because playlistId may be initialized from RemoteControlManager.
         // Video might be loaded from Channels section (has playlistParams)
-        observable = mMediaItemService.getMetadataObserve(video.videoId, video.getPlaylistId(), video.playlistIndex, video.playlistParams);
+        observable = mediaItemService().getMetadataObserve(video.videoId, video.getPlaylistId(), video.playlistIndex, video.playlistParams);
 
         Disposable metadataAction = observable
                 .subscribe(
@@ -419,6 +490,25 @@ public class SuggestionsController extends BasePlayerController {
     }
 
     private void updateSuggestions(MediaItemMetadata mediaItemMetadata, Video video) {
+        // NEWTUBE(mobile): cold open - the playback Activity isn't up yet, so syncCurrentVideo,
+        // appendSuggestions and onWatchMetadata below would all no-op against a null player and
+        // the document would be lost. Park it; onInit replays this exact call. See the field docs.
+        // isPlayerAlive() (not getPlayer() != null) because a view whose Activity is already
+        // destroyed still answers every one of those calls - it just paints into nothing.
+        if (sEagerSuggestionsEnabled && mediaItemMetadata != null && video != null) {
+            synchronized (mPendingViewLock) {
+                if (!isPlayerAlive()) {
+                    mPendingViewMetadata = mediaItemMetadata;
+                    mPendingViewVideo = video;
+                    if (Helpers.equals(video.videoId, mEagerVideoId)) {
+                        mEagerDelivered = true; // the document is in hand: don't refetch it
+                    }
+                    NetPath.log(NetPath.context() + " suggest parked +" + NetPath.elapsedMs());
+                    return;
+                }
+            }
+        }
+
         syncCurrentVideo(mediaItemMetadata, video);
 
         appendSuggestions(video, mediaItemMetadata);
@@ -446,6 +536,42 @@ public class SuggestionsController extends BasePlayerController {
         if (getPlayer() != null) {
             getPlayer().onWatchMetadata(mediaItemMetadata);
         }
+
+        if (sEagerSuggestionsEnabled) {
+            NetPath.log(NetPath.context() + " suggest ready +" + NetPath.elapsedMs());
+        }
+    }
+
+    /**
+     * NEWTUBE(mobile): replay a metadata document that landed before the playback view existed.
+     * Called from {@link #onInit} (the normal case, one whole video-load before the classic path
+     * would even start fetching) and defensively from {@link #onVideoLoaded}. Nothing is cleared
+     * unless it can actually be delivered, so a still-viewless call is a no-op rather than a drop.
+     */
+    private void deliverPendingViewMetadata() {
+        MediaItemMetadata metadata;
+        Video video;
+
+        synchronized (mPendingViewLock) {
+            if (mPendingViewMetadata == null || !isPlayerAlive()) {
+                return;
+            }
+
+            metadata = mPendingViewMetadata;
+            video = mPendingViewVideo;
+            mPendingViewMetadata = null;
+            mPendingViewVideo = null;
+        }
+
+        // Only for the open this document belongs to: a parked document from a previous open
+        // would repaint the watch page with the wrong video.
+        if (video == null || !Helpers.equals(video.videoId, mEagerVideoId)) {
+            return;
+        }
+
+        NetPath.log(NetPath.context() + " suggest replay +" + NetPath.elapsedMs());
+
+        updateSuggestions(metadata, video);
     }
 
     private void appendSuggestions(Video video, MediaItemMetadata mediaItemMetadata) {
@@ -504,7 +630,7 @@ public class SuggestionsController extends BasePlayerController {
                 }
 
                 getPlayer().updateSuggestions(videoGroup);
-                mBrowseProcessor.process(videoGroup);
+                browseProcessor().process(videoGroup);
 
                 if (groupIndex == 0) {
                     focusAndContinueIfNeeded(videoGroup);
@@ -939,6 +1065,10 @@ public class SuggestionsController extends BasePlayerController {
         mChapters = null;
         mNextSectionVideo = null;
         mPendingListenerMetadata = null; // NEWTUBE(mobile): never deliver a stale held-back callback
+        synchronized (mPendingViewLock) { // ...nor a parked document from an abandoned open
+            mPendingViewMetadata = null;
+            mPendingViewVideo = null;
+        }
         if (mBrowseProcessor != null) {
             mBrowseProcessor.dispose();
         }
@@ -956,7 +1086,7 @@ public class SuggestionsController extends BasePlayerController {
             return;
         }
 
-        Observable<DislikeData> dislikeDataObserve = mMediaItemService.getDislikeDataObserve(video.videoId);
+        Observable<DislikeData> dislikeDataObserve = mediaItemService().getDislikeDataObserve(video.videoId);
 
         Disposable dislikeAction = dislikeDataObserve.subscribe(
                 dislikeData -> {

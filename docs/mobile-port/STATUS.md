@@ -256,6 +256,35 @@ All device-verified on the Pixel 9 (WiFi, signed in, wireless adb
   zero reloads across Mumford/RAYE/Sting/Parcels; their historical difficulty
   is carrier-attestation dynamics (HANDOFF §8), not content.
 
+## Works (added 2026-07-27 — watch page on the FIRST open of a session)
+- **Eager watch-page fetch now covers the cold open** (`setEagerColdOpenEnabled`,
+  SuggestionsController). The eager /next introduced earlier only ran when
+  `mMediaItemService != null`, i.e. only once `onInit()` had run — which
+  excluded exactly the open that needs it most: the FIRST player open of a
+  session (deep link, notification, or just the first feed tap), where
+  `openVideo()` calls `onNewVideo` and only THEN starts the playback
+  Activity. The fetch there waited for `onVideoLoaded`. Measured on a Pixel 9
+  over roaming LTE, 6 counterbalanced pairs, one apk (`debug.arc.eager_cold`):
+  fetch start **+40ms vs +2973ms**, watch page ready **paired median −2625ms,
+  A faster in 6/6 pairs**; first frame did not regress (paired −831ms, 4/5).
+- **Park/replay** is what makes it safe: the metadata can land before there is
+  anything to paint into, and every delivery point (`syncCurrentVideo`,
+  `appendSuggestions`, `onWatchMetadata`) silently no-ops on a missing player,
+  so the document is parked and replayed from `onInit()` — the Activity
+  inflates its whole watch UI *before* `setView`/`onViewInitialized`, so that
+  is a legal moment to paint. Verified with a temporary 6s delay on the player
+  Activity launch: `suggest parked +2793` → `suggest replay +6087` (at onInit,
+  54ms before the `open` milestone) → title + related cards painted.
+- The liveness test is `isPlayerAlive()` (new, BasePlayerController), NOT
+  `getPlayer() != null`: `PlaybackPresenter.getPlayer()` deliberately keeps
+  returning a view whose Activity is finishing/destroyed, and painting into
+  one is the same silent drop. This also covers "player Activity was backed
+  out of, process still warm, open another video" — verified `view=n` there.
+- Failure path verified for free (the test link's VPN DNS was dropping the
+  first request per open): eager /next fails → `mEagerDelivered` stays false →
+  `onVideoLoaded` refetches the classic way → page still paints.
+- NetPath gained `suggest fetch/parked/replay/ready` (mobile gate only).
+
 ## Works (added 2026-07-18 — feed-load round, tier 2)
 All six approved tier-2 items shipped (Pixel 9 WiFi-verified same day, cold
 start × 2 + subs + TTL switches + pull-to-refresh + playback soak):
