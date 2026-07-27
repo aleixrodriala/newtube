@@ -1,6 +1,7 @@
 package com.liskovsoft.smartyoutubetv2.common.app.models.playback.controllers;
 
 import android.os.Build.VERSION;
+import android.text.TextUtils;
 
 import com.liskovsoft.mediaserviceinterfaces.MediaItemService;
 import com.liskovsoft.mediaserviceinterfaces.ServiceManager;
@@ -319,7 +320,21 @@ public class VideoLoaderController extends BasePlayerController {
 
         String bgImageUrl = null;
 
+        boolean hadTitle = !TextUtils.isEmpty(getVideo().getTitleFull());
+
         getVideo().sync(formatInfo);
+
+        // A deep-link open starts with an id-only Video, so nothing has painted a title yet. If the
+        // sync above took one from /player's videoDetails, push it now instead of waiting for /next.
+        // Same rebind the SuggestionsController does once the metadata folds in.
+        // Measured on a Pixel 9: only the web clients answer with a populated videoDetails
+        // (WEB/WEB_EMBED -> title, author, viewCount, shortDescription all present). The
+        // authenticated TV clients this app prefers when signed in (TV, TV_DOWNGRADED) return a
+        // videoDetails stripped down to videoId + lengthSeconds, so a signed-in open still has to
+        // wait for /next. Kept because it is free and covers the signed-out path.
+        if (!hadTitle && !TextUtils.isEmpty(getVideo().getTitleFull())) {
+            player.setVideo(getVideo());
+        }
 
         // Fix stretched video for a couple milliseconds (before the onVideoSizeChanged gets called)
         applyAspectRatio(formatInfo);

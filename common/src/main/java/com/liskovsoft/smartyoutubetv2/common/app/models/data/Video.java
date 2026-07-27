@@ -773,6 +773,17 @@ public final class Video {
 
         metadataTitle = formatInfo.getPlayabilityReason(); // null if has media formats
 
+        // Deep-link/notification opens synthesize a Video from the id alone, so the header sits blank
+        // until /next lands. The web clients' /player already carries the title and channel in
+        // videoDetails - fill the gaps only, so a card tap keeps the richer feed text. (The
+        // authenticated TV clients return a stripped videoDetails; see VideoLoaderController.)
+        if (title == null) {
+            title = formatInfo.getTitle();
+        }
+        if (author == null) {
+            author = formatInfo.getAuthor();
+        }
+
         isLive = formatInfo.isLive();
         if (isLive) {
             isUpcoming = false;

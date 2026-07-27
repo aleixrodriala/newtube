@@ -141,6 +141,13 @@ public class MobileMainApplication extends MainApplication {
         // recovery cursor is one-shot; TV boxes keep their historical ordering.
         VideoInfoService.setPreferAttestedWebFallback(true);
 
+        // SIGNATURE-SOLVER RUNTIME (mobile-only): the solver disposed its V8 runtime after EVERY
+        // solve, so each open rebuilt the heap and re-evaluated the solver lib on the critical path
+        // -- and the existing async warmup was undone by the very first video. Keep it alive and
+        // release it on memory pressure instead (see onTrimMemory). TV boxes are far more
+        // memory-constrained and keep the historical dispose-every-time behaviour.
+        VideoInfoService.setKeepSigRuntimeAlive(true);
+
         // 403 PLAYGROUND (debug builds only): force one /player client and disable the fallback
         // ring so client/token behavior is independently measurable on the connected device.
         // Re-read on process start; device-soak.sh sets the property then force-stops the app.
@@ -236,13 +243,6 @@ public class MobileMainApplication extends MainApplication {
         // Web clients: a BotGuard token cannot attest ANDROID_VR/TV/IOS and must not be appended as
         // a cross-platform media-URL fallback. TV never calls this.
         VideoInfoService.warmUpPoTokenGate();
-
-        // SIGNATURE-SOLVER RUNTIME (mobile-only): the solver disposed its V8 runtime after EVERY
-        // solve, so each open rebuilt the heap and re-evaluated the solver lib on the critical path
-        // -- and the existing async warmup was undone by the very first video. Keep it alive and
-        // release it on memory pressure instead (see onTrimMemory). TV boxes are far more
-        // memory-constrained and keep the historical dispose-every-time behaviour.
-        VideoInfoService.setKeepSigRuntimeAlive(true);
 
         // NOTE(perf history): a head-of-stream segment prefetch into the disk cache was tried here
         // and REMOVED - a cold-cache A/B showed no TTFF win (median +339ms WORSE with it on: the
