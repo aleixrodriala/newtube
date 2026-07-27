@@ -942,6 +942,8 @@ public class MobilePlaybackActivity extends MobileActivity
         mIsResumed = true;
         // In the foreground again: auto-PiP behaves normally from here on.
         mSuppressAutoPip = false;
+        mDismissDragActive = false;
+        mPipEnterPending = false;
         // The PiP exit ended in the fullscreen UI, so it was an expand, not a dismiss.
         mPipDismissPending = false;
         // Re-enable the video track BEFORE any texture reattach below, so the first frame comes
@@ -1135,6 +1137,22 @@ public class MobilePlaybackActivity extends MobileActivity
     /** Set while minimizing into the in-app mini-player, so auto-PiP keeps its hands off. */
     private boolean mSuppressAutoPip;
 
+    /**
+     * Set from the first pixel of a swipe-down minimize until the drag is cancelled or the player
+     * has docked. {@link #mSuppressAutoPip} alone is too late: it is raised when the drag RELEASES,
+     * and the system latches the standing auto-enter flag when the home gesture STARTS, so a home
+     * gesture that overlaps the drag still pinned the task ~120ms after Browse had been reordered
+     * into it - which is how the whole app ended up rendered inside the PiP window.
+     */
+    private boolean mDismissDragActive;
+
+    /**
+     * True between {@code enterPictureInPictureMode()} being accepted and
+     * {@link #onPictureInPictureModeChanged} actually arriving (~15-80ms). The task is already on
+     * its way to pinned in that window, so the minimize guards have to treat it as PiP.
+     */
+    private boolean mPipEnterPending;
+
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
@@ -1142,6 +1160,13 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mSuppressAutoPip) {
             // Backgrounding into the Browse mini-player, not leaving the app: no system PiP.
             logPip("leave-skip reason=mini-handoff");
+            return;
+        }
+        if (mDismissDragActive) {
+            // A minimize swipe is in flight; mSuppressAutoPip is only raised when it RELEASES.
+            // Entering PiP here pins the task, and the release then reorders Browse into it - the
+            // whole app ends up drawn inside the PiP window. The drag wins: it docks in-app.
+            logPip("leave-skip reason=minimize-drag");
             return;
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || mIsInPip || isFinishing()) {
@@ -1389,6 +1414,10 @@ public class MobilePlaybackActivity extends MobileActivity
             showControlsInternal(false);
             logPip("enter-refused-restored");
         } else {
+            // onPictureInPictureModeChanged(true) lands a frame or two later; until it does,
+            // mIsInPip is still false and the minimize guards would wave a hand-off through into
+            // what is already becoming a pinned task. Treat "accepted" as "in PiP" from here.
+            mPipEnterPending = true;
             logPip("enter-accepted");
         }
     }
@@ -1468,6 +1497,7 @@ public class MobilePlaybackActivity extends MobileActivity
      */
     private boolean shouldAutoEnterPip() {
         return !mSuppressAutoPip
+                && !mDismissDragActive
                 && mIsResumed
                 && !isFinishing()
                 && !mIsEnded
@@ -1526,6 +1556,14 @@ public class MobilePlaybackActivity extends MobileActivity
             return;
         }
         try {
+            if (BuildConfig.DEBUG) {
+                // Fires on every play-state change - debug only. This is the line that showed the
+                // auto-enter flag being disarmed ~120ms AFTER the home gesture had already latched
+                // it, which is what made the whole app render inside the PiP window.
+                logPip("params autoEnter=" + (shouldAutoEnterPip() ? "y" : "n")
+                        + " suppress=" + mSuppressAutoPip + " drag=" + mDismissDragActive
+                        + " resumed=" + mIsResumed + " miniActive=" + MiniPlayerBridge.isActive());
+            }
             setPictureInPictureParams(buildPipParams());
         } catch (Exception e) {
             logPip("params-error error=" + e.getClass().getSimpleName());
@@ -1568,6 +1606,7 @@ public class MobilePlaybackActivity extends MobileActivity
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
 
         mIsInPip = isInPictureInPictureMode;
+        mPipEnterPending = false;
         logPip("mode-changed inPip=" + (isInPictureInPictureMode ? "y" : "n")
                 + " stopped=" + (mIsStopped ? "y" : "n"));
 
@@ -3213,6 +3252,12 @@ public class MobilePlaybackActivity extends MobileActivity
             mMorphAnimator.cancel();
             mMorphAnimator = null;
         }
+        // Drag cancelled (or undone by the in-PiP guard): this window owns the video again, so
+        // re-arm the standing auto-enter flag the drag turned off.
+        if (mDismissDragActive) {
+            mDismissDragActive = false;
+            updatePipActions();
+        }
         mMorphFraction = 0f;
         mVideoArea.setScaleX(1f);
         mVideoArea.setScaleY(1f);
@@ -3260,6 +3305,10 @@ public class MobilePlaybackActivity extends MobileActivity
     public void onDismissDrag(float dy) {
         if (mMorphFraction == 0f && dy > 0f) {
             computeMorphTarget(); // anchor the corner path once per drag
+            // A downward drag means "dock it inside the app", never "PiP it". Disarm auto-enter for
+            // the whole drag so an overlapping home gesture cannot pin the task (see the field doc).
+            mDismissDragActive = true;
+            updatePipActions();
         }
         int height = Math.max(1, mContainer.getHeight());
         applyMorph(Math.min(1f, dy / (height * 0.6f)));
@@ -3307,6 +3356,18 @@ public class MobilePlaybackActivity extends MobileActivity
      * player. Called once the release animation has landed on the mini-card rectangle.
      */
     private void minimizeByDrag() {
+        // WHOLE-APP-IN-PIP GUARD: the host reorder below launches Browse into THIS activity's task.
+        // While the task is pinned that puts Browse on top of the PiP window, so the system renders
+        // the entire app - feed, tab bar and all - shrunk into the corner (and removeTop then leaves
+        // Browse alone in the pinned task). The drag settles on an animator, so a minimize started
+        // just before a home gesture still lands here ~150ms after PiP entry. Nothing to minimize
+        // into once we are already a small window: undo the morph and stay put.
+        if (mIsInPip || mPipEnterPending) {
+            logPip("minimize-blocked reason=in-pip");
+            resetMorph();
+            return;
+        }
+
         if (!prepareMiniPlayerHandoff(false)) {
             return;
         }
@@ -3318,7 +3379,9 @@ public class MobilePlaybackActivity extends MobileActivity
         final Class<?> hostView = host != null ? host.getMiniHostViewClass() : BrowseView.class;
 
         Runnable showHost = () -> {
-            if (isFinishing() || isDestroyed()) {
+            // prepareMiniHostForHandoff may run this a frame or more later, so re-check: the same
+            // reorder-into-a-pinned-task hazard the guard above covers applies at THIS point too.
+            if (isFinishing() || isDestroyed() || mIsInPip || mPipEnterPending) {
                 return;
             }
             getViewManager().startView(hostView);
@@ -3344,6 +3407,14 @@ public class MobilePlaybackActivity extends MobileActivity
 
     /** Channel navigation completed: background this player as a live in-app mini session. */
     boolean minimizeForNavigation() {
+        // Same hazard as minimizeByDrag: a channel route that resolves after PiP entry would dock
+        // the player behind an Activity living in the pinned task. Let the route open normally
+        // (own task) and leave the PiP window owning the video.
+        if (mIsInPip || mPipEnterPending) {
+            logPip("minimize-blocked reason=in-pip-navigation");
+            return false;
+        }
+
         if (!prepareMiniPlayerHandoff(true)) {
             return false;
         }
