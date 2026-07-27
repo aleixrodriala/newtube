@@ -152,6 +152,20 @@ public class MobileMainApplication extends MainApplication {
                     && !VideoInfoService.setDebugForcedClient(forcedClient)) {
                 android.util.Log.w("NetPath", "unknown debug.arc.player_client=" + forcedClient);
             }
+
+            // TTFF PLAYGROUND (debug builds only): "0" restores warming the media host only after
+            // the signature transform. Lets both arms of a paired A/B run from ONE apk - an install
+            // between arms takes long enough that the cellular link itself moves.
+            if ("0".equals(getDebugSystemProperty("debug.arc.early_preconnect"))) {
+                com.liskovsoft.youtubeapi.common.helpers.MediaHostPreconnect.setEarlyEnabled(false);
+                android.util.Log.w("NetPath", "early media-host preconnect disabled (debug)");
+            }
+
+            // Same idea for the retained signature-solver runtime.
+            if ("0".equals(getDebugSystemProperty("debug.arc.keep_sig_runtime"))) {
+                VideoInfoService.setKeepSigRuntimeAlive(false);
+                android.util.Log.w("NetPath", "sig-runtime keep-alive disabled (debug)");
+            }
         }
 
         // LIVE ROUTING (mobile-only): WEB_EMBED answers live videos HLS-only (no dashManifestUrl
@@ -222,6 +236,13 @@ public class MobileMainApplication extends MainApplication {
         // Web clients: a BotGuard token cannot attest ANDROID_VR/TV/IOS and must not be appended as
         // a cross-platform media-URL fallback. TV never calls this.
         VideoInfoService.warmUpPoTokenGate();
+
+        // SIGNATURE-SOLVER RUNTIME (mobile-only): the solver disposed its V8 runtime after EVERY
+        // solve, so each open rebuilt the heap and re-evaluated the solver lib on the critical path
+        // -- and the existing async warmup was undone by the very first video. Keep it alive and
+        // release it on memory pressure instead (see onTrimMemory). TV boxes are far more
+        // memory-constrained and keep the historical dispose-every-time behaviour.
+        VideoInfoService.setKeepSigRuntimeAlive(true);
 
         // NOTE(perf history): a head-of-stream segment prefetch into the disk cache was tried here
         // and REMOVED - a cold-cache A/B showed no TTFF win (median +339ms WORSE with it on: the
@@ -353,6 +374,27 @@ public class MobileMainApplication extends MainApplication {
         viewManager.register(AddDeviceView.class, MobileAddDeviceActivity.class, MobileBrowseActivity.class);
 
         viewManager.setRoot(MobileBrowseActivity.class);
+    }
+
+    /**
+     * The retained signature-solver V8 runtime is the one sizeable native allocation this app holds
+     * purely as a cache, so hand it back the moment the system asks for memory. It is rebuilt lazily
+     * on the next video open (costing that one open what every open used to cost).
+     */
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+
+        if (level >= TRIM_MEMORY_RUNNING_LOW) {
+            VideoInfoService.releaseSigRuntime();
+        }
+    }
+
+    @Override
+    public void onLowMemory() {
+        super.onLowMemory();
+
+        VideoInfoService.releaseSigRuntime();
     }
 
     /** Hidden API access is confined to the debuggable 403 playground and degrades to unset. */

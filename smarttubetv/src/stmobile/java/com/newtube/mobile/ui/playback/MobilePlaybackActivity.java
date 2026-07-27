@@ -299,6 +299,8 @@ public class MobilePlaybackActivity extends MobileActivity
     private boolean mIsInPip;
     /** True between onStop and onStart; distinguishes PiP-dismiss orderings (see onPictureInPictureModeChanged). */
     private boolean mIsStopped;
+    /** True between onResume and onPause. Gates auto-enter PiP (see {@link #shouldAutoEnterPip()}). */
+    private boolean mIsResumed;
     /**
      * Set when PiP mode ends, cleared when the fullscreen UI actually resumes. If onStop arrives
      * with it still set, the PiP window was DISMISSED (the X / swipe-away), not expanded: Android 16's
@@ -307,6 +309,19 @@ public class MobilePlaybackActivity extends MobileActivity
      * forever and the stopped player lingered as a zombie task that hijacked the next video open.
      */
     private boolean mPipDismissPending;
+    /**
+     * Requested orientation captured when a PiP stint began, restored when it ends;
+     * {@link #ORIENTATION_NONE} when there was nothing to restore.
+     *
+     * <p>A landscape lock must never ride into the pinned task. {@link #toggleFullscreen()} sets
+     * SCREEN_ORIENTATION_SENSOR_LANDSCAPE and nothing used to clear it, so going fullscreen and then
+     * leaving the app produced a pinned task whose activity still demanded landscape. The expand
+     * transition then could not complete at all: the window stayed {@code mode=pinned} with
+     * {@code requestedOrientation=SCREEN_ORIENTATION_SENSOR_LANDSCAPE} forever, ignoring both taps
+     * and an explicit relaunch, while rendering sideways against a portrait display. Reproduced on a
+     * Pixel 9 (Android 16) as: fullscreen -&gt; home -&gt; the PiP window can no longer be opened.</p>
+     */
+    private int mPrePipOrientation = ORIENTATION_NONE;
     /** True while in true background audio-only playback (video renderer dropped); see setBackgroundAudioMode. */
     private boolean mBackgroundAudioMode;
 
@@ -317,6 +332,8 @@ public class MobilePlaybackActivity extends MobileActivity
     // Picture-in-Picture play/pause RemoteAction wiring.
     private static final String ACTION_PIP_TOGGLE = "com.newtube.mobile.action.PIP_TOGGLE";
     private static final int PIP_REQUEST_TOGGLE = 700;
+    /** Sentinel for {@link #mPrePipOrientation}: no orientation was captured. */
+    private static final int ORIENTATION_NONE = Integer.MIN_VALUE;
     private BroadcastReceiver mPipReceiver;
 
     private final StringBuilder mFormatBuilder = new StringBuilder();
@@ -922,6 +939,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
         PlayerTransitionBridge.LaunchSnapshot launch = PlayerTransitionBridge.take();
 
+        mIsResumed = true;
         // In the foreground again: auto-PiP behaves normally from here on.
         mSuppressAutoPip = false;
         // The PiP exit ended in the fullscreen UI, so it was an expand, not a dismiss.
@@ -995,6 +1013,8 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mPresenter != null) {
             mPresenter.onViewPaused();
         }
+
+        mIsResumed = false;
 
         super.onPause();
     }
@@ -1437,9 +1457,18 @@ public class MobilePlaybackActivity extends MobileActivity
      * Auto-enter PiP is armed only while something is actually playing (or about to resume after a
      * rebuffer: playWhenReady covers both, so a home-press during buffering still PiPs, like
      * YouTube) and we're not mid-hand-off to the in-app mini-player.
+     *
+     * <p>{@link #mIsResumed} is what keeps auto-enter tied to a real user departure. The standing
+     * flag is refreshed whenever the play state changes, so without it a video that reaches
+     * playWhenReady while this Activity sits in the background arms auto-enter from the background
+     * - and the system, seeing an already-departed activity, drops it straight into PiP. Observed on
+     * a Pixel 9 as: open a video by intent while a PiP session is up, and ~7s later (the moment the
+     * new video became ready) the freshly expanded player bounced back into a PiP window on its own,
+     * which reads as "the video opened in a corner of the screen".</p>
      */
     private boolean shouldAutoEnterPip() {
         return !mSuppressAutoPip
+                && mIsResumed
                 && !isFinishing()
                 && !mIsEnded
                 && mExoPlayerController != null
@@ -1544,6 +1573,10 @@ public class MobilePlaybackActivity extends MobileActivity
 
         if (isInPictureInPictureMode) {
             mPipDismissPending = false;
+            // A forced orientation must not survive into the pinned task - it wedges the window
+            // there permanently (see mPrePipOrientation). Done here rather than in enterPipMode()
+            // because the Android 12+ home-gesture auto-enter never goes through that method.
+            releaseOrientationLockForPip();
             // Video only: hide the controls overlay and the watch-page content, fill with the
             // video. Usually already done (enterPipMode pre-applies it; the auto-enter home
             // gesture is the path that arrives here without it).
@@ -1563,10 +1596,12 @@ public class MobilePlaybackActivity extends MobileActivity
             // dismiss ends with onStop. On the older PiP shell the dismissal onStop ran BEFORE this
             // callback, so if we're already stopped this exit can only be a dismissal - finish now.
             if (mIsStopped) {
+                mPrePipOrientation = ORIENTATION_NONE; // dismissed; nothing left to restore onto
                 finishFromPipDismiss();
                 return;
             }
             mPipDismissPending = true;
+            restoreOrientationLockAfterPip();
 
             // Mirror of the setBackgroundAudioMode(false) revive: the sheet fragment survives the
             // PiP stint, so bring its stream back when the full watch UI returns.
@@ -1584,6 +1619,9 @@ public class MobilePlaybackActivity extends MobileActivity
             // no apparent controls.
             int orientation = newConfig != null ? newConfig.orientation
                     : getResources().getConfiguration().orientation;
+            logPip("exit-layout newConfig=" + (newConfig != null ? newConfig.orientation : -1)
+                    + " resources=" + getResources().getConfiguration().orientation
+                    + " chosen=" + orientation);
             applyWatchLayoutForOrientation(orientation);
             applySystemBarsForOrientation(orientation);
             updatePlayPauseIcon();
@@ -1591,6 +1629,51 @@ public class MobilePlaybackActivity extends MobileActivity
                 showControlsInternal(false);
             }
         }
+    }
+
+    /**
+     * Drop any forced orientation for the duration of a PiP stint. A PiP window is sized by its
+     * aspect ratio, never by the activity's orientation request, so nothing is lost while pinned -
+     * but leaving the request in place wedges the task in {@code mode=pinned} (see
+     * {@link #mPrePipOrientation}).
+     */
+    private void releaseOrientationLockForPip() {
+        int requested = getRequestedOrientation();
+        if (requested == ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) {
+            mPrePipOrientation = ORIENTATION_NONE;
+            return;
+        }
+
+        mPrePipOrientation = requested;
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        logPip("orientation-released requested=" + requested);
+    }
+
+    /**
+     * Put the pre-PiP orientation back once the watch UI returns, so expanding a video that was
+     * left in fullscreen lands back in fullscreen. Deliberately posted: re-asserting the lock while
+     * the PiP-to-fullscreen transition is still running makes the window rotate mid-animation.
+     */
+    private void restoreOrientationLockAfterPip() {
+        if (mPrePipOrientation == ORIENTATION_NONE) {
+            return;
+        }
+
+        final int restore = mPrePipOrientation;
+        mPrePipOrientation = ORIENTATION_NONE;
+
+        if (mVideoArea == null) {
+            setRequestedOrientation(restore);
+            return;
+        }
+        mVideoArea.post(() -> {
+            // A second PiP entry (or a finish) may have overtaken this post.
+            if (mIsInPip || isFinishing()) {
+                return;
+            }
+            setRequestedOrientation(restore);
+            logPip("orientation-restored requested=" + restore);
+        });
     }
 
     /** Sparse, credential-free PiP/surface snapshot for OEM/system transition bug reports. */
