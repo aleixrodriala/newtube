@@ -83,6 +83,7 @@ import androidx.media3.ui.TimeBar;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.mediaserviceinterfaces.data.ChatItem;
+import com.liskovsoft.mediaserviceinterfaces.data.PlaylistInfo;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerConstants;
@@ -115,6 +116,7 @@ import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.SessionWarmup;
 import com.newtube.mobile.ui.common.MobileActivity;
+import com.newtube.mobile.ui.dialog.MaxHeightRecyclerView;
 
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -122,6 +124,7 @@ import java.util.Formatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Touch player - PLAYER POLISH wave.
@@ -264,6 +267,20 @@ public class MobilePlaybackActivity extends MobileActivity
     private final LinkedHashMap<Integer, VideoGroup> mSuggestionGroups = new LinkedHashMap<>();
     private final List<Video> mRelatedVideos = new ArrayList<>();
     private Video mLastPagedVideo;
+
+    // Queue card ("Playing from <playlist>"). The queue row is one of the suggestion groups: the
+    // one that contains the CURRENTLY PLAYING video (see findQueueGroupId). Its videos are shown
+    // here instead of being flattened into Up next.
+    private View mQueueCard;
+    private View mQueueHeader;
+    private TextView mQueueTitle;
+    private TextView mQueueSubtitle;
+    private ImageView mQueueChevron;
+    private MaxHeightRecyclerView mQueueList;
+    private RelatedVideoAdapter mQueueAdapter;
+    /** Collapsed by default, like YouTube's queue. Survives video changes within a session. */
+    private boolean mQueueExpanded;
+    private final List<Video> mQueueVideos = new ArrayList<>();
 
     // Like/Dislike/Subscribe visual state, keyed by R.id.action_*.
     private final SparseIntArray mButtonStates = new SparseIntArray();
@@ -471,6 +488,12 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchRelatedLabel = findViewById(R.id.mobile_watch_related_label);
         mRelatedSkeleton = findViewById(R.id.mobile_watch_related_skeleton);
         mWatchRelated = findViewById(R.id.mobile_watch_related);
+        mQueueCard = findViewById(R.id.mobile_watch_queue_card);
+        mQueueHeader = findViewById(R.id.mobile_watch_queue_header);
+        mQueueTitle = findViewById(R.id.mobile_watch_queue_title);
+        mQueueSubtitle = findViewById(R.id.mobile_watch_queue_subtitle);
+        mQueueChevron = findViewById(R.id.mobile_watch_queue_chevron);
+        mQueueList = findViewById(R.id.mobile_watch_queue_list);
         mWatchCommentsEntry = findViewById(R.id.mobile_watch_comments_entry);
         mWatchChatEntry = findViewById(R.id.mobile_watch_chat_entry);
         mScrubChapterView = findViewById(R.id.mobile_player_scrub_chapter);
@@ -611,6 +634,16 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchRelated.setNestedScrollingEnabled(false);
         mWatchRelated.setHasFixedSize(false);
         mWatchRelated.setAdapter(mRelatedAdapter);
+
+        // Queue list: same row layout and same click routing as Up next, but it scrolls INSIDE the
+        // card (nested scrolling on + a max height) so a long playlist can't push the rest of the
+        // watch page off the bottom. Rows are re-bound on every video change, so no fixed size.
+        mQueueAdapter = new RelatedVideoAdapter(this::onRelatedClicked);
+        mQueueList.setLayoutManager(new LinearLayoutManager(this));
+        mQueueList.setHasFixedSize(false);
+        mQueueList.setAdapter(mQueueAdapter);
+        mQueueList.setMaxHeight(Math.round(getResources().getDisplayMetrics().heightPixels * 0.5f));
+        mQueueHeader.setOnClickListener(v -> toggleQueueExpanded());
 
         // Expandable description (tap the views/date row or chevron).
         mWatchMetaRow.setOnClickListener(v -> toggleDescription());
@@ -3689,7 +3722,9 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     public boolean isSuggestionsEmpty() {
-        return mRelatedVideos.isEmpty();
+        // Queue rows are suggestions too - they're just rendered in their own card. Reporting
+        // "empty" while a playlist is on screen would invite the controller to refetch them.
+        return mRelatedVideos.isEmpty() && mQueueVideos.isEmpty();
     }
 
     @Override
@@ -3698,10 +3733,19 @@ public class MobilePlaybackActivity extends MobileActivity
             mSuggestionVideos.clear();
             mSuggestionGroups.clear();
             mRelatedVideos.clear();
+            mQueueVideos.clear();
             mLastPagedVideo = null;
             setChapters(null);
             if (mRelatedAdapter != null) {
                 mRelatedAdapter.submitList(new ArrayList<>());
+            }
+            // Hide the queue card until the new video's rows say it's still in one. mQueueExpanded
+            // is deliberately NOT reset: staying open across an in-queue advance is the point.
+            if (mQueueCard != null) {
+                mQueueCard.setVisibility(View.GONE);
+            }
+            if (mQueueAdapter != null) {
+                mQueueAdapter.submitList(new ArrayList<>());
             }
             if (mWatchRelatedLabel != null) {
                 mWatchRelatedLabel.setVisibility(View.GONE);
@@ -4795,21 +4839,40 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private void rebuildRelatedList() {
         mRelatedVideos.clear();
+        mQueueVideos.clear();
+
         // When playing from a playlist, the section-playlist row (SuggestionsController.
         // appendSectionPlaylistIfNeeded) contains the WHOLE playlist including the video that's
-        // already playing - YouTube's queue hides it, and as the first tappable "Up next" row it
-        // reads as broken (tapping it restarts the current video). Hide it from the visible list
-        // only, by videoId (Video.equals is unreliable across instances): the controller's
-        // next/prev logic walks the group objects, which stay untouched.
+        // already playing. It used to be flattened into "Up next" with the playing item filtered
+        // out, which lost the playlist entirely: no name, no position, and the rest of the
+        // playlist was indistinguishable from algorithmic suggestions. It now goes to the queue
+        // card instead, and keeps the playing item (marked "Now playing") because that is what the
+        // "3 / 48" line points at. The controller's next/prev logic walks the group objects, which
+        // stay untouched either way.
         Video current = getVideo();
         String currentId = current != null ? current.videoId : null;
-        for (List<Video> vids : mSuggestionVideos.values()) {
+        Integer queueId = findQueueGroupId(currentId);
+
+        for (Map.Entry<Integer, List<Video>> entry : mSuggestionVideos.entrySet()) {
+            boolean isQueueRow = queueId != null && queueId.equals(entry.getKey());
+            List<Video> vids = entry.getValue();
+            if (vids == null) {
+                continue;
+            }
             for (Video v : vids) {
-                if (currentId == null || v == null || !currentId.equals(v.videoId)) {
+                if (v == null) {
+                    continue;
+                }
+                if (isQueueRow) {
+                    mQueueVideos.add(v);
+                } else if (currentId == null || !currentId.equals(v.videoId)) {
+                    // Match by videoId, not Video.equals (unreliable across instances).
                     mRelatedVideos.add(v);
                 }
             }
         }
+
+        bindQueueCard(current, currentId, queueId);
 
         if (mRelatedAdapter != null) {
             mRelatedAdapter.submitList(new ArrayList<>(mRelatedVideos));
@@ -4817,9 +4880,149 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mWatchRelatedLabel != null) {
             mWatchRelatedLabel.setVisibility(mRelatedVideos.isEmpty() ? View.GONE : View.VISIBLE);
         }
-        if (!mRelatedVideos.isEmpty()) {
+        // Queue rows count as "content landed" too: a playlist whose suggestions are ALL queue
+        // would otherwise leave the Up-next skeleton pulsing until its safety timeout.
+        if (!mRelatedVideos.isEmpty() || !mQueueVideos.isEmpty()) {
             hideRelatedSkeleton(); // real rows are in; stop pulsing
         }
+    }
+
+    /**
+     * Id of the suggestion row that is the queue, or null when the video isn't playing from one.
+     *
+     * <p>The test is "the row contains the video that is PLAYING". A playlist/queue row always
+     * does (it's the whole playlist); an algorithmic related row never does. That is
+     * self-maintaining - it leans on no row ordering, no group title we don't control, and no
+     * playlist-id plumbing that varies by entry point (section playlist vs /next playlist vs the
+     * local Playlist queue).</p>
+     */
+    private Integer findQueueGroupId(String currentId) {
+        if (currentId == null) {
+            return null;
+        }
+
+        for (Map.Entry<Integer, List<Video>> entry : mSuggestionVideos.entrySet()) {
+            List<Video> vids = entry.getValue();
+            if (vids == null) {
+                continue;
+            }
+            for (Video v : vids) {
+                if (v != null && currentId.equals(v.videoId)) {
+                    return entry.getKey();
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Binds (or hides) the "Playing from X - i/N" card.
+     *
+     * <p>Position and size come from {@code PlaylistInfo} when the /next document carried one -
+     * it's YouTube's own count, and it stays right for playlists longer than the rows we've paged
+     * in so far. Otherwise they're derived from the rows actually in hand, which is the honest
+     * number for a locally-built queue.</p>
+     */
+    private void bindQueueCard(Video current, String currentId, Integer queueId) {
+        if (mQueueCard == null) {
+            return;
+        }
+
+        if (mQueueVideos.isEmpty()) {
+            mQueueCard.setVisibility(View.GONE);
+            if (mQueueAdapter != null) {
+                mQueueAdapter.submitList(new ArrayList<>());
+            }
+            return;
+        }
+
+        // WHICH playlist are we actually listing? Two different things can own the queue and they
+        // do NOT agree: the SECTION playlist (the browse row the video was opened from - the app
+        // auto-advances through it) and the /next playlist. A video opened from the home feed has
+        // BOTH: a section group of feed rows, and a PlaylistInfo describing the auto-generated Mix.
+        // Describing the feed rows with the Mix's name is how this first shipped, and it read as a
+        // bug - the card said "Playing from <mix>" over a list of unrelated feed videos. So
+        // PlaylistInfo is trusted only when the queue is NOT the section group.
+        VideoGroup sectionGroup = current != null ? current.getGroup() : null;
+        boolean isSectionQueue = sectionGroup != null && queueId != null
+                && queueId.equals(sectionGroup.getId());
+        PlaylistInfo info = !isSectionQueue && current != null ? current.playlistInfo : null;
+
+        VideoGroup queueGroup = queueId != null ? mSuggestionGroups.get(queueId) : null;
+        // Prefer the title of the group whose videos are on screen, so the name always describes
+        // the list under it.
+        String name = queueGroup != null ? queueGroup.getTitle() : null;
+        if (TextUtils.isEmpty(name) && info != null) {
+            name = info.getTitle();
+        }
+        if (TextUtils.isEmpty(name)) {
+            name = getString(R.string.mobile_watch_queue_fallback);
+        }
+        mQueueTitle.setText(getString(R.string.mobile_watch_queue_from, name));
+
+        int size = info != null ? info.getSize() : 0;
+        int index = info != null ? info.getCurrentIndex() + 1 : 0; // PlaylistInfo index is 0-based
+        if (size <= 0 || index <= 0 || index > size) {
+            // No usable server count: fall back to this video's spot among the rows we hold.
+            size = mQueueVideos.size();
+            index = indexOfQueueVideo(currentId) + 1; // -1 (absent) collapses to 0 = "unknown"
+        }
+
+        if (index > 0 && size > 0) {
+            mQueueSubtitle.setText(getString(R.string.mobile_watch_queue_position, index, size));
+            mQueueSubtitle.setVisibility(View.VISIBLE);
+        } else {
+            mQueueSubtitle.setVisibility(View.GONE);
+        }
+
+        mQueueAdapter.setCurrentVideoId(currentId);
+        mQueueAdapter.submitList(new ArrayList<>(mQueueVideos));
+        mQueueCard.setVisibility(View.VISIBLE);
+        applyQueueExpanded();
+    }
+
+    /** Position of {@code videoId} among the queue rows in hand, or -1. */
+    private int indexOfQueueVideo(String videoId) {
+        if (videoId == null) {
+            return -1;
+        }
+
+        for (int i = 0; i < mQueueVideos.size(); i++) {
+            Video v = mQueueVideos.get(i);
+            if (v != null && videoId.equals(v.videoId)) {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private void toggleQueueExpanded() {
+        mQueueExpanded = !mQueueExpanded;
+        applyQueueExpanded();
+
+        // Jump straight to the playing row so expanding a long playlist doesn't open on item 1.
+        // Matched by videoId, NOT List.indexOf: Video.equals is a composite hash (playlistId,
+        // sectionId, channelGroupId, mediaItem, ...), so the playing Video and its own row in the
+        // queue - which arrived in a different group - almost never compare equal. indexOf
+        // returned -1 and the scroll silently no-opped on exactly the long playlists it exists
+        // for. Everything else in this card already keys off videoId; this now matches.
+        if (mQueueExpanded) {
+            int index = indexOfQueueVideo(getVideo() != null ? getVideo().videoId : null);
+            if (index > 0) {
+                mQueueList.scrollToPosition(index);
+            }
+        }
+    }
+
+    private void applyQueueExpanded() {
+        if (mQueueList == null || mQueueChevron == null) {
+            return;
+        }
+
+        mQueueList.setVisibility(mQueueExpanded ? View.VISIBLE : View.GONE);
+        mQueueChevron.setRotation(mQueueExpanded ? 180f : 0f);
     }
 
     // ---------------------------------------------------------------------------------

@@ -895,6 +895,90 @@
 
                 </LinearLayout>
 
+                <!-- Queue: "Playing from <playlist> - i/N". Shown only while the current video is
+                     playing as part of a playlist/queue (see MobilePlaybackActivity.bindQueueCard).
+                     Collapsed by default, like YouTube's: the header is the whole affordance and
+                     tapping it expands the queue in place. The list is a MaxHeightRecyclerView with
+                     its own scrolling (nestedScrollingEnabled=true) so a 200-item playlist scrolls
+                     inside the card instead of pushing "Up next" kilometres down the watch page. -->
+                <LinearLayout
+                    android:id="@+id/mobile_watch_queue_card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="@dimen/mobile_watch_content_padding"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_watch_card"
+                    android:orientation="vertical"
+                    android:visibility="gone"
+                    tools:visibility="visible">
+
+                    <LinearLayout
+                        android:id="@+id/mobile_watch_queue_header"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="14dp"
+                        android:paddingVertical="13dp">
+
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/ic_player_queue" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/mobile_watch_queue_title"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:textColor="@color/mobile_color_on_surface"
+                                android:textSize="14sp"
+                                android:textStyle="bold"
+                                tools:text="Playing from Liked videos" />
+
+                            <TextView
+                                android:id="@+id/mobile_watch_queue_subtitle"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="1dp"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:textColor="@color/mobile_color_on_surface_secondary"
+                                android:textSize="12sp"
+                                tools:text="3 / 48" />
+
+                        </LinearLayout>
+
+                        <ImageView
+                            android:id="@+id/mobile_watch_queue_chevron"
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:contentDescription="@null"
+                            android:src="@drawable/ic_watch_expand" />
+
+                    </LinearLayout>
+
+                    <com.newtube.mobile.ui.dialog.MaxHeightRecyclerView
+                        android:id="@+id/mobile_watch_queue_list"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingBottom="6dp"
+                        android:visibility="gone"
+                        tools:listitem="@layout/item_mobile_related_video" />
+
+                </LinearLayout>
+
                 <!-- Related / up next -->
                 <TextView
                     android:id="@+id/mobile_watch_related_label"

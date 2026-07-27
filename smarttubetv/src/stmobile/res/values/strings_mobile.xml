@@ -48,6 +48,11 @@
     <string name="mobile_watch_subscribe">Subscribe</string>
     <string name="mobile_watch_subscribed">Subscribed</string>
     <string name="mobile_watch_related">Up next</string>
+    <!-- Queue card. "%1$s" is the playlist/queue name; the position line is "3 / 48". -->
+    <string name="mobile_watch_queue_from">Playing from %1$s</string>
+    <string name="mobile_watch_queue_position">%1$d / %2$d</string>
+    <string name="mobile_watch_queue_fallback">queue</string>
+    <string name="mobile_watch_queue_now_playing">Now playing</string>
     <string name="mobile_watch_description">Description</string>
     <string name="mobile_watch_count_placeholder">&#8211;</string>
     <string name="mobile_watch_share_subject">Watch this video</string>

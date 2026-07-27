@@ -40,10 +40,29 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
     }
 
     private final OnRelatedClickListener mClickListener;
+    /**
+     * Video id to mark as "Now playing", or null for none. Only the queue list sets this - in the
+     * Up-next list the playing video isn't present at all.
+     */
+    private String mCurrentVideoId;
 
     public RelatedVideoAdapter(OnRelatedClickListener clickListener) {
         super(DIFF_CALLBACK);
         mClickListener = clickListener;
+    }
+
+    /**
+     * Marks one row as the playing one. Rebinds every row rather than diffing: the flag lives
+     * outside the {@link Video} objects, so {@link #DIFF_CALLBACK} (identity-based by design)
+     * cannot see it change, and both the OLD and the NEW current row need repainting.
+     */
+    public void setCurrentVideoId(String videoId) {
+        if (android.text.TextUtils.equals(mCurrentVideoId, videoId)) {
+            return;
+        }
+
+        mCurrentVideoId = videoId;
+        notifyDataSetChanged();
     }
 
     private static final DiffUtil.ItemCallback<Video> DIFF_CALLBACK = new DiffUtil.ItemCallback<Video>() {
@@ -71,7 +90,10 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
 
     @Override
     public void onBindViewHolder(@NonNull RelatedViewHolder holder, int position) {
-        holder.bind(getItem(position));
+        Video video = getItem(position);
+        boolean isCurrent = mCurrentVideoId != null && video != null
+                && mCurrentVideoId.equals(video.videoId);
+        holder.bind(video, isCurrent);
     }
 
     @Override
@@ -104,7 +126,7 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
             });
         }
 
-        void bind(Video video) {
+        void bind(Video video, boolean isCurrent) {
             mVideo = video;
             Context context = itemView.getContext();
 
@@ -126,12 +148,20 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
                 mSubtitle.setVisibility(View.GONE);
             }
 
-            bindBadge(video);
+            bindBadge(video, isCurrent);
             bindProgress(video);
             bindThumbnail(context, video);
         }
 
-        private void bindBadge(Video video) {
+        private void bindBadge(Video video, boolean isCurrent) {
+            // The playing row takes over the badge slot: in a queue the duration matters far less
+            // than knowing where you are, and this needs no extra view in the row layout.
+            if (isCurrent) {
+                mBadge.setText(R.string.mobile_watch_queue_now_playing);
+                mBadge.setVisibility(View.VISIBLE);
+                return;
+            }
+
             String badgeText;
             if (video.isLive) {
                 badgeText = itemView.getContext().getString(R.string.badge_live);

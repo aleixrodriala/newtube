@@ -256,6 +256,67 @@ All device-verified on the Pixel 9 (WiFi, signed in, wireless adb
   zero reloads across Mumford/RAYE/Sting/Parcels; their historical difficulty
   is carrier-attestation dynamics (HANDOFF §8), not content.
 
+## Works (added 2026-07-27 — playlist queue card in the watch page)
+- **"Playing from X" card with an `i / N` position and a collapsible list**,
+  above Up next. Collapsed by default; the header toggles it and rotates the
+  chevron; the list is a `MaxHeightRecyclerView` capped at 50% of screen height
+  so a 200-item playlist can't swallow the page.
+- **Which row is the queue is decided by content, not by ordering**
+  (`findQueueGroupId`): the row that CONTAINS the playing video is the queue - a
+  playlist row always does, an algorithmic related row never does. That leans on
+  no row order, no group title we don't own, and no playlist-id plumbing (which
+  differs between a section playlist, a /next playlist and the local queue).
+- **`PlaylistInfo` is trusted only when the queue is NOT the section group.** A
+  feed-opened video has both a section group AND a Mix `PlaylistInfo`; naming the
+  feed rows after the Mix is how this first read as a bug ("Playing from <mix>"
+  over unrelated feed videos).
+- **Position is matched by videoId, never `List.indexOf`.** `Video.equals` is a
+  composite hash (playlistId, sectionId, channelGroupId, mediaItem, ...), so the
+  playing Video and its own queue row - which arrived in a different group -
+  almost never compare equal. `indexOf` returned -1, so the scroll-to-current on
+  expand silently no-opped on exactly the long playlists it exists for. Both the
+  scroll and the subtitle fallback now go through `indexOfQueueVideo(videoId)`.
+- Pixel 9 verified end to end on a signed-in feed open: card reads
+  `Playing from Recomendados` / `1 / 5`; collapsed by default (list absent from
+  the hierarchy); header tap expands to a 734 px list; exactly one `Now playing`
+  badge, on the playing row; tapping queue row 2 advances playback, moves the
+  badge to row 2, reverts row 1 to its duration and updates the subtitle to
+  `2 / 5`; header tap collapses again. No crashes.
+
+## Works (added 2026-07-27 — carrier soak of the signed-in TV route)
+Ran on the Pixel 9 over **roaming LTE (AndorraTelecom, `drei.at`, metered,
+`net=vpn:183` split-tunnel Tailscale — default route is cellular)**, release
+build, signed in. This closes the "never explicitly soaked" item above.
+- **No 60s pot cliff on signed-in TV_DOWNGRADED.** A TV_DOWNGRADED `auth=y`
+  stream (`2Szdo6fRc5c`, first frame +5041 ms) played **~3.5 min continuous**
+  with zero 403s, zero reloads, zero recovery events — sampled every ~16 s off
+  the player's own clock. Two further TV_DOWNGRADED opens (18:37, 18:48) also
+  returned `status=OK playable=y auth=y`. The premise behind the open item —
+  authenticated non-attested URLs dying at 60 s on an enforcing carrier — did
+  NOT reproduce.
+- **Found instead: the full-fat `TV` client 403s at position 0** on this
+  network. Chain was `TV_DOWNGRADED attempt=1 parsed=null` (a response-shape
+  failure, not an HTTP error) → fall to `TV` → `playable=y auth=y` → the
+  googlevideo URLs reject immediately:
+  `error +11920 InvalidResponseCodeException(http=403) pos=0`. So it is not a
+  60 s cliff, it is an instant reject of that client's media URLs.
+- **The ring recovers correctly, and that path is now proven on carrier.**
+  `quarantine-auth-route client=TV cooldownMs=600000` → `authenticated-recovery
+  first=WEB_EMBED` → `recovery-action remint-reload` → WEB_EMBED (`pot=y
+  auth=n`) → `first-frame +11943`. Cost is ~12 s to first frame on that one
+  open; every later open in the 10-min cooldown goes straight to WEB_EMBED, and
+  after it expires TV_DOWNGRADED is used again and works.
+- Open follow-up (not yet chased): why `TV_DOWNGRADED` returned `parsed=null`
+  on that first attempt. It is the trigger for the whole 12 s detour — without
+  it `TV` is never reached and the 403 never happens.
+- Method note: **`dumpsys media_session` is useless for progress here** — the
+  session posts no periodic updates, so `position`/`updated` stay frozen
+  between transitions and a healthy stream looks identical to a hung one. Read
+  `mobile_player_position` off the player instead (center tap reveals controls;
+  the tap does not toggle play/pause). Also: a slow horizontal drag near the
+  seekbar can land on the watch content and OPEN A DIFFERENT VIDEO rather than
+  seek — check the video id in NetPath before reading a "seek" result.
+
 ## Works (added 2026-07-27 — watch page on the FIRST open of a session)
 - **Eager watch-page fetch now covers the cold open** (`setEagerColdOpenEnabled`,
   SuggestionsController). The eager /next introduced earlier only ran when
@@ -401,12 +462,20 @@ items above are done). Ordered roughly by value:
   preconnect every launch~~ DEFERRED to first feed paint 2026-07-18 (tier 2)
   so it never races the launch /browse chain; a FULL skip (needs an
   nsig-extractor freshness probe) remains open.
-- FailFastLoadErrorPolicy: treat Cronet net::ERR_NAME_NOT_RESOLVED /
-  ERR_INTERNET_DISCONNECTED as fatal (currently 6 futile retries ~5s).
+- ~~FailFastLoadErrorPolicy: treat Cronet net::ERR_NAME_NOT_RESOLVED /
+  ERR_INTERNET_DISCONNECTED as fatal~~ ALREADY DONE (shipped in `4315f15`, this
+  line was stale). `FailFastLoadErrorPolicy.isFatalTransportError` matches
+  UnknownHostException, NoRouteToHostException and both Cronet `net::ERR_`
+  strings, and `getRetryDelayMsFor` returns `C.TIME_UNSET` for them so the very
+  first failure surfaces to the app-level reload. Covered by
+  `FailFastLoadErrorPolicyTest.dnsAndDisconnectedErrorsAreFatalAtMediaLayer`.
 - Fixed 1000ms reload delay on the 403-remint path (VideoLoaderController:461;
   shorten via a call-site overload, NOT the shared reloadVideo default).
-- ABR seed persists across network types (Media3SourceFactory:151; use the
-  per-networkType setInitialBitrateEstimate overload).
+- ~~ABR seed persists across network types~~ ALREADY DONE (this line was stale
+  too): Media3SourceFactory keys the persisted EWMA per Android network type
+  (`bw_estimate_bps_net_*`, `SEEDED_NETWORK_TYPES`) and feeds them through the
+  per-networkType `setInitialBitrateEstimate` overload, with a one-time
+  conservative migration off the old global key.
 - No metered cap on buffer-ahead (75s of 1080p prefetch on abandoned videos).
 - ~~Brotli for InnerTube JSON~~ DONE 2026-07-18 (tier 2, phone-gated;
   WiFi-verified — still worth a one-off sanity check on cellular/roaming).
@@ -437,13 +506,12 @@ open:
   enforcing networks, but worth optimizing; TV+serviceIntegrityDimensions is
   the candidate). Note 2026-07-16: signed-in flows now ride TV_DOWNGRADED
   (ring memory) — re-measure on carrier before optimizing.
-- Signed-in TV_DOWNGRADED streams on a pot-ENFORCING carrier network: the
-  2026-07-16 round was WiFi-only; confirm authenticated non-attested URLs
-  don't hit the 60s cliff on Telefónica 5G (dogfooding hasn't shown it, but
-  it was never explicitly soaked).
+- ~~Signed-in TV_DOWNGRADED streams on a pot-ENFORCING carrier network~~
+  SOAKED 2026-07-27 (see Works below) — no 60s cliff. Closed.
 
 ## Open — product/UX
-- Playlist queue UI in player ("Playing from: X · i/N", collapsible) — top item.
+- ~~Playlist queue UI in player ("Playing from: X · i/N", collapsible)~~ DONE
+  2026-07-27, Pixel 9 verified (see Works below).
 - "Not interested"/"Don't recommend channel" feedback tokens (server moved
   them; MediaServiceCore dig needed).
 - Channel rows in search suggestions; channel page header/sort polish.
