@@ -174,6 +174,14 @@ public class MobileMainApplication extends MainApplication {
                 android.util.Log.w("NetPath", "sig-runtime keep-alive disabled (debug)");
             }
 
+            // PLAYER-POT PLAYGROUND: "1" gives ANDROID_VR a PO token in its /player request, so the
+            // media URLs it returns stop needing one. Opt-IN, unlike the two above: it trades that
+            // client's cheapness for protection against an enforcement we have not observed here.
+            if ("1".equals(getDebugSystemProperty("debug.arc.player_pot"))) {
+                VideoInfoService.setPlayerPotEnabled(true);
+                android.util.Log.w("NetPath", "player PO token enabled for ANDROID_VR (debug)");
+            }
+
             // ...and for the cold-open arm of the eager watch-page fetch ("0" = the fetch waits
             // for onVideoLoaded on a cold open, as it did before the park/replay mechanism).
             if ("0".equals(getDebugSystemProperty("debug.arc.eager_cold"))) {

@@ -306,7 +306,47 @@ evidence so nobody re-opens them.
   previous-session winner would have been demoted behind the Web family, turning
   the first cold start after upgrade into a pot-minting WEB open.
 
-**Known limitation — this is inert while signed in.** A signed-in open begins at
+**Follow-up shipped same day — VISIONOS now leads the anonymous partition.**
+This is what makes the client pay off for a signed-in user. An authenticated walk
+that has fallen through to anonymous (error recovery, or the account head fully
+403-quarantined) used to begin at `WEB_EMBED`, which mints a PO token before it
+can even ask — on the exact path taken after a media 403, when the open is
+already slow. `leadWithTokenFreeClient` injects VISIONOS at the head of those
+orders (it is off-ring, so it is otherwise absent from an authenticated order).
+- The **healthy** account head is never displaced — asserted by
+  `healthyAccountHeadIsNeverDisplacedByTheTokenFreeClient`. That matters, because
+  anonymous is genuinely worse when the account works: on device the authed
+  client returned **41 usable formats vs VISIONOS's 32** on the same video, and
+  `VideoInfo` reads `playbackTracking.videostatsWatchtimeUrl` straight out of the
+  `/player` response — so an anonymous response reports an anonymous watch (no
+  history, no resume, no recommendation feedback), and age-restricted /
+  members-only content stops playing.
+- Safe against the anon-challenge detector, which needs the **same reason string**
+  from two clients (`BotCheckDetector.isRepeatedLoginRequired`); an age gate
+  changes outcome on the embedded client, so this adds a third independent
+  identity rather than a false hit.
+- **Verification honesty: unit-tested, NOT observed on device.** Four tests pin
+  the exact resulting order, including the interactions with quarantine and the
+  anon-challenge override. Triggering it live needs a real media 403, which the
+  2026-07-27 timeout fix specifically stops us from reaching.
+
+**Also shipped, OFF by default — the player-token lever (`debug.arc.player_pot`).**
+yt-dlp's `android`/`android_vr`/`ios` carry `not_required_with_player_token`: a PO
+token in the **/player request** removes the requirement from the returned media
+URLs. Only `ANDROID_VR` can use ours — a web-minted token is bound to the web
+`visitorData`, and VR is the one non-web client we send that identity with;
+`ANDROID`/`IOS` carry the app visitor, so the binding would not match.
+- **Measured on device (Pixel 9, off/on/off):** the token is **accepted** —
+  `playerPot=y`, `status=OK playable=y`, same `formats=28+1`, first frame 3.26 s
+  vs 3.88/3.08 s off. No rejection, no format change, no latency penalty (the web
+  pot is already warm because VR shares that visitor session).
+- **Left off by default deliberately.** It protects against the enforcement
+  upstream flagged in 2026.07 — which we have **not** observed here — and it trades
+  away the one property that makes that client worth having: needing no token. The
+  measurement above says the lever works if we ever need it; flip
+  `debug.arc.player_pot=1` on a debug build to A/B it again.
+
+**Known limitation of the head itself — inert while signed in.** A signed-in open begins at
 `AUTHENTICATED_HEAD` (`TV_DOWNGRADED`), never at `PREFERRED_FIRST_CLIENT`;
 verified on device with the forced client cleared (`player-ring
 authenticated-first=TV_DOWNGRADED`, VISIONOS absent). Since VISIONOS is off-ring
@@ -576,21 +616,16 @@ From the 69-agent audit (21 confirmed after 2-lens adversarial verify; the
 items above are done). Ordered roughly by value.
 
 **From the 2026-07-28 client hunt** (see the VISIONOS section above):
-- **Lead the anonymous partition with VISIONOS instead of `WEB_EMBED`.** This is
-  what makes the VISIONOS work pay off for a signed-in user: authenticated
-  recovery and the auth-head-exhausted path both currently begin at `WEB_EMBED`,
-  which mints a PO token first. VISIONOS mints nothing and was unchallenged on an
-  IP that challenged everything else. Costs one extra round trip (~0.5 s) when it
-  can't serve (made-for-kids), and it already falls through to `WEB_EMBED`.
-  Touches load-bearing recovery ordering — the 2026-07-27 quarantine work — so
-  soak it properly.
-- **Player-token exemption for the android/iOS family.** `android`, `android_vr`
-  and `ios` all carry `not_required_with_player_token=True`: send a PO token in
-  the **/player request** and the returned stream URLs no longer need a GVS one.
-  We already have the machinery (`PoTokenGate`, CONTENT/SESSION tokens, cloud +
-  local factories) and only spend it on `WEB_EMBED`. This is upstream's sanctioned
-  answer to their new note on `android_vr`: *"Since 2026.07, intermittent/selective
-  POT enforcement has been observed for non-HLS formats."*
+- ~~Lead the anonymous partition with VISIONOS instead of `WEB_EMBED`~~ **DONE
+  2026-07-28** (`leadWithTokenFreeClient`) — unit-tested, not device-observed;
+  see the VISIONOS section. **Still wants a live soak**: it changes the ordering
+  the 2026-07-27 quarantine work depends on, and reaching it needs a real media
+  403 that we can no longer trigger on demand.
+- ~~Player-token exemption for the android/iOS family~~ **BUILT 2026-07-28, OFF by
+  default** behind `debug.arc.player_pot`; only `ANDROID_VR` can use our
+  web-bound token. Device-measured as accepted and free, but it guards an
+  enforcement we have not observed and costs the client its token-free property.
+  Flip it on if `ANDROID_VR` starts failing with a POT signature.
 - **HLS as a resilience lane.** GVS POT policy for HLS is `required=False` across
   the android/VR family, and VISIONOS returns an `hlsManifestUrl` (`hls=y` in our
   own device logs). media3 speaks HLS. Worth knowing exists if the HTTPS/DASH lane
