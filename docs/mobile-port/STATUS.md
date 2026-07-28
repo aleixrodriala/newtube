@@ -256,6 +256,79 @@ All device-verified on the Pixel 9 (WiFi, signed in, wireless adb
   zero reloads across Mumford/RAYE/Sting/Parcels; their historical difficulty
   is carrier-attestation dynamics (HANDOFF §8), not content.
 
+## Works (added 2026-07-28 — VISIONOS, a token-free /player client)
+Came out of an explicit hunt for routes we had not tried (different keys, older
+deprecated systems). One real find, plus several dead ends now closed with
+evidence so nobody re-opens them.
+
+- **`VISIONOS` (clientName `VISIONOS`, cver `1.02`, InnerTube id `101`) is the
+  only client left that requires neither a PO token nor a JS player.** In
+  yt-dlp's current `_INNERTUBE_CLIENTS` its entry declares no `GVS_PO_TOKEN_POLICY`,
+  no `PLAYER_PO_TOKEN_POLICY` and `REQUIRE_JS_PLAYER: False` — every other client
+  in that table declares at least one. It now leads their defaults:
+  `_DEFAULT_CLIENTS = ('visionos', 'android_vr', 'web')`.
+- **Verified live, not taken from the docs.** Straight `/player` from a Mac on
+  2026-07-28: `VISIONOS status=OK adaptive=32 cipher=0 pot_in_url=0` while
+  `ANDROID_VR` and `TV_DOWNGRADED` both answered `LOGIN_REQUIRED "Sign in to
+  confirm you're not a bot"` **in the same second, same IP**. Byte ranges off
+  the returned URLs served `HTTP 206` at init, mid (~14 MB in) and ~95 %.
+- **Request shape doesn't matter.** Our template always emits `clientScreen`
+  and our UA sniffer would add `browserName`/`browserVersion` (the visionOS UA
+  is a Safari string). Probed all three shapes — yt-dlp-exact, `+clientScreen`,
+  `+clientScreen +browser` — all `status=OK`, all `media_http=206`. So no
+  special-casing was needed in `AppClient`.
+- **On-device A/B (Pixel 9, counterbalanced ABBA, one apk, forced client via
+  `setprop debug.arc.player_client`).** VISIONOS won attempt 1 on every open:
+  `status=OK playable=y`, **more** usable adaptive formats than VR (32 vs 28 on
+  `aqz-KE-bpKQ`; 23 vs 22 on `Oa_Wpi-KWrg`), first frame 1.92–2.02 s vs VR's
+  1.86 s warm. Both heads are healthy on this network, so this run proves
+  parity + format count, NOT the bot-check advantage — that was only observable
+  from the challenged Mac IP.
+- **No 60 s cliff.** Forced-VISIONOS playback ran **~2 min continuous on
+  cellular** (`net=cell:197`), ABR climbing to itag 303 (1080p60 VP9), last
+  chunk at `pos=116633` / byte 32.4 MB of 168 MB — **zero 403s**. That is the
+  exact deep-range case that kills the full-fat `TV` client.
+- Wiring: `CLIENTS.VISIONOS` + `CLIENT_NAME_IDS["VISIONOS"]="101"`, an
+  `AppClient` entry, and `PREFERRED_FIRST_CLIENT = AppClient.VISIONOS`.
+  `VIDEO_INFO_TYPE_LIST` is untouched (upstream churns it).
+
+**Two hazards this surfaced, both fixed:**
+- `AppClient.VISIONOS` is appended at the **END** of the enum on purpose. The
+  winning client is persisted **by ordinal** (`getData().setVideoInfoType`), so a
+  mid-enum insert would silently re-point every value saved by an older build.
+- The fast head is now **off-ring**, and `Helpers.getNextValue` answers with
+  element 0 for a value it can't find — so `buildVisitOrder`'s lap never met its
+  `type != beginType` stop condition and **span forever**. Fixed by anchoring the
+  lap at element 0 and visiting that anchor explicitly. Covered by
+  `offRingFastHeadWalksTheWholeRingExactlyOnce` (which hangs rather than fails if
+  it regresses — that is the signal). Head preservation was also re-keyed from
+  the `PREFERRED_FIRST_CLIENT` constant to `beginType`, otherwise a restored
+  previous-session winner would have been demoted behind the Web family, turning
+  the first cold start after upgrade into a pot-minting WEB open.
+
+**Known limitation — this is inert while signed in.** A signed-in open begins at
+`AUTHENTICATED_HEAD` (`TV_DOWNGRADED`), never at `PREFERRED_FIRST_CLIENT`;
+verified on device with the forced client cleared (`player-ring
+authenticated-first=TV_DOWNGRADED`, VISIONOS absent). Since VISIONOS is off-ring
+it does not appear in an authenticated walk at all. So today it helps
+**signed-out** opens, and authenticated recovery only when the cursor is null.
+Making it count for signed-in users means leading the *anonymous partition*
+(authenticated recovery / auth-head-exhausted) with it instead of `WEB_EMBED` —
+strictly cheaper, since it mints no token. Not done; see Open.
+
+**Dead ends, closed with evidence:**
+- `get_video_info` — **HTTP 410 Gone**, both `el=detailpage` and the `eurl`
+  embed variant. Gone, not merely unreliable.
+- **InnerTube API keys are not a lever.** The long-published `AIzaSy…qcW8` key
+  and a fabricated garbage key produced byte-identical responses; the key is no
+  longer validated. Bot-checking is what gates you.
+- **VISIONOS does not rescue the feed.** `/next` and `/search` answered fine;
+  `/browse` returned **HTTP 400**. Same SAPISID wall as the rejected home-feed
+  work — unchanged.
+- yt-dlp deleted `tv_embedded` and `ios_downgraded` as broken in Jan 2026. We
+  still carry `TV_EMBED` in `TV_FALLBACK_CLIENTS`; harmless, the phone gate
+  skips that tail.
+
 ## Works (added 2026-07-27 — playlist queue card in the watch page)
 - **"Playing from X" card with an `i / N` position and a collapsible list**,
   above Up next. Collapsed by default; the header toggles it and rotates the
@@ -500,7 +573,34 @@ home breaks signed-in parity).
 
 ## Open — network audit backlog (2026-07-16, verified findings not yet built)
 From the 69-agent audit (21 confirmed after 2-lens adversarial verify; the
-items above are done). Ordered roughly by value:
+items above are done). Ordered roughly by value.
+
+**From the 2026-07-28 client hunt** (see the VISIONOS section above):
+- **Lead the anonymous partition with VISIONOS instead of `WEB_EMBED`.** This is
+  what makes the VISIONOS work pay off for a signed-in user: authenticated
+  recovery and the auth-head-exhausted path both currently begin at `WEB_EMBED`,
+  which mints a PO token first. VISIONOS mints nothing and was unchallenged on an
+  IP that challenged everything else. Costs one extra round trip (~0.5 s) when it
+  can't serve (made-for-kids), and it already falls through to `WEB_EMBED`.
+  Touches load-bearing recovery ordering — the 2026-07-27 quarantine work — so
+  soak it properly.
+- **Player-token exemption for the android/iOS family.** `android`, `android_vr`
+  and `ios` all carry `not_required_with_player_token=True`: send a PO token in
+  the **/player request** and the returned stream URLs no longer need a GVS one.
+  We already have the machinery (`PoTokenGate`, CONTENT/SESSION tokens, cloud +
+  local factories) and only spend it on `WEB_EMBED`. This is upstream's sanctioned
+  answer to their new note on `android_vr`: *"Since 2026.07, intermittent/selective
+  POT enforcement has been observed for non-HLS formats."*
+- **HLS as a resilience lane.** GVS POT policy for HLS is `required=False` across
+  the android/VR family, and VISIONOS returns an `hlsManifestUrl` (`hls=y` in our
+  own device logs). media3 speaks HLS. Worth knowing exists if the HTTPS/DASH lane
+  gets potted; not worth building speculatively.
+- **Premium exemption (needs one fact).** `WEB`/`MWEB` carry
+  `not_required_for_premium=True` — a Premium account drops the web partition's
+  pot requirement entirely. Free if the account has Premium, nothing if not.
+- **Possible wrong constant:** `CLIENT_NAME_IDS` maps `TVHTML5_SIMPLY` to `"74"`,
+  upstream says `75`. Low stakes (the phone gate skips TV_SIMPLY) but if it's
+  wrong it is silently wrong.
 - ~~Browse section switches refetch /browse every time~~ DONE 2026-07-18
   (per-section 5-min TTL, see the feed-load round above).
 - ~~SessionWarmup fires a throwaway Big Buck Bunny /player + googlevideo
