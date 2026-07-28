@@ -317,10 +317,20 @@ build, signed in. This closes the "never explicitly soaked" item above.
   is `TV_DOWNGRADED`, and the timeout was never revisited when
   `AUTHENTICATED_HEAD` was introduced in the antibot round. It applied to every
   non-web-pot client, head included.
-  The cost is wildly asymmetric: one slow COLD request (DNS + TLS, no warm
-  connection, roaming link) → fall to `TV` → media 403 at `pos=0` → **10-minute
-  quarantine of the entire authenticated route**, so every open in that window
-  is served anonymously, plus ~12 s to first frame on the triggering open.
+  The cost is asymmetric: one slow COLD request (DNS + TLS, no warm connection,
+  roaming link) → fall to `TV` → media 403 at `pos=0` → ~12 s to first frame on
+  that open (the recovery reload is served anonymously by WEB_EMBED) and a
+  10-minute quarantine of `TV`.
+  **CORRECTION (an earlier draft of this section, the memory note and the commit
+  messages for `cbcbd4e6`/`02c001a` all overstated this as a 10-minute
+  quarantine of the ENTIRE authenticated route, with every open in the window
+  served anonymously — that is wrong).** The quarantine is PER CLIENT
+  (`mAuthRouteForbiddenUntilMs.put(failedClient, ...)`), and the constant's own
+  javadoc says only when EVERY client in `AUTHENTICATED_HEAD` is quarantined
+  does the walk give up on the account. The logs confirm it: the very next opens
+  (18:29:53, 18:37, 18:48) all read `authenticated-first=TV_DOWNGRADED
+  demoted=[TV]` and returned `auth=y`. Exactly ONE open was served anonymously —
+  the immediate recovery reload — not ten minutes' worth.
   Fix: `AUTH_HEAD_ATTEMPT_TIMEOUT_MS = 15_000` applied via
   `attemptTimeoutMsFor(client)` — the head gets a cold-start budget, every other
   fast client keeps the short speculative one, and 15 s still fails over before
