@@ -295,9 +295,8 @@ build, signed in. This closes the "never explicitly soaked" item above.
   authenticated non-attested URLs dying at 60 s on an enforcing carrier — did
   NOT reproduce.
 - **Found instead: the full-fat `TV` client 403s at position 0** on this
-  network. Chain was `TV_DOWNGRADED attempt=1 parsed=null` (a response-shape
-  failure, not an HTTP error) → fall to `TV` → `playable=y auth=y` → the
-  googlevideo URLs reject immediately:
+  network. Chain was `TV_DOWNGRADED attempt=1 parsed=null` → fall to `TV` →
+  `playable=y auth=y` → the googlevideo URLs reject immediately:
   `error +11920 InvalidResponseCodeException(http=403) pos=0`. So it is not a
   60 s cliff, it is an instant reject of that client's media URLs.
 - **The ring recovers correctly, and that path is now proven on carrier.**
@@ -306,9 +305,45 @@ build, signed in. This closes the "never explicitly soaked" item above.
   auth=n`) → `first-frame +11943`. Cost is ~12 s to first frame on that one
   open; every later open in the 10-min cooldown goes straight to WEB_EMBED, and
   after it expires TV_DOWNGRADED is used again and works.
-- Open follow-up (not yet chased): why `TV_DOWNGRADED` returned `parsed=null`
-  on that first attempt. It is the trigger for the whole 12 s detour — without
-  it `TV` is never reached and the 403 never happens.
+- **`parsed=null` root-caused and FIXED (same night).** It was never a parse or
+  response-shape failure: `player-context 18:29:33.273` → `parsed=null
+  18:29:40.275` is **exactly 7.000 s**, and
+  `VideoInfoService.CLIENT_ATTEMPT_TIMEOUT_MS = 7_000`. The head request simply
+  overran the per-attempt budget and was cancelled (`getVideoInfoWithTimeout`
+  returns null on deadline).
+  That budget was written for a *speculative* client — `PREFERRED_FIRST_CLIENT
+  = ANDROID_VR`, "often hangs?" — where failing over early costs a second and
+  gains a second. But for a signed-in open `beginType = authBegin`, so the head
+  is `TV_DOWNGRADED`, and the timeout was never revisited when
+  `AUTHENTICATED_HEAD` was introduced in the antibot round. It applied to every
+  non-web-pot client, head included.
+  The cost is wildly asymmetric: one slow COLD request (DNS + TLS, no warm
+  connection, roaming link) → fall to `TV` → media 403 at `pos=0` → **10-minute
+  quarantine of the entire authenticated route**, so every open in that window
+  is served anonymously, plus ~12 s to first frame on the triggering open.
+  Fix: `AUTH_HEAD_ATTEMPT_TIMEOUT_MS = 15_000` applied via
+  `attemptTimeoutMsFor(client)` — the head gets a cold-start budget, every other
+  fast client keeps the short speculative one, and 15 s still fails over before
+  OkHttp's own 20 s read/connect timeout. Regression test
+  `VideoInfoVisitOrderTest.authenticatedHeadGetsAColdStartBudget`.
+  Observed head latencies for calibration: 0.9 / 2.4 / 2.6 s warm, >7 s cold.
+  **Honest limits of the verification.** 5 cold opens after the fix: 5/5
+  `TV_DOWNGRADED attempt=1 status=OK auth=y`, no `parsed=null`, no timeout, no
+  quarantine, no 403; head latency 3.40 s on the genuinely cold first open then
+  0.64–0.78 s. So: no regression, and the head is winning. But **nothing in that
+  run exceeded 7 s, so the extra headroom was never exercised** — the fix is a
+  targeted hypothesis, not an observed save. And the original request was
+  cancelled AT 7.000 s, so its true latency is unknown; 15 s may or may not have
+  covered it. What the change rests on is the cost asymmetry, not a measured
+  duration.
+  **Tradeoff accepted:** if the head ever hangs for real, the user now waits up
+  to 15 s instead of 7 s before failover. Judged worth it because the 7 s
+  failover was not cheap either (it landed on `TV` → 403 → ~12 s + quarantine),
+  and 15 s still beats OkHttp's 20 s.
+- Still latent, NOT fixed by the above: **the full-fat `TV` client's media URLs
+  really do 403 at `pos=0` on this network.** The timeout fix removes the usual
+  way we *reach* `TV`; it does not make `TV` work. If the head fails for a real
+  reason, the same 403 → quarantine → WEB_EMBED cascade still runs (correctly).
 - Method note: **`dumpsys media_session` is useless for progress here** — the
   session posts no periodic updates, so `position`/`updated` stay frozen
   between transitions and a healthy stream looks identical to a hung one. Read
