@@ -595,9 +595,12 @@ items above are done). Ordered roughly by value.
   the android/VR family, and VISIONOS returns an `hlsManifestUrl` (`hls=y` in our
   own device logs). media3 speaks HLS. Worth knowing exists if the HTTPS/DASH lane
   gets potted; not worth building speculatively.
-- **Premium exemption (needs one fact).** `WEB`/`MWEB` carry
-  `not_required_for_premium=True` — a Premium account drops the web partition's
-  pot requirement entirely. Free if the account has Premium, nothing if not.
+- ~~**Premium exemption.** `WEB`/`MWEB` carry `not_required_for_premium=True` —
+  a Premium account drops the web partition's pot requirement entirely.~~ **DEAD
+  2026-07-28: the signed-in account is not Premium** (confirmed by Aleix), so the
+  exemption never fires and the web partition keeps minting tokens. Nothing to
+  build. Would only ever have helped Premium users, i.e. not the default install
+  — do not re-propose as a general lever.
 - **Possible wrong constant:** `CLIENT_NAME_IDS` maps `TVHTML5_SIMPLY` to `"74"`,
   upstream says `75`. Low stakes (the phone gate skips TV_SIMPLY) but if it's
   wrong it is silently wrong.
