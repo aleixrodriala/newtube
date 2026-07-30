@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Fades the playlist backdrop into the window background, the way the YouTube playlist page
+  washes the cover's colour down into the list. We have no Palette dependency to extract the
+  accent colour from, so the backdrop IS the cover art, dimmed and blurred-by-scale behind
+  the header; this gradient is what keeps its bottom edge from being a visible seam.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#00000000"
+        android:centerColor="#660F0F0F"
+        android:endColor="@color/mobile_color_background"
+        android:type="linear" />
+</shape>

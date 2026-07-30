@@ -468,6 +468,40 @@ All three found while verifying the Save flow signed in; emulator-verified.
   describe the same list; its `getSize()` is the server's `totalVideos`.
   `Play all` on a 30-video `Watch later` now reads `1 / 30`, not `1 / 15`.
 
+## Works (added 2026-07-30 — playlist page header, Watch later, Save wording)
+Pixel-9 verified, signed in, against reference screenshots of the real YouTube
+app (ReVanced build on the same phone).
+- **The playlist page has a real header**: wide cover, playlist name, owner, a
+  "N videos - Private" meta line, a wide `Play all` pill and a round `Shuffle`
+  button - the shape YouTube uses. Everything in it comes from the card that
+  opened the screen, so it needs no extra request. The cover art doubles as a
+  dimmed backdrop; YouTube extracts an accent colour with Palette, which we have
+  no dependency for.
+- It is the grid's first FULL-SPAN ITEM (`PlaylistHeaderAdapter` +
+  `ConcatAdapter` + a span-size lookup), not an AppBarLayout child. Two dead
+  ends worth not repeating: AppBarLayout stops counting its scroll range at the
+  first child WITHOUT a `scroll` flag, so a pinned toolbar above the header
+  froze it in place; and moving that toolbar inside a `CollapsingToolbarLayout`
+  then hid it, because CTL paints its contentScrim over every child except a
+  real androidx `Toolbar` (ours is a LinearLayout). As a list row it just
+  scrolls, and the toolbar title fades in over the last quarter of the scroll -
+  which is what YouTube does anyway.
+- **`Shuffle`** starts a random item AND sets the player's repeat mode to
+  shuffle, so the rest of the queue keeps shuffling; that mode is persisted, so
+  the action confirms with a toast (not a snackbar - the player opens in the
+  same breath and would take the snackbar with it).
+- **`Save to Watch later` is on every card menu.** Upstream ships the item OFF;
+  flipping `MENU_ITEM_DEFAULT` alone only reaches fresh installs, because
+  MainUIData's upgrade path enables a new default only for items MISSING from
+  the persisted order list and this one was always in it. A one-shot migration
+  in `MobileMainApplication` (`newtube_migrations`, same pattern as the caption
+  default) enables it once for existing installs; disabling it afterwards sticks.
+- **Save sheet reworded and completed**: title `Save to playlist` (was the TV
+  `Add/Remove from playlist`, which also rendered twice - as the sheet title AND
+  as a category header, now dropped), `New playlist` as the first row, and the
+  signed-out message is `Sign in to save videos to playlists`. English and
+  Spanish updated; other upstream locales still carry the old TV wording.
+
 ## Works (added 2026-07-27 — carrier soak of the signed-in TV route)
 Ran on the Pixel 9 over **roaming LTE (AndorraTelecom, `drei.at`, metered,
 `net=vpn:183` split-tunnel Tailscale — default route is cellular)**, release
@@ -767,29 +801,23 @@ open:
 ## Open — product/UX
 - ~~Playlist queue UI in player ("Playing from: X · i/N", collapsible)~~ DONE
   2026-07-27, Pixel 9 verified (see Works below).
-- **Playlist parity gaps left after the 2026-07-30 pass** (measured on the
-  emulator against the YouTube app, worst first):
-  - The playlist PAGE has no header (cover, item count, owner, `Shuffle`) - it
-    is a toolbar over a bare grid. Title and `Play all` were fixed on
-    2026-07-30 (see below); the header itself is still open, and per the UX
-    north star it wants a real-YouTube screenshot before being designed.
-  - Counts disagree between surfaces: the page said `69 episodes`, the card said
-    `3 / 51` for the same playlist (page listing vs `/next` `PlaylistInfo`). The
-    card side is now the server total (fixed below), so this is a PAGE-count
-    question: which number the listing reports.
-  - No `Watch later` quick action anywhere (`MENU_ITEM_ADD_TO_WATCH_LATER` is
-    not in `MENU_ITEM_DEFAULT`); YouTube has it on every card and in Save.
-  - No "New playlist" inside the Save sheet (the card ⋮ menu has `Add to new
-    playlist`, the player sheet doesn't). NOTE before adding it:
-    `PlaylistServiceWrapper.createPlaylist()` ALWAYS also writes a local shadow
-    playlist (`createCachedPlaylist`), so creating from a prominent phone
-    surface while signed in produces a real playlist AND a local duplicate -
-    decide what that should do first.
-  - Card ⋮ menu is TV-worded and icon-less (`Add/Remove from playlist`,
-    `Add playlist to the sidebar`) vs YouTube's icon rows.
-  - `Signed users only` is upstream's TV string; a mobile "Sign in to save videos
-    to playlists" reads better (shared string - check the other call sites).
+- **Playlist parity gaps left after the 2026-07-30 passes** (measured against
+  the YouTube app, most of the list is now CLOSED - see the Works sections):
+  - The playlist PAGE count can still disagree with the card: the page said
+    `69 episodes` where the card said `3 / 51` for the same playlist. The card
+    side is now the server total, so what is left is which number the page
+    listing reports.
+  - No colour wash behind the header. YouTube extracts the cover's accent colour
+    with Palette; we dim the cover art itself as a backdrop instead (no Palette
+    dependency). Close, not identical.
+  - The playlist page has no `+` / edit / share circular buttons next to
+    `Play all` (YouTube shows them on playlists you own).
   - A deliberately-opened Mix shows no queue card (see the RD trade-off above).
+  - `Shuffle` turns the player's repeat mode to shuffle, which is a PERSISTED
+    setting - it stays on until changed. That is why the button confirms with a
+    toast. YouTube scopes shuffle to the queue instead.
+  - Only English and Spanish strings were updated for the reworded playlist
+    items; the other upstream locales still read the old TV wording.
 - "Not interested"/"Don't recommend channel" feedback tokens (server moved
   them; MediaServiceCore dig needed).
 - Channel rows in search suggestions; channel page header/sort polish.

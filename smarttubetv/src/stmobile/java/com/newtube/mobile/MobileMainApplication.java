@@ -119,6 +119,17 @@ public class MobileMainApplication extends MainApplication {
             migrations.edit().putBoolean("caption_style_white_default", true).apply();
         }
 
+        // WATCH LATER MENU ITEM (mobile-only, one-shot): "Save to Watch later" sits on every
+        // YouTube card menu, but upstream ships it OFF by default. Flipping MENU_ITEM_DEFAULT
+        // alone would only reach fresh installs - MainUIData's own upgrade path enables a new
+        // default only for items MISSING from the persisted order list, and this one has always
+        // been in it. So enable it exactly once here; disabling it afterwards sticks.
+        if (!migrations.getBoolean("watch_later_menu_item", false)) {
+            com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.instance(this)
+                    .setMenuItemEnabled(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.MENU_ITEM_ADD_TO_WATCH_LATER);
+            migrations.edit().putBoolean("watch_later_menu_item", true).apply();
+        }
+
         // NOTE(buffering): the back-buffer / start-gate / forward-buffer tuning that used to be
         // pushed into the legacy engine here (ExoPlayerInitializer.set*Override) moved into the
         // media3 engine itself - see Media3PlayerInitializer (back 120s, start gate 1000/2500ms).

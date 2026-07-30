@@ -59,4 +59,12 @@
     <string name="mobile_accounts_sign_out_title">¿Cerrar sesión?</string>
     <string name="mobile_accounts_sign_out_confirm">%1$s se eliminará de este dispositivo. Puedes volver a iniciar sesión cuando quieras.</string>
     <string name="mobile_accounts_more">Ajustes de cuenta</string>
+    <!-- Playlist page header -->
+    <string name="mobile_playlist_play_all">Reproducir todo</string>
+    <string name="mobile_playlist_shuffle">Aleatorio</string>
+    <string name="mobile_playlist_shuffle_on">Reproduciendo la lista en orden aleatorio</string>
+
+    <!-- Watch-page Save action -->
+    <string name="mobile_watch_save">Guardar</string>
+    <string name="mobile_watch_saved">Guardado</string>
 </resources>

@@ -1082,7 +1082,7 @@ public class AppDialogUtil {
         // An empty list built an empty sheet: a titled dialog with nothing in it and no hint that
         // signing in is what's missing, which reads as "there is no way to save a video".
         if (playlistInfos == null || playlistInfos.isEmpty()) {
-            MessageHelpers.showMessage(context, R.string.msg_signed_users_only);
+            MessageHelpers.showMessage(context, R.string.msg_sign_in_to_save);
             return;
         }
 
@@ -1092,8 +1092,40 @@ public class AppDialogUtil {
         dialogPresenter.showDialog(context.getString(R.string.dialog_add_to_playlist), onFinish);
     }
 
+    /**
+     * NEWTUBE(mobile): "New playlist" belongs in the Save sheet, not only in the card menu -
+     * on YouTube the save sheet is where you create one, and a user with no playlist yet had
+     * nowhere to go from here.
+     */
+    private static void appendNewPlaylistButton(Context context, Video video, AppDialogPresenter dialogPresenter) {
+        if (video == null || !video.hasVideo()) {
+            return;
+        }
+
+        dialogPresenter.appendSingleButton(UiOptionItem.from(
+                context.getString(R.string.add_video_to_new_playlist),
+                optionItem -> {
+                    dialogPresenter.closeDialog();
+                    SimpleEditDialog.show(
+                            context,
+                            context.getString(R.string.create_playlist),
+                            context.getString(R.string.create_playlist_note),
+                            null,
+                            newValue -> {
+                                MediaItem mediaItem = video.mediaItem != null ? video.mediaItem : SimpleMediaItem.from(video);
+                                RxHelper.execute(
+                                        YouTubeMediaItemService.instance().createPlaylistObserve(newValue, mediaItem),
+                                        error -> MessageHelpers.showMessage(context, error.getLocalizedMessage()),
+                                        () -> MessageHelpers.showMessage(context, R.string.saved_to_playlists));
+                                return true;
+                            });
+                }));
+    }
+
     private static void appendPlaylistDialogContent(
             Context context, Video video, VideoMenuCallback callback, AppDialogPresenter dialogPresenter, List<PlaylistInfo> playlistInfos) {
+        appendNewPlaylistButton(context, video, dialogPresenter);
+
         List<OptionItem> options = new ArrayList<>();
 
         for (PlaylistInfo playlistInfo : playlistInfos) {
@@ -1110,7 +1142,8 @@ public class AppDialogUtil {
                     playlistInfo.isSelected()));
         }
 
-        dialogPresenter.appendCheckedCategory(context.getString(R.string.dialog_add_to_playlist), options);
+        // No category title: it would repeat the sheet's own title word for word.
+        dialogPresenter.appendCheckedCategory(null, options);
     }
 
     private static void addRemoveFromPlaylist(Context context, Video video, VideoMenuCallback callback, String playlistId, boolean add) {

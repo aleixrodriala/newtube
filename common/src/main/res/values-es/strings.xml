@@ -41,8 +41,9 @@
   <string name="update_changelog">Registro de cambios</string>
   <string name="install_update">Instalar actualización</string>
   <string name="section_is_empty">¡Ups! No hay nada aquí.</string>
-  <string name="dialog_add_to_playlist">Añadir/eliminar de la lista de reproducción</string>
-  <string name="msg_signed_users_only">Solo usuarios registrados</string>
+  <string name="dialog_add_to_playlist">Guardar en una lista</string>
+  <string name="msg_signed_users_only">Inicia sesión para usar esto</string>
+  <string name="msg_sign_in_to_save">Inicia sesión para guardar vídeos en listas</string>
   <string name="msg_cant_load_content">No se puede cargar el contenido.\n1) Comprueba la fecha y la hora del dispositivo.\n2) Comprueba la conexión a la red.\n3) Intenta acceder a tu cuenta.</string>
   <string name="title_video_presets">Ajustes preestablecidos de vídeo</string>
   <string name="settings_accounts">Cuentas</string>
@@ -400,7 +401,8 @@
   <string name="removed_from_playlists">Eliminado de la sección de listas de reproducción</string>
   <string name="saved_to_playlists">Añadido a la sección de listas de reproducción</string>
   <string name="create_playlist">Crear lista de reproducción</string>
-  <string name="add_video_to_new_playlist">Añadir a una nueva lista de reproducción</string>
+  <string name="add_video_to_new_playlist">Nueva lista</string>
+  <string name="add_video_to_watch_later">Guardar en Ver más tarde</string>
   <string name="cant_delete_empty_playlist">No se puede eliminar una lista de reproducción vacía</string>
   <string name="playlist">Lista de reproducción</string>
   <string name="rename_playlist">Cambiar el nombre de la lista de reproducción</string>

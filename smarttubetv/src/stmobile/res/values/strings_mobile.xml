@@ -16,6 +16,9 @@
     <string name="mobile_player_previous">Previous</string>
     <string name="mobile_player_next">Next</string>
     <string name="mobile_playlist_play_all">Play all</string>
+    <string name="mobile_playlist_shuffle">Shuffle</string>
+    <!-- Shown after Shuffle, because it also turns the player's repeat mode to shuffle -->
+    <string name="mobile_playlist_shuffle_on">Shuffling this playlist</string>
     <!-- Pinch-zoom hint chip, same copy as the YouTube app -->
     <string name="mobile_player_zoom_fill">Zoomed to fill</string>
     <string name="mobile_player_zoom_original">Original</string>

@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Playlist page header, rendered as the FIRST (full-span) ITEM of the uploads grid.
+
+  Shape follows the YouTube playlist page captured on a Pixel 9: wide cover, name, owner, a
+  "N videos - Private" meta line, then a wide "Play all" pill with Shuffle beside it. The
+  cover art doubles as a dimmed backdrop, our stand-in for YouTube's Palette-extracted colour
+  wash (no Palette dependency here).
+
+  It is a list item rather than an AppBarLayout/CollapsingToolbarLayout child on purpose:
+  AppBarLayout stops counting its scroll range at the first child without a `scroll` flag, so
+  a pinned toolbar above the header froze it in place, and moving the toolbar inside a
+  CollapsingToolbarLayout then hid it (CTL only keeps a real androidx Toolbar visible while
+  collapsed). As a row it just scrolls with the grid, which is what YouTube does anyway.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/mobile_channel_uploads_header"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingBottom="4dp">
+
+    <ImageView
+        android:id="@+id/mobile_channel_uploads_backdrop"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0.22"
+        android:contentDescription="@null"
+        android:scaleType="centerCrop" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/mobile_playlist_header_scrim" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="14dp">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                app:cardBackgroundColor="@color/mobile_color_placeholder"
+                app:cardCornerRadius="@dimen/mobile_card_corner_radius"
+                app:cardElevation="0dp"
+                app:layout_constraintDimensionRatio="16:9"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent">
+
+                <ImageView
+                    android:id="@+id/mobile_channel_uploads_cover"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@null"
+                    android:scaleType="centerCrop" />
+
+            </com.google.android.material.card.MaterialCardView>
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+        <TextView
+            android:id="@+id/mobile_channel_uploads_header_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textColor="@color/mobile_color_on_surface"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            tools:text="Lofi Girl - Compilations &amp; Mixes" />
+
+        <TextView
+            android:id="@+id/mobile_channel_uploads_header_owner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/mobile_color_on_surface"
+            android:textSize="14sp"
+            tools:text="Lofi Girl" />
+
+        <TextView
+            android:id="@+id/mobile_channel_uploads_header_meta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/mobile_color_on_surface_secondary"
+            android:textSize="14sp"
+            android:visibility="gone"
+            tools:text="51 videos • Private"
+            tools:visibility="visible" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/mobile_channel_uploads_header_play_all"
+                style="@style/Widget.MaterialComponents.Button"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:backgroundTint="@android:color/white"
+                android:fontFamily="sans-serif-medium"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minHeight="48dp"
+                android:text="@string/mobile_playlist_play_all"
+                android:textAllCaps="false"
+                android:textColor="@android:color/black"
+                android:textSize="15sp"
+                app:cornerRadius="24dp"
+                app:icon="@drawable/ic_player_play"
+                app:iconGravity="textStart"
+                app:iconSize="20dp"
+                app:iconTint="@android:color/black" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/mobile_channel_uploads_shuffle"
+                style="@style/Widget.MaterialComponents.Button"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="10dp"
+                android:backgroundTint="@color/mobile_color_subscribed_button"
+                android:contentDescription="@string/mobile_playlist_shuffle"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="48dp"
+                android:minHeight="48dp"
+                app:cornerRadius="24dp"
+                app:icon="@drawable/ic_player_shuffle"
+                app:iconGravity="textStart"
+                app:iconPadding="0dp"
+                app:iconSize="22dp"
+                app:iconTint="@color/mobile_color_on_surface" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</FrameLayout>

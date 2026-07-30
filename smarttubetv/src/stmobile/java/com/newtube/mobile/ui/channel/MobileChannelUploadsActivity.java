@@ -10,14 +10,18 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.recyclerview.widget.ConcatAdapter;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
+import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerConstants;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.ChannelUploadsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelUploadsView;
+import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.browse.VideoCardAdapter;
 import com.newtube.mobile.ui.common.MobileActivity;
@@ -26,6 +30,7 @@ import com.newtube.mobile.ui.playback.MobileMiniPlayerController;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 /**
  * Touch Channel-Uploads list (Wave 4a).
@@ -72,6 +77,9 @@ public class MobileChannelUploadsActivity extends MobileActivity
     private TextView mTitleView;
     private ImageButton mBackButton;
     private MaterialButton mPlayAllButton;
+
+    /** Playlist header row (absent for plain channel uploads) - see {@link PlaylistHeaderAdapter}. */
+    private PlaylistHeaderAdapter mHeaderAdapter;
 
     private final List<Video> mVideos = new ArrayList<>();
     private int mLastPaginationTriggerCount = -1;
@@ -124,6 +132,49 @@ public class MobileChannelUploadsActivity extends MobileActivity
         if (channel != null && channel.getTitle() != null) {
             mTitleView.setText(channel.getTitle());
         }
+
+        applyHeader(channel);
+    }
+
+    /**
+     * Hands the opener card to the header row - it already carries everything the header shows,
+     * so no extra request is needed and the header is complete before the first item lands.
+     *
+     * <p>Only playlists get one. Channel uploads have no playlist behind them and would render
+     * a header that just repeats the toolbar, so they keep the compact toolbar button.</p>
+     */
+    private void applyHeader(Video opener) {
+        boolean isPlaylist = opener != null && opener.getPlaylistId() != null;
+
+        mHeaderAdapter.setPlaylist(isPlaylist ? opener : null);
+        applyToolbarTitleAlpha();
+    }
+
+    /**
+     * The playlist name is already the biggest thing on screen while the header is in view, so
+     * the toolbar copy of it only fades in as the header scrolls away - the YouTube playlist page
+     * shows a bare back arrow over the cover for the same reason. Screens without a header
+     * (channel uploads) keep the title visible at all times.
+     */
+    private void applyToolbarTitleAlpha() {
+        if (!mHeaderAdapter.hasHeader()) {
+            mTitleView.setAlpha(1f);
+            return;
+        }
+
+        View header = mLayoutManager.findViewByPosition(0);
+        float collapsed;
+
+        if (header == null) {
+            collapsed = 1f; // scrolled past it entirely
+        } else if (header.getHeight() <= 0) {
+            collapsed = 0f;
+        } else {
+            collapsed = Math.min(1f, Math.max(0f, -header.getTop() / (float) header.getHeight()));
+        }
+
+        // Hold at 0 until the header is mostly gone, then fade in over the last quarter.
+        mTitleView.setAlpha(Math.max(0f, (collapsed - 0.75f) * 4f));
     }
 
     private void bindViews() {
@@ -135,19 +186,45 @@ public class MobileChannelUploadsActivity extends MobileActivity
     }
 
     private void setupGrid() {
-        mLayoutManager = new GridLayoutManager(this, computeSpanCount());
+        int spanCount = computeSpanCount();
+        mLayoutManager = new GridLayoutManager(this, spanCount);
         mAdapter = new VideoCardAdapter(this::onVideoClicked, this::onVideoLongClicked);
+        mHeaderAdapter = new PlaylistHeaderAdapter(new PlaylistHeaderAdapter.Callbacks() {
+            @Override
+            public void onPlayAll() {
+                playAll();
+            }
 
-        mGrid.setHasFixedSize(true);
+            @Override
+            public void onShuffle() {
+                shuffle();
+            }
+        });
+
+        // The header is one full-width row in front of the cards; in landscape the grid is
+        // multi-column, so it has to claim every span or it would sit in the first cell.
+        mLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+            @Override
+            public int getSpanSize(int position) {
+                return isHeaderPosition(position) ? mLayoutManager.getSpanCount() : 1;
+            }
+        });
+
         mGrid.setItemViewCacheSize(8);
         mGrid.setLayoutManager(mLayoutManager);
-        mGrid.setAdapter(mAdapter);
+        // NOT setHasFixedSize: the header row makes the content height change with the data.
+        mGrid.setAdapter(new ConcatAdapter(mHeaderAdapter, mAdapter));
         mGrid.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
                 maybeTriggerPagination();
+                applyToolbarTitleAlpha();
             }
         });
+    }
+
+    private boolean isHeaderPosition(int position) {
+        return position == 0 && mHeaderAdapter.hasHeader();
     }
 
     private void onVideoClicked(Video video) {
@@ -210,15 +287,54 @@ public class MobileChannelUploadsActivity extends MobileActivity
     }
 
     /**
+     * Starts a random item and turns the player's repeat mode to shuffle, so the REST of the
+     * queue keeps shuffling too - randomizing only the first video would be a lie. That mode is
+     * a persisted player setting (and stays on until changed), hence the confirmation.
+     */
+    private void shuffle() {
+        Video random = findRandomPlayableVideo();
+
+        if (random == null) {
+            return;
+        }
+
+        PlayerData.instance(this).setPlaybackMode(PlayerConstants.PLAYBACK_MODE_SHUFFLE);
+        // A toast, not a snackbar: the player opens in the same breath and takes this screen -
+        // and any snackbar anchored to it - away before it could be read.
+        MessageHelpers.showMessage(this, R.string.mobile_playlist_shuffle_on);
+
+        onVideoClicked(withPlaylistContext(random));
+    }
+
+    /** Random pick among the rows in hand (the loaded page), never the "no items" case. */
+    private Video findRandomPlayableVideo() {
+        List<Video> playable = new ArrayList<>();
+
+        for (Video video : mVideos) {
+            if (video != null && video.hasVideo()) {
+                playable.add(video);
+            }
+        }
+
+        return playable.isEmpty() ? null : playable.get(new Random().nextInt(playable.size()));
+    }
+
+    /**
      * Visible whenever this destination can start a queue: either the items already carry the
      * playlist context, or the opener does (see {@link #withPlaylistContext}).
+     *
+     * <p>Play all lives in TWO places and only one shows at a time: the playlist header has its
+     * own pair of buttons, so the compact toolbar button is for the header-less case (channel
+     * uploads) - otherwise the same action would sit on screen twice.</p>
      */
     private void updatePlayAllVisibility() {
         Video opener = mPresenter != null ? mPresenter.getChannel() : null;
         boolean hasContext = findFirstPlayableVideo() != null
                 && (hasPlaylistItem() || (opener != null && opener.getPlaylistId() != null));
+        boolean hasHeader = mHeaderAdapter.hasHeader();
 
-        mPlayAllButton.setVisibility(hasContext ? View.VISIBLE : View.GONE);
+        mPlayAllButton.setVisibility(hasContext && !hasHeader ? View.VISIBLE : View.GONE);
+        mHeaderAdapter.setActionsEnabled(hasContext);
     }
 
     private boolean hasPlaylistItem() {
@@ -236,10 +352,12 @@ public class MobileChannelUploadsActivity extends MobileActivity
             return;
         }
 
-        int lastVisible = mLayoutManager.findLastVisibleItemPosition();
+        // Grid positions include the header row, so shift back into card space before comparing.
+        int headerOffset = mHeaderAdapter.hasHeader() ? 1 : 0;
+        int lastVisible = mLayoutManager.findLastVisibleItemPosition() - headerOffset;
         int itemCount = mAdapter.getItemCount();
 
-        if (lastVisible == RecyclerView.NO_POSITION || itemCount == 0) {
+        if (lastVisible < 0 || itemCount == 0) {
             return;
         }
 

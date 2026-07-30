@@ -6,6 +6,11 @@
   VideoCardAdapter + the same runtime span-count math as the Home grid), under a simple
   Toolbar with the list title + a back arrow. No bottom nav: this is a pushed detail
   screen (parent = MobileBrowseActivity), so back returns to wherever it was opened from.
+
+  A PLAYLIST also gets a header (cover, name, owner, count, Play all + Shuffle) like the
+  YouTube playlist page - it is the grid's first full-span ITEM, see
+  {@code item_mobile_playlist_header.xml}. Channel uploads have no playlist behind them, so
+  they show no header and keep the compact "Play all" button in the toolbar instead.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
