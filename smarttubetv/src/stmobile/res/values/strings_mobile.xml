@@ -45,6 +45,10 @@
     <string name="mobile_watch_like">Like</string>
     <string name="mobile_watch_dislike">Dislike</string>
     <string name="mobile_watch_share">Share</string>
+    <!-- Watch-page action pill: opens the add/remove-from-playlist sheet. "Saved" while the video
+         is in at least one playlist. -->
+    <string name="mobile_watch_save">Save</string>
+    <string name="mobile_watch_saved">Saved</string>
     <string name="mobile_watch_subscribe">Subscribe</string>
     <string name="mobile_watch_subscribed">Subscribed</string>
     <string name="mobile_watch_related">Up next</string>

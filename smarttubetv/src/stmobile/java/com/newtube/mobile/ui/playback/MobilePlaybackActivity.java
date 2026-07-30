@@ -227,6 +227,9 @@ public class MobilePlaybackActivity extends MobileActivity
     private ImageView mWatchDislikeIcon;
     private TextView mWatchDislikeCount;
     private View mWatchShare;
+    private View mWatchSave;
+    private ImageView mWatchSaveIcon;
+    private TextView mWatchSaveLabel;
     private ImageView mWatchAvatar;
     private TextView mWatchChannelName;
     private TextView mWatchSubs;
@@ -481,6 +484,9 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchDislikeIcon = findViewById(R.id.mobile_watch_dislike_icon);
         mWatchDislikeCount = findViewById(R.id.mobile_watch_dislike_count);
         mWatchShare = findViewById(R.id.mobile_watch_share);
+        mWatchSave = findViewById(R.id.mobile_watch_save);
+        mWatchSaveIcon = findViewById(R.id.mobile_watch_save_icon);
+        mWatchSaveLabel = findViewById(R.id.mobile_watch_save_label);
         mWatchAvatar = findViewById(R.id.mobile_watch_avatar);
         mWatchChannelName = findViewById(R.id.mobile_watch_channel_name);
         mWatchSubs = findViewById(R.id.mobile_watch_subs);
@@ -655,6 +661,8 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchDislike.setOnClickListener(v -> onActionButtonClicked(R.id.action_thumbs_down));
         mWatchSubscribe.setOnClickListener(v -> onActionButtonClicked(R.id.action_subscribe));
         mWatchShare.setOnClickListener(v -> shareCurrentVideo());
+        // Save opens the same add/remove-from-playlist sheet as gear -> More -> Save to playlist.
+        mWatchSave.setOnClickListener(v -> openPlayerOption(R.id.action_playlist_add, false));
 
         // Channel row (avatar + name/subs) opens the channel page; the Subscribe button inside
         // the row keeps its own click. ChannelPresenter resolves the channelId from metadata
@@ -4773,6 +4781,12 @@ public class MobilePlaybackActivity extends MobileActivity
         } else if (buttonId == R.id.lb_control_closed_captioning && mSubtitlesButton != null) {
             // YouTube-style: filled CC glyph while captions are on, outlined while off.
             mSubtitlesButton.setImageResource(on ? R.drawable.ic_player_cc : R.drawable.ic_player_cc_off);
+        } else if (buttonId == R.id.action_playlist_add && mWatchSaveIcon != null) {
+            // In at least one playlist -> check glyph + "Saved", like YouTube's filled Save.
+            mWatchSaveIcon.setImageResource(on ? R.drawable.ic_mobile_check : R.drawable.ic_player_playlist_add);
+            if (mWatchSaveLabel != null) {
+                mWatchSaveLabel.setText(on ? R.string.mobile_watch_saved : R.string.mobile_watch_save);
+            }
         } else if (buttonId == R.id.action_subscribe && mWatchSubscribe != null) {
             mWatchSubscribe.setText(on ? R.string.mobile_watch_subscribed : R.string.mobile_watch_subscribe);
             mWatchSubscribe.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
@@ -4851,7 +4865,7 @@ public class MobilePlaybackActivity extends MobileActivity
         // stay untouched either way.
         Video current = getVideo();
         String currentId = current != null ? current.videoId : null;
-        Integer queueId = findQueueGroupId(currentId);
+        Integer queueId = findQueueGroupId(current);
 
         for (Map.Entry<Integer, List<Video>> entry : mSuggestionVideos.entrySet()) {
             boolean isQueueRow = queueId != null && queueId.equals(entry.getKey());
@@ -4895,9 +4909,16 @@ public class MobilePlaybackActivity extends MobileActivity
      * self-maintaining - it leans on no row ordering, no group title we don't control, and no
      * playlist-id plumbing that varies by entry point (section playlist vs /next playlist vs the
      * local Playlist queue).</p>
+     *
+     * <p>Two things bound what can reach here. Upstream, {@code Video.isSectionPlaylistEnabled}
+     * only pushes the row a video was opened from when that row really is a playlist, so an
+     * ordinary feed/search/subscriptions open delivers no section row. And here, the video must
+     * be playing from a playlist a person chose - see {@link #isChosenPlaylist}.</p>
      */
-    private Integer findQueueGroupId(String currentId) {
-        if (currentId == null) {
+    private Integer findQueueGroupId(Video current) {
+        String currentId = current != null ? current.videoId : null;
+
+        if (currentId == null || !isChosenPlaylist(current)) {
             return null;
         }
 
@@ -4914,6 +4935,28 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         return null;
+    }
+
+    /**
+     * Is this video playing from a playlist a PERSON chose, rather than one YouTube attached?
+     *
+     * <p>Having a playlist id isn't enough. YouTube hangs an auto-radio off ordinary videos - the
+     * home-feed item that opened as "Playing from Relaxing July Morning Jazz - 1 / 20" carried
+     * {@code playlistId=RDrLNaachBzBI}, i.e. literally {@code "RD" + its own videoId} - and its
+     * {@code /next} panel row does contain the playing video, so the row test alone brought the
+     * card back on exactly the videos this was supposed to clear it from. YouTube keeps that radio
+     * to itself: no panel on a plain video, panel only once you open a playlist.</p>
+     *
+     * <p>So: a playlist id that isn't a radio. {@code RD...} covers auto-radios and Mixes; real
+     * playlists are {@code PL/LL/UU/OL/FL...}. The trade is that deliberately tapping a Mix card
+     * shows no card either (its videos still list under Up next) - worth it, because a Mix and an
+     * auto-radio are the same object here and there is no signal left at this point to tell "the
+     * user picked this mix" from "YouTube attached one".</p>
+     */
+    private boolean isChosenPlaylist(Video video) {
+        String playlistId = video != null ? video.getPlaylistId() : null;
+
+        return playlistId != null && !playlistId.startsWith("RD");
     }
 
     /**
@@ -4938,12 +4981,11 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         // WHICH playlist are we actually listing? Two different things can own the queue and they
-        // do NOT agree: the SECTION playlist (the browse row the video was opened from - the app
-        // auto-advances through it) and the /next playlist. A video opened from the home feed has
-        // BOTH: a section group of feed rows, and a PlaylistInfo describing the auto-generated Mix.
-        // Describing the feed rows with the Mix's name is how this first shipped, and it read as a
-        // bug - the card said "Playing from <mix>" over a list of unrelated feed videos. So
-        // PlaylistInfo is trusted only when the queue is NOT the section group.
+        // do NOT agree: the SECTION playlist (the playlist row the video was opened from - the app
+        // auto-advances through it) and the /next playlist. They can describe different lists, and
+        // naming one after the other reads as a bug - the card said "Playing from <mix>" over a
+        // list that wasn't the mix. So PlaylistInfo is trusted only when the queue is NOT the
+        // section group.
         VideoGroup sectionGroup = current != null ? current.getGroup() : null;
         boolean isSectionQueue = sectionGroup != null && queueId != null
                 && queueId.equals(sectionGroup.getId());

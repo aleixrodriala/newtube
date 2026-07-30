@@ -615,11 +615,19 @@
                     tools:text="Video description text..."
                     tools:visibility="visible" />
 
-                <!-- Actions row: segmented Like|Dislike pill (YouTube-style) + Share -->
-                <LinearLayout
+                <!-- Actions row: segmented Like|Dislike pill (YouTube-style) + Share + Save.
+                     Scrolls horizontally like YouTube's, so a fourth pill (or a wide count) can't
+                     push an action off a narrow screen. -->
+                <HorizontalScrollView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
+                    android:overScrollMode="never"
+                    android:scrollbars="none">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingHorizontal="@dimen/mobile_watch_content_padding">
@@ -731,7 +739,42 @@
 
                     </LinearLayout>
 
+                    <!-- Save to playlist. Same action as gear -> More -> Save to playlist; it lives
+                         here too because that is where YouTube puts it and where people look. -->
+                    <LinearLayout
+                        android:id="@+id/mobile_watch_save"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/mobile_watch_pill_bg"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="8dp">
+
+                        <ImageView
+                            android:id="@+id/mobile_watch_save_icon"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:contentDescription="@string/mobile_watch_save"
+                            android:src="@drawable/ic_player_playlist_add" />
+
+                        <TextView
+                            android:id="@+id/mobile_watch_save_label"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="6dp"
+                            android:text="@string/mobile_watch_save"
+                            android:textColor="@color/mobile_color_on_surface"
+                            android:textSize="14sp" />
+
+                    </LinearLayout>
+
                 </LinearLayout>
+
+                </HorizontalScrollView>
 
                 <!-- Channel row: avatar + name/subs + Subscribe. Sections separate by
                      whitespace, not hairline dividers (matches current YouTube).

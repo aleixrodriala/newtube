@@ -396,6 +396,47 @@ strictly cheaper, since it mints no token. Not done; see Open.
   badge to row 2, reverts row 1 to its duration and updates the subtitle to
   `2 / 5`; header tap collapses again. No crashes.
 
+## Works (added 2026-07-30 — the queue card only shows for real playlists)
+The card above shipped on EVERY video: `Playing from Recomendados - 2 / 5` over
+a home-feed open, which YouTube never shows (Pixel reference shot: a feed video
+goes title → actions → comments → related, no panel). Two independent sources
+fed it, and both are now closed:
+- **The browse row you opened from was being turned into a playlist.**
+  `appendSectionPlaylistIfNeeded` pushes `video.getGroup()` as a suggestion row
+  whenever `isSectionPlaylistEnabled` - a TV feature (the D-pad row keeps
+  playing) that on a phone made the feed the queue. `Video.isSectionPlaylistEnabled`
+  now also requires `isRealPlaylistSection()` (this video has a playlist id AND
+  its neighbours in the row share it), which a home/subs/search/history row fails.
+  One predicate, three effects: no queue card, no feed videos in Up next, and
+  `SuggestionsController.getNext()` falls through to `nextMediaItem` - so autoplay
+  goes to a related video like YouTube's instead of walking the feed row.
+- **YouTube hangs an auto-radio off ordinary videos.** With the section row gone
+  the card came back named after the video itself (`1 / 20`): the feed item
+  carried `playlistId=RDrLNaachBzBI` = literally `"RD" + its own videoId`, and the
+  `/next` radio panel does contain the playing video. `findQueueGroupId` now
+  requires `isChosenPlaylist()` - a playlist id that is not an `RD...` radio.
+  Trade-off, deliberate: deliberately tapping a Mix card shows no card either (its
+  videos still list under Up next), because at that point a Mix and an auto-radio
+  are the same object with no signal left to separate them.
+- Emulator-verified (NewTube_Verify, signed out): home-feed video → no card, Up
+  next = related only; real playlist (`Lofi Girl - Compilations & Mixes`) → card
+  reads `Playing from ♪♪ Lofi Girl - Compilations & Mixes` / `3 / 51`, expands
+  with one `Now playing` badge. Unit tests green.
+
+## Works (added 2026-07-30 — saving a video to a playlist)
+- **`Save` is now a watch-page action**, next to Like/Dislike and Share, where
+  YouTube puts it; it fires the same `action_playlist_add` as gear → More → Save
+  to playlist, and flips to a check glyph + `Saved` while the video is in a
+  playlist (`updateButtonVisual`). It was only reachable two levels deep in the
+  gear sheet, which is why it read as missing. The action row is now a
+  `HorizontalScrollView` so a fourth pill can't push an action off a narrow screen.
+- **The signed-out sheet is no longer empty.** `getPlaylistsInfo` returns an
+  EMPTY list while signed out (it short-circuits `/playlist/get_add_to_playlist`,
+  which 401s), and `showAddToPlaylistDialog` only special-cased `null` - so the
+  sheet opened titled and empty, with no hint that signing in was what was
+  missing. Empty now takes the same path as null: `Signed users only`.
+  Emulator-verified (toast, no empty sheet).
+
 ## Works (added 2026-07-27 — carrier soak of the signed-in TV route)
 Ran on the Pixel 9 over **roaming LTE (AndorraTelecom, `drei.at`, metered,
 `net=vpn:183` split-tunnel Tailscale — default route is cellular)**, release
@@ -695,6 +736,24 @@ open:
 ## Open — product/UX
 - ~~Playlist queue UI in player ("Playing from: X · i/N", collapsible)~~ DONE
   2026-07-27, Pixel 9 verified (see Works below).
+- **Playlist parity gaps left after the 2026-07-30 pass** (measured on the
+  emulator against the YouTube app, worst first):
+  - The playlist PAGE is a bare grid: toolbar shows the CHANNEL name
+    (`Lofi Girl`), not the playlist name, and there is no header (cover, item
+    count, owner, `Play all` + `Shuffle`). `Play all` exists in
+    `MobileChannelUploadsActivity` but stayed hidden on a search-opened playlist -
+    `findFirstPlaylistVideo()` found no item carrying a playlistId. Needs a look.
+  - Counts disagree between surfaces: the page said `69 episodes`, the card said
+    `3 / 51` for the same playlist (page listing vs `/next` `PlaylistInfo`).
+  - No `Watch later` quick action anywhere (`MENU_ITEM_ADD_TO_WATCH_LATER` is
+    not in `MENU_ITEM_DEFAULT`); YouTube has it on every card and in Save.
+  - No "New playlist" inside the Save sheet (the card ⋮ menu has `Add to new
+    playlist`, the player sheet doesn't).
+  - Card ⋮ menu is TV-worded and icon-less (`Add/Remove from playlist`,
+    `Add playlist to the sidebar`) vs YouTube's icon rows.
+  - `Signed users only` is upstream's TV string; a mobile "Sign in to save videos
+    to playlists" reads better (shared string - check the other call sites).
+  - A deliberately-opened Mix shows no queue card (see the RD trade-off above).
 - "Not interested"/"Don't recommend channel" feedback tokens (server moved
   them; MediaServiceCore dig needed).
 - Channel rows in search suggestions; channel page header/sort polish.

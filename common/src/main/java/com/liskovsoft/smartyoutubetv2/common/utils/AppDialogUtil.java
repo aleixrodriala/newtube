@@ -1077,7 +1077,11 @@ public class AppDialogUtil {
     }
 
     public static void showAddToPlaylistDialog(Context context, Video video, VideoMenuCallback callback, List<PlaylistInfo> playlistInfos, Runnable onFinish) {
-        if (playlistInfos == null) {
+        // NEWTUBE(mobile): an EMPTY list is the signed-out answer, not just the null one - the
+        // service short-circuits /playlist/get_add_to_playlist while signed out because it 401s.
+        // An empty list built an empty sheet: a titled dialog with nothing in it and no hint that
+        // signing in is what's missing, which reads as "there is no way to save a video".
+        if (playlistInfos == null || playlistInfos.isEmpty()) {
             MessageHelpers.showMessage(context, R.string.msg_signed_users_only);
             return;
         }

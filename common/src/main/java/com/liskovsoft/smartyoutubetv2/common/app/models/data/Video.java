@@ -951,8 +951,29 @@ public final class Video {
      */
     public boolean isSectionPlaylistEnabled(Context context) {
         return PlayerTweaksData.instance(context).isSectionPlaylistEnabled() && !belongsToSuggestions() && !belongsToPlaybackQueue()
+                && isRealPlaylistSection() // NEWTUBE(mobile): a browse row is not a playlist - see below
                 && (!checkAllVideosHasPlaylist() || nextMediaItem == null || !isMix()) // skip hidden playlists (music videos usually)
                 && (!isRemote || remotePlaylistId == null);
+    }
+
+    /**
+     * NEWTUBE(mobile): is the row this video was opened from an actual playlist?
+     *
+     * <p>The section playlist turns the browse row you opened a video from into the playback
+     * queue. On a TV that is a feature (the D-pad row keeps playing); on a phone it made every
+     * ordinary video look like a playlist: the row was pushed as a suggestion group, so the watch
+     * page showed "Playing from Recommended - 2 / 5" over the home feed, the feed videos landed in
+     * Up next, and autoplay walked the feed instead of the related video. YouTube does none of
+     * that - a feed video has no queue panel and autoplays a related video.</p>
+     *
+     * <p>So the section only counts when it really is a playlist: this video carries a playlist id
+     * and its neighbours in the row carry the same one (a playlist page, a mix, Liked/Watch later).
+     * A home/subscriptions/search/history row fails both halves. Everything downstream follows from
+     * this one test - no section row means no queue card, no feed videos in Up next, and
+     * {@code getNext()} falls through to {@code nextMediaItem} the way YouTube's autoplay does.</p>
+     */
+    private boolean isRealPlaylistSection() {
+        return getPlaylistId() != null && belongsToSamePlaylistGroup();
     }
 
     public String createPlaylistTitle() {
