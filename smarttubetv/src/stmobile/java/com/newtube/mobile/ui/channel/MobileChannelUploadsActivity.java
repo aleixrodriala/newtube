@@ -1,5 +1,6 @@
 package com.newtube.mobile.ui.channel;
 
+import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.view.View;
@@ -92,14 +93,37 @@ public class MobileChannelUploadsActivity extends MobileActivity
 
         mPresenter = ChannelUploadsPresenter.instance(this);
 
-        // Prefer the channel/playlist title the opener already knows (set before this view
-        // existed); the first delivered VideoGroup also carries a title and updates it.
-        if (mPresenter.getChannel() != null) {
-            mTitleView.setText(mPresenter.getChannel().getTitle());
-        }
+        applyOpenerTitle();
 
         mPresenter.setView(this);
         mPresenter.onViewInitialized();
+    }
+
+    /**
+     * This activity is {@code singleTop} and every {@code startView()} adds
+     * {@code FLAG_ACTIVITY_REORDER_TO_FRONT}, so opening a second playlist/channel REUSES this
+     * instance: {@link #onCreate} never runs again and the toolbar would keep showing the
+     * previous destination's name until a titled {@code VideoGroup} happens to arrive (the first
+     * delivered group often has none, so the wrong title survived the whole content load -
+     * "Watch later" rendered as "Recommended" on the emulator).
+     */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+
+        applyOpenerTitle();
+    }
+
+    /**
+     * Prefer the channel/playlist title the opener already knows ({@code mChannel} is set before
+     * this view is started). The delivered {@link VideoGroup}s also carry a title and refine it.
+     */
+    private void applyOpenerTitle() {
+        Video channel = mPresenter != null ? mPresenter.getChannel() : null;
+
+        if (channel != null && channel.getTitle() != null) {
+            mTitleView.setText(channel.getTitle());
+        }
     }
 
     private void bindViews() {
@@ -141,17 +165,18 @@ public class MobileChannelUploadsActivity extends MobileActivity
         return true;
     }
 
-    /** Start from the first playable item that carries the playlist context. */
+    /** Start from the first playable item, carrying this destination's playlist context. */
     private void playAll() {
-        Video first = findFirstPlaylistVideo();
+        Video first = findFirstPlayableVideo();
+
         if (first != null) {
-            onVideoClicked(first);
+            onVideoClicked(withPlaylistContext(first));
         }
     }
 
-    private Video findFirstPlaylistVideo() {
+    private Video findFirstPlayableVideo() {
         for (Video video : mVideos) {
-            if (video != null && video.hasVideo() && video.getPlaylistId() != null) {
+            if (video != null && video.hasVideo()) {
                 return video;
             }
         }
@@ -159,8 +184,51 @@ public class MobileChannelUploadsActivity extends MobileActivity
         return null;
     }
 
+    /**
+     * Not every path fills the playlist id INTO the listed items: a playlist reached through a
+     * card that also carries a video resolves via {@code getMetadataObserve() ->
+     * findPlaylistRow()}, whose rows are plain suggestion items. Those items still belong to this
+     * playlist - the opener knows its id - so borrow it, or "Play all" would either hide itself
+     * or start a single video with no queue behind it.
+     *
+     * <p>Returns a COPY when it has to inject the id: {@code Video}'s identity is a composite
+     * hash that includes the playlist, and the grid's list/diffing holds the original.</p>
+     */
+    private Video withPlaylistContext(Video video) {
+        Video opener = mPresenter != null ? mPresenter.getChannel() : null;
+        String playlistId = opener != null ? opener.getPlaylistId() : null;
+
+        if (video.getPlaylistId() != null || playlistId == null) {
+            return video;
+        }
+
+        Video copy = Video.from(video);
+        copy.playlistId = playlistId;
+        copy.playlistParams = opener.playlistParams;
+
+        return copy;
+    }
+
+    /**
+     * Visible whenever this destination can start a queue: either the items already carry the
+     * playlist context, or the opener does (see {@link #withPlaylistContext}).
+     */
     private void updatePlayAllVisibility() {
-        mPlayAllButton.setVisibility(findFirstPlaylistVideo() != null ? View.VISIBLE : View.GONE);
+        Video opener = mPresenter != null ? mPresenter.getChannel() : null;
+        boolean hasContext = findFirstPlayableVideo() != null
+                && (hasPlaylistItem() || (opener != null && opener.getPlaylistId() != null));
+
+        mPlayAllButton.setVisibility(hasContext ? View.VISIBLE : View.GONE);
+    }
+
+    private boolean hasPlaylistItem() {
+        for (Video video : mVideos) {
+            if (video != null && video.hasVideo() && video.getPlaylistId() != null) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void maybeTriggerPagination() {

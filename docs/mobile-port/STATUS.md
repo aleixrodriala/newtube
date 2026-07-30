@@ -436,6 +436,37 @@ fed it, and both are now closed:
   sheet opened titled and empty, with no hint that signing in was what was
   missing. Empty now takes the same path as null: `Signed users only`.
   Emulator-verified (toast, no empty sheet).
+- **Signed-in verification (emulator, account `trufujocs@gmail.com`).** `Save`
+  on a feed video opens the real sheet (`Watch later` + every user playlist,
+  checkboxes reflect membership), checking `Watch later` writes through (the
+  Playlists page shows `Updated today`, count 29 → 30) and the pill flips to
+  `✓ Saved`; reopening the video later restores `Saved` from `/next`. The rest
+  of the signed-in gaps are listed under "Open — product/UX".
+
+## Works (added 2026-07-30 — playlist page title, Play all, queue count)
+All three found while verifying the Save flow signed in; emulator-verified.
+- **The playlist page kept the PREVIOUS destination's title.**
+  `MobileChannelUploadsActivity` is `singleTop` and every `startView()` adds
+  `FLAG_ACTIVITY_REORDER_TO_FRONT`, so opening a second playlist REUSES the
+  instance and `onCreate` (the only place that read the opener's title) never
+  ran again; the toolbar then waited for a `VideoGroup` that carried a title,
+  which the first delivered group often doesn't. `Watch later` rendered as
+  `Recommended` for the whole content load. Fixed by extracting
+  `applyOpenerTitle()` and calling it from `onNewIntent` too.
+- **`Play all` hid itself (and could start a queue-less video) whenever the
+  listed items carried no playlist id.** A playlist reached through a card that
+  also has a video resolves via `getMetadataObserve() -> findPlaylistRow()`,
+  whose rows are plain suggestion items. `playAll()` now takes the first
+  PLAYABLE item and borrows the opener's `playlistId`/`playlistParams` when the
+  item has none — on a COPY, since `Video`'s identity hash includes the playlist
+  and the grid holds the original. Visibility follows the same rule.
+- **The queue card counted a page, not the playlist.** `bindQueueCard` distrusts
+  `PlaylistInfo` when the queue IS the section group (that guard exists because
+  a Mix's `/next` info can name a different list than the rows on screen), so it
+  fell back to `mQueueVideos.size()` — one page. Now `PlaylistInfo` is also
+  trusted when its `playlistId` equals the playing video's, i.e. when both
+  describe the same list; its `getSize()` is the server's `totalVideos`.
+  `Play all` on a 30-video `Watch later` now reads `1 / 30`, not `1 / 15`.
 
 ## Works (added 2026-07-27 — carrier soak of the signed-in TV route)
 Ran on the Pixel 9 over **roaming LTE (AndorraTelecom, `drei.at`, metered,
@@ -738,17 +769,22 @@ open:
   2026-07-27, Pixel 9 verified (see Works below).
 - **Playlist parity gaps left after the 2026-07-30 pass** (measured on the
   emulator against the YouTube app, worst first):
-  - The playlist PAGE is a bare grid: toolbar shows the CHANNEL name
-    (`Lofi Girl`), not the playlist name, and there is no header (cover, item
-    count, owner, `Play all` + `Shuffle`). `Play all` exists in
-    `MobileChannelUploadsActivity` but stayed hidden on a search-opened playlist -
-    `findFirstPlaylistVideo()` found no item carrying a playlistId. Needs a look.
+  - The playlist PAGE has no header (cover, item count, owner, `Shuffle`) - it
+    is a toolbar over a bare grid. Title and `Play all` were fixed on
+    2026-07-30 (see below); the header itself is still open, and per the UX
+    north star it wants a real-YouTube screenshot before being designed.
   - Counts disagree between surfaces: the page said `69 episodes`, the card said
-    `3 / 51` for the same playlist (page listing vs `/next` `PlaylistInfo`).
+    `3 / 51` for the same playlist (page listing vs `/next` `PlaylistInfo`). The
+    card side is now the server total (fixed below), so this is a PAGE-count
+    question: which number the listing reports.
   - No `Watch later` quick action anywhere (`MENU_ITEM_ADD_TO_WATCH_LATER` is
     not in `MENU_ITEM_DEFAULT`); YouTube has it on every card and in Save.
   - No "New playlist" inside the Save sheet (the card ⋮ menu has `Add to new
-    playlist`, the player sheet doesn't).
+    playlist`, the player sheet doesn't). NOTE before adding it:
+    `PlaylistServiceWrapper.createPlaylist()` ALWAYS also writes a local shadow
+    playlist (`createCachedPlaylist`), so creating from a prominent phone
+    surface while signed in produces a real playlist AND a local duplicate -
+    decide what that should do first.
   - Card ⋮ menu is TV-worded and icon-less (`Add/Remove from playlist`,
     `Add playlist to the sidebar`) vs YouTube's icon rows.
   - `Signed users only` is upstream's TV string; a mobile "Sign in to save videos

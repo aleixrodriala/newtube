@@ -4986,10 +4986,17 @@ public class MobilePlaybackActivity extends MobileActivity
         // naming one after the other reads as a bug - the card said "Playing from <mix>" over a
         // list that wasn't the mix. So PlaylistInfo is trusted only when the queue is NOT the
         // section group.
+        // ...unless it names the SAME playlist we are listing (Play all / a video opened from a
+        // playlist page): then the two agree and PlaylistInfo is the better source, because its
+        // size is the playlist's server-side total while the rows in hand are only the first page
+        // ("1 / 15" over a 30-video Watch later).
         VideoGroup sectionGroup = current != null ? current.getGroup() : null;
         boolean isSectionQueue = sectionGroup != null && queueId != null
                 && queueId.equals(sectionGroup.getId());
-        PlaylistInfo info = !isSectionQueue && current != null ? current.playlistInfo : null;
+        PlaylistInfo currentInfo = current != null ? current.playlistInfo : null;
+        boolean namesSameList = currentInfo != null && current != null
+                && Helpers.equals(currentInfo.getPlaylistId(), current.getPlaylistId());
+        PlaylistInfo info = !isSectionQueue || namesSameList ? currentInfo : null;
 
         VideoGroup queueGroup = queueId != null ? mSuggestionGroups.get(queueId) : null;
         // Prefer the title of the group whose videos are on screen, so the name always describes
