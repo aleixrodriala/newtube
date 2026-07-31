@@ -402,6 +402,7 @@
   <string name="saved_to_playlists">Añadido a la sección de listas de reproducción</string>
   <string name="create_playlist">Crear lista de reproducción</string>
   <string name="add_video_to_new_playlist">Nueva lista</string>
+  <string name="playlist_name_hint">Nombre de la lista</string>
   <string name="add_video_to_watch_later">Guardar en Ver más tarde</string>
   <string name="cant_delete_empty_playlist">No se puede eliminar una lista de reproducción vacía</string>
   <string name="playlist">Lista de reproducción</string>
@@ -719,4 +720,49 @@
   <string name="channel_unblocked">Canal desbloqueado</string>
   <string name="header_blocked_channels">Canales bloqueados</string>
   <string name="msg_no_blocked_channels">No hay canales bloqueados</string>
+  <!-- Strings upstream added after its last es sync. The first block is phone-visible: player
+       errors, the comments sheet, the card menu and the New playlist dialog all reach them. -->
+  <string name="comments_disabled">Los comentarios están desactivados en este vídeo</string>
+  <string name="create_playlist_note">NOTA: no se verá en la aplicación de YouTube</string>
+  <string name="play_from_start">Reproducir desde el principio</string>
+  <string name="remove_from_search_history">Quitar del historial de búsqueda</string>
+  <string name="signed_in_success">Sesión iniciada</string>
+  <string name="player_unexpected_error">Error de reproducción inesperado</string>
+  <string name="msg_player_no_connection_retry">Sin conexión. Se reintentará cuando vuelvas a tener conexión, o toca reproducir para reintentar.</string>
+  <string name="msg_quality_pin_fallback">%1$s está fallando: calidad automática en este vídeo</string>
+  <string name="msg_audio_pin_fallback">La pista de audio está fallando: se usará el audio predeterminado en este vídeo</string>
+  <plurals name="hours">
+    <item quantity="one">%s hora</item>
+    <item quantity="other">%s horas</item>
+  </plurals>
+  <plurals name="seconds">
+    <item quantity="one">%s segundo</item>
+    <item quantity="other">%s segundos</item>
+  </plurals>
+  <!-- Settings rows and other upstream additions. -->
+  <string name="network_settings">Ajustes de red</string>
+  <string name="action_debug_info">Información de depuración</string>
+  <string name="queue_respects_playback_mode">La cola respeta el modo de reproducción</string>
+  <string name="player_toggle_speed">Activar o desactivar la velocidad</string>
+  <string name="player_time_stretching">Corrección de tono del audio</string>
+  <string name="player_time_stretching_desc">Mantiene la voz natural al cambiar la velocidad. Puede reducir bastante el rendimiento en algunos dispositivos.</string>
+  <string name="player_quick_shorts_skip_alt">Saltar Shorts con los botones arriba/abajo</string>
+  <string name="player_quick_skip_videos_alt">Saltar vídeos normales con los botones arriba/abajo</string>
+  <string name="ignore_short_segments">Ignorar los segmentos cortos</string>
+  <string name="rounded_card_corners">Esquinas redondeadas en las tarjetas</string>
+  <string name="color_scheme_dark_blue_oled">Azul oscuro (OLED)</string>
+  <string name="sidebar_notification">Mostrar la notificación en la barra lateral</string>
+  <string name="prefer_google_dns">Preferir el DNS de Google</string>
+  <string name="enable_conscrypt">Activar Conscrypt</string>
+  <string name="enable_conscrypt_desc">Mejora la compatibilidad con HTTPS, TLS y VPN en algunos dispositivos, pero a veces puede causar problemas de reproducción o ralentizar la red</string>
+  <string name="fix_empty_subs_and_channels">Arreglar Suscripciones y Canales vacíos</string>
+  <string name="install_bridge">Instalar el puente para ATV/Amazon</string>
+  <string name="auto_backup_category">Copia de seguridad automática</string>
+  <string name="once_a_day">Una vez al día</string>
+  <string name="once_a_week">Una vez a la semana</string>
+  <string name="once_a_month">Una vez al mes</string>
+  <string name="app_backup_desc">NOTA: la copia de seguridad se creará en formato zip</string>
+  <string name="app_restore_desc">NOTA: el zip de la copia de seguridad debe copiarse a esta carpeta manualmente o desde un gestor de archivos con \'Abrir con\'</string>
+  <string name="local_backup_not_supported">La copia de seguridad automática no se admite en Android TV 11 o superior por restricciones del sistema. Usa Google Drive en su lugar.</string>
+  <string name="stable_restore">Restaurar la versión estable (se perderán todos los datos)</string>
 </resources>

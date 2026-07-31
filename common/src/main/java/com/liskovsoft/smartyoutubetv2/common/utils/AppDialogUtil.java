@@ -1109,7 +1109,7 @@ public class AppDialogUtil {
                     SimpleEditDialog.show(
                             context,
                             context.getString(R.string.create_playlist),
-                            context.getString(R.string.create_playlist_note),
+                            context.getString(R.string.playlist_name_hint),
                             null,
                             newValue -> {
                                 MediaItem mediaItem = video.mediaItem != null ? video.mediaItem : SimpleMediaItem.from(video);

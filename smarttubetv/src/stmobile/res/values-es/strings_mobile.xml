@@ -12,6 +12,11 @@
     <string name="action_signin" tools:ignore="ExtraTranslation">Iniciar sesión</string>
     <string name="subscriptions_signin_button_text" tools:ignore="ExtraTranslation">Iniciar sesión</string>
 
+    <!-- The search field's hint. Its default lives in the app module's shared strings.xml
+         (smarttubetv/src/main), which has no locale folders at all - this is the only string
+         in there the phone UI still reaches, so it is translated here with the rest. -->
+    <string name="search_hint">Buscar vídeos</string>
+
     <!-- Signed-out empty states -->
     <string name="mobile_empty_signin_section">Inicia sesión para ver %1$s</string>
     <string name="mobile_empty_signin_generic">Inicia sesión para ver este contenido</string>
@@ -67,4 +72,161 @@
     <!-- Watch-page Save action -->
     <string name="mobile_watch_save">Guardar</string>
     <string name="mobile_watch_saved">Guardado</string>
+
+    <!-- Watch page. Untranslated, these read as English islands in a Spanish UI: the queue
+         card, "Up next" and the action row sit together on the first screen of every video. -->
+    <string name="mobile_watch_like">Me gusta</string>
+    <string name="mobile_watch_dislike">No me gusta</string>
+    <string name="mobile_watch_share">Compartir</string>
+    <string name="mobile_watch_share_subject">Mira este vídeo</string>
+    <string name="mobile_watch_subscribe">Suscribirse</string>
+    <string name="mobile_watch_subscribed">Suscrito</string>
+    <string name="mobile_watch_related">A continuación</string>
+    <string name="mobile_watch_description">Descripción</string>
+    <string name="mobile_watch_queue_from">Reproduciendo de %1$s</string>
+    <string name="mobile_watch_queue_fallback">la cola</string>
+    <string name="mobile_watch_queue_now_playing">Reproduciendo ahora</string>
+
+    <!-- Player controls (most are content descriptions read out by TalkBack) -->
+    <string name="mobile_player_back">Atrás</string>
+    <string name="mobile_player_play">Reproducir</string>
+    <string name="mobile_player_pause">Pausar</string>
+    <string name="mobile_player_replay">Volver a reproducir</string>
+    <string name="mobile_player_fullscreen">Pantalla completa</string>
+    <string name="mobile_player_quality">Calidad</string>
+    <string name="mobile_player_pip">Imagen en imagen</string>
+    <string name="mobile_player_previous">Anterior</string>
+    <string name="mobile_player_next">Siguiente</string>
+    <string name="mobile_player_zoom_fill">Ampliado para llenar</string>
+    <string name="mobile_player_zoom_original">Original</string>
+    <string name="mobile_player_more">Más opciones</string>
+    <string name="mobile_mini_play_pause">Reproducir o pausar</string>
+    <string name="mobile_mini_close">Cerrar el reproductor</string>
+
+    <!-- Player menu -->
+    <string name="mobile_menu_more">Más</string>
+    <string name="mobile_menu_repeat">Modo de repetición</string>
+    <string name="mobile_menu_shuffle">Aleatorio</string>
+    <string name="mobile_menu_zoom">Zoom y relación de aspecto</string>
+    <string name="mobile_menu_background">Reproducir en segundo plano</string>
+    <string name="mobile_menu_stats">Estadísticas para nerds</string>
+    <string name="mobile_menu_rotate_lock">Bloquear la rotación</string>
+    <!-- Same wording as the card menu and the Save sheet title (dialog_add_to_playlist). -->
+    <string name="mobile_menu_playlist_add">Guardar en una lista</string>
+    <string name="mobile_menu_queue">Cola de reproducción</string>
+    <string name="mobile_menu_on">Activado</string>
+    <string name="mobile_menu_off">Desactivado</string>
+
+    <!-- Quality / audio sheets -->
+    <string name="mobile_quality_title">Calidad</string>
+    <string name="mobile_quality_auto">Automática (recomendada)</string>
+    <string name="mobile_quality_auto_current">Automática (%1$s)</string>
+    <string name="mobile_quality_auto_short">Automática</string>
+    <string name="mobile_audio_title">Audio</string>
+    <string name="mobile_audio_default">Predeterminado</string>
+
+    <!-- Comments -->
+    <string name="mobile_comments_entry">Comentarios</string>
+    <string name="mobile_comments_title">Comentarios</string>
+    <string name="mobile_comments_empty">No hay comentarios</string>
+    <string name="mobile_comments_disabled">Los comentarios están desactivados</string>
+    <string name="mobile_comments_loading">Cargando…</string>
+    <string name="mobile_comments_view_replies">Ver respuestas</string>
+    <string name="mobile_comments_view_replies_count">Ver %1$s</string>
+    <string name="mobile_comments_hide_replies">Ocultar respuestas</string>
+    <string name="mobile_comments_loading_replies">Cargando respuestas…</string>
+    <string name="mobile_comments_more_replies">Mostrar más respuestas</string>
+
+    <!-- Live chat -->
+    <string name="mobile_live_chat_entry">Chat en directo</string>
+    <string name="mobile_live_chat_title">Chat en directo</string>
+    <string name="mobile_live_chat_empty">Esperando mensajes…</string>
+
+    <!-- Search -->
+    <string name="mobile_search_button">Buscar</string>
+    <string name="mobile_search_voice">Búsqueda por voz</string>
+    <string name="mobile_search_insert">Afinar esta búsqueda</string>
+    <string name="mobile_search_clear">Borrar la búsqueda</string>
+    <string name="mobile_search_empty">Sin resultados. Toca para reintentar.</string>
+
+    <!-- Navigation, sheets and empty states -->
+    <string name="mobile_back">Atrás</string>
+    <string name="mobile_dialog_back">Atrás</string>
+    <string name="mobile_sheet_close">Cerrar</string>
+    <string name="mobile_dialog_unavailable">Todavía no está disponible en el móvil.</string>
+    <string name="mobile_empty_generic">Todavía no hay nada que mostrar</string>
+    <string name="mobile_channel_tab_videos">Vídeos</string>
+    <string name="mobile_no_browser">No hay ninguna aplicación para abrir este enlace</string>
+    <string name="mobile_first_run_setup">Configuración inicial: preparando YouTube…</string>
+
+    <!-- Notification channels -->
+    <string name="mobile_playback_channel_name">Reproducción</string>
+    <string name="mobile_playback_channel_desc">Controles multimedia para la reproducción en segundo plano</string>
+    <string name="mobile_cast_channel_name">Envío a la TV</string>
+    <string name="mobile_cast_channel_desc">Controles de la sesión de envío a la TV</string>
+
+    <!-- Device pairing -->
+    <string name="mobile_add_device_title">Vincular un dispositivo</string>
+    <string name="mobile_add_device_done">Hecho</string>
+
+    <!-- Cast: picker and method chooser -->
+    <string name="mobile_cast_button">Enviar a la TV</string>
+    <string name="mobile_cast_picker_title">Enviar a</string>
+    <string name="mobile_cast_searching">Buscando dispositivos…</string>
+    <string name="mobile_cast_empty">No se ha encontrado ningún dispositivo en esta red Wi-Fi</string>
+    <string name="mobile_cast_subtitle_no_ads">Sin anuncios · calidad desde el móvil</string>
+    <string name="mobile_cast_subtitle_youtube_app">YouTube o SmartTube en la TV</string>
+    <string name="mobile_cast_chooser_title">Enviar a %1$s</string>
+    <string name="mobile_cast_choose_method">Elige el método de envío</string>
+    <string name="mobile_cast_option_direct_title">Enviar sin anuncios</string>
+    <string name="mobile_cast_option_direct_subtitle">Sin anuncios · calidad desde el móvil · sin subtítulos</string>
+    <string name="mobile_cast_option_app_title">Reproducir con la app de la TV</string>
+    <string name="mobile_cast_option_app_subtitle">Necesario para directos y subtítulos · calidad con el mando de la TV · YouTube original puede mostrar anuncios</string>
+
+    <!-- Cast: TV-code linking -->
+    <string name="mobile_cast_link_code">Vincular con el código de la TV</string>
+    <string name="mobile_cast_link_code_subtitle">Funciona con YouTube y SmartTube</string>
+    <string name="mobile_cast_code_hint">Código de 12 dígitos</string>
+    <string name="mobile_cast_code_find">Encuentra el código en cualquiera de las dos apps de TV:</string>
+    <string name="mobile_cast_code_youtube_path">Ajustes → Vincular con el código de TV</string>
+    <string name="mobile_cast_code_smarttube_path">Ajustes → Control remoto</string>
+    <string name="mobile_cast_code_helper">Puedes incluir guiones y espacios</string>
+    <string name="mobile_cast_code_smarttube_benefit">Consejo: SmartTube mantiene la reproducción sin anuncios y te deja controlar la calidad y los subtítulos en la TV.</string>
+    <string name="mobile_cast_code_positive">Vincular</string>
+    <string name="mobile_cast_code_invalid">El código debe tener 12 dígitos</string>
+    <string name="mobile_cast_pairing">Vinculando con la TV…</string>
+    <string name="mobile_cast_pair_failed">No se ha podido vincular con ese código. Compruébalo y vuelve a intentarlo.</string>
+
+    <!-- Cast: session state -->
+    <string name="mobile_cast_connecting">Conectando con %1$s…</string>
+    <string name="mobile_cast_connecting_youtube_app">Conectando con la app de YouTube de la TV…</string>
+    <string name="mobile_cast_switching_tv_app">Abriendo los controles de YouTube en la TV…</string>
+    <string name="mobile_cast_fallback_switching">El envío directo no ha funcionado: cambiando a la app de la TV…</string>
+    <string name="mobile_cast_playing_on">Reproduciendo en %1$s</string>
+    <string name="mobile_cast_disconnect">Desconectar</string>
+    <string name="mobile_cast_launch_failed">No se ha podido acceder a la app de YouTube de la TV. Prueba con “Vincular con el código de la TV”.</string>
+    <string name="mobile_cast_unavailable">El envío a la TV todavía no está disponible en esta versión</string>
+
+    <!-- Cast: direct-cast limits -->
+    <string name="mobile_cast_direct_live_unsupported">Los directos necesitan YouTube o SmartTube en la TV</string>
+    <string name="mobile_cast_direct_incompatible">Este vídeo no se puede enviar directamente (no hay ningún formato que la TV pueda reproducir)</string>
+    <string name="mobile_cast_direct_load_failed">No se ha podido preparar este vídeo para el envío directo</string>
+    <string name="mobile_cast_direct_no_wifi">El envío directo necesita el móvil y la TV en la misma red Wi-Fi</string>
+
+    <!-- Cast: TV playback options -->
+    <string name="mobile_cast_more_options">Opciones de reproducción en la TV</string>
+    <string name="mobile_cast_controls_title">Opciones de reproducción en la TV</string>
+    <string name="mobile_cast_direct_summary">Envío directo · sin anuncios · calidad desde este móvil · los subtítulos necesitan la app de la TV</string>
+    <string name="mobile_cast_app_summary">App de TV · subtítulos desde este móvil · calidad con el mando de la TV</string>
+    <string name="mobile_cast_quality_auto_1080">Automática (hasta 1080p)</string>
+    <string name="mobile_cast_quality_cap">Hasta %1$sp</string>
+    <string name="mobile_cast_quality_tv_remote">Usar el mando de la TV</string>
+    <string name="mobile_cast_quality_receiver_help">Elige la calidad en los ajustes del reproductor de tu TV.</string>
+    <string name="mobile_cast_tv_volume_label">Volumen de la TV</string>
+    <string name="mobile_cast_subtitles_sent">Selección de subtítulos enviada a la TV</string>
+    <string name="mobile_cast_subtitles_failed">No se han podido cambiar los subtítulos en este receptor</string>
+    <string name="mobile_cast_subtitles_need_tv_app">Cambiar a la app de la TV</string>
+    <string name="mobile_cast_switch_subtitles_title">¿Usar YouTube para los subtítulos?</string>
+    <string name="mobile_cast_switch_subtitles_message">Envío directo\n• Sin anuncios\n• Calidad desde este móvil\n• Sin subtítulos\n\nYouTube en la TV\n• Subtítulos disponibles\n• Calidad con el mando de la TV\n• Puede mostrar anuncios\n\nSmartTube sigue sin anuncios si lo vinculas con el código de TV.</string>
+    <string name="mobile_cast_switch_subtitles_positive">Cambiar</string>
 </resources>

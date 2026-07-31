@@ -502,6 +502,34 @@ app (ReVanced build on the same phone).
   signed-out message is `Sign in to save videos to playlists`. English and
   Spanish updated; other upstream locales still carry the old TV wording.
 
+## Works (added 2026-07-31 — the Spanish UI is actually Spanish)
+Found while checking the queue card on the Pixel 9: the watch page read
+`Comments / Up next / Playing from X / Share / Subscribe` in English on a
+Spanish phone. **130 of the 177 `strings_mobile` strings had no `values-es` at
+all** - the flavour's translations had only ever been added string-by-string as
+features landed. Now translated in full, plus every phone-reachable string the
+other two sources were missing:
+- `smarttubetv/src/stmobile/res/values-es/strings_mobile.xml`: +132. The 7 left
+  are locale-neutral on purpose (brand names, `0:00`, `%1$d / %2$d`, `LIVE`).
+- `common/.../values-es/strings.xml`: +36, everything upstream had added since
+  its last es sync. Phone-visible ones: the comments sheet, player errors,
+  `Play from start` in the card menu, the New playlist dialog.
+- `search_hint` ("Search for videos"): its default sits in the app module's
+  `src/main/res/values`, which has **no locale folders at all**. It is the only
+  string in there the phone still reaches (the other 77 are dead TV leftovers),
+  so it is translated in the flavour file with the rest.
+- Verified in both languages: Pixel 9 (device locale es) for the watch page,
+  player sheets, card menu and search field; emulator (`cmd locale
+  set-app-locales`, en then es) for the New playlist dialog.
+- **The New playlist field no longer shows a false warning.** Its hint was
+  `create_playlist_note` - "NOTE: It won't be seen in the YouTube app" - which
+  is only true for the LOCAL shadow playlist `PlaylistServiceWrapper` writes
+  when the server call fails. A signed-in create really does reach the account,
+  so the note read as a plain false statement, and it also stole the one place
+  that should say what to type. Both call sites (`AppDialogUtil`,
+  `BaseMenuPresenter`) now use a new `playlist_name_hint` = "Playlist name" /
+  "Nombre de la lista".
+
 ## Works (added 2026-07-27 — carrier soak of the signed-in TV route)
 Ran on the Pixel 9 over **roaming LTE (AndorraTelecom, `drei.at`, metered,
 `net=vpn:183` split-tunnel Tailscale — default route is cellular)**, release
@@ -816,8 +844,10 @@ open:
   - `Shuffle` turns the player's repeat mode to shuffle, which is a PERSISTED
     setting - it stays on until changed. That is why the button confirms with a
     toast. YouTube scopes shuffle to the queue instead.
-  - Only English and Spanish strings were updated for the reworded playlist
-    items; the other upstream locales still read the old TV wording.
+  - Only English and Spanish are current. Spanish is now COMPLETE for the phone
+    UI (see the 2026-07-31 section); the other upstream locales still read the
+    old TV wording for the reworded playlist items, and have no translation at
+    all for the 177 `strings_mobile` entries.
 - "Not interested"/"Don't recommend channel" feedback tokens (server moved
   them; MediaServiceCore dig needed).
 - Channel rows in search suggestions; channel page header/sort polish.
@@ -846,6 +876,9 @@ open:
 - Proper edge-to-edge insets before targetSdk 36.
 - Unstripped native libs (needs NDK 21); `newtube.json` update manifest for
   the in-app updater.
+- 77 of the 78 strings in `smarttubetv/src/main/res/values/strings.xml` are TV
+  leftovers nothing references any more (only `search_hint` survives). Dead
+  weight, and they make the translation delta look bigger than it is.
 - Parked (documented in HANDOFF): googlevideo range-query leaf wrapper, SABR,
   media3 DefaultPreloadManager.
 
