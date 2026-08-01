@@ -15,4 +15,13 @@ public interface PlaybackView extends PlayerManager {
      * {@code MobilePlaybackActivity} overrides it.
      */
     default void onWatchMetadata(MediaItemMetadata metadata) {}
+
+    /**
+     * NEWTUBE(offline-ux): a PERSISTENT status line over the video box, or {@code null} to clear it.
+     * The dead state after a lost connection has no other honest surface: {@code setTitle} is
+     * overwritten by the metadata bind of every recovery reload, and a toast is gone in a few
+     * seconds while the outage lasts minutes. Set when playback stops for good, cleared only when
+     * it genuinely resumes or the user moves on - it deliberately stays up across retries.
+     */
+    default void showPlaybackNotice(String message) {}
 }

@@ -729,6 +729,8 @@
   <string name="signed_in_success">Sesión iniciada</string>
   <string name="player_unexpected_error">Error de reproducción inesperado</string>
   <string name="msg_player_no_connection_retry">Sin conexión. Se reintentará cuando vuelvas a tener conexión, o toca reproducir para reintentar.</string>
+  <string name="msg_player_no_connection_short">Sin conexión: reintentando…</string>
+  <string name="msg_player_no_connection_tap">Sin conexión: toca reproducir</string>
   <string name="msg_quality_pin_fallback">%1$s está fallando: calidad automática en este vídeo</string>
   <string name="msg_audio_pin_fallback">La pista de audio está fallando: se usará el audio predeterminado en este vídeo</string>
   <plurals name="hours">

@@ -215,6 +215,11 @@
     <!-- NEWTUBE(mobile): friendly player title shown when playback stops on a connectivity failure
          (auto-retries when the connection returns; a play tap retries immediately). -->
     <string name="msg_player_no_connection_retry">No connection. Will retry when you\'re back online, or tap play to retry.</string>
+    <!-- NEWTUBE(mobile): the same state as a one-line notice over the video box. Must stay short -
+         a second line collides with the transport controls in portrait. -->
+    <string name="msg_player_no_connection_short">No connection — retrying…</string>
+    <!-- Same notice once the automatic retry budget is spent: nothing is retrying any more. -->
+    <string name="msg_player_no_connection_tap">No connection — tap play to retry</string>
     <string name="video_preset_disabled">Without preset</string>
     <string name="video_preset_enabled">Format of the next video will be set according to preset</string>
     <string name="player_sleep_timer">Sleep timer</string>

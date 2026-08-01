@@ -369,6 +369,28 @@
 
             </LinearLayout>
 
+            <!-- Persistent playback-status line (showPlaybackNotice): why the video stopped, e.g. a
+                 lost connection. Anchored to the bottom of the video box, clear of the centered
+                 transport controls (the play button is the retry affordance and must stay usable)
+                 and above the seek block. Keep the text to ONE short line: the portrait box is only
+                 ~190dp tall, so a second line runs straight into the controls. Stays visible across
+                 retries; only real playback or a new video clears it. -->
+            <TextView
+                android:id="@+id/mobile_player_notice"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|center_horizontal"
+                android:layout_marginBottom="52dp"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:maxLines="2"
+                android:paddingHorizontal="24dp"
+                android:shadowColor="#B3000000"
+                android:shadowRadius="4"
+                android:textColor="@android:color/white"
+                android:textSize="14sp"
+                android:visibility="gone" />
+
             <!-- "Stats for nerds" debug overlay. DebugInfoManager inflates R.layout.debug_view into
                  this group and toggles its visibility; it must not eat player taps, so it is not
                  clickable. Offset below the top scrim so it clears the back button / title. -->

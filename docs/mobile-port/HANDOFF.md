@@ -370,10 +370,20 @@ resumes; only reopening it works.
   threw `Response code: 403` dumps and whole stack traces over the video for
   failures the next line was already fixing. The error surface is the player
   (title + overlay); capped titles are now localized (`getErrorTitle` /
-  `unknown_source_error`) instead of raw exception text. KNOWN GAP: on the
-  connectivity path each retry re-opens the video and the metadata bind
-  overwrites the friendly title, so during an outage the player shows the real
-  title and no explanation — a proper persistent offline surface is unbuilt.
+  `unknown_source_error`) instead of raw exception text.
+- **Persistent offline notice** (`PlaybackView.showPlaybackNotice`, default no-op;
+  `mobile_player_notice` in the mobile layout). `setTitle` cannot carry this: the
+  metadata bind of every recovery reload overwrites it, so with the toast gone an
+  outage showed the real title and no explanation at all. The notice survives the
+  retries and is cleared ONLY by real playback (`onPlay`), a user-initiated open,
+  or `onFinish` — an outage then reads as one continuous state instead of a
+  message blinking once per attempt. The text tracks what is actually happening:
+  `msg_player_no_connection_short` ("retrying…") while the budget holds,
+  `msg_player_no_connection_tap` once it is spent. Placement matters: anchored
+  `bottom` in the video box, between the transport controls and the seek block —
+  the first attempt put it in the centre loading stack and it printed straight
+  through the play/prev/next icons. Keep it to ONE short line; the portrait video
+  box is only ~190dp tall.
 
 **Repro recipe (better than §10's dead proxy).** Cronet ignores the system HTTP
 proxy on this device and reuses established connections, so the proxy trick no

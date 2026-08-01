@@ -177,6 +177,8 @@ public class MobilePlaybackActivity extends MobileActivity
     private ProgressBar mProgressBar;
     /** First-run only: "one-time setup" line under the spinner while the session is cold. */
     private TextView mSetupHint;
+    /** Persistent "why playback stopped" line (see {@link #showPlaybackNotice}). */
+    private TextView mNoticeView;
     private ImageButton mSubtitlesButton;
     private ImageButton mMoreButton;
     private ImageButton mPrevButton;
@@ -452,6 +454,7 @@ public class MobilePlaybackActivity extends MobileActivity
         mSegmentsView = findViewById(R.id.mobile_player_segments);
         mProgressBar = findViewById(R.id.mobile_player_progress);
         mSetupHint = findViewById(R.id.mobile_player_setup_hint);
+        mNoticeView = findViewById(R.id.mobile_player_notice);
         mCastButton = findViewById(R.id.mobile_player_cast);
         mCastOverlay = findViewById(R.id.mobile_cast_overlay);
         mCastOverlayTitle = findViewById(R.id.mobile_cast_overlay_title);
@@ -3573,6 +3576,23 @@ public class MobilePlaybackActivity extends MobileActivity
     public void setTitle(String title) {
         if (mTitleView != null) {
             mTitleView.setText(title);
+        }
+    }
+
+    @Override
+    public void showPlaybackNotice(String message) {
+        if (mNoticeView == null) {
+            return;
+        }
+
+        boolean show = message != null && !message.isEmpty();
+        mNoticeView.setText(show ? message : null);
+        mNoticeView.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) {
+            // The video box is showing a frozen frame (or nothing) behind this - the play button is
+            // the way out (it retries), so make sure the controls are up. They stay: the auto-hide
+            // only runs during steady playback.
+            showControls(true);
         }
     }
 

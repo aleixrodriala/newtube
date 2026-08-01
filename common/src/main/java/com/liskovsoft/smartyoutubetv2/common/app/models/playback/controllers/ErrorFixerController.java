@@ -151,6 +151,10 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     @Override
     public void onPlay() {
         mBufferingDetector.onStopBuffering();
+        // Playing again - whatever the notice was explaining is over. This is the ONLY automatic
+        // way it clears: retries deliberately keep it up, so an outage reads as one continuous
+        // state instead of a message blinking once per attempt.
+        clearPlaybackNotice();
         // Engine reached READY and is playing: playback is healthy again - reopen the fix window.
         if (mConsecutiveAutoFixCount > 0 || mSamePositionErrorCount > 0) {
             NetPath.log(NetPath.context() + " recovery-healthy pos="
@@ -188,6 +192,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             resetAutoFixCap();
             resetSamePositionWindow();
             clearErrorCapped();
+            clearPlaybackNotice(); // a different video: the previous one's reason is not this one's
         }
     }
 
@@ -244,6 +249,14 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         mBufferingDetector.reset();
         // Playback session ended: drop the dead-state listener so it can't leak or fire into a gone player.
         clearErrorCapped();
+        // The activity is reused for the next video - never hand it a stale notice.
+        clearPlaybackNotice();
+    }
+
+    private void clearPlaybackNotice() {
+        if (getPlayer() != null) {
+            getPlayer().showPlaybackNotice(null);
+        }
     }
 
     @Override
@@ -568,21 +581,32 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     private void surfaceCappedError(String errorTitle, Throwable error) {
         boolean connectivity = isConnectivityError(error);
 
-        if (getPlayer() != null) {
-            getPlayer().setTitle(connectivity
-                    ? getContext().getString(R.string.msg_player_no_connection_retry)
-                    : errorTitle);
-            getPlayer().showProgressBar(false);
-            getPlayer().showOverlay(true);
-        }
-
         mErrorCapped = true;
 
         // Only connectivity errors arm the auto-retry: reconnecting can't fix a server/content error,
         // and re-hammering it is exactly the anti-abuse behavior the cap exists to prevent.
+        boolean retrying = false;
         if (connectivity) {
-            scheduleAutoRetry();
+            retrying = scheduleAutoRetry();
             armConnectivityRetry();
+        }
+
+        if (getPlayer() != null) {
+            getPlayer().setTitle(connectivity
+                    ? getContext().getString(R.string.msg_player_no_connection_retry)
+                    : errorTitle);
+            // The title is overwritten by the metadata bind of every recovery reload, so the
+            // persistent surface is the notice - it survives the retries and states the reason for
+            // as long as the outage lasts. It also has to stay honest about what happens next:
+            // once the retry budget is spent, nothing is retrying and the play tap is the only
+            // way back.
+            getPlayer().showPlaybackNotice(connectivity
+                    ? getContext().getString(retrying
+                            ? R.string.msg_player_no_connection_short
+                            : R.string.msg_player_no_connection_tap)
+                    : errorTitle);
+            getPlayer().showProgressBar(false);
+            getPlayer().showOverlay(true);
         }
         NetPath.log(NetPath.context() + " recovery-capped connectivity="
                 + (connectivity ? "y" : "n") + ' ' + NetPath.networkSnapshot(getContext()));
@@ -619,10 +643,10 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
      * never observes an edge to fire on (measured: data-stall detection took ~12 min to invalidate
      * a wedged LTE network, while the player gives up within seconds).
      */
-    private void scheduleAutoRetry() {
+    private boolean scheduleAutoRetry() {
         if (mAutoRetryAttempt >= AUTO_RETRY_BACKOFF_MS.length) {
             NetPath.log(NetPath.context() + " recovery-auto-retry-exhausted attempts=" + mAutoRetryAttempt);
-            return;
+            return false;
         }
 
         long delayMs = AUTO_RETRY_BACKOFF_MS[mAutoRetryAttempt];
@@ -630,6 +654,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         Utils.postDelayed(mScheduledRetry, delayMs);
         NetPath.log(NetPath.context() + " recovery-auto-retry-scheduled in=" + delayMs
                 + " attempt=" + mAutoRetryAttempt);
+        return true;
     }
 
     /**
