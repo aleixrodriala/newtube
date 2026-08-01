@@ -175,6 +175,53 @@ public class MobilePlaybackService extends Service {
         public void seekToPreviousMediaItem() {
             skipToPrevious();
         }
+
+        @Override
+        public void play() {
+            super.play();
+            notifyPlayClicked();
+        }
+
+        @Override
+        public void pause() {
+            super.pause();
+            notifyPauseClicked();
+        }
+
+        /**
+         * media3's play action calls {@code prepare()} first when the player is IDLE, which after a
+         * fatal error would replay the very media source that just died (stale signed URLs, and on
+         * the offline path an immediate re-error). The app owns error recovery - {@link
+         * #notifyPlayClicked} reaches ErrorFixerController, which remints the URLs and reloads - so
+         * hand IDLE over to it instead. A non-IDLE prepare is a normal one and passes through.
+         */
+        @Override
+        public void prepare() {
+            if (getPlaybackState() == Player.STATE_IDLE && mPresenter != null) {
+                notifyPlayClicked();
+                return;
+            }
+            super.prepare();
+        }
+    }
+
+    /**
+     * Route a transport-control play into the presenter, not just the player. The player itself is
+     * IDLE after a fatal error (a lost connection in a tunnel, a lift, the metro), so
+     * {@code setPlayWhenReady(true)} is a no-op there and the notification's play button used to be
+     * dead - the only recovery was opening the app and tapping the in-player button.
+     * ErrorFixerController turns this into a manual retry; it is a no-op during healthy playback.
+     */
+    private void notifyPlayClicked() {
+        if (mPresenter != null) {
+            Utils.post(() -> mPresenter.onPlayClicked());
+        }
+    }
+
+    private void notifyPauseClicked() {
+        if (mPresenter != null) {
+            Utils.post(() -> mPresenter.onPauseClicked());
+        }
     }
 
     private void skipToNext() {
@@ -232,6 +279,9 @@ public class MobilePlaybackService extends Service {
                 if (mPlayer != null) {
                     mPlayer.setPlayWhenReady(true);
                 }
+                // Lock screen / headset / Android Auto reach the session, not the notification's
+                // own player wrapper - both need the dead-state retry (see notifyPlayClicked).
+                notifyPlayClicked();
             }
 
             @Override
@@ -239,6 +289,7 @@ public class MobilePlaybackService extends Service {
                 if (mPlayer != null) {
                     mPlayer.setPlayWhenReady(false);
                 }
+                notifyPauseClicked();
             }
 
             @Override

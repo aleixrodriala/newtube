@@ -323,3 +323,76 @@ error path and the offline-open/format-fetch path); cap-trip with the network
 UP (dead-proxy trick) → zero auto-reloads over 50 s (no hot loop). Established
 Cronet connections survive a global-proxy change — to force failures on a
 validated network you must open a NEW video.
+
+## 11. Tunnel-shaped outage recovery (2026-08-01, Pixel 9)
+
+The §10 recovery only fires on a PROVEN `disconnected -> validated` edge. Real
+mobile outages usually produce no such edge: in a tunnel/lift/metro, or across
+a Wi-Fi->cellular handover, the link stops delivering while Android still
+reports the default network connected and `NET_CAPABILITY_VALIDATED` (§9
+measured ~12 min for data-stall detection to invalidate a wedged LTE network).
+The player, by contrast, gives up in **seconds** — `isFatalTransportError`
+(Media3SourceFactory) does not retry `UnknownHost`/`ERR_INTERNET_DISCONNECTED`
+at all, so the buffer drains, 4 error cycles burn, and the cap trips long
+before Android notices. `armConnectivityRetry` then seeds `seenDisconnected=n`
+and sits inert forever. User-visible: video stops in the tunnel and never
+resumes; only reopening it works.
+
+**What changed (ErrorFixerController):**
+- A **timer** now retries alongside the edge listener, on an escalating budget
+  `AUTO_RETRY_BACKOFF_MS = {5s, 15s, 45s, 120s, 300s}` (~8 min of outage), then
+  stops until a user action, a proven connectivity edge, or recovered playback.
+  The budget — not the edge — is now the anti-hammer guard, so the edge path
+  keeps its original strictly-edge-triggered seeding (a slow-but-alive link
+  must not hot-loop; see §10).
+- A connectivity EDGE is strong evidence, so it retries immediately and REFILLS
+  the budget (reviving an exhausted one). The timer is weak evidence (our own
+  failures) and only spends it.
+- `onTickle` declares genuine recovery — playing past `mLastErrorPositionMs +
+  SAME_POSITION_WINDOW_MS` — and refills the budget. `onPlay` cannot: after a
+  reload most of the replayed span comes from the disk cache, so READY+playing
+  proves nothing about the chunk that died (same reason `mSamePositionErrorCount`
+  exists).
+- **Trap, cost an iteration:** `retryNow` must tag its reload as ours
+  (`mAutoReloadPending` + `mAutoFixVideoId`) or `onNewVideo` reads it as a fresh
+  user-initiated open and calls `clearErrorCapped()`, resetting the budget to 0.
+  Measured before the fix: every retry logged `attempt=0` and the app re-attempted
+  forever on a fixed ~16 s period — worse than the bug being fixed.
+- **Transport controls reach the retry** (MobilePlaybackService): the media
+  session `onPlay/onPause` and the notification's `QueueForwardingPlayer`
+  `play()/pause()/prepare()` now call `PlaybackPresenter.onPlayClicked()`.
+  Before, they only touched an IDLE player (`setPlayWhenReady` = no-op), so the
+  notification button was DEAD in the error state — the phone-in-pocket case had
+  no recovery at all. `prepare()` on IDLE is routed to the app reload instead of
+  media3's `handlePlayButtonAction` re-preparing the dead source. Idempotent:
+  `retryNow` clears `mErrorCapped` first, so double dispatch is a no-op.
+- **Raw error toasts removed** (3 call sites): `MessageHelpers.showLongMessage`
+  threw `Response code: 403` dumps and whole stack traces over the video for
+  failures the next line was already fixing. The error surface is the player
+  (title + overlay); capped titles are now localized (`getErrorTitle` /
+  `unknown_source_error`) instead of raw exception text. KNOWN GAP: on the
+  connectivity path each retry re-opens the video and the metadata bind
+  overwrites the friendly title, so during an outage the player shows the real
+  title and no explanation — a proper persistent offline surface is unbuilt.
+
+**Repro recipe (better than §10's dead proxy).** Cronet ignores the system HTTP
+proxy on this device and reuses established connections, so the proxy trick no
+longer breaks playback. Use strict private DNS instead — it kills the app's
+name resolution while leaving adb-over-Wi-Fi untouched:
+`settings put global private_dns_specifier blackhole.invalid` +
+`private_dns_mode hostname`; restore with `private_dns_mode off` (and put the
+original specifier back — it was `f2d9fc.dns.nextdns.io`). Note two things:
+(1) already-established googlevideo connections keep serving, and a video whose
+segments are in the 512 MB SimpleCache plays right through the outage — force a
+failure by opening an UNCACHED video; (2) strict private DNS also fails Android's
+own validation within ~seconds, so this repro produces `seedDisconnected=y` and
+exercises BOTH triggers, not the pure no-edge case.
+
+**Measured (Pixel 9, `4A120DLAQ0049N`, debug 1.6.1):** cap -> `in=5000
+attempt=0` -> timer fires at +5.0 s -> `in=15000 attempt=1` -> +15.0 s ->
+`in=45000 attempt=2` -> `in=120000 attempt=3`; DNS restored mid-outage ->
+automatic resume with `first-frame +4047` at the exact position it died
+(`pos=76948`), no user action; notification play button in the dead state ->
+`recovery-retry-now user=y`. Log lines to grep: `recovery-auto-retry-scheduled`,
+`recovery-auto-retry trigger=timer|network`, `recovery-auto-retry-exhausted`,
+`recovery-recovered`, `recovery-retry-now user=`.

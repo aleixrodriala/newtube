@@ -79,6 +79,15 @@ settings, device-code OAuth multi-account) PLUS, from the 2026-07-11/12 rounds:
   automatic reload when the network validates again; play tap in the dead
   state is a manual retry (cap resets). Emulator-verified end to end, incl.
   the no-hot-loop guard when the cap trips while the network is up. HANDOFF §10.
+- **Tunnel-shaped outages now recover on their own (2026-08-01)**: the
+  connectivity edge above never arrives when the link dies but Android keeps
+  reporting the network connected+VALIDATED (tunnel, lift, metro, Wi-Fi→cell
+  handover) — measured elsewhere at ~12 min for data-stall detection, while
+  the player gives up in seconds. A timer now retries on an escalating budget
+  (5/15/45/120/300 s, then stop) alongside the unchanged edge listener; the
+  transport controls (notification / lock screen / headset) reach the retry
+  instead of no-op'ing on the IDLE player; raw error toasts are gone.
+  Pixel-9 verified. HANDOFF §11.
 - **Third Pixel-9 round — deferred loop items (2026-07-13, real 5G)**. New
   debug-only in-app harness (`DebugMediaShaper`, leaf DataSource wrapper) makes
   bandwidth experiments possible at last: `debug.arc.throttle_kbps` token-bucket

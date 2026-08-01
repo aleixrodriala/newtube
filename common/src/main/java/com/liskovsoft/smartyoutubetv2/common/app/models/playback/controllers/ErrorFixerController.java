@@ -5,6 +5,7 @@ import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.os.SystemClock;
 
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
@@ -74,18 +75,29 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     private long mLastErrorPositionMs = -1;
     private int mSamePositionErrorCount;
     // Dead state: the cap tripped on a connectivity-class error and auto-fixing stopped. A play tap
-    // now means "retry" (onPlayClicked/onPauseClicked) and a default-network callback arms exactly
-    // one automatic retry when the connection returns.
+    // now means "retry" (onPlayClicked/onPauseClicked), a timer retries on the escalating backoff
+    // below, and a default-network callback retries as soon as connectivity provably returns.
     private boolean mErrorCapped;
+    /**
+     * Spacing of the TIMER-driven automatic retries, indexed by attempt: an outage is only ever
+     * inferred from our own failures (Android may not have noticed yet - see
+     * {@link #armConnectivityRetry}), so this is weak evidence and the budget is finite. The whole
+     * schedule covers ~8 min of outage with 5 retries; after that only a user action (play tap /
+     * reopen), a proven connectivity edge, or genuinely recovered playback ({@link #onTickle})
+     * resumes automatic recovery. This is what keeps a slow-but-alive link from being hammered -
+     * an unbounded reload loop provoked server-side anti-abuse (see {@link #MAX_CONSECUTIVE_AUTO_FIXES}).
+     */
+    private static final long[] AUTO_RETRY_BACKOFF_MS = {5_000, 15_000, 45_000, 120_000, 300_000};
+    private int mAutoRetryAttempt;
+    /** Gate shared by the timer and the network callback ({@link SystemClock#elapsedRealtime()}). */
+    private long mNextAutoRetryAtMs;
     private ConnectivityManager mConnectivityManager;
     private ConnectivityManager.NetworkCallback mNetworkCallback;
-    private final Runnable mConnectivityRetry = () -> {
-        // Posted to the main thread from the binder-thread network callback. The dead state may have
-        // been left in the meantime (new video, engine release, manual retry) - only act if still set.
-        if (mErrorCapped) {
-            retryNow();
-        }
-    };
+    // Both retry triggers are posted to the main thread and funnel through the same gate. Distinct
+    // Runnable instances on purpose: Utils.post/postDelayed dedupe per instance, so a network event
+    // must not silently cancel a pending timer (or vice versa).
+    private final Runnable mConnectivityRetry = () -> requestAutoRetry("network", true);
+    private final Runnable mScheduledRetry = () -> requestAutoRetry("timer", false);
 
     @Override
     public void onInit() {
@@ -183,8 +195,10 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     public void onPlayClicked() {
         // Dead state: the engine is idle after the capped error, so a play tap can't resume playback -
         // treat it as a user-initiated retry (reset the window, reload). Harmless no-op otherwise.
+        // Reached from the in-player button AND from the notification / lock screen / headset
+        // transport controls, which is the only recovery a backgrounded audio session ever gets.
         if (mErrorCapped) {
-            retryNow();
+            retryNow(true);
         }
     }
 
@@ -193,8 +207,36 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         // Same dead-state retry: the play/pause toggle may dispatch pause first (playWhenReady was
         // still set when the error hit), so the FIRST tap on the only visible affordance lands here.
         if (mErrorCapped) {
-            retryNow();
+            retryNow(true);
         }
+    }
+
+    @Override
+    public void onTickle() {
+        // Playback has passed the position that kept dying, so the outage/poison chunk is genuinely
+        // behind us: refill the automatic-retry budget and the same-position window. onPlay can't
+        // say this - after a reload most of the replayed span comes from the disk cache, so
+        // READY+playing proves nothing about the chunk that killed the previous cycle (that false
+        // signal is exactly what mSamePositionErrorCount exists to survive).
+        if (mAutoRetryAttempt == 0 && mSamePositionErrorCount == 0) {
+            return;
+        }
+        // Still dead (a retry is pending / in flight): whatever the player reports, this is not
+        // recovered playback.
+        if (mErrorCapped || getPlayer() == null || !getPlayer().isPlaying()) {
+            return;
+        }
+
+        long positionMs = getPlayer().getPositionMs();
+        if (mLastErrorPositionMs >= 0 && positionMs <= mLastErrorPositionMs + SAME_POSITION_WINDOW_MS) {
+            return;
+        }
+
+        NetPath.log(NetPath.context() + " recovery-recovered pos=" + positionMs
+                + " clearedRetries=" + mAutoRetryAttempt + " samePos=" + mSamePositionErrorCount);
+        mAutoRetryAttempt = 0;
+        mNextAutoRetryAtMs = 0;
+        resetSamePositionWindow();
     }
 
     @Override
@@ -238,12 +280,11 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         boolean freshUrlsRequested = false;
         String errorContent = error != null ? error.getMessage() : null;
         String errorTitle = getErrorTitle(type, rendererIndex);
-        String errorMessage = errorTitle + "\n" + errorContent;
 
         // 4th consecutive error without healthy playback in between: stop auto-fixing entirely
         // (no config mutation, no reload/restart) and leave a state the user can act on.
         if (registerAutoFixAndCheckCap(error)) {
-            surfaceCappedError(errorMessage, errorContent, error);
+            surfaceCappedError(errorTitle, error);
             return;
         }
 
@@ -347,15 +388,19 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             }
         }
 
+        // The error surface is the player itself (title + overlay), never a toast: the raw
+        // "Response code: 403"/Cronet dumps that used to be thrown on screen were unreadable,
+        // covered the video, and outlived the automatic fix that was already recovering behind
+        // them. Everything they carried is in the NetPath log lines above.
         if (showMessage) {
-            MessageHelpers.showLongMessage(getContext(), errorMessage);
             if (getPlayer() != null) {
-                // Connectivity failures get a friendly, actionable title (a raw Cronet/socket dump
-                // helps no one here); genuine server/content errors keep the raw content. This title
-                // is transient on this path - the restart/reload below re-sets the real video title.
+                // Connectivity failures get a friendly, actionable title; everything else gets the
+                // localized error title rather than a raw Cronet/socket/HTTP dump (which lives in
+                // the NetPath lines above, where debugging actually happens). This title is
+                // transient on this path - the restart/reload below re-sets the real video title.
                 getPlayer().setTitle(isConnectivityError(error)
                         ? getContext().getString(R.string.msg_player_no_connection_retry)
-                        : errorContent);
+                        : errorTitle);
             }
         }
 
@@ -440,13 +485,12 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         String fullMsg = String.format("loadFormatInfo error: %s: %s", className, Utils.getStackTraceAsString(error));
         Log.e(TAG, fullMsg);
 
-        if (!Helpers.containsAny(message, "fromNullable result is null")) {
-            MessageHelpers.showLongMessage(getContext(), fullMsg);
-        }
+        // No toast here either (see applyEngineErrorAction): this one threw a whole stack trace on
+        // screen for a failure the very next line usually reloads away.
 
         // Format(metadata)-fetch errors reload just like engine errors - same consecutive cap.
         if (registerAutoFixAndCheckCap(error)) {
-            surfaceCappedError(fullMsg, message, error);
+            surfaceCappedError(getContext().getString(R.string.unknown_source_error), error);
             return;
         }
 
@@ -514,19 +558,20 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     }
 
     /**
-     * Cap reached: surface the error through the existing message mechanism and leave the player
-     * in a stopped, user-actionable state (manual retry / back out) - never an endless spinner.
+     * Cap reached: surface the error in the player itself - a readable title over a stopped,
+     * user-actionable state (manual retry / back out), never an endless spinner and never a toast.
      * Enters the dead state: a play tap becomes a manual retry, and for a connectivity-class error
-     * a default-network callback arms one automatic retry for when the connection returns.
+     * the escalating auto-retry plus a default-network callback take over.
+     *
+     * @param errorTitle localized, user-facing. The raw exception text belongs in the NetPath log.
      */
-    private void surfaceCappedError(String errorMessage, String errorContent, Throwable error) {
+    private void surfaceCappedError(String errorTitle, Throwable error) {
         boolean connectivity = isConnectivityError(error);
 
-        MessageHelpers.showLongMessage(getContext(), errorMessage);
         if (getPlayer() != null) {
             getPlayer().setTitle(connectivity
                     ? getContext().getString(R.string.msg_player_no_connection_retry)
-                    : errorContent);
+                    : errorTitle);
             getPlayer().showProgressBar(false);
             getPlayer().showOverlay(true);
         }
@@ -536,6 +581,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         // Only connectivity errors arm the auto-retry: reconnecting can't fix a server/content error,
         // and re-hammering it is exactly the anti-abuse behavior the cap exists to prevent.
         if (connectivity) {
+            scheduleAutoRetry();
             armConnectivityRetry();
         }
         NetPath.log(NetPath.context() + " recovery-capped connectivity="
@@ -566,13 +612,71 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     }
 
     /**
-     * Arms a single automatic retry for when connectivity RETURNS. Strictly edge-triggered:
+     * Schedules the next timer-driven automatic retry on the {@link #AUTO_RETRY_BACKOFF_MS}
+     * schedule. This is the recovery path for the common mobile outage - a tunnel, a lift, a
+     * platform, a Wi-Fi->cellular handover - where the link stops delivering packets but Android
+     * keeps reporting the network as connected and VALIDATED, so {@link #armConnectivityRetry}
+     * never observes an edge to fire on (measured: data-stall detection took ~12 min to invalidate
+     * a wedged LTE network, while the player gives up within seconds).
+     */
+    private void scheduleAutoRetry() {
+        if (mAutoRetryAttempt >= AUTO_RETRY_BACKOFF_MS.length) {
+            NetPath.log(NetPath.context() + " recovery-auto-retry-exhausted attempts=" + mAutoRetryAttempt);
+            return;
+        }
+
+        long delayMs = AUTO_RETRY_BACKOFF_MS[mAutoRetryAttempt];
+        mNextAutoRetryAtMs = SystemClock.elapsedRealtime() + delayMs;
+        Utils.postDelayed(mScheduledRetry, delayMs);
+        NetPath.log(NetPath.context() + " recovery-auto-retry-scheduled in=" + delayMs
+                + " attempt=" + mAutoRetryAttempt);
+    }
+
+    /**
+     * The one gate every automatic retry passes through, on the main thread.
+     *
+     * @param connectivityEdge the trigger was a PROVEN disconnected->validated transition, not our
+     *                         own inference. That's strong evidence the outage is over, so it
+     *                         refills the weak-evidence backoff budget (and revives a spent one)
+     *                         and retries immediately.
+     */
+    private void requestAutoRetry(String trigger, boolean connectivityEdge) {
+        // The dead state may have been left in the meantime (new video, engine release, manual
+        // retry) - a stale timer or callback must not reload into a player that moved on.
+        if (!mErrorCapped) {
+            return;
+        }
+
+        if (connectivityEdge) {
+            mAutoRetryAttempt = 0;
+            mNextAutoRetryAtMs = 0;
+        } else if (mAutoRetryAttempt >= AUTO_RETRY_BACKOFF_MS.length) {
+            return;
+        }
+
+        long waitMs = mNextAutoRetryAtMs - SystemClock.elapsedRealtime();
+        if (waitMs > 0) {
+            // Too soon. Typically the connectivity callback replaying the state of a network that
+            // is already up at registration time; re-arm for the remainder instead of firing.
+            Utils.postDelayed(mScheduledRetry, waitMs);
+            return;
+        }
+
+        NetPath.log(NetPath.context() + " recovery-auto-retry trigger=" + trigger
+                + " attempt=" + mAutoRetryAttempt + ' ' + NetPath.networkSnapshot(getContext()));
+        retryNow(false);
+    }
+
+    /**
+     * Arms an automatic retry for when connectivity provably RETURNS. Strictly edge-triggered:
      * registerDefaultNetworkCallback immediately replays onAvailable/onCapabilitiesChanged for the
      * network that's ALREADY up, so a level-triggered "validated = retry" would fire instantly when
      * the cap trips on a slow-but-alive link (SocketTimeoutException/ERR_TIMED_OUT) - an unbounded
      * cap->arm->fire->cap loop against googlevideo, exactly what {@link #MAX_CONSECUTIVE_AUTO_FIXES}
-     * exists to prevent. Registered on the APPLICATION context (never the Activity - a backgrounded
-     * dead player would otherwise leak it). Idempotent: one live registration per dead-state episode.
+     * exists to prevent. That's why this path stays edge-triggered even though the edge often never
+     * comes; {@link #scheduleAutoRetry} owns the no-edge case on a bounded budget. Registered on the
+     * APPLICATION context (never the Activity - a backgrounded dead player would otherwise leak it).
+     * Idempotent: one live registration per dead-state episode.
      */
     private void armConnectivityRetry() {
         if (mNetworkCallback != null) {
@@ -641,17 +745,37 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     }
 
     /**
-     * User- or connectivity-initiated recovery from the dead state: forget the cap window and reload
-     * the current video as if the user had reopened it, so the anti-abuse counter starts over. Strictly
-     * one automatic retry per episode - the listener is disarmed here before the reload is posted.
+     * Recovery from the dead state: forget the cap window and reload the current video as if the user
+     * had reopened it, so the anti-abuse counter starts over. Both triggers disarm the dead state
+     * first, so a retry can never be entered twice for the same episode.
+     *
+     * @param userInitiated a play tap or a genuine reopen. Only a user says "this is worth trying
+     *                      again from scratch": an automatic retry instead advances the escalating
+     *                      backoff, which is what stops a failure that merely LOOKS like a
+     *                      connectivity outage (a poisoned chunk timing out at the same position)
+     *                      from being replayed forever. Only recovered playback ({@link #onTickle})
+     *                      or a proven connectivity edge refills that budget on their own.
      */
-    private void retryNow() {
-        NetPath.log(NetPath.context() + " recovery-retry-now pos="
-                + (getPlayer() != null ? getPlayer().getPositionMs() : -1)
+    private void retryNow(boolean userInitiated) {
+        NetPath.log(NetPath.context() + " recovery-retry-now user=" + (userInitiated ? "y" : "n")
+                + " pos=" + (getPlayer() != null ? getPlayer().getPositionMs() : -1)
                 + ' ' + NetPath.networkSnapshot(getContext()));
-        clearErrorCapped();
+        if (userInitiated) {
+            clearErrorCapped(); // also refills the automatic-retry budget
+        } else {
+            mAutoRetryAttempt++; // the next episode of this outage waits longer
+            mErrorCapped = false;
+            disarmAutoRetry();
+        }
         resetAutoFixCap();
         resetSamePositionWindow();
+        // Tag the reload below as OUR OWN so onNewVideo doesn't read it as a fresh user-initiated
+        // open and wipe what was just set - in particular the retry budget, which has to survive
+        // the reload it pays for. Measured before this line existed: every automatic retry reset
+        // itself to attempt=0, so the backoff never escalated and offline playback re-attempted
+        // forever on a fixed ~16s period (the exact hammering the budget exists to bound).
+        mAutoReloadPending = true;
+        mAutoFixVideoId = getVideo() != null ? getVideo().videoId : null;
         // The dead state was reached through repeated URL failures - and on the connectivity-restore
         // path a network reattach may sit behind a new public IP that no longer matches the URLs'
         // ip= binding. Without this, reloadVideo() rides the still-actual positive format-info cache
@@ -666,11 +790,15 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
 
     private void clearErrorCapped() {
         mErrorCapped = false;
-        disarmConnectivityRetry();
+        // A user action / a new playback session ends the outage episode: automatic recovery starts
+        // over at the shortest backoff next time.
+        mAutoRetryAttempt = 0;
+        mNextAutoRetryAtMs = 0;
+        disarmAutoRetry();
     }
 
-    private void disarmConnectivityRetry() {
-        Utils.removeCallbacks(mConnectivityRetry);
+    private void disarmAutoRetry() {
+        Utils.removeCallbacks(mConnectivityRetry, mScheduledRetry);
         if (mConnectivityManager != null && mNetworkCallback != null) {
             try {
                 mConnectivityManager.unregisterNetworkCallback(mNetworkCallback);
