@@ -2,6 +2,87 @@
 
 All notable user-facing changes to NewTube ("SmartTube for phones").
 
+## 1.7.0 — 2026-08-04
+
+Playlists finally behave like playlists: a real playlist page, a "Playing
+from…" queue card that only shows up when you actually chose a queue, and
+Save one tap away. Playback now survives the metro — a tunnel-shaped outage
+recovers on its own and the player tells you why it stopped. Plus a much
+faster first video of a session, and a Spanish app that is actually in
+Spanish.
+
+### Playlists, queue and saving
+- **New "Playing from …" card** above Up next, with your position in the
+  queue (i / N) and a collapsible list you can tap to jump to any video —
+  the playing one is badged, and the list scrolls to it when you expand.
+- **The card only appears when you really picked a queue.** Opening a video
+  from Home, Subscriptions, search or history used to turn that row into a
+  playlist ("Playing from Recommended — 2 / 5"); it no longer does. As a
+  result, Up next stops being filled with feed videos and autoplay goes to a
+  related video, the way YouTube does.
+- **Real playlist page**: wide cover, playlist name, owner, a "N videos ·
+  Private" line, and a wide **Play all** pill with **Shuffle** next to it
+  (shuffle keeps shuffling for the rest of the queue).
+- **Save is now a watch-page action**, next to Like / Dislike / Share — it
+  flips to a check and "Saved" while the video is in a playlist. It used to
+  be buried under gear → More → Save to playlist.
+- **Save to Watch later on every card menu**, existing installs included.
+- The Save sheet is reworded to YouTube's ("Save to playlist"), offers **New
+  playlist** as its first row, and — when you are signed out — says what to
+  do instead of opening empty.
+- Fixes: opening a second playlist no longer keeps the previous title (or
+  shows "Recommended"); **Play all** no longer hides itself on playlists
+  reached from a video card; and the position counter now counts the whole
+  playlist instead of the first page ("1 / 30", not "1 / 15").
+
+### Playback that survives a tunnel
+- **Outages recover on their own.** Real mobile dropouts (a tunnel, a lift,
+  the metro, a Wi-Fi → cellular handover) never report a clean disconnect,
+  so the player used to give up in seconds and stay dead until you reopened
+  the video. It now retries on an escalating schedule (5 s, 15 s, 45 s, 2
+  min, 5 min) and resumes at the exact position it died; an actual network
+  change retries immediately.
+- **The player says why it stopped**, in one persistent line over the video:
+  "retrying…" while it is still trying, "tap play to retry" once it has
+  given up. It stays put for as long as the outage lasts instead of blinking
+  once per attempt.
+- **No more raw error dumps** thrown over the video: the 403 and
+  stack-trace toasts are gone (the next retry was usually already fixing
+  them), and the messages that remain are localized.
+- **The notification, lock-screen and headset play buttons now retry.** They
+  were dead in the error state, which left a backgrounded audio session with
+  no way back.
+
+### Faster and steadier
+- **The first video of a session loads its watch page ~2.6 s sooner**
+  (measured, Pixel 9 over LTE): the eager metadata fetch now also covers the
+  very first open — a deep link, a notification tap, or simply the first
+  card you tap.
+- Deep-link and notification opens **fill in the title and channel right
+  away** when the server sends them, instead of a blank header until the
+  rest of the page lands.
+- **Signed-in playback stays on your account's route.** A signed-in open no
+  longer starts on a client whose media URLs 403 every chunk past ~60 s, and
+  a single 403 (or one slow request on a cold connection) no longer banishes
+  the whole signed-in session to the anonymous route — where a mobile
+  carrier's shared IP gets bot-challenged and the challenge text ended up in
+  the video title.
+- The anonymous fallback now leads with a client that needs no token
+  handshake, so the slowest path no longer starts with the slowest step.
+
+### Fixes
+- **Picture-in-picture**: minimizing the player at the same moment as a home
+  press could draw the **whole app** — feed, tabs and all — inside the PiP
+  window; it now docks in-app instead. The player also no longer pops itself
+  back into a corner window from the background, and the forced landscape
+  lock is released while in PiP.
+- **The Spanish UI is finished**: ~130 watch-page and player strings
+  (Comments, Up next, Playing from, Share, Subscribe…) were still English on
+  a Spanish phone.
+- The New playlist field no longer warns that your playlist "won't be seen
+  in the YouTube app" — untrue when you are signed in, and it sat exactly
+  where the field should say what to type.
+
 ## 1.6.1 — 2026-07-24
 
 A reliability round: playback errors recover faster and repeat less, videos

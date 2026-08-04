@@ -3,6 +3,92 @@
 Cambios visibles para el usuario, en español. El historial completo de
 versiones anteriores está en [CHANGELOG.md](CHANGELOG.md) (en inglés).
 
+## 1.7.0 — 04-08-2026
+
+Las listas de reproducción por fin se comportan como tales: página de lista
+de verdad, tarjeta de cola "Reproduciendo desde…" que solo aparece cuando
+has elegido una cola, y Guardar a un toque. La reproducción ahora sobrevive
+al metro: un corte tipo túnel se recupera solo y el reproductor te dice por
+qué se ha parado. Además, el primer vídeo de cada sesión carga mucho antes y
+la app en español está por fin en español.
+
+### Listas, cola y guardar
+- **Nueva tarjeta "Reproduciendo desde …"** encima de A continuación, con tu
+  posición en la cola (i / N) y una lista desplegable para saltar a
+  cualquier vídeo: el que suena lleva distintivo y la lista se desplaza
+  hasta él al abrirla.
+- **La tarjeta solo sale cuando has elegido cola de verdad.** Abrir un vídeo
+  desde Inicio, Suscripciones, la búsqueda o el historial convertía esa fila
+  en una lista ("Reproduciendo desde Recomendados — 2 / 5"); ya no. De paso,
+  A continuación deja de llenarse con vídeos del feed y la reproducción
+  automática pasa a un vídeo relacionado, como en YouTube.
+- **Página de lista de verdad**: portada ancha, nombre de la lista, autor,
+  línea "N vídeos · Privada" y un botón ancho **Reproducir todo** con
+  **Aleatorio** al lado (el modo aleatorio se mantiene para el resto de la
+  cola).
+- **Guardar es ya una acción de la página del vídeo**, junto a Me gusta / No
+  me gusta / Compartir, y pasa a un check con "Guardado" mientras el vídeo
+  está en alguna lista. Antes estaba enterrado en engranaje → Más → Guardar
+  en lista.
+- **"Ver más tarde" en el menú de todas las tarjetas**, también en
+  instalaciones ya existentes.
+- La hoja de guardar adopta la palabra de YouTube ("Guardar en lista"),
+  ofrece **Nueva lista** como primera fila y, si no has iniciado sesión, te
+  dice qué hacer en vez de abrirse vacía.
+- Correcciones: abrir una segunda lista ya no conserva el título anterior
+  (ni pone "Recomendados"); **Reproducir todo** ya no se esconde en listas
+  abiertas desde una tarjeta de vídeo; y el contador cuenta la lista entera
+  y no la primera página ("1 / 30", no "1 / 15").
+
+### Reproducción que aguanta un túnel
+- **Los cortes se recuperan solos.** Los cortes reales de móvil (un túnel,
+  un ascensor, el metro, un salto de Wi-Fi a datos) nunca dan una
+  desconexión limpia, así que el reproductor se rendía en segundos y se
+  quedaba muerto hasta que reabrías el vídeo. Ahora reintenta con una pauta
+  creciente (5 s, 15 s, 45 s, 2 min, 5 min) y retoma en el punto exacto en
+  el que murió; un cambio de red real reintenta al instante.
+- **El reproductor dice por qué se ha parado**, en una línea fija sobre el
+  vídeo: "reintentando…" mientras lo sigue intentando y "toca reproducir
+  para reintentar" cuando se ha rendido. Se queda mientras dure el corte, en
+  vez de parpadear una vez por intento.
+- **Se acabaron los volcados de error en crudo** sobre el vídeo: fuera los
+  avisos con el 403 y las trazas (el siguiente reintento ya lo estaba
+  arreglando), y los mensajes que quedan están traducidos.
+- **Los botones de reproducir de la notificación, la pantalla de bloqueo y
+  los auriculares ahora reintentan.** Estaban muertos en estado de error, lo
+  que dejaba sin salida a una sesión de audio en segundo plano.
+
+### Más rápido y más estable
+- **El primer vídeo de la sesión carga su página ~2,6 s antes** (medido en
+  un Pixel 9 con LTE): la carga anticipada de datos cubre por fin la primera
+  apertura — un enlace, una notificación o simplemente la primera tarjeta
+  que tocas.
+- Al abrir desde un enlace o una notificación, **el título y el canal se
+  rellenan de inmediato** cuando el servidor los manda, en vez de dejar la
+  cabecera en blanco hasta que llega el resto.
+- **La reproducción con sesión iniciada se queda en la ruta de tu cuenta.**
+  Ya no arranca por un cliente cuyas URLs dan 403 en cada trozo a partir del
+  minuto, y un solo 403 (o una petición lenta con la conexión fría) ya no
+  destierra toda la sesión a la ruta anónima — donde la IP compartida del
+  operador se lleva un control antibot cuyo texto acababa en el título del
+  vídeo.
+- La ruta anónima de respaldo empieza ahora por un cliente que no necesita
+  negociar ningún token, así que el camino más lento ya no arranca con el
+  paso más lento.
+
+### Correcciones
+- **Imagen dentro de imagen**: minimizar el reproductor justo a la vez que
+  pulsabas inicio podía dibujar **la app entera** — feed, pestañas y todo —
+  dentro de la ventanita de PiP; ahora se acopla dentro de la app. Además,
+  el reproductor ya no vuelve solo a la ventanita desde segundo plano y se
+  suelta el bloqueo horizontal mientras dura el PiP.
+- **La interfaz en español está terminada**: unas 130 cadenas de la página
+  del vídeo y del reproductor (Comentarios, A continuación, Reproduciendo
+  desde, Compartir, Suscribirse…) seguían en inglés en un móvil en español.
+- El campo de nueva lista ya no avisa de que tu lista "no se verá en la app
+  de YouTube" — falso con la sesión iniciada, y ocupaba justo el sitio donde
+  debería poner qué escribir.
+
 ## 1.6.1 — 24-07-2026
 
 Ronda de fiabilidad: los errores de reproducción se recuperan antes y se
