@@ -159,6 +159,8 @@
     <string name="mobile_empty_signin_section">Sign in to see your %1$s</string>
     <string name="mobile_empty_signin_generic">Sign in to see this content</string>
     <string name="mobile_empty_generic">Nothing to show here yet</string>
+    <!-- Same empty state, but the device has no working network: say so instead of blaming the feed. -->
+    <string name="mobile_empty_no_connection">No connection. Check your network and try again.</string>
 
     <!-- In-app mini-player bar (MobileBrowseActivity + MiniPlayerBridge) -->
     <string name="mobile_mini_play_pause">Play or pause</string>

@@ -1,6 +1,8 @@
 package com.newtube.mobile;
 
 import android.app.Activity;
+import android.net.ConnectivityManager;
+import android.net.Network;
 
 import com.liskovsoft.smartyoutubetv2.common.app.views.AddDeviceView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.AppDialogView;
@@ -303,6 +305,13 @@ public class MobileMainApplication extends MainApplication {
         // (earliest network is SessionWarmup at +1200ms). TV never calls this.
         OkHttpManager.setPreferHttp2(true);
 
+        // POOL EVICTION (mobile-only): with H2 on, every InnerTube call rides ONE connection, and
+        // that connection dies silently when the default network is replaced (Wi-Fi -> cellular,
+        // handover, VPN up/down). Nothing signals it, so the next call takes a pooled half-open
+        // socket and stalls for the full read timeout - and they all stall, together. Drop the pool
+        // the moment the default network changes.
+        startConnectionPoolEviction();
+
         // NOTE(in-stream ABR): "Auto" quality mapping to real adaptive selection is native on
         // media3 (a preset becomes maxVideoSize/frameRate constraints under which
         // AdaptiveTrackSelection adapts - see Media3TrackAdapter); the legacy adaptive-presets
@@ -400,6 +409,62 @@ public class MobileMainApplication extends MainApplication {
         viewManager.register(AddDeviceView.class, MobileAddDeviceActivity.class, MobileBrowseActivity.class);
 
         viewManager.setRoot(MobileBrowseActivity.class);
+    }
+
+    /**
+     * Evict the shared OkHttp connection pool whenever the DEFAULT NETWORK IS REPLACED.
+     *
+     * <p>Deliberately a SECOND callback rather than a hook inside {@link NetworkDiagnostics}: that
+     * class is a read-only forensic logger with no listener seam, and the two concerns have
+     * different lifetimes (diagnostics logs every capability change; this one must fire only on a
+     * genuine replacement). A default-network callback is cheap - the platform already fans these
+     * out to every registrant - so the duplication costs nothing measurable.
+     *
+     * <p>The FIRST {@code onAvailable} is skipped on purpose: it is the platform replaying the
+     * network we are already on, and evicting there would discard the app-start preconnect (the
+     * warmed www.youtube.com H2 connection the first /browse is meant to ride).
+     */
+    private void startConnectionPoolEviction() {
+        ConnectivityManager manager = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if (manager == null) {
+            return;
+        }
+
+        try {
+            manager.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
+                private Network mCurrent;
+                private boolean mSeenFirst;
+
+                @Override
+                public void onAvailable(Network network) {
+                    boolean replaced;
+                    synchronized (this) {
+                        replaced = mSeenFirst && !network.equals(mCurrent);
+                        mSeenFirst = true;
+                        mCurrent = network;
+                    }
+
+                    if (replaced) {
+                        android.util.Log.d("NetPath",
+                                "network-replaced net=" + network.hashCode() + " evicting okhttp pool");
+                        OkHttpManager.evictConnections();
+                    }
+                }
+
+                @Override
+                public void onLost(Network network) {
+                    // Forget the baseline so whatever becomes default next counts as a replacement:
+                    // after a full loss every pooled socket is dead regardless of which network returns.
+                    synchronized (this) {
+                        if (network.equals(mCurrent)) {
+                            mCurrent = null;
+                        }
+                    }
+                }
+            });
+        } catch (RuntimeException e) {
+            android.util.Log.w("NetPath", "pool-eviction monitor failed: " + e);
+        }
     }
 
     /**

@@ -155,6 +155,7 @@
     <string name="mobile_sheet_close">Cerrar</string>
     <string name="mobile_dialog_unavailable">Todavía no está disponible en el móvil.</string>
     <string name="mobile_empty_generic">Todavía no hay nada que mostrar</string>
+    <string name="mobile_empty_no_connection">Sin conexión. Comprueba tu red y vuelve a intentarlo.</string>
     <string name="mobile_channel_tab_videos">Vídeos</string>
     <string name="mobile_no_browser">No hay ninguna aplicación para abrir este enlace</string>
     <string name="mobile_first_run_setup">Configuración inicial: preparando YouTube…</string>

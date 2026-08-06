@@ -20,6 +20,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.BasePlayerController;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerConstants;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.VideoActionPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
@@ -458,6 +459,22 @@ public class VideoLoaderController extends BasePlayerController {
         }
 
         disposeActions();
+
+        // NEWTUBE(switch-cancel): the same warm-and-cancel the browse tap does in
+        // PlaybackPresenter.openVideo, for the IN-PLAYER switch (related tap, queue tap, next).
+        // That path used to reach neither half, and both matter on a slow link:
+        //   - cancel: VideoInfoService.getVideoInfo is synchronized on the singleton for a whole
+        //     client-ring walk, and disposeActions() above cannot stop it (RxHelper subscribes on
+        //     a non-interruptible Scheduler). So a still-running walk for the ABANDONED video -
+        //     the next-video preload, or the video the user just gave up on - held the monitor
+        //     while the video they actually picked waited behind it, and its response body kept
+        //     consuming the narrow pipe. cancelStaleFormatInfoRequests() (inside prefetch) trips
+        //     the walk's own abort checkpoints instead.
+        //   - warm: the fetch overlaps the rest of this open rather than starting after it.
+        // Latest-wins and single-flighted, so a same-video call is a no-op, not a second request.
+        if (PlaybackPresenter.isPrefetchOnOpenEnabled()) {
+            MediaServiceManager.instance().prefetchFormatInfo(item);
+        }
 
         if (item.hasVideo()) {
             // NOTE: Next clicked: instant playback even a mix

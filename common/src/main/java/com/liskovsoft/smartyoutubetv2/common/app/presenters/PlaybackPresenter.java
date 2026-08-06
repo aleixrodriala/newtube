@@ -118,6 +118,10 @@ public class PlaybackPresenter extends BasePresenter<PlaybackView> implements Pl
         sPrefetchOnOpenEnabled = enabled;
     }
 
+    public static boolean isPrefetchOnOpenEnabled() {
+        return sPrefetchOnOpenEnabled;
+    }
+
     public void openVideo(Video video) {
         if (video == null) {
             return;

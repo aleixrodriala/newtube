@@ -14,6 +14,7 @@ import com.liskovsoft.smartyoutubetv2.common.R;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.BasePlayerController;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.listener.PlayerEventListener;
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.ExoFormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.MediaTrack;
 import com.liskovsoft.smartyoutubetv2.common.misc.BufferingDetector;
@@ -121,10 +122,15 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     public void onLongBuffering() {
         if (isStreamEnded()) {
             getMainController().onPlayEnd();
-        } else if (isOfflineVideo() && isSubtitlesEnabled()) {
-            // Long loading subtitles cause hangs
-            disableSubtitles();
-            scheduleAutoReload(); // buffering rescue: not counted against the cap, but machine-initiated
+        // NEWTUBE(buffer-rescue): a branch here used to read "VOD + subtitles on" as "the
+        // subtitles are what's hanging", call disableSubtitles() and reload. On a slow link that
+        // attribution is simply wrong - a subtitle sidecar is a few KB and is never why 20s of
+        // buffering accumulated - and the price was permanent: disableSubtitles() writes two
+        // PERSISTED preferences, so one bad tunnel left the user with captions switched off for
+        // good, silently, across restarts. Genuine subtitle failures still disable them, on the
+        // two paths that have actual evidence for it (a 429/500 on the subtitle renderer and
+        // ERROR_TYPE_RENDERER/RENDERER_INDEX_SUBTITLE). A long stall now falls through to the
+        // quality rescue below, which is what a starved link actually needs.
         } else if (!getPlayerTweaksData().isNetworkErrorFixingDisabled()) {
             //if (!isFasterDataSourceEnabled()) {
             //    enableFasterDataSource();
@@ -213,6 +219,25 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         // still set when the error hit), so the FIRST tap on the only visible affordance lands here.
         if (mErrorCapped) {
             retryNow(true);
+        }
+    }
+
+    @Override
+    public void onViewResumed() {
+        // NEWTUBE(foreground-retry): the timer budget covers ~8 min of outage, after which nothing
+        // retries until the user acts. But the outage that outlasts the budget is the ordinary one
+        // - a metro ride, a long tunnel, a dead-zone stretch - and what ends it is the user taking
+        // the phone out again. Coming back to the foreground IS that user action in all but name,
+        // so treat it as one: retry once and refill the budget. Not a hammering risk, because this
+        // is a discrete user-driven event, not a timer - the "don't re-hammer a slow-but-alive
+        // link" invariant the budget protects is untouched. Without this the only affordance was a
+        // one-line notice in a ~190dp video box that the user had to notice and tap.
+        if (mErrorCapped && mAutoRetryAttempt >= AUTO_RETRY_BACKOFF_MS.length) {
+            NetPath.log(NetPath.context() + " recovery-foreground-retry attempts=" + mAutoRetryAttempt
+                    + ' ' + NetPath.networkSnapshot(getContext()));
+            mAutoRetryAttempt = 0;
+            mNextAutoRetryAtMs = 0;
+            retryNow(false);
         }
     }
 
@@ -319,12 +344,20 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
                 getPlayerTweaksData().setSectionPlaylistEnabled(false);
                 restartEngine = false;
             }
-        } else if (Helpers.containsAny(errorContent, "Exception in CronetUrlRequest") && !getPlayerTweaksData().isNetworkErrorFixingDisabled()) {
-            if (getVideo() != null && !getVideo().isLive) { // Finished live stream may provoke errors in Cronet
-                getPlayerTweaksData().setPlayerDataSource(PlayerTweaksData.PLAYER_DATA_SOURCE_DEFAULT);
-            } else {
-                restartEngine = false;
-            }
+        // NEWTUBE(cronet-fallthrough): there used to be a branch here matching
+        // "Exception in CronetUrlRequest" AHEAD of the ERROR_TYPE_SOURCE branch below. Cronet
+        // reports the whole common bad-link error family that way (ERR_TIMED_OUT,
+        // ERR_CONNECTION_RESET, ERR_QUIC_PROTOCOL_ERROR, ERR_NETWORK_CHANGED), so on a flaky
+        // mobile link it swallowed most transport errors and did two wrong things with them:
+        //   - it left restartEngine = true for VOD, i.e. destroyPlayerObjects() +
+        //     createPlayerObjects(). That throws away the entire 50-75s buffer and re-downloads
+        //     it from zero - minutes of wall clock on a 300kbps link - for a hiccup whose correct
+        //     answer is a source reload from the death position;
+        //   - the "fix" it applied, setPlayerDataSource(PLAYER_DATA_SOURCE_DEFAULT), is a pref
+        //     the media3/Cronet stack never reads (nothing under player/ reads it), so it changed
+        //     nothing about the transport - it only silently flipped a user-visible setting.
+        // Letting these fall through to ERROR_TYPE_SOURCE remints the URLs and reloads in place,
+        // which is both cheaper and the recovery the rest of this class is built around.
         } else if (type == PlayerEventListener.ERROR_TYPE_SOURCE) {
             // NOTE: Starts with any (url deciphered incorrectly)
             // "Response code: 403" (poToken error, forbidden)
@@ -617,7 +650,76 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
      * is genuinely useful). Walks the cause chain: socket exception types plus the Cronet / data
      * source connectivity message markers seen in the field.
      */
-    private static boolean isConnectivityError(Throwable error) {
+    private boolean isConnectivityError(Throwable error) {
+        if (hasConnectivityMarker(error)) {
+            return true;
+        }
+
+        // NEWTUBE(cause-stripped outages): not every outage arrives carrying its cause. The
+        // service layer swallows a ConnectException to null and the open path then surfaces the
+        // literal message "fromNullable result is null" with no cause at all - so the marker walk
+        // above answers "no", and a whole class of real outages (no route: airplane-mode toggle,
+        // PDN teardown, out of coverage) armed NEITHER the retry timer NOR the connectivity
+        // listener. That is a dead player until the app is restarted, which is the opposite of
+        // what the recovery stack in this class is for. So when the markers do not fire, ask the
+        // device instead: no validated default network at cap time IS a connectivity failure,
+        // whatever the exception says. Safe against hammering - a slow-but-alive link still has a
+        // validated network, so it keeps the old classification, and the retry budget bounds the
+        // rest.
+        if (!hasValidatedNetwork()) {
+            return true;
+        }
+
+        // NEWTUBE(silent tunnel): and when the device claims a perfectly good network, believe the
+        // failure over the claim. A tunnel keeps the radio attached, so NET_CAPABILITY_VALIDATED
+        // stays set for the whole outage - the check above answers "network is fine" precisely
+        // during the outage this class's retry ladder was written for (see scheduleAutoRetry's
+        // comment, which already says so). Reproduced on the netshape rig with a 150s blackout: the
+        // cap was reached with connectivity=n, so NEITHER the timer NOR the listener was armed, and
+        // the player emitted not one further log line for the rest of the run - dead exactly as
+        // reported in the field ("if you go into a tunnel it doesn't recover").
+        //
+        // So stop trying to enumerate what an outage looks like, and identify the one thing that is
+        // positively knowable instead: whether YouTube actually answered. A verdict-free failure is
+        // retriable; a real server verdict is not. The ladder is bounded (5 attempts ending at
+        // 300s), so misjudging a content error costs a handful of spread-out retries and then stops.
+        return !hasServerVerdict(error);
+    }
+
+    /**
+     * Whether this failure carries an answer FROM YouTube - an HTTP status, a playability reason,
+     * or any transport-level cause - as opposed to the open path simply having nothing to return.
+     *
+     * <p>The verdict-free shape is {@code IllegalStateException("fromNullable result is null")} with
+     * no cause: every client in the /player ring failed to produce a usable response, and the reason
+     * did not survive. On the player path {@code RetrofitHelper} does not raise for HTTP error
+     * statuses (handleResponseErrors is auth-transaction only), so a cause-less ISE here means "no
+     * answer", not "a bad answer".</p>
+     */
+    private static boolean hasServerVerdict(Throwable error) {
+        if (error == null) {
+            return true; // nothing to reason about - keep the conservative (non-retrying) verdict
+        }
+        if (error.getCause() != null) {
+            return true; // a cause survived; hasConnectivityMarker already had its say on it
+        }
+        return !(error instanceof IllegalStateException);
+    }
+
+    private boolean hasValidatedNetwork() {
+        Context context = getContext();
+        ConnectivityManager cm = context != null
+                ? (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE) : null;
+        if (cm == null) {
+            return true; // can't tell - keep the exception-based verdict
+        }
+
+        Network active = cm.getActiveNetwork();
+        NetworkCapabilities caps = active != null ? cm.getNetworkCapabilities(active) : null;
+        return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+    }
+
+    private static boolean hasConnectivityMarker(Throwable error) {
         Throwable cause = error;
         for (int depth = 0; cause != null && depth < 12; cause = cause.getCause(), depth++) {
             if (cause instanceof UnknownHostException || cause instanceof SocketTimeoutException
@@ -1058,6 +1160,27 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         return !getVideo().isLive && !getVideo().isLiveEnd;
     }
 
+    /**
+     * NEWTUBE(buffer-rescue): step the quality ceiling down one rung after a long stall.
+     *
+     * <p>Two defects lived here, and both fired on exactly the bad link this rescue exists for.
+     *
+     * <p><b>It raised quality instead of lowering it.</b> The anchor was
+     * {@code getPlayer().getVideoFormat()}, which answers with the selector TARGET; in Auto that
+     * target is a ceiling PRESET, and {@code ExoFormatItem.equals} compares {@code isPreset} (and
+     * codecs - a preset carries "vp9" where a real track carries "vp09.00.41.08"), so a preset can
+     * never equal a concrete rung. {@code indexOf} was therefore ALWAYS -1 while quality was Auto,
+     * {@code idx + 1} became 0, and {@link com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerManager#getVideoFormats()}
+     * is sorted quality-DESCENDING - so a starving link was pinned to the HIGHEST rendition the
+     * video had, up to 2160p. At 300kbps, 1s of 2160p+opus is ~67s of download.
+     *
+     * <p><b>Pinning also switched adaptation off.</b> An explicit rung installs a
+     * TrackSelectionOverride, which lifts the Auto ceiling and takes ABR out of the picture for
+     * the rest of the session (the same property {@link #mPinRescueArmed} exists to undo).
+     *
+     * <p>Now: anchor on what is actually PLAYING, move to the next strictly-lower height, and
+     * express it as a ceiling preset so media3 keeps adapting underneath it.
+     */
     private void lowerVideoQuality() {
         if (getPlayer() == null) {
             return;
@@ -1065,18 +1188,70 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
 
         List<FormatItem> videoFormats = getPlayer().getVideoFormats();
 
-        if (videoFormats == null) {
+        if (videoFormats == null || videoFormats.isEmpty()) {
             return;
         }
 
-        int idx = videoFormats.indexOf(getPlayer().getVideoFormat());
-        int nextIdx = idx + 1;
-
-        if (videoFormats.size() > nextIdx) {
-            FormatItem formatItem = videoFormats.get(nextIdx);
-            getPlayer().setFormat(formatItem);
-            // This helps to persist the format between engine restart
-            getPlayerData().setTempVideoFormat(formatItem);
+        int currentHeight = -1;
+        for (FormatItem item : videoFormats) {
+            if (item.isSelected()) {
+                currentHeight = item.getHeight();
+                break;
+            }
         }
+
+        if (currentHeight <= 0) {
+            // Nothing selected yet (the stall happened before the first frame): fall back to the
+            // ceiling in force, so the rescue still steps down instead of silently doing nothing.
+            FormatItem target = getPlayer().getVideoFormat();
+            currentHeight = target != null ? target.getHeight() : -1;
+        }
+
+        if (currentHeight <= 0) {
+            return;
+        }
+
+        FormatItem next = null;
+        for (FormatItem item : videoFormats) { // quality-descending
+            if (item.getHeight() > 0 && item.getHeight() < currentHeight) {
+                next = item;
+                break;
+            }
+        }
+
+        if (next == null) { // already on the bottom rung - nothing left to give up
+            return;
+        }
+
+        FormatItem ceiling = asCeilingPreset(next);
+        // Falling back to the concrete rung keeps the rescue working when the track carries no
+        // codec string (a preset with an empty codec would resolve to "track disabled"). It pins,
+        // which costs adaptation, but it is still strictly BELOW what is playing.
+        FormatItem replacement = ceiling != null ? ceiling : next;
+
+        getPlayer().setFormat(replacement);
+        // Session-scoped: survives an engine restart, never overwrites the user's preference.
+        getPlayerData().setTempVideoFormat(replacement);
+
+        NetPath.log(NetPath.context() + " recovery-lower-quality from=" + currentHeight
+                + " to=" + next.getHeight() + " mode=" + (ceiling != null ? "ceiling" : "pin"));
+    }
+
+    /**
+     * Rebuild a concrete rung as an Auto-style ceiling preset (the shape
+     * {@code Media3TrackAdapter.isAutoTarget} recognises), so the selector constrains rather than
+     * overrides and ABR stays alive below it. Returns null when the rung carries no codec string.
+     */
+    private static FormatItem asCeilingPreset(FormatItem item) {
+        MediaTrack track = item.getTrack();
+        String codecs = track != null && track.format != null ? track.format.codecs : null;
+
+        if (codecs == null || codecs.isEmpty() || item.getWidth() <= 0 || item.getHeight() <= 0) {
+            return null;
+        }
+
+        return ExoFormatItem.fromVideoSpec(
+                item.getWidth() + "," + item.getHeight() + "," + item.getFrameRate() + "," + codecs,
+                /* isPreset= */ true);
     }
 }

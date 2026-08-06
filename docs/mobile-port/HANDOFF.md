@@ -406,3 +406,194 @@ automatic resume with `first-frame +4047` at the exact position it died
 `recovery-retry-now user=y`. Log lines to grep: `recovery-auto-retry-scheduled`,
 `recovery-auto-retry trigger=timer|network`, `recovery-auto-retry-exhausted`,
 `recovery-recovered`, `recovery-retry-now user=`.
+
+## 12. Bad-network round (2026-08-06, emulator `NewTube_Network_Test`)
+
+Field report: on LTE with poor signal the app is slow and fragile. Five parallel
+read-only audits were run (InnerTube/OkHttp path, media3 byte path, recovery
+under flaky links, bandwidth contention, cold-start critical path). What got
+built and what was measured is in STATUS "Works (added 2026-08-06)". This
+section is the part a future session needs: the METHOD, and what is left.
+
+**Rig, and its limits.** The emulator's own shaper is worse than documented:
+`adb emu network speed` produced ZERO `api-http[C]` completions in 30s at 4000,
+2000 AND 1000 kbps - it stalls connections, it does not shape them, at any rate.
+`adb emu network delay` works but only on NEW connections: with `delay 500` the
+first request (fresh connection) took +525ms while the next eight, multiplexed
+over the same H2 connection, were unchanged. So it models handshake cost only.
+That leaves the in-app `DebugMediaShaper` (`debug.arc.throttle_kbps`), which
+shapes the MEDIA LEAF ONLY - so every bandwidth experiment this project has ever
+run left the API and image traffic at full speed, and the cross-stack contention
+that motivated this round has never been reproducible on the bench. **The single
+highest-leverage next investment is a whole-app shaper** (a shared token bucket
+across the Cronet leaf, OkHttp and Glide - one candidate is a debug-only default
+`SSLSocketFactory`, which covers OkHttp and Glide's `HttpURLConnection` in one
+place, with the existing media shaper for Cronet).
+
+Other rig facts worth keeping:
+- Per-app bytes: `dumpsys netstats detail --uid`, sum `rb=` for the app's uid
+  (`pm list packages -U`). Buckets refresh lazily, so a mid-run sample reads 0 -
+  compare whole runs, not phases.
+- `am start -a android.intent.action.VIEW -d <watch url>` opens the REAL YouTube
+  app on a Play-services AVD. Always pass `-p io.github.aleixrodriala.arc`.
+- `pgrep -f <script>` inside a wrapper whose own command line contains that
+  string matches ITSELF - a wait loop built on it never terminates. Cost ~15 min.
+- Reproducing the long-buffering rescue: open throttled (`throttle_kbps 250`),
+  let ABR settle, then drop to 60. Starting UNTHROTTLED does not work - the
+  75s HIGH buffer absorbs the starvation and `BufferingDetector` never sees its
+  20s of stalls.
+
+**Still open from the audits (verified findings, not built).** Roughly by value:
+- **Chunk cancellation is off.** media3 1.10.1's `AdaptiveTrackSelection` does
+  not override `shouldCancelChunkLoad` (bytecode-checked: the base returns
+  `false`), and `DefaultBandwidthMeter` only folds a sample in at
+  `onTransferEnd`. So a segment requested at a stale-high bitrate runs to
+  completion no matter how far the estimate collapses under it: a 5s 1080p
+  segment (~1.7 MB) at 300 kbps commits the loader for ~45s. Biggest remaining
+  lever on start time; needs a `shouldCancelChunkLoad` subclass plus a
+  thrash guard.
+- **The ABR seed is per-network-TYPE, not per-conditions.** A 20 Mbps estimate
+  learned on good 4G is re-applied verbatim on a train, and
+  `setResetOnNetworkTypeChange(true)` restores it on a Wi-Fi->cell handover,
+  discarding the freshly-learned low value. Candidates: clamp the applied seed on
+  cellular, persist a conservative statistic rather than the last value, persist
+  periodically instead of only in `release()`.
+- **Nothing in the app is metered-aware.** `isActiveNetworkMetered` /
+  `getRestrictBackgroundStatus` appear nowhere; `NET_CAPABILITY_NOT_METERED` only
+  in a log string. 75s of buffer-ahead (~25 MB of 1080p) is downloaded for a
+  video abandoned after 10s, on cellular, with Data Saver on. Wants one
+  `NetworkPolicy` helper the discretionary consumers route through.
+- **Channel and playlist screens have NO error surface** - a failed load leaves a
+  blank grid with no message, no retry, no pull-to-refresh (their presenters only
+  `Log.e` + `showProgressBar(false)`; the mobile views implement only
+  `showProgressBar`). This is the most likely source of a literal "nothing loads"
+  report that the feed's FeedCache + 30s re-poll does NOT cover.
+- **Feed error re-poll is a fixed 30s, forever, and runs while backgrounded**
+  (`BrowsePresenter:1307`). Same shape at `VideoLoaderController:416` (upcoming
+  live) and in `StreamReminderService` (one /player per reminder per minute).
+  Reuse `ErrorFixerController`'s escalating budget; pause in `onViewPaused` -
+  but add a resume/connectivity-edge retry FIRST, since the 30s loop is
+  currently the feed's only recovery path.
+- **The history ping drags a full /player.** `updateHistoryPosition` calls
+  `getFormatInfo` first, and the mobile format cache TTL is measured from
+  creation, not last access - so on any video longer than ~6 min every other 3-min
+  ping re-fetches ~17 KB of /player for the video already playing.
+- **Live re-fetches the whole /next every 60s** (`onTickle` ->
+  `updateLiveDescription`), ~65 KB gzipped, and it keeps running in background
+  audio and PiP - the 2026-07-16 live-chat lifecycle work missed this path.
+- **Two third-party hosts on every watch open**, both on by default, both
+  outside the tightened-timeout allowlist (so 20s connect/read): SponsorBlock and
+  Return-YouTube-Dislike, ~3 RTT of fresh handshake each, neither cached.
+- Signed-out Home costs 5 SERIAL `/browse` calls before anything paints
+  (`BrowseService2.kt:42-57`) - the same shape tier-1 fixed for Subs.
+- `visitorData` is resolved INSIDE an OkHttp interceptor and can perform a
+  blocking `GET /tv` there (10h reuse window), in front of the first `/browse`
+  AND the first `/player`, invisible to the `api-http[S]->[C]` span.
+- Nothing cancels an API call at the HTTP level anywhere: `RxHelper` subscribes
+  on a NON-interruptible `Schedulers.from(cachedThreadPool)`, and the only
+  `Call.cancel()` in the tree is the cast sender. Disposal is cosmetic for
+  network work; abandoned responses keep consuming the pipe. The switch-cancel
+  fix above works around this at the ring level, not at the socket.
+- Live opens fire 1-2 (up to 6) extra googlevideo GETs through OkHttp with an
+  unconditional blind retry, using `@GET` where `@HEAD` was meant
+  (`VideoInfoServiceBase:236-266`).
+- Minor: live-chat reconnect loops with zero delay on the error branch; the
+  updater retries 10x with no delay and buffers the whole APK in memory;
+  `RssService` fans out 2 requests per channel with no concurrency cap;
+  playlist opens can walk up to 20 `/next` continuations
+  (`MAX_PLAYLIST_CONTINUATIONS`); search suggestions debounce at 200ms.
+
+**Watch out for, from this round's changes:**
+- `callTimeout(45s)` is on the SHARED client and rides every `newBuilder()`
+  derivative. Bulk transfers must use `OkHttpManager.getStreamingClient()`; the
+  two known ones (in-app APK download, cast proxy) are wired, but a new bulk
+  caller would silently get cut at 45s.
+- Web-pot `/player` attempts now run on the pool thread, so a timeout interrupts
+  `PoTokenWebView`'s latch and forces a `forceRecreate=true` BotGuard rebuild.
+  Grep for `Failed to obtain poToken, retrying` right after
+  `player-ring attempt-timeout`; if that pairing shows up in the field, raise the
+  budget or make the web-pot cancel non-interrupting.
+- Removing `http.keepAlive=false` also restores keep-alive on media3's
+  `DefaultHttpDataSource`, which is the Cronet FALLBACK leaf. Believed a benefit
+  (range GETs to one host), but it is a real behavior change on
+  Cronet-unavailable devices.
+- The Glide hold/release must survive every exit path. It is released from
+  `hideVideoStill` (above its visibility guard), on player error, on the
+  comments/chat sheets, and by a 6s watchdog. Verified on the emulator: all
+  related thumbnails render. A blank-forever related list means a path was missed.
+
+---
+
+## 13. The netshape rig (2026-08-06) — and what it proved wrong
+
+Read this before doing any more bad-network work: it replaces the "we cannot
+reproduce contention" caveat in §12.
+
+### The rig
+`tools/netshape.py` — an HTTP CONNECT proxy in WSL, ONE shared token bucket per
+direction, live control, blackout toggle. Start it, point the emulator at it:
+```
+python3 tools/netshape.py --port 18080 --control 18081 --down-kbps 1200 --up-kbps 400 --rtt-ms 120 &
+adb -s emulator-5554 shell settings put global http_proxy 10.0.2.2:18080
+# ... work ...
+adb -s emulator-5554 shell settings put global http_proxy :none
+```
+`/set?down=&up=&rtt=&blackout=`, `/stats`, `/timeline` (per-second bytes per
+host), `/reset`. `bucket_host()` collapses the per-edge `rr7---sn-*.googlevideo.com`
+names so the media row does not scatter.
+
+Facts that make it work, each of which cost time to establish:
+- **The emulator reaches WSL at `10.0.2.2:<port>`** — emulator → Windows
+  loopback → WSL localhost forwarding. Verified with a throwaway listener before
+  building anything; do that first if it ever stops working.
+- **All four traffic classes honour the Android global proxy**: OkHttp (API),
+  Cronet (media), Glide/HttpURLConnection (thumbnails), avatars. Cronet does
+  disable QUIC and tunnel over CONNECT while a proxy is set — so QUIC-specific
+  behaviour is NOT under test on this rig.
+- **Blackout must STALL, not close.** A tunnel drops packets; it does not RST.
+  Stalling is what reproduces the field bug; closing would produce instant clean
+  errors and hide it.
+- The emulator has no `curl` and no `wget`; use `toybox nc` for probes.
+- `adb logcat -d | grep` can hang on the big buffer — redirect to a file first,
+  then grep (and always `grep -a`).
+
+### What the rig disproved
+- **`DebugMediaShaper` was measuring the wrong thing.** It shapes only the media
+  leaf, so it made media look like the bottleneck. Under a whole-app bucket the
+  actual bottleneck at startup was *thumbnails*, taking more bytes than the video.
+- **`NET_CAPABILITY_VALIDATED` is useless as an outage signal.** It stayed `y`
+  through every second of a 150 s blackout. Any code that asks Android "is the
+  network OK?" to decide whether to retry is asking the wrong question — ask
+  whether the server answered instead. This killed one shipped fix from §12.
+- **Bright Data cannot be used for this app at all** (`policy_20050`, KYC-gated):
+  it refuses `www.youtube.com` and `*.googlevideo.com` on every zone. Do not
+  spend time on proxy credentials for YouTube traffic.
+
+### Watch out for, from this round's changes
+- `TRANSPORT_DOWN_STREAK = 2` ends a ring walk on two consecutive no-response
+  attempts. If a single client ever starts timing out routinely on a healthy
+  link, this could end walks early — the `player-ring transport-down` line names
+  the client, so check `lastClient=` before assuming the link was the problem.
+- `hasServerVerdict()` treats a cause-less `IllegalStateException` as "no answer
+  from YouTube" and therefore retriable. That rests on `RetrofitHelper` NOT
+  raising for HTTP error statuses on the player path (`handleResponseErrors` is
+  auth-transaction only). If that ever changes, genuine content errors would
+  start getting the 5-step retry ladder.
+- `fitThumbnail` only ever downgrades and only within
+  `{mqdefault, hqdefault, sddefault}` — `hq720`/`maxresdefault` are not generated
+  for every video, so widening into them 404s. The feed card is deliberately
+  left at the API's rendition (it is full-width; 480px would be visibly soft).
+  Only the related row and the loading still are fitted.
+- The loading still now uses `onlyRetrieveFromCache(true)` with an `.error()`
+  fallback. If Glide ever changes that failure to something `.error()` does not
+  catch, the still goes blank rather than falling back — the video is unaffected.
+
+### Still open (measured, not built)
+- Recovery latency is dominated by the retry ladder's own spacing, not by the
+  network. After a long outage the first retry can sit up to 300 s away. A
+  cheap liveness probe (a 204 GET) while capped would let it resume within
+  seconds of the link returning, instead of within minutes.
+- `WEB_EMBED` costs a full 20 s attempt whenever it is reached. It is now
+  reached far less often, but on a link that is slow rather than dead it is
+  still the single most expensive entry in the ring.
+- Everything in §12's "still open" list remains open; none of it was revisited.

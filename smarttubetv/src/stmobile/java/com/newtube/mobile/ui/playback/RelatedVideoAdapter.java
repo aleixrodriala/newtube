@@ -192,6 +192,11 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
             int thumbQuality = MainUIData.instance(context).getThumbQuality();
             String thumbnailUrl = ClickbaitRemover.updateThumbnail(video, thumbQuality);
 
+            // NEWTUBE(net): downsampling happens on the DEVICE, so a 640px sddefault still crosses the
+            // wire in full before Glide throws most of it away. Ask the CDN for the row's actual size
+            // instead: 12 of these bind at once and the difference is ~1.3 MB vs ~300 KB per open.
+            thumbnailUrl = ClickbaitRemover.fitThumbnail(thumbnailUrl, relatedThumbWidthPx(context));
+
             // SCROLL-JANK FIX: opaque JPEG thumbs -> RGB_565 halves decode + GPU upload. The thumb view
             // is fixed-dp-sized, so Glide already downsamples to it (no override needed). Only build the
             // fallback request when its URL can actually differ from the primary (never at default quality).
@@ -212,6 +217,12 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
             }
 
             request.into(mThumbnail);
+        }
+
+        /** Row thumb width in real pixels, so the CDN rendition is chosen for THIS screen's density. */
+        private int relatedThumbWidthPx(Context context) {
+            return context.getResources().getDimensionPixelSize(
+                    R.dimen.mobile_watch_related_thumb_width);
         }
 
         void unbind() {

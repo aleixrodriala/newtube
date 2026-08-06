@@ -40,6 +40,7 @@ import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.tv.BuildConfig;
 
 import org.chromium.net.CronetEngine;
+import org.chromium.net.UrlRequest;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -332,6 +333,14 @@ public class Media3SourceFactory {
             Log.d(TAG, "media transport: cronet");
             DataSource.Factory cronetHttp = new CronetDataSource.Factory(cronetEngine, CRONET_EXECUTOR)
                     .setUserAgent(USER_AGENT)
+                    // NEWTUBE(net): media segments are the ONLY request whose lateness the user
+                    // sees as a stall, so they must outrank everything else queued on the shared
+                    // Cronet engine (the InnerTube preconnect, /player warmups, image fetches).
+                    // media3 1.10.1's CronetDataSource.Factory defaults requestPriority to
+                    // REQUEST_PRIORITY_MEDIUM (=3, verified in its ctor bytecode); Cronet applies
+                    // it as UrlRequest.Builder#setPriority, which drives both socket-pool
+                    // ordering and H2/H3 stream priority on a congested link.
+                    .setRequestPriority(UrlRequest.Builder.REQUEST_PRIORITY_HIGHEST)
                     .setTransferListener(mBandwidthMeter)
                     .setConnectionTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
                     .setReadTimeoutMs(READ_TIMEOUT_MS)

@@ -31,9 +31,14 @@ import java.security.Security;
 
 public class MainApplication extends Application { // multidex is native at minSdk 24 (legacy MultiDexApplication dropped with the AGP 8 round)
     static {
-        // fix youtube bandwidth throttling (best - false)???
-        // false is better for streams (less buffering)
-        System.setProperty("http.keepAlive", "false");
+        // NEWTUBE(net): the upstream "http.keepAlive=false" throttling workaround is GONE. It was a
+        // JVM-GLOBAL switch, and on phones the only heavy HttpURLConnection user left is Glide's
+        // image loader: every thumbnail paid a fresh DNS+TCP+TLS handshake (~3 RTT, i.e. seconds of
+        // dead time each on a bad mobile link) for no benefit. Nothing it was meant to help still
+        // runs on that transport - media is Cronet (Media3SourceFactory, with media3
+        // DefaultHttpDataSource only as the fallback leaf) and the API is OkHttp, which pools
+        // through its own ConnectionPool and ignores this property entirely (OkHttpCommons).
+
         // fix ipv6 infinite video buffering???
         // Better to remove this fix at all. Users complain about infinite loading.
         //System.setProperty("java.net.preferIPv6Addresses", "true");

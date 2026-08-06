@@ -449,7 +449,11 @@ public class CastProxyServer {
     private OkHttpClient upstreamClient() {
         OkHttpClient injected = mInjectedClient;
         // Resolved lazily so unit tests never touch the app-configured singleton.
-        return injected != null ? injected : OkHttpManager.instance().getClient();
+        // Streaming variant: the shared client now carries a 45s callTimeout (a total bound, so a
+        // dribbling link can no longer hang a request forever). Proxying a media segment to a cast
+        // device is a bulk transfer that can legitimately outlive that, so it takes the exempt
+        // client - same pool and config, no total bound.
+        return injected != null ? injected : OkHttpManager.instance().getStreamingClient();
     }
 
     // ---------------------------------------------------------------------------------

@@ -912,6 +912,10 @@ public class MobileBrowseActivity extends MobileActivity
             Object data = mErrorAction.getTag();
             if (data instanceof ErrorFragmentData) {
                 ((ErrorFragmentData) data).onAction();
+            } else if (mPresenter != null) {
+                // Offline empty state (see showError): the button is a plain retry. Pull-to-refresh
+                // does the same thing, but it is invisible on a screen with no rows to pull.
+                mPresenter.refresh(false);
             }
         });
     }
@@ -1539,6 +1543,9 @@ public class MobileBrowseActivity extends MobileActivity
         runOnUiThread(() -> {
             String actionText = data != null ? data.getActionText() : null;
             boolean hasSignInAction = actionText != null && !actionText.isEmpty();
+            // What the action button will carry. Cleared by the offline branch below, where the
+            // button means "retry" rather than "run this error's own action".
+            ErrorFragmentData actionData = data;
 
             setSkeletonVisible(false);
             mContentSwipe.setRefreshing(false);
@@ -1561,16 +1568,47 @@ public class MobileBrowseActivity extends MobileActivity
                         : getString(R.string.mobile_empty_signin_generic));
                 mErrorAction.setText(actionText);
                 mErrorAction.setVisibility(View.VISIBLE);
+            } else if (!hasValidatedNetwork()) {
+                // NEWTUBE(offline-feed): a load that failed because the phone has no working
+                // network used to render as "Nothing to show here yet" with no affordance - the
+                // app blaming YouTube for the user's tunnel, on the screen where "nothing loads"
+                // is the whole complaint. The section really being empty and the request never
+                // leaving the device are indistinguishable at this seam, so ask the device
+                // instead of guessing from the error.
+                mErrorMessage.setText(R.string.mobile_empty_no_connection);
+                mErrorAction.setText(R.string.mobile_signin_retry_button);
+                mErrorAction.setVisibility(View.VISIBLE);
+                // Null tag = "plain retry" for the click listener; this state has no sign-in action
+                // to carry, and running the section's own onAction here would be the wrong thing.
+                actionData = null;
             } else {
                 mErrorMessage.setText(R.string.mobile_empty_generic);
                 mErrorAction.setVisibility(View.GONE);
             }
 
-            mErrorAction.setTag(data);
+            mErrorAction.setTag(actionData);
         });
     }
 
     /** Title of the section the user is currently viewing, for a section-aware empty message. */
+    /**
+     * Does the device currently have a working default network? Used only to word the empty state:
+     * the feed's failure paths all collapse to "no rows", so the error object itself cannot tell an
+     * offline failure from a genuinely empty section.
+     */
+    private boolean hasValidatedNetwork() {
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
+        if (cm == null) {
+            return true; // can't tell - keep the neutral wording
+        }
+
+        android.net.Network active = cm.getActiveNetwork();
+        android.net.NetworkCapabilities caps = active != null ? cm.getNetworkCapabilities(active) : null;
+        return caps != null
+                && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+    }
+
     private String getCurrentSectionTitle() {
         for (BrowseSection section : mSections) {
             if (section.getId() == mCurrentSectionId) {

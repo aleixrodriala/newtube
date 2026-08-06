@@ -58,6 +58,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.DecodeFormat;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
@@ -101,6 +103,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.SubtitleTrack;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
+import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.newtube.mobile.casting.CastPickerLauncher;
 import com.newtube.mobile.casting.CastSessionManager;
 import com.newtube.mobile.casting.CastTarget;
@@ -110,8 +113,10 @@ import com.newtube.mobile.player.Media3PlayerController;
 import com.newtube.mobile.player.Media3PlayerInitializer;
 import com.newtube.mobile.player.Media3SubtitleManager;
 import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
+import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.utils.AppDialogUtil;
+import com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.SessionWarmup;
@@ -1071,6 +1076,12 @@ public class MobilePlaybackActivity extends MobileActivity
 
         mIsStopped = true;
 
+        // Glide pauses the activity's request manager on its own here and resumes it on the next
+        // onStart. Drop our hold flag (WITHOUT resuming - that would defeat Glide's background
+        // pause) so the two never disagree about who paused what.
+        Utils.removeCallbacks(mReleaseImageRequests);
+        mImageRequestsHeld = false;
+
         // Going to the background right after leaving PiP mode, without the fullscreen UI ever
         // resuming: the user dismissed the PiP window. Close the video for real (see
         // mPipDismissPending) instead of falling through into background-audio mode.
@@ -1138,6 +1149,13 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onDestroy() {
         cancelAutoHide();
         hideRelatedSkeleton(); // cancels the pulse animator + pending timeout
+        Utils.removeCallbacks(mReleaseImageRequests);
+        // The loading still is loaded through the application request manager (see
+        // maybeShowLoadingStill), which has no lifecycle of its own - clear it by hand or the
+        // pending request keeps this activity's ImageView alive.
+        if (mVideoStill != null) {
+            Glide.with(getApplicationContext()).clear(mVideoStill);
+        }
 
         // Casting: stop observing the session. The session itself (manager + foreground service)
         // deliberately outlives this activity - the phone is just a remote.
@@ -3094,6 +3112,23 @@ public class MobilePlaybackActivity extends MobileActivity
         }
     }
 
+    /**
+     * Card-thumbnail geometry for the loading still: byte-for-byte the request
+     * {@code VideoCardAdapter} already issued for the tapped card, so the still normally costs ZERO
+     * network. It must stay in sync with that adapter's {@code thumbWidth()} - a different size,
+     * transformation or decode format is a different Glide cache key and would re-fetch.
+     */
+    private int mStillW;
+    private int mStillH;
+
+    private void ensureStillSize() {
+        if (mStillW == 0) {
+            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+            mStillW = Math.min(dm.widthPixels, dm.heightPixels);
+            mStillH = mStillW * 9 / 16;
+        }
+    }
+
     /** New video on this reused view: thumbnail over the stale frame until the new first frame. */
     private void maybeShowLoadingStill(Video item) {
         if (item == null || item.videoId == null || mVideoStill == null
@@ -3107,10 +3142,97 @@ public class MobilePlaybackActivity extends MobileActivity
         mVideoStill.setImageDrawable(null); // solid black until the thumbnail lands
         mVideoStill.setAlpha(1f);
         mVideoStill.setVisibility(View.VISIBLE);
-        String thumb = item.getBackgroundUrl();
+
+        // NEWTUBE(net): a video is opening - hold every OTHER image request on this page until its
+        // first frame renders (see holdImageRequests).
+        holdImageRequests();
+
+        // NEWTUBE(net): the CARD thumbnail, not getBackgroundUrl(). That one is the maxres still
+        // (108-180 KB) and was fetched fresh on every open, straight into the critical path next to
+        // /player and the first media chunks - to fill a ~190dp box that cannot show the detail. The
+        // card image is normally already in Glide's cache (the feed/related row that was tapped just
+        // drew it), so this usually resolves without touching the network at all.
+        // Loaded through the APPLICATION request manager on purpose: the activity-scoped one is what
+        // holdImageRequests() pauses, and the still is the one image that must not be held back.
+        // NEWTUBE(net): and it must cost ZERO bytes, from either entry point. Whichever row was
+        // tapped already drew this video's thumbnail, but the feed draws a full-width rendition
+        // while a related row now draws a narrow one - so asking for one fixed size would put a
+        // fresh ~114 KB download in the critical path for half of all opens. Ask for the wide one
+        // FROM CACHE ONLY and let the narrow one (also cached, by the related row) serve the miss.
+        String thumb = ClickbaitRemover.updateThumbnail(item, MainUIData.instance(this).getThumbQuality());
         if (thumb != null && !isFinishing() && !isDestroyed()) {
-            Glide.with(this).load(thumb).into(mVideoStill);
+            ensureStillSize();
+            String narrow = ClickbaitRemover.fitThumbnail(thumb, getResources().getDimensionPixelSize(
+                    R.dimen.mobile_watch_related_thumb_width));
+            Glide.with(getApplicationContext())
+                    .load(thumb)
+                    .onlyRetrieveFromCache(true)
+                    .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    .format(DecodeFormat.PREFER_RGB_565)
+                    .override(mStillW, mStillH)
+                    .centerCrop()
+                    .error(Glide.with(getApplicationContext())
+                            .load(narrow)
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                            .format(DecodeFormat.PREFER_RGB_565)
+                            .override(mStillW, mStillH)
+                            .centerCrop())
+                    .into(mVideoStill);
         }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // NEWTUBE(net): image requests yield to the opening video
+    //
+    // The watch page asks for 30-80 related thumbnails (1-2.5 MB) the moment suggestions land,
+    // which is exactly when /player and the first media chunks need the link. Worse, the related
+    // RecyclerView sits in a NestedScrollView with wrap_content + nestedScrollingEnabled=false, so
+    // it is measured UNSPECIFIED, lays out every row at once and never recycles - RelatedVideoAdapter
+    // .unbind() (and with it Glide's per-row cancellation) is dead code today.
+    //
+    // So the whole activity-scoped RequestManager is paused for the open and resumed when the
+    // loading still lifts, i.e. at the first rendered frame of the new video. Nothing is cancelled -
+    // Glide re-runs the pending requests on resume. Blank-forever is guarded three ways: the still
+    // always converges on hideVideoStill() (STATE_READY -> next frame, or onPlayerError), a watchdog
+    // releases the hold regardless, and Glide's own activity lifecycle resumes the manager on every
+    // onStart.
+    //
+    // FOLLOW-UP: the real fix is to make the whole watch page ONE outer RecyclerView so the related
+    // rows recycle and only visible thumbnails are ever requested. That is a layout refactor of
+    // activity_mobile_playback.xml plus a multi-view-type adapter, deliberately not done here.
+    // ---------------------------------------------------------------------------------
+
+    /** Upper bound on the hold. Longer than a healthy open, shorter than a person's patience. */
+    private static final long IMAGE_HOLD_TIMEOUT_MS = 6_000;
+    private boolean mImageRequestsHeld;
+    private final Runnable mReleaseImageRequests = () -> releaseImageRequests("timeout");
+
+    private void holdImageRequests() {
+        Utils.removeCallbacks(mReleaseImageRequests);
+        Utils.postDelayed(mReleaseImageRequests, IMAGE_HOLD_TIMEOUT_MS);
+        if (mImageRequestsHeld || isFinishing() || isDestroyed()) {
+            return;
+        }
+        mImageRequestsHeld = true;
+        Glide.with(this).pauseRequests();
+        NetPath.log(NetPath.context() + " image-hold on mgr="
+                + Integer.toHexString(System.identityHashCode(Glide.with(this))));
+    }
+
+    private void releaseImageRequests(String why) {
+        Utils.removeCallbacks(mReleaseImageRequests);
+        if (!mImageRequestsHeld) {
+            return;
+        }
+        mImageRequestsHeld = false;
+        if (!isDestroyed()) {
+            Glide.with(this).resumeRequests();
+        }
+        NetPath.log(NetPath.context() + " image-hold off why=" + why);
+    }
+
+    private void releaseImageRequests() {
+        releaseImageRequests("unspecified");
     }
 
     /** Mini hand-off: show a captured frame while the re-parented texture paints (1-2 frames). */
@@ -3127,6 +3249,11 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     private void hideVideoStill() {
+        // The still lifting IS the first-frame milestone, so it is also where the page's other
+        // images get the link back. Before the visibility guard: every path that gives up on the
+        // still (player error, a hand-off that never showed one) must release the hold too.
+        releaseImageRequests("still-lifted");
+
         if (mVideoStill == null || mVideoStill.getVisibility() != View.VISIBLE) {
             return;
         }
@@ -3763,6 +3890,7 @@ public class MobilePlaybackActivity extends MobileActivity
             mRelatedVideos.clear();
             mQueueVideos.clear();
             mLastPagedVideo = null;
+            mRelatedWindow = RELATED_WINDOW_INITIAL; // new video: back to one screenful of thumbnails
             setChapters(null);
             if (mRelatedAdapter != null) {
                 mRelatedAdapter.submitList(new ArrayList<>());
@@ -4475,6 +4603,9 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mCommentsKey == null) {
             return;
         }
+        // Opening a sheet full of avatars outranks the open-time image hold: the person is now
+        // looking at images, not waiting for a first frame.
+        releaseImageRequests("comments-sheet");
         Video video = getVideo();
         CharSequence title = video != null ? video.getTitleFull() : getString(R.string.mobile_comments_title);
         CommentsSheet.show(getSupportFragmentManager(), mCommentsKey, title);
@@ -4488,6 +4619,7 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mChatReceiver == null && mLiveChatAction == null) {
             startLiveChatStream();
         }
+        releaseImageRequests("chat-sheet"); // same as comments: the chat sheet's avatars are what's on screen now
         LiveChatSheet.show(getSupportFragmentManager());
     }
 
@@ -4861,6 +4993,15 @@ public class MobilePlaybackActivity extends MobileActivity
             return;
         }
 
+        // NEWTUBE(net): reveal what's already fetched before asking for more. Every bound row loads
+        // its thumbnail immediately (the list never recycles - see the image-hold block), so binding
+        // the full 30-80 suggestions at open costs 1-2.5 MB that nobody has scrolled to yet.
+        if (mRelatedWindow < mRelatedVideos.size()) {
+            mRelatedWindow += RELATED_WINDOW_STEP;
+            submitRelatedWindow();
+            return;
+        }
+
         Video last = mRelatedVideos.get(mRelatedVideos.size() - 1);
         if (last == mLastPagedVideo) {
             return;
@@ -4908,16 +5049,33 @@ public class MobilePlaybackActivity extends MobileActivity
 
         bindQueueCard(current, currentId, queueId);
 
-        if (mRelatedAdapter != null) {
-            mRelatedAdapter.submitList(new ArrayList<>(mRelatedVideos));
-        }
-        if (mWatchRelatedLabel != null) {
-            mWatchRelatedLabel.setVisibility(mRelatedVideos.isEmpty() ? View.GONE : View.VISIBLE);
-        }
+        submitRelatedWindow();
+
         // Queue rows count as "content landed" too: a playlist whose suggestions are ALL queue
         // would otherwise leave the Up-next skeleton pulsing until its safety timeout.
         if (!mRelatedVideos.isEmpty() || !mQueueVideos.isEmpty()) {
             hideRelatedSkeleton(); // real rows are in; stop pulsing
+        }
+    }
+
+    /**
+     * How many Up-next rows are bound on open, and how many more each scroll-to-bottom reveals.
+     * Bound rows are NOT a preview: this list never recycles, so a bound row is a thumbnail
+     * downloaded whether or not it is ever scrolled into view. Twelve is comfortably more than a
+     * portrait screenful, so the window is never visibly the reason the list ends.
+     */
+    private static final int RELATED_WINDOW_INITIAL = 12;
+    private static final int RELATED_WINDOW_STEP = 12;
+    private int mRelatedWindow = RELATED_WINDOW_INITIAL;
+
+    /** Push the currently revealed slice of {@link #mRelatedVideos} into the Up-next adapter. */
+    private void submitRelatedWindow() {
+        if (mRelatedAdapter != null) {
+            int end = Math.min(mRelatedWindow, mRelatedVideos.size());
+            mRelatedAdapter.submitList(new ArrayList<>(mRelatedVideos.subList(0, end)));
+        }
+        if (mWatchRelatedLabel != null) {
+            mWatchRelatedLabel.setVisibility(mRelatedVideos.isEmpty() ? View.GONE : View.VISIBLE);
         }
     }
 

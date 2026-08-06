@@ -13,6 +13,234 @@ ANDROID_HOME=<sdk> ./gradlew :smarttubetv:assembleStmobileDebug
 # -> smarttubetv/build/outputs/apk/stmobile/debug/NewTube_<ver>_universal.apk
 ```
 
+## Works (added 2026-08-06 — netshape round: a real bad-link rig, and what it found)
+The previous round's fixes were reasoned about but never measured under
+contention, because nothing on the bench could shape the WHOLE app. This round
+built that, and it immediately found three defects that account for all three
+field symptoms.
+
+**The rig: `tools/netshape.py`.** An HTTP CONNECT proxy in WSL with ONE shared
+token bucket per direction, live-controllable RTT/bandwidth, and a blackout
+toggle. The emulator reaches it at `10.0.2.2` (emulator → Windows loopback →
+WSL localhost forwarding):
+```
+python3 tools/netshape.py --port 18080 --control 18081 --down-kbps 1200 --up-kbps 400 --rtt-ms 120
+adb -s emulator-5554 shell settings put global http_proxy 10.0.2.2:18080   # (:none to undo)
+curl -s 'localhost:18081/set?blackout=1'   # enter a tunnel
+curl -s localhost:18081/timeline           # per-second bytes, per host
+```
+Verified to carry all four traffic classes: API (`www.youtube.com`), media
+(`*.googlevideo.com`), thumbnails (`*.ytimg.com`), avatars (`*.ggpht.com`).
+Sharing one bucket is the point — a thumbnail burst genuinely steals bytes from
+the media stream, which a per-DataSource shaper cannot reproduce.
+
+**Why not Bright Data** (the originally-requested approach): all three zones
+(datacenter, ISP-ES, residential-ES) refuse `CONNECT www.youtube.com:443` and
+`CONNECT *.googlevideo.com:443` with `x-brd-err-code: policy_20050` — YouTube
+is KYC-gated on their compliance list. `youtubei.googleapis.com` passes; the
+media and thumbnail hosts do not, so the app cannot run through it at all. Not
+a credential problem: the residential exit itself was healthy (Vodafone ONO,
+Madrid). Credentials live in `~/projects/hola-vivi-scrapers/.env`.
+
+### 1. Related thumbnails were starving the video (the "switching takes ages" bug)
+The watch page binds 12 related rows at once, each asking the CDN for
+`sddefault.jpg` — **114 KB** — into a **160dp × 90dp** row. Glide downsamples
+on the DEVICE, so the full 114 KB crossed the wire before most of it was thrown
+away. Per-second attribution at 1200 kbps, feed idle, media vs thumbnails:
+```
+sec 5:  21 kB / 48 kB     sec 8:  96 kB / 74 kB
+sec 6:  32 kB / 93 kB     sec 9:  58 kB / 94 kB
+sec 7:  64 kB / 69 kB     sec 11: 134 kB / 0 kB   <- thumbnails done, media doubles
+```
+Thumbnails took MORE bytes than the video through the whole startup window.
+Fix: `ClickbaitRemover.fitThumbnail(url, targetWidthPx)` asks the CDN for the
+narrowest always-available rendition that still covers the view — `hqdefault`
+(480×360, **25.6 KB**) is a pixel-exact match for a 480px-wide row at 3x. Only
+ever downgrades, and never touches `hq1/hq2/hq3` (those are the clickbait
+remover's FRAME selectors, not sizes). Unit-tested:
+`ClickbaitRemoverFitTest` (5 cases incl. never-widen and a `/hq720-abc/` path
+collision). The loading still now asks for the wide rendition
+`onlyRetrieveFromCache`, falling back to the narrow one, so it costs zero bytes
+from either entry point (feed tap or related tap).
+**A/B, same fixed video, cold image cache, 3 runs each, 1200/400/120:**
+
+| | thumbnails | media in same 30 s | first-frame |
+|---|---|---|---|
+| before | 1873 / 1844 / 1844 kB | 2340 / 2348 / 2402 kB | 2361 / 3224 / 2577 ms |
+| after | 467 / 437 / 445 kB | 3503 / 3782 / 3734 kB | 2288 / 1785 / 2007 ms |
+
+−76% thumbnail bytes, **+55% media throughput**, −25% time to first frame.
+
+### 2. A dead link was being blamed on the /player clients
+In a 150 s blackout the ring walked VISIONOS (7 s timeout) → WEB_EMBED (**20 s**)
+→ WEB → WEB_SAFARI → GEO → budget exhausted at 45 s → reload → another walk.
+Every failure was a transport timeout with no HTTP response at all, so the
+client was never the variable. Fix (`VideoInfoService`): two CONSECUTIVE
+no-response attempts (`TRANSPORT_DOWN_STREAK`) end the walk with
+`player-ring transport-down` instead of burning the budget. Transport failures
+are identified by an `IOException` anywhere in the cause chain — `RetrofitHelper`
+rethrows those as `IllegalStateException` specifically to "notify caller about
+network condition", and HTTP error statuses are NOT IOExceptions, so 403s still
+advance the ring exactly as before. Walks now end in 2 attempts, not 5.
+
+### 3. A tunnel left the player permanently dead (the headline field bug)
+Reproduced deterministically, then fixed. Two separate causes:
+- **`isConnectivityError` returned false during a tunnel.** It fell back to
+  `!hasValidatedNetwork()`, but a tunnel keeps the radio attached, so
+  `NET_CAPABILITY_VALIDATED` stays set for the entire outage — every
+  `recovery-count` line in the capture reads `validated=y internet=y`. So the
+  cap was reached with `connectivity=n`, which armed NEITHER the retry timer NOR
+  the network listener, and **the player emitted not one further log line for
+  the rest of the run.** (`scheduleAutoRetry`'s own comment already described
+  this exact case; the classifier contradicted it.) Fix: stop enumerating what
+  an outage looks like and identify the one positively-knowable thing instead —
+  whether YouTube actually answered. A verdict-free failure (`hasServerVerdict`
+  false: a cause-less `IllegalStateException`, i.e. "no answer") is retriable; a
+  real server verdict is not. The ladder is bounded (5 attempts ending at 300 s).
+- **Recovery abandoned the known-good client.** A recovery walk deliberately
+  steps past the last winner, which is right for an expired-GVS-URL 403 and
+  wrong for an outage. A 150 s tunnel ended with playback restored on
+  `WEB_EMBED`/`ANDROID_VR` (`auth=n`, `sabr=y`, 28–36 formats) instead of
+  `TV_DOWNGRADED` (`auth=y`, 41 formats) — an outage silently cost the user
+  authenticated playback and 13 renditions. Fix: `mLastWalkTransportDown`
+  suppresses the recovery cursor for one walk (`player-ring recovery-suppressed`).
+
+**Verified end-to-end, 150 s blackout:**
+```
+20:12:54  player-ring recovery-suppressed reason=transport-down keeping=TV_DOWNGRADED
+20:13:19  player-result client=TV_DOWNGRADED status=OK auth=y formats=41+1 sabr=n
+20:13:22  first-frame +10935          <- link returned at 20:13:19
+20:13:43  (next video) first-frame +2080
+```
+Playback resumes **3 s after the link returns, on the authenticated client**.
+Before: nothing, ever. A 45 s tunnel already recovered before this round (media3
+holds one chunk load across ~43 s of retries) — it is the longer outage, past
+the reload cap, that was dead.
+
+**Honest limits.** All numbers above are emulator + netshape, not a real radio:
+no packet loss, no bufferbloat, no RRC state transitions, no handover. The
+shaper is a token bucket, so it models a clean rate limit, not a congested cell.
+The thumbnail A/B is the most solid result (fixed video, cold cache, 3 runs,
+non-overlapping ranges); the tunnel results are single runs per configuration,
+verified by mechanism in the logs rather than by repetition. Not re-measured
+this round: the first-frame-on-a-healthy-link question from the previous round
+(see below) — it is now confounded further by the thumbnail fix, which moves the
+same metric, so treat the old 947→1183 ms observation as superseded rather than
+resolved.
+
+## Works (added 2026-08-06 — bad-network round: 5-agent audit + fixes)
+Triggered by a field report: on real LTE, especially with poor signal, "nothing
+loads", switching videos "takes ages", and a tunnel is never recovered from.
+Five parallel read-only audits (InnerTube/OkHttp path, media3 byte path,
+recovery under flaky links, bandwidth contention, cold-start critical path)
+produced ~50 findings; the ones below are built. Full detail in HANDOFF §12.
+
+- **The long-buffering "rescue" was RAISING quality — device-reproduced.**
+  `ErrorFixerController.lowerVideoQuality()` anchored on
+  `getPlayer().getVideoFormat()`, which in Auto answers with the ceiling PRESET;
+  `ExoFormatItem.equals` compares `isPreset` (and `"vp9"` vs `"vp09.00.41.08"`),
+  so a preset can NEVER equal a concrete rung → `indexOf` was always -1 →
+  `idx + 1` = element 0 of a quality-DESCENDING list = the HIGHEST rendition the
+  video has. After 20s of accumulated buffering on a starved link the app pinned
+  the top rung AND (via TrackSelectionOverride) switched adaptation off for the
+  session. Emulator A/B, same video/protocol (shaper 250→60 kbps, `aqz-KE-bpKQ`):
+  pre-fix the itag sequence was 242 → 278 → **302** (720p60, and it began a
+  567 KB chunk = ~76s at 60 kbps); post-fix it stays at 278. Now: anchor on the
+  rung actually PLAYING (`FormatItem.isSelected()`), step to the next strictly
+  lower height, and apply it as a ceiling PRESET so ABR keeps adapting
+  underneath. Logged as `recovery-lower-quality from= to= mode=ceiling|pin`.
+- **ABR was blind to a bandwidth collapse for ~56s.** `maxDurationForQualityDecreaseMs`
+  sat at media3's 25s default while the buffer presets were raised to 50-75s, so
+  the down-switch threshold was BELOW the load control's min buffer: in steady
+  state a down-switch could never even be considered. Now scaled to the midpoint
+  of the preset's own band (HIGH → 62.5s). Logged: `buffer=HIGH … abr-up=5s
+  abr-down=62s` (device-confirmed).
+- **A cause-stripped outage no longer dead-ends the player.** `RetrofitHelper`
+  swallows `ConnectException` to null, which surfaces as "fromNullable result is
+  null" with no cause — so `isConnectivityError` said "not connectivity" and
+  `surfaceCappedError` armed NEITHER the retry timer NOR the network listener:
+  a dead player until app restart. It now falls back to asking the device, and
+  treats "no validated default network at cap time" as a connectivity failure.
+- **The retry budget is no longer the end of the road.** Returning to the
+  foreground when the ~8-min budget is spent now retries once and refills it
+  (`recovery-foreground-retry`) — the metro-ride case, where the user coming back
+  IS the user action, but the only affordance was a one-line notice to tap.
+- **Cronet transport errors stopped nuking the buffer.** A branch matching
+  "Exception in CronetUrlRequest" ran AHEAD of the SOURCE branch and, for VOD,
+  left `restartEngine = true` (destroy + recreate the player = the whole 50-75s
+  buffer re-downloaded) while "fixing" it by writing `setPlayerDataSource`, a
+  pref the media3 stack never reads. Removed; those errors now take the normal
+  remint-and-reload path.
+- **In-player video switches cancel the previous open.** `openVideoInt` (related
+  tap, queue tap, next) never called `prefetchFormatInfo`, so it neither warmed
+  the new fetch nor cancelled the old one — and `VideoInfoService.getVideoInfo`
+  is `synchronized` on the singleton for a whole client-ring walk, which
+  `disposeActions()` cannot interrupt (RxHelper's scheduler is non-interruptible).
+  The video the user picked waited behind the one they abandoned.
+- **The /player ring is bounded.** Web-pot clients (6 of ~10 phone-ring entries)
+  had NO per-attempt deadline at all — only OkHttp's 8s+8s, which does not cover
+  PO-token minting (`PoTokenWebView` awaits a latch with no timeout). Worst case
+  ~2 min for one open, under the process-wide monitor. Now: 20s per web-pot
+  attempt (sized for a cold BotGuard mint, HANDOFF §8) and a 45s wall-clock
+  budget for the whole walk, with attempts clamped to what remains. A budget trip
+  returns null rather than publishing a partially-walked "unplayable" verdict —
+  that would seat an unestablished verdict in the 30s negative cache and disable
+  `switchNextFormat` recovery. Ring ORDER untouched; `VideoInfoVisitOrderTest`
+  passes, plus a new test pinning the web-pot budget.
+- **Watch-open bandwidth.** `http.keepAlive=false` (a JVM-GLOBAL upstream
+  throttling workaround) was making every Glide thumbnail pay a fresh
+  DNS+TCP+TLS handshake — ~3 RTT each on a mobile link — while helping nothing,
+  since media is Cronet and the API is OkHttp. Removed. The loading still no
+  longer fetches `maxresdefault` (108-180 KB) but reuses the exact card-image
+  request the feed already cached. Related-list thumbnails (30-80 images,
+  1-2.5 MB, in one burst, never recycled because the list is `wrap_content`
+  inside a NestedScrollView) are now held until the still lifts, and bound in a
+  12-row window. Glide itself is configured for the first time: 2 source threads
+  (was CPU-count, i.e. 4 parallel fetches against the stream) and a 15s HTTP
+  timeout (was Glide's 2500ms LAN default, which systematically times out at
+  mobile RTT and then retries — grey cards plus a request storm).
+- **Transport resilience.** `pingInterval(10s)` so a half-open H2 connection is
+  detected in ~10s instead of stalling every multiplexed API call for the full
+  read timeout; the OkHttp pool is evicted when the default network is REPLACED
+  (handover); and a 45s `callTimeout` — the only TOTAL bound, since connect/read
+  are per-phase and a link that dribbles a byte every 19s never trips them. Bulk
+  transfers (in-app APK download, cast proxy) use a new exempt
+  `OkHttpManager.getStreamingClient()`.
+- **The player JS is fetched once, not twice**, on a cold `PlayerDataExtractor`
+  (~680 KB each, uncached, under the player lock) via a thread-scoped memo.
+- **Two UX honesty fixes.** 20s of buffering no longer permanently disables the
+  user's subtitles (it wrote two PERSISTED prefs on a wrong attribution — a
+  sidecar is a few KB and is never why a link is slow); and `/next` failures no
+  longer throw the raw exception over the video (`loadSuggestions error: …`),
+  the call site the remove-the-toasts round missed — it re-fired once per
+  recovery reload. The feed's offline empty state now says "No connection" with
+  a retry button instead of "Nothing to show here yet" (en + es).
+
+**Rig notes (cost real time — read before the next round):** `adb emu network
+speed` is unusable, confirmed with the app: ZERO api-http completions in 30s at
+4000/2000/1000 kbps — it stalls connections rather than shaping them. `adb emu
+network delay` DOES work but only on NEW connections (measured: +500ms on the
+first request, unchanged on the 8 that followed over the same H2 connection), so
+it models handshake cost, not steady-state RTT. Per-app byte accounting works
+via `dumpsys netstats detail --uid` summing `rb=`, but its buckets only refresh
+lazily, so sub-phase splits within one run are not reliable — compare whole runs.
+`am start -a VIEW -d <url>` opens the REAL YouTube app on a Play-image AVD; pass
+`-p io.github.aleixrodriala.arc`.
+
+**Not measured, stated honestly:** the bandwidth-contention fixes are
+code-verified and functionally verified (thumbnails all render; no blank cards),
+but NOT byte-verified — per-session bytes were 15.2/15.4/16.1 MB before and
+14.5/15.0/15.5/15.7 MB after, i.e. inside the noise, because on a fast emulator
+link media dominates and ABR variance swamps a ~1-2 MB image delta. Proving them
+needs a whole-app shaper (`DebugMediaShaper` only shapes the media leaf, so the
+contention this round is about has never been reproducible on the bench) or a
+real cellular link. Also unresolved: first-frame on a HEALTHY link measured
+947/990/1102 ms before and 1183/1223/1333 ms after, with the network milestones
+(open/info/prepare) unchanged — so the delta is in the media/decode phase. The
+"after" runs shared the host with gradle builds and unit tests, which is a
+plausible confound, but it has NOT been re-measured cleanly. Do that before
+shipping.
+
 ## Works (emulator-verified; see HANDOFF.md for evidence per claim)
 Everything in the original feature set (grid Home + bottom nav, search with
 suggestions/voice, channel pages, full watch page with comments/live chat/

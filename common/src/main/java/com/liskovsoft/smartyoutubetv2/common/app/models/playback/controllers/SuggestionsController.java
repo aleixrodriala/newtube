@@ -401,12 +401,16 @@ public class SuggestionsController extends BasePlayerController {
                 .subscribe(
                         callback::onMetadata,
                         error -> {
-                            // Usual errors here is something with title parsing
-                            String message = error.getMessage();
-                            Log.e(TAG, "loadSuggestions error: %s", message);
-                            if (!Helpers.containsAny(message, "fromNullable result is null")) {
-                                MessageHelpers.showLongMessage(getContext(), "loadSuggestions error: %s", message);
-                            }
+                            // NEWTUBE(no-raw-toasts): this used to throw the raw exception text
+                            // over the video ("loadSuggestions error: java.lang.IllegalStateException:
+                            // java.net.UnknownHostException: ..."). It is the call site the
+                            // remove-the-raw-toasts round missed, and it is the worst of them: it
+                            // fires on every /next failure, and onNewVideo re-runs for every
+                            // ErrorFixer recovery reload - so an outage printed a fresh stack over
+                            // the player once per retry cycle, while the recovery stack was quietly
+                            // doing the right thing underneath. The error surface is the player
+                            // (title + notice); the diagnosis lives in the log.
+                            Log.e(TAG, "loadSuggestions error: %s", error.getMessage());
                             error.printStackTrace();
                         }
                 );

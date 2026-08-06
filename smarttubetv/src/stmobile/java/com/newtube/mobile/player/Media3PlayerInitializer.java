@@ -26,7 +26,9 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
  *       default = the BUFFER_HIGH preset that used to be hardcoded: 50s min / 75s max),</li>
  *   <li>start gate 1s first frame / 2.5s after rebuffer (TTFF fix),</li>
  *   <li>back-buffer 120s from keyframe with a RAM-clamped byte budget (backward-seek fix),</li>
- *   <li>ABR up-switch after 5s of stable buffer (the mobile tuning from the legacy round).</li>
+ *   <li>ABR up-switch after 5s of stable buffer (the mobile tuning from the legacy round), paired
+ *       with a down-switch window scaled to the chosen buffer preset (see
+ *       {@link #createTrackSelector()}).</li>
  * </ul>
  */
 public class Media3PlayerInitializer {
@@ -97,11 +99,35 @@ public class Media3PlayerInitializer {
     }
 
     public DefaultTrackSelector createTrackSelector() {
+        // NEWTUBE(abr-window): the DOWN-switch window must scale with the buffer preset. media3
+        // signature (verified against 1.10.1 bytecode - the 4-arg ctor delegates to the 8-arg one
+        // storing minDurationForQualityIncreaseMs, maxDurationForQualityDecreaseMs,
+        // minDurationToRetainAfterDiscardMs, ... in that order):
+        //   Factory(minDurationForQualityIncreaseMs, maxDurationForQualityDecreaseMs,
+        //           minDurationToRetainAfterDiscardMs, bandwidthFraction)
+        // AdaptiveTrackSelection.updateSelectedTrack REFUSES a lower rung while
+        // bufferedDurationUs >= maxDurationForQualityDecreaseUs, so that constant is the point at
+        // which a collapse becomes visible to ABR at all. Leaving it at media3's 25s default while
+        // the presets buffer 50-75s put the threshold BELOW the load control's min buffer: in
+        // steady state (buffer oscillating between min and max) the selector could never consider
+        // a down-switch, and after a bandwidth collapse it stayed blind while the buffer drained.
+        //   HIGH preset, 1080p @2.7Mbps collapsing to a 300kbps link: media drains at
+        //   1 - 0.3/2.7 = 0.89 s of buffer per second, so 75s -> 25s took 50/0.89 = ~56s of blind
+        //   playback (while up-switches stayed eligible after just 5s of buffer).
+        // Scaling it to the MIDPOINT of the preset's own min..max band fixes both ends: the
+        // selector is free to react during normal operation, and the same collapse is seen after
+        // 75s -> 62.5s = 12.5/0.89 = ~14s, with ~70s of buffer still in hand to actually complete
+        // the switch (a down-switch only affects NEWLY loaded chunks - everything already buffered
+        // still plays at the old rung, which is why reacting early matters).
+        //   LOW 20/30s -> 25s (= media3's default), MEDIUM 50/50s -> 50s, HIGH 50/75s -> 62.5s,
+        //   HIGHEST 50/120s -> 85s.
+        BufferPreset preset = resolveBufferPreset();
+
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(
                 mContext,
                 new AdaptiveTrackSelection.Factory(
                         ABR_UP_SWITCH_MS,
-                        AdaptiveTrackSelection.DEFAULT_MAX_DURATION_FOR_QUALITY_DECREASE_MS,
+                        preset.abrDownSwitchWindowMs(),
                         AdaptiveTrackSelection.DEFAULT_MIN_DURATION_TO_RETAIN_AFTER_DISCARD_MS,
                         AdaptiveTrackSelection.DEFAULT_BANDWIDTH_FRACTION));
 
@@ -114,42 +140,59 @@ public class Media3PlayerInitializer {
         return trackSelector;
     }
 
-    public ExoPlayer createPlayer(DefaultTrackSelector trackSelector, DefaultBandwidthMeter bandwidthMeter) {
-        // See the preset table above. Read afresh on every creation so an engine restart (error
-        // fix, in-player buffer pick, next activity open) picks up the current setting.
+    /**
+     * See the preset table above. Read afresh on every creation so an engine restart (error fix,
+     * in-player buffer pick, next activity open) picks up the current setting - and so the track
+     * selector and the load control of one player are always built from the SAME preset.
+     */
+    private BufferPreset resolveBufferPreset() {
         int bufferType = PlayerData.instance(mContext).getVideoBufferType();
-        int minBufferMs;
-        int maxBufferMs;
-        int targetBufferBytes;
-        String bufferName;
         switch (bufferType) {
             case PlayerData.BUFFER_LOW:
-                minBufferMs = LOW_MIN_BUFFER_MS;
-                maxBufferMs = LOW_MAX_BUFFER_MS;
-                targetBufferBytes = Math.min(LOW_TARGET_BUFFER_BYTES, mMaxBufferBytes / 4);
-                bufferName = "LOW";
-                break;
+                return new BufferPreset("LOW", LOW_MIN_BUFFER_MS, LOW_MAX_BUFFER_MS,
+                        Math.min(LOW_TARGET_BUFFER_BYTES, mMaxBufferBytes / 4));
             case PlayerData.BUFFER_MEDIUM:
-                minBufferMs = MEDIUM_MAX_BUFFER_MS; // min==max, stock ExoPlayer pattern
-                maxBufferMs = MEDIUM_MAX_BUFFER_MS;
-                targetBufferBytes = Math.min(MEDIUM_TARGET_BUFFER_BYTES, mMaxBufferBytes / 2);
-                bufferName = "MEDIUM";
-                break;
+                // min==max, stock ExoPlayer pattern
+                return new BufferPreset("MEDIUM", MEDIUM_MAX_BUFFER_MS, MEDIUM_MAX_BUFFER_MS,
+                        Math.min(MEDIUM_TARGET_BUFFER_BYTES, mMaxBufferBytes / 2));
             case PlayerData.BUFFER_HIGHEST:
-                minBufferMs = MIN_BUFFER_MS;
-                maxBufferMs = HIGHEST_MAX_BUFFER_MS;
                 // Long math: RAM/12 can exceed Integer.MAX_VALUE on huge-RAM devices; min() first.
-                targetBufferBytes = (int) Math.min(HIGHEST_TARGET_BUFFER_BYTES, mMaxBufferBytes * 3L / 2);
-                bufferName = "HIGHEST";
-                break;
+                return new BufferPreset("HIGHEST", MIN_BUFFER_MS, HIGHEST_MAX_BUFFER_MS,
+                        (int) Math.min(HIGHEST_TARGET_BUFFER_BYTES, mMaxBufferBytes * 3L / 2));
             case PlayerData.BUFFER_HIGH:
             default: // unknown value -> today's behavior
-                minBufferMs = MIN_BUFFER_MS;
-                maxBufferMs = MAX_BUFFER_MS;
-                targetBufferBytes = Math.min(TARGET_BUFFER_BYTES, mMaxBufferBytes);
-                bufferName = "HIGH";
-                break;
+                return new BufferPreset("HIGH", MIN_BUFFER_MS, MAX_BUFFER_MS,
+                        Math.min(TARGET_BUFFER_BYTES, mMaxBufferBytes));
         }
+    }
+
+    /** One row of the preset table: the load-control numbers plus the ABR window derived from them. */
+    private static final class BufferPreset {
+        final String name;
+        final int minBufferMs;
+        final int maxBufferMs;
+        final int targetBufferBytes;
+
+        BufferPreset(String name, int minBufferMs, int maxBufferMs, int targetBufferBytes) {
+            this.name = name;
+            this.minBufferMs = minBufferMs;
+            this.maxBufferMs = maxBufferMs;
+            this.targetBufferBytes = targetBufferBytes;
+        }
+
+        /** See {@link #createTrackSelector()} for why this is the midpoint of the buffer band. */
+        int abrDownSwitchWindowMs() {
+            return (minBufferMs + maxBufferMs) / 2;
+        }
+    }
+
+    public ExoPlayer createPlayer(DefaultTrackSelector trackSelector, DefaultBandwidthMeter bandwidthMeter) {
+        BufferPreset preset = resolveBufferPreset();
+        int minBufferMs = preset.minBufferMs;
+        int maxBufferMs = preset.maxBufferMs;
+        int targetBufferBytes = preset.targetBufferBytes;
+        String bufferName = preset.name;
+
         // NEWTUBE(loop-experiment): the post-rebuffer resume gate is runtime-flippable in debug
         // builds (adb shell setprop debug.arc.rebuffer_gate_ms 1500; engine restart applies it)
         // so the 2500-vs-1500 A/B runs on ONE build with everything else identical. Release
@@ -162,6 +205,8 @@ public class Media3PlayerInitializer {
 
         android.util.Log.d("NetPath", "buffer=" + bufferName + " max=" + (maxBufferMs / 1000) + "s"
                 + " min=" + (minBufferMs / 1000) + "s bytes=" + (targetBufferBytes / MB) + "MB"
+                + " abr-up=" + (ABR_UP_SWITCH_MS / 1000) + "s"
+                + " abr-down=" + (preset.abrDownSwitchWindowMs() / 1000) + "s"
                 + (startAfterRebufferMs != START_BUFFER_AFTER_REBUFFER_MS
                         ? " rebuffer-gate=" + startAfterRebufferMs + "ms" : ""));
 
