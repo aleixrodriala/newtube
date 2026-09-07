@@ -25,6 +25,7 @@ public final class CastPrefs {
 
     private static final String PREFS_NAME = "newtube_cast";
     private static final String KEY_PAIRED_SCREENS = "paired_screens";
+    private static final String KEY_RECEIVER_APP_PREFIX = "receiver_app:";
     private static final String FIELD_SEP = "\u0001";
     private static final String ENTRY_SEP = "\u0002";
 
@@ -49,6 +50,30 @@ public final class CastPrefs {
             }
         }
         return result;
+    }
+
+    /** Old pairings remain usable without guessing their app from a user-editable TV name. */
+    public static List<CastTarget> getPairedTargets(Context context) {
+        List<CastTarget> targets = new ArrayList<>();
+        for (CastScreen screen : getPairedScreens(context)) {
+            CastTarget.ReceiverApp app;
+            try {
+                app = CastTarget.ReceiverApp.valueOf(prefs(context).getString(
+                        KEY_RECEIVER_APP_PREFIX + screen.getScreenId(), "UNKNOWN"));
+            } catch (IllegalArgumentException e) {
+                app = CastTarget.ReceiverApp.UNKNOWN;
+            }
+            targets.add(CastTarget.fromPairedScreen(screen, app));
+        }
+        return targets;
+    }
+
+    public static void addPairedScreen(Context context, CastScreen screen, CastTarget.ReceiverApp app) {
+        addPairedScreen(context, screen);
+        if (screen != null && !TextUtils.isEmpty(screen.getScreenId())
+                && app != CastTarget.ReceiverApp.UNKNOWN) {
+            prefs(context).edit().putString(KEY_RECEIVER_APP_PREFIX + screen.getScreenId(), app.name()).apply();
+        }
     }
 
     /** Add (or refresh the name of) a paired screen. */
@@ -78,6 +103,7 @@ public final class CastPrefs {
             }
         }
         save(context, updated);
+        prefs(context).edit().remove(KEY_RECEIVER_APP_PREFIX + screenId).apply();
     }
 
     private static void save(Context context, List<CastScreen> screens) {

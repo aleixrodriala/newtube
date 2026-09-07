@@ -1,5 +1,53 @@
 # Casting to the TV — design (decided 2026-07-20)
 
+## Ad-free receiver priority and pairing (2026-09-07)
+
+The picker retains separate receiver identities under one TV row. Its default
+order is **paired SmartTube → direct Cast → unidentified saved apps → stock
+YouTube**. Explicit choices in the overflow menu stay on the chosen route.
+Grouping uses discovered host addresses and unique, trimmed, case-insensitive
+names for saved pairings; ambiguous names spanning multiple physical endpoints
+remain separate. Later DIAL discovery cannot erase the SmartTube pairing.
+
+A saved YouTube/unidentified row tapped in the first four seconds waits for
+Cast discovery. It connects immediately if an ad-free route arrives, or uses
+the best known route when that window ends. Closing the sheet cancels the tap.
+
+SmartTube needs a TV-code pairing. The picker has one filled **Link TV** button
+for both apps, not separate SmartTube and generic pairing entries. A short
+SmartTube prompt appears above it until a known SmartTube pairing exists; the
+button remains available afterward to add another TV. The dark code dialog lists
+SmartTube first and requires choosing the source app. It shows only that app's
+instructions above a full-width code field; SmartTube points to **Settings →
+Remote control**. Existing pairings retain their screen IDs and remain unidentified
+until the user identifies them through the saved app's overflow button or pairs
+again. App identity is stored separately by screen ID; names never imply ad-free
+capability. The dialog uses sentence-case actions, neutral controls, and a filled primary action that stays
+disabled until an app is selected and the code contains exactly 12 digits.
+
+The session coordinator consumes each candidate once. A recommended Lounge
+connection with another route available has a 15-second bind deadline and a
+20-second playback deadline;
+binding alone does not prove the receiver started the requested video. Successful
+playback cancels these deadlines; pause cancels pending automatic play. Failed
+loads can advance to the next route even after an earlier video succeeded.
+YouTube launch is deferred until the preceding routes fail. Disconnect/new
+connections invalidate pending resolution callbacks. Stock YouTube may show ads,
+and the fallback message says so.
+
+Verification for this change uses JVM/Robolectric tests with fake discovery and
+receiver transports, plus a debug build. After device testing was authorized,
+the debug build was installed on the Pixel 9 with app data preserved. The picker
+discovered the Philips TV as one ad-free direct-Cast row and excluded the
+audio-only soundbar. The shorter Spanish prompt and filled pairing button were
+visually checked on the phone; button typography follows the watch-page Subscribe
+button (14sp medium, no added letter spacing). The dark pairing dialog,
+keyboard visibility, 12-digit action enablement (without submitting), and
+app-specific instructions were also checked on the Pixel. All 106 casting/caption
+tests pass, including five Robolectric picker/onboarding tests. Real SmartTube pairing/playback still
+needs the TV's pairing code. The historical device-verification notes below
+describe the earlier implementation.
+
 **Status (2026-07-21): ALL THREE STEPS SHIPPED — Route B, Route A and the mdx
 shim, each verified end-to-end on a Pixel 9 + a Philips Cast-built-in TV.**
 

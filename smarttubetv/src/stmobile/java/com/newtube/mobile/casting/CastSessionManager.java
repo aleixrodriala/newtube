@@ -27,6 +27,8 @@ import com.newtube.mobile.casting.proxy.MpdRewriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
@@ -88,7 +90,7 @@ public class CastSessionManager {
      * manager's {@link #endSession} calling {@code destroy()} (immediate, no remote stop, never
      * calls back into the manager). Transport commands are only routed while {@link #mConnected}.
      */
-    private interface Connection {
+    interface Connection {
         void start();
 
         void disconnect();
@@ -136,7 +138,7 @@ public class CastSessionManager {
      */
     private int mVolumePercent = -1;
 
-    private CastSessionManager(Context context) {
+    CastSessionManager(Context context) {
         mContext = context.getApplicationContext();
     }
 
@@ -170,17 +172,20 @@ public class CastSessionManager {
     // ---------------------------------------------------------------------------------
 
     /**
-     * Open a session on the target. Any previous session (either route) is torn down first.
+     * Explicit receiver choice. Resolve/launch it if necessary, without switching to other apps.
      *
-     * @return false when the target can't be connected yet, or (Lounge routes) the sender isn't
-     *         available
+     * @return false when no usable route or sender is available
      */
     public boolean connect(CastTarget target) {
-        // Any connect supersedes an armed/pending auto-fallback (the fallback's own connect
-        // included - the switch is one-shot by construction).
+        return target != null && startRoutePlan(Collections.singletonList(target));
+    }
+
+    private boolean connectResolved(CastTarget target, CastRoutePlan plan) {
+        // Tear down the old route with fallback disabled, then install the remaining route plan.
         mFallbackArmed = false;
         mFallbackSessionEnabled = false;
         mFallbackToken = null;
+        mRoutePlan = null;
         if (target == null || !target.isConnectable()) {
             notifyConnectingState(); // the token clear above may have ended a pending fallback
             return false;
@@ -195,26 +200,44 @@ public class CastSessionManager {
 
         mTarget = target;
         resetPlaybackState();
-        mConnection = castV2 ? new CastV2Connection(target) : new LoungeConnection(target);
+        mRoutePlan = plan;
+        mFallbackArmed = plan.hasNext();
+        mFallbackSessionEnabled = plan.hasNext();
+        mConnection = createConnection(target);
         mConnection.start();
         notifyConnectingState(); // spinner on: session in flight
         return true;
     }
 
+    Connection createConnection(CastTarget target) {
+        return target.getRoute() == CastTarget.Route.CAST_V2
+                ? new CastV2Connection(target) : new LoungeConnection(target);
+    }
+
     /**
-     * One-tap connect for a picker device row: open the recommended Direct-cast session, and if
-     * the session fails before playback is proven OR a later video can't be loaded directly,
-     * automatically switch to the device's TV app instead of stranding the user with an error
-     * toast (the picker's "one click, it just works" contract). Non-CAST_V2 targets simply
-     * {@link #connect} - they have exactly one mode.
+     * Build the ad-free-first route plan for a receiver and its paired apps. The picker normally
+     * supplies its complete discovery group through the list overload.
      */
     public boolean connectWithFallback(CastTarget target) {
-        boolean started = connect(target);
-        if (started && target.getRoute() == CastTarget.Route.CAST_V2) {
-            mFallbackArmed = true; // after connect() - which always disarms first
-            mFallbackSessionEnabled = true;
+        if (target == null) return false;
+        CastDeviceRegistry devices = new CastDeviceRegistry();
+        devices.add(target);
+        for (CastTarget saved : CastPrefs.getPairedTargets(mContext)) devices.add(saved);
+        return connectWithFallback(devices.deviceFor(target).routes());
+    }
+
+    public boolean connectWithFallback(List<CastTarget> routes) {
+        return startRoutePlan(routes);
+    }
+
+    private boolean startRoutePlan(List<CastTarget> routes) {
+        List<CastTarget> usable = new ArrayList<>();
+        for (CastTarget route : routes) {
+            if (route.getRoute() == CastTarget.Route.CAST_V2 || isSenderAvailable()) usable.add(route);
         }
-        return started;
+        if (usable.isEmpty()) return false;
+        cancelRouteResolution();
+        return startNextRoute(new CastRoutePlan(usable), null);
     }
 
     /**
@@ -232,9 +255,12 @@ public class CastSessionManager {
         mFallbackArmed = false;
         mFallbackSessionEnabled = false;
         mFallbackToken = null;
+        mRoutePlan = null;
+        cancelRouteResolution();
         Connection connection = mConnection;
         if (connection == null) {
             teardown();
+            notifyConnectingState();
             return;
         }
         connection.disconnect();
@@ -253,10 +279,10 @@ public class CastSessionManager {
      * its {@link #isCurrent} check instead of touching the (possibly brand-new) session state.
      */
     private void endSession(@Nullable String reason) {
-        CastTarget endedTarget = mTarget;
-        boolean fallback = shouldAutoFallback(mFallbackArmed, reason,
-                endedTarget != null ? endedTarget.getRoute() : null);
-        mFallbackArmed = false; // one-shot: a failing fallback session must not re-fallback
+        CastRoutePlan plan = mRoutePlan;
+        boolean fallback = mFallbackArmed && reason != null && plan != null && plan.hasNext();
+        mRoutePlan = null;
+        mFallbackArmed = false; // the next route installs its own remaining fallback plan
         mFallbackSessionEnabled = false;
         boolean wasActive = mConnection != null || mConnected || mTarget != null;
         Connection connection = mConnection;
@@ -275,7 +301,7 @@ public class CastSessionManager {
         resetPlaybackState();
         if (fallback) {
             // After the ended/reset fanout, so the fallback's connect() starts from clean state.
-            startFallback(endedTarget, reason);
+            startNextRoute(plan, reason);
         }
         // Once the fallback decision ran: a started fallback keeps the spinner up (new session
         // or pending mdx read), a plain end turns it off.
@@ -472,8 +498,7 @@ public class CastSessionManager {
     }
 
     /**
-     * Explicitly leave Direct cast and open the TV's YouTube receiver for its native controls.
-     * The mdx read is always repeated because launching the app is the route switch itself.
+     * Leave Direct cast for TV-app controls, preferring a paired SmartTube receiver.
      */
     public boolean switchDirectSessionToTvApp() {
         CastTarget target = mTarget;
@@ -481,10 +506,12 @@ public class CastSessionManager {
                 || !isSenderAvailable() || TextUtils.isEmpty(target.getCastHost())) {
             return false;
         }
-        mFallbackArmed = false;
-        mFallbackSessionEnabled = false;
-        startTvAppRoute(target, null);
-        return true;
+        CastDeviceRegistry devices = new CastDeviceRegistry();
+        devices.add(target);
+        for (CastTarget saved : CastPrefs.getPairedTargets(mContext)) devices.add(saved);
+        List<CastTarget> apps = devices.deviceFor(target).routes();
+        apps.removeIf(route -> route.getRoute() == CastTarget.Route.CAST_V2);
+        return connectWithFallback(apps);
     }
 
     // ---------------------------------------------------------------------------------
@@ -543,24 +570,20 @@ public class CastSessionManager {
     }
 
     // ---------------------------------------------------------------------------------
-    // Auto-fallback: Direct cast first, the device's YouTube app when it fails
+    // Auto-fallback: paired SmartTube, direct cast, unidentified apps, stock YouTube last
     // ---------------------------------------------------------------------------------
 
-    /** mdx shim budget for launching the YouTube receiver during fallback (mirrors CastPickerSheet). */
+    /** Budget for launching the stock YouTube receiver and reading its Lounge identity. */
     private static final long FALLBACK_MDX_TIMEOUT_MS = 15_000;
 
     /**
-     * Armed by {@link #connectWithFallback} until direct playback is proven (first raw "PLAYING"
-     * media status - deliberately not BUFFERING, which can precede a LOAD_FAILED). While armed, a
-     * session-level failure or a refused/rejected load switches routes instead of just toasting.
+     * Session failures can advance the route plan until receiver playback is proven.
+     * BUFFERING and a Lounge bind alone do not prove that the requested video is playing.
      */
     private boolean mFallbackArmed;
     /**
-     * The direct session came from the picker's recommended one-tap path. Unlike
-     * {@link #mFallbackArmed}, this survives the first successful video: a later video may be live
-     * or otherwise incompatible with the Default Media Receiver and should still fall back to the
-     * TV app. Explicit "Cast without ads" chooser sessions leave this false and keep honoring the
-     * user's route choice.
+     * Recommended sessions retain load-level fallback after playback succeeds, so a later live
+     * or incompatible video can use the next receiver. Explicit picks have no remaining routes.
      */
     private boolean mFallbackSessionEnabled;
     /**
@@ -569,24 +592,9 @@ public class CastSessionManager {
      */
     @Nullable
     private Object mFallbackToken;
+    @Nullable private CastRoutePlan mRoutePlan;
+    @Nullable private DialDiscovery mResolvingDial;
 
-    /** Pure decision core (static for JVM tests): switch only for a FAILED armed direct session. */
-    static boolean shouldAutoFallback(boolean armed, @Nullable String endReason,
-            @Nullable CastTarget.Route route) {
-        // reason == null covers every deliberate teardown: user disconnect, the teardown before a
-        // new connect, and graceful remote closes.
-        return armed && endReason != null && route == CastTarget.Route.CAST_V2;
-    }
-
-    /**
-     * Load failures are eligible for the whole recommended one-tap direct session. This is
-     * deliberately broader than {@link #shouldAutoFallback}: once a VOD has played successfully,
-     * a later live/incompatible selection is a load-level route limitation, not a dead session.
-     */
-    static boolean shouldAutoFallbackForLoad(boolean armed, boolean sessionEnabled,
-            @Nullable CastTarget.Route route) {
-        return (armed || sessionEnabled) && route == CastTarget.Route.CAST_V2;
-    }
 
     /** A Lounge receiver has loaded our requested item but kept its previous paused state. */
     static boolean shouldAutoPlayLoungeLoad(@Nullable String pendingVideoId,
@@ -597,95 +605,98 @@ public class CastSessionManager {
 
     /** Load-level fallback hook (session still alive). True = switch started, suppress the toast. */
     private boolean maybeStartFallbackForLoad(String reason) {
-        CastTarget target = mTarget;
-        if (!shouldAutoFallbackForLoad(mFallbackArmed, mFallbackSessionEnabled,
-                target != null ? target.getRoute() : null)) {
+        CastRoutePlan plan = mRoutePlan;
+        if (!mFallbackSessionEnabled || plan == null || !plan.hasNext()) {
             return false;
         }
         mFallbackArmed = false;
         mFallbackSessionEnabled = false;
-        startFallback(target, reason);
+        startNextRoute(plan, reason);
         return true;
     }
 
-    /**
-     * The automatic Direct-cast -> YouTube-app switch. Always run the mdx shim first so it launches
-     * the YouTube receiver app and replaces the Default Media Receiver that Direct cast was using.
-     * A saved Lounge screenId alone is insufficient: the backend can accept commands for that
-     * screen while the TV is still visibly sitting in the old Cast receiver. The fresh screenId is
-     * persisted exactly like the picker's explicit flow.
-     */
-    private void startFallback(CastTarget device, String reason) {
-        if (!isSenderAvailable() || TextUtils.isEmpty(device.getCastHost())) {
-            MessageHelpers.showMessage(mContext, reason); // no fallback possible - honest error
-            return;
-        }
-        startTvAppRoute(device, reason);
+    private void cancelRouteResolution() {
+        mFallbackToken = null;
+        if (mResolvingDial != null) mResolvingDial.stop();
+        mResolvingDial = null;
     }
 
-    /** Shared mdx launch for automatic fallback and the user's explicit “TV app controls” tap. */
-    private void startTvAppRoute(CastTarget device, @Nullable String fallbackReason) {
-        Log.d(TAG, (fallbackReason != null
-                ? "Direct cast failed (" + fallbackReason + ") - falling back"
-                : "Switching explicit Direct session") + " to the YouTube app on " + device.getName());
-        MessageHelpers.showMessage(mContext, fallbackReason != null
-                ? R.string.mobile_cast_fallback_switching : R.string.mobile_cast_switching_tv_app);
-
+    /** Consume the next receiver without ever revisiting an already failed route. */
+    private boolean startNextRoute(CastRoutePlan plan, @Nullable String reason) {
+        cancelRouteResolution();
+        mRoutePlan = null;
+        mFallbackArmed = false;
+        mFallbackSessionEnabled = false;
+        teardown();
+        if (!plan.hasNext()) {
+            notifyConnectingState();
+            if (reason != null) MessageHelpers.showMessage(mContext, reason);
+            return false;
+        }
+        CastTarget target = plan.next();
+        if (reason != null) {
+            MessageHelpers.showMessage(mContext, target.getReceiverApp() == CastTarget.ReceiverApp.SMARTTUBE
+                    ? R.string.mobile_cast_trying_smarttube
+                    : target.getRoute() == CastTarget.Route.CAST_V2
+                    ? R.string.mobile_cast_trying_direct
+                    : target.getReceiverApp() == CastTarget.ReceiverApp.UNKNOWN
+                    ? R.string.mobile_cast_trying_saved : R.string.mobile_cast_fallback_switching);
+        }
+        // Always launch the actual YouTube app for MDX, even if an older screen ID was cached.
+        if (target.getRoute() != CastTarget.Route.LOUNGE_MDX && target.isConnectable()) {
+            return connectResolved(target, plan);
+        }
         Object token = new Object();
         mFallbackToken = token;
-        notifyConnectingState(); // spinner stays up through the mdx resolve
-        MdxScreenIdReader.readScreenId(device.getCastHost(), device.getCastPort(),
-                FALLBACK_MDX_TIMEOUT_MS, new MdxScreenIdReader.Callback() {
-                    @Override
-                    public void onScreenId(String screenId) {
-                        // Reader's internal thread - hop to main before touching manager state.
-                        mMainHandler.post(() -> {
-                            CastTarget resolved = youTubeAppTarget(device, screenId);
-                            // The pairing is real regardless of what the user did meanwhile, and
-                            // persisting it under the device name powers the picker-row merge.
-                            CastPrefs.addPairedScreen(mContext, resolved.getScreen());
-                            if (mFallbackToken != token) {
-                                return; // a user connect/disconnect superseded the fallback
-                            }
-                            mFallbackToken = null;
-                            connect(resolved);
-                        });
-                    }
-
-                    @Override
-                    public void onError(String mdxReason) {
-                        Log.e(TAG, "Fallback mdx read failed: " + mdxReason);
-                        mMainHandler.post(() -> {
-                            if (mFallbackToken != token) {
-                                return;
-                            }
-                            mFallbackToken = null;
-                            notifyConnectingState();
-                            // Automatic fallback surfaces the original load error. An explicit
-                            // mode switch names the receiver launch failure instead.
-                            if (fallbackReason != null) {
-                                MessageHelpers.showMessage(mContext, fallbackReason);
-                            } else {
-                                MessageHelpers.showMessage(mContext, R.string.mobile_cast_launch_failed);
-                            }
-                        });
-                    }
-                });
+        notifyConnectingState();
+        if (target.getRoute() == CastTarget.Route.LOUNGE_MDX && target.getCastHost() != null) {
+            readCastScreenId(target,
+                    new MdxScreenIdReader.Callback() {
+                        @Override public void onScreenId(String screenId) {
+                            mMainHandler.post(() -> {
+                                if (mFallbackToken != token) return;
+                                CastTarget resolved = target.withScreenId(screenId);
+                                CastPrefs.addPairedScreen(mContext, resolved.getScreen(), CastTarget.ReceiverApp.YOUTUBE);
+                                connectResolved(resolved, plan);
+                            });
+                        }
+                        @Override public void onError(String detail) {
+                            mMainHandler.post(() -> {
+                                if (mFallbackToken == token) startNextRoute(plan,
+                                        mContext.getString(R.string.mobile_cast_launch_failed));
+                            });
+                        }
+                    });
+        } else if (target.getRoute() == CastTarget.Route.LOUNGE_DIAL) {
+            mResolvingDial = new DialDiscovery(mContext);
+            mResolvingDial.launchYouTube(target, resolved -> {
+                if (mFallbackToken != token) return;
+                cancelRouteResolution();
+                if (resolved != null && resolved.isConnectable()) connectResolved(resolved, plan);
+                else startNextRoute(plan, mContext.getString(R.string.mobile_cast_launch_failed));
+            });
+        } else {
+            return startNextRoute(plan, mContext.getString(R.string.mobile_cast_launch_failed));
+        }
+        return true;
     }
 
-    /** The Lounge target for a Cast device's YouTube-app mode (mirrors CastPickerSheet's helper). */
-    private static CastTarget youTubeAppTarget(CastTarget device, String screenId) {
-        return CastTarget.fromCastDeviceYouTubeApp(
-                device.getName(), device.getCastHost(), device.getCastPort()).withScreenId(screenId);
+    void readCastScreenId(CastTarget target, MdxScreenIdReader.Callback callback) {
+        MdxScreenIdReader.readScreenId(target.getCastHost(), target.getCastPort(),
+                FALLBACK_MDX_TIMEOUT_MS, callback);
     }
 
     // ---------------------------------------------------------------------------------
-    // Route B: Lounge connection (behavior preserved verbatim from the pre-refactor manager)
+    // Route B: Lounge receiver, including bounded readiness checks for automatic fallback
     // ---------------------------------------------------------------------------------
 
     private class LoungeConnection implements Connection {
         private final CastTarget mLoungeTarget;
         private Disposable mConnectAction;
+        private Disposable mLoadAction;
+        @Nullable private Runnable mReadyTimeout;
+        @Nullable private String mExpectedPlaybackVideoId;
+        @Nullable private String mReceiverVideoId;
         /** Cleared by the matching nowPlaying event; prevents old events starting a newer load. */
         @Nullable
         private String mPendingAutoPlayVideoId;
@@ -701,6 +712,7 @@ public class CastSessionManager {
                 endSession("Lounge sender unavailable");
                 return;
             }
+            armReadyTimeout(15_000);
             // Long-lived stream; disposing it tears the Lounge session down (interface contract).
             mConnectAction = sender.connectObserve(mLoungeTarget.getScreen())
                     .subscribeOn(Schedulers.io())
@@ -748,6 +760,8 @@ public class CastSessionManager {
 
         @Override
         public void destroy() {
+            cancelReadyTimeout();
+            if (mLoadAction != null) mLoadAction.dispose();
             if (mConnectAction != null && !mConnectAction.isDisposed()) {
                 mConnectAction.dispose(); // tears the session down sender-side
             }
@@ -760,6 +774,7 @@ public class CastSessionManager {
             }
             switch (event.getType()) {
                 case CastEvent.TYPE_CONNECTED:
+                    cancelReadyTimeout();
                     handleConnected();
                     break;
                 case CastEvent.TYPE_NOW_PLAYING:
@@ -771,8 +786,10 @@ public class CastSessionManager {
                     }
                     if (!TextUtils.isEmpty(event.getVideoId())) {
                         mVideoId = event.getVideoId();
+                        mReceiverVideoId = event.getVideoId();
                     }
                     applyTiming(event);
+                    confirmPlayback(event);
                     notifyState();
                     // setPlaylist is not consistently autoplaying on the Philips receiver. A
                     // matching nowPlaying event is the reliable readiness signal: Play sent
@@ -783,6 +800,7 @@ public class CastSessionManager {
                     break;
                 case CastEvent.TYPE_STATE_CHANGE:
                     applyTiming(event);
+                    confirmPlayback(event);
                     notifyState();
                     break;
                 case CastEvent.TYPE_VOLUME_CHANGE:
@@ -797,6 +815,31 @@ public class CastSessionManager {
                 default:
                     break;
             }
+        }
+
+        private void confirmPlayback(CastEvent event) {
+            if (event.getState() == RemoteControlService.STATE_PLAYING
+                    && mExpectedPlaybackVideoId != null
+                    && mExpectedPlaybackVideoId.equals(mReceiverVideoId)) {
+                mFallbackArmed = false;
+                cancelReadyTimeout();
+                if (mLoadAction != null) mLoadAction.dispose();
+            }
+        }
+
+        private void cancelReadyTimeout() {
+            if (mReadyTimeout != null) mMainHandler.removeCallbacks(mReadyTimeout);
+            mReadyTimeout = null;
+        }
+
+        private void armReadyTimeout(long delayMs) {
+            cancelReadyTimeout();
+            if (!mFallbackSessionEnabled) return;
+            mReadyTimeout = () -> {
+                if (isCurrent(this)) maybeStartFallbackForLoad(
+                        mContext.getString(R.string.mobile_cast_receiver_no_playback));
+            };
+            mMainHandler.postDelayed(mReadyTimeout, delayMs);
         }
 
         private void applyTiming(CastEvent event) {
@@ -818,15 +861,26 @@ public class CastSessionManager {
         public void loadVideo(String videoId, long positionMs) {
             CastSenderService sender = getSender();
             if (sender != null) {
+                if (mLoadAction != null) mLoadAction.dispose();
                 mPendingAutoPlayVideoId = videoId;
+                mExpectedPlaybackVideoId = videoId;
+                mReceiverVideoId = null;
+                armReadyTimeout(20_000);
                 // Some YouTube/SmartTube Lounge receivers honor setPlaylist but preserve the
                 // previous PAUSED state. Sequence an explicit play AFTER the load POST so a
                 // Direct -> TV-app fallback (especially VOD -> live) actually starts without an
                 // extra tap. The matching nowPlaying event above is the primary readiness path;
                 // this delayed command is a safety net for receivers that omit that event.
-                runCommand(sender.loadVideoObserve(videoId, positionMs)
-                        .concatWith(sender.playObserve().delaySubscription(8, TimeUnit.SECONDS)),
-                        "loadVideo+play");
+                mLoadAction = sender.loadVideoObserve(videoId, positionMs)
+                        .concatWith(sender.playObserve().delaySubscription(8, TimeUnit.SECONDS))
+                        .subscribeOn(Schedulers.io())
+                        .observeOn(AndroidSchedulers.mainThread())
+                        .subscribe(ignored -> {}, error -> {
+                            if (isCurrent(this) && videoId.equals(mExpectedPlaybackVideoId)) {
+                                String reason = mContext.getString(R.string.mobile_cast_receiver_no_playback);
+                                if (!maybeStartFallbackForLoad(reason)) MessageHelpers.showMessage(mContext, reason);
+                            }
+                        });
             }
         }
 
@@ -840,6 +894,9 @@ public class CastSessionManager {
 
         @Override
         public void pause() {
+            cancelReadyTimeout();
+            if (mLoadAction != null) mLoadAction.dispose();
+            mPendingAutoPlayVideoId = null;
             CastSenderService sender = getSender();
             if (sender != null) {
                 runCommand(sender.pauseObserve(), "pause");
@@ -856,6 +913,9 @@ public class CastSessionManager {
 
         @Override
         public void stopVideo() {
+            cancelReadyTimeout();
+            if (mLoadAction != null) mLoadAction.dispose();
+            mPendingAutoPlayVideoId = null;
             CastSenderService sender = getSender();
             if (sender != null) {
                 runCommand(sender.stopVideoObserve(), "stopVideo");

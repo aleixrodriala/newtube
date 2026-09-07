@@ -188,6 +188,11 @@
     <string name="mobile_cast_link_code">Vincular con el código de la TV</string>
     <string name="mobile_cast_link_code_subtitle">Funciona con YouTube y SmartTube</string>
     <string name="mobile_cast_code_hint">Código de 12 dígitos</string>
+    <string name="mobile_cast_code_title">Vincular TV</string>
+    <string name="mobile_cast_code_app_label">App de la TV</string>
+    <string name="mobile_cast_code_choose_app">Elige la app que tienes abierta en la TV.</string>
+    <string name="mobile_cast_code_open_smarttube">En SmartTube de la TV, abre:</string>
+    <string name="mobile_cast_code_open_youtube">En YouTube de la TV, abre:</string>
     <string name="mobile_cast_code_find">Encuentra el código en cualquiera de las dos apps de TV:</string>
     <string name="mobile_cast_code_youtube_path">Ajustes → Vincular con el código de TV</string>
     <string name="mobile_cast_code_smarttube_path">Ajustes → Control remoto</string>
@@ -202,7 +207,22 @@
     <string name="mobile_cast_connecting">Conectando con %1$s…</string>
     <string name="mobile_cast_connecting_youtube_app">Conectando con la app de YouTube de la TV…</string>
     <string name="mobile_cast_switching_tv_app">Abriendo los controles de YouTube en la TV…</string>
-    <string name="mobile_cast_fallback_switching">El envío directo no ha funcionado: cambiando a la app de la TV…</string>
+    <string name="mobile_cast_fallback_switching">No se puede reproducir sin anuncios — abriendo YouTube, que puede mostrar anuncios…</string>
+    <string name="mobile_cast_trying_smarttube">Probando SmartTube sin anuncios…</string>
+    <string name="mobile_cast_trying_direct">Probando el envío directo sin anuncios…</string>
+    <string name="mobile_cast_trying_saved">Probando la app de TV guardada…</string>
+    <string name="mobile_cast_checking_ad_free">Buscando una opción sin anuncios…</string>
+    <string name="mobile_cast_smarttube_title">SmartTube · sin anuncios</string>
+    <string name="mobile_cast_smarttube_subtitle">SmartTube · sin anuncios · puedes llevarte el móvil</string>
+    <string name="mobile_cast_youtube_title">YouTube · puede mostrar anuncios</string>
+    <string name="mobile_cast_youtube_subtitle">YouTube · alternativa · puede mostrar anuncios</string>
+    <string name="mobile_cast_unknown_title">App de TV guardada</string>
+    <string name="mobile_cast_unknown_subtitle">App sin identificar · pulsa ⋮ para indicarla</string>
+    <string name="mobile_cast_identify_app">¿De qué app de TV es este código?</string>
+    <string name="mobile_cast_onboarding_title">¿Tienes SmartTube en la TV?</string>
+    <string name="mobile_cast_onboarding_body">Vincúlalo una vez para ver sin anuncios.</string>
+    <string name="mobile_cast_pair_smarttube">Vincular SmartTube</string>
+    <string name="mobile_cast_receiver_no_playback">La app de la TV no ha empezado a reproducir</string>
     <string name="mobile_cast_playing_on">Reproduciendo en %1$s</string>
     <string name="mobile_cast_disconnect">Desconectar</string>
     <string name="mobile_cast_launch_failed">No se ha podido acceder a la app de YouTube de la TV. Prueba con “Vincular con el código de la TV”.</string>
@@ -227,7 +247,7 @@
     <string name="mobile_cast_subtitles_sent">Selección de subtítulos enviada a la TV</string>
     <string name="mobile_cast_subtitles_failed">No se han podido cambiar los subtítulos en este receptor</string>
     <string name="mobile_cast_subtitles_need_tv_app">Cambiar a la app de la TV</string>
-    <string name="mobile_cast_switch_subtitles_title">¿Usar YouTube para los subtítulos?</string>
-    <string name="mobile_cast_switch_subtitles_message">Envío directo\n• Sin anuncios\n• Calidad desde este móvil\n• Sin subtítulos\n\nYouTube en la TV\n• Subtítulos disponibles\n• Calidad con el mando de la TV\n• Puede mostrar anuncios\n\nSmartTube sigue sin anuncios si lo vinculas con el código de TV.</string>
+    <string name="mobile_cast_switch_subtitles_title">¿Usar la app de la TV para los subtítulos?</string>
+    <string name="mobile_cast_switch_subtitles_message">La app de la TV permite usar subtítulos y elegir la calidad con el mando. Probamos primero SmartTube vinculado para mantener la reproducción sin anuncios. YouTube es la alternativa y puede mostrar anuncios.</string>
     <string name="mobile_cast_switch_subtitles_positive">Cambiar</string>
 </resources>

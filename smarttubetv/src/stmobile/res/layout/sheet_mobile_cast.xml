@@ -3,12 +3,13 @@
   Cast device picker: ONE row per physical device in plain words (CastPickerSheet merges saved
   Lounge screens, DIAL TVs and mDNS Cast receivers - the old per-protocol row list was rejected
   as too technical). Two states inside the same sheet:
-    - cast_sheet_list (default): merged device rows + the universal "Link with TV code" fallback.
+    - cast_sheet_list (default): merged device rows + one universal "Link TV" action.
     - cast_sheet_chooser (GONE): swapped in IN PLACE when a Cast device offers a mode choice -
       no stacked dialog; the header row is the back affordance.
   Rows and chooser options are both item_mobile_cast_target. Styled after sheet_mobile_quality.
 -->
 <androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -91,56 +92,52 @@
                 android:textSize="14sp"
                 android:visibility="gone" />
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:layout_marginTop="4dp"
-                android:background="@color/mobile_color_divider" />
-
-            <!-- Universal fallback: manual TV-code pairing (works with any YouTube-app receiver). -->
             <LinearLayout
-                android:id="@+id/cast_sheet_link_code"
+                android:id="@+id/cast_smarttube_prompt"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
+                android:orientation="vertical"
                 android:paddingHorizontal="20dp"
-                android:paddingVertical="14dp">
-
-                <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:contentDescription="@null"
-                    android:src="@drawable/ic_mobile_dialpad"
-                    android:tint="@color/mobile_color_on_surface" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
+                android:paddingTop="12dp">
+                <TextView
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/mobile_cast_link_code"
-                        android:textColor="@color/mobile_color_on_surface"
-                        android:textSize="15sp" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/mobile_cast_link_code_subtitle"
-                        android:textColor="@color/mobile_color_on_surface_secondary"
-                        android:textSize="13sp" />
-
-                </LinearLayout>
-
+                    android:text="@string/mobile_cast_onboarding_title"
+                    android:textColor="@color/mobile_color_on_surface"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/mobile_cast_onboarding_body"
+                    android:textColor="@color/mobile_color_on_surface_secondary"
+                    android:textSize="13sp" />
             </LinearLayout>
+
+            <!-- One entry for both TV apps; remains available after the onboarding prompt hides. -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/cast_sheet_link_code"
+                style="@style/Widget.MaterialComponents.Button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="20dp"
+                android:layout_marginTop="12dp"
+                android:layout_marginBottom="12dp"
+                android:elevation="0dp"
+                android:fontFamily="sans-serif-medium"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:letterSpacing="0"
+                android:minHeight="48dp"
+                android:stateListAnimator="@null"
+                android:text="@string/mobile_cast_code_title"
+                android:textAllCaps="false"
+                android:textColor="@color/mobile_color_background"
+                android:textSize="14sp"
+                android:textStyle="normal"
+                app:backgroundTint="@color/mobile_color_on_surface"
+                app:cornerRadius="16dp" />
 
         </LinearLayout>
 
