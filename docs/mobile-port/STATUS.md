@@ -40,11 +40,16 @@ age-restricted, members-only and private playback, server-side watch history
 (tracking pings inherit the anonymous /player session), and Premium
 entitlements.
 
-**The cheap fix for that is ruled out.** Our `TV_DOWNGRADED` is
-`5.20260707`, byte-identical to yt-dlp's `tv_downgraded`, and it still returns
-"reload page" with `srvAuth=y`. Next experiment is one flag, not a project:
-extend `debug.arc.web_auth` to put the bearer on plain `WEB` and see whether
-the HTTP 400 is about the credential form or about the embed context.
+**And the client-side fixes are ruled out.** Our `TV_DOWNGRADED` is
+`5.20260707`, byte-identical to yt-dlp's `tv_downgraded`, and still returns
+"reload page" with `srvAuth=y`. A three-arm run then isolated the bearer as the
+only variable: WEB_EMBED+bearer and WEB+bearer both give HTTP 400 with a
+byte-identical body, while the same WEB client without the bearer gives 200.
+The 400 follows the credential, not the embed context — so no web-client
+ordering can route around it, and a cookie-derived SAPISIDHASH is the only
+remaining path. `debug.arc.web_auth` now takes a client NAME so the comparison
+stays runnable. The blocker is UX, not code: Google blocks account sign-in in an
+embedded WebView, and yt-dlp's own answer is to have the user export cookies.
 
 ## Works (added 2026-09-07 — LTE soak follow-up)
 

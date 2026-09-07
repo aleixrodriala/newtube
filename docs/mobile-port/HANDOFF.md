@@ -958,13 +958,32 @@ emitted three times over `SAPISID`, `__Secure-1PAPISID`, `__Secure-3PAPISID`
 and space-joined. Ours is a TV device-flow OAuth bearer, which InnerTube takes
 on the TV family and refuses on the web family with a flat HTTP 400.
 
-**The next experiment, and it is one flag not a project:** WEB_EMBED's 400 has
-never been separated from "web-family clients refuse an OAuth bearer" - it
-could equally be about the embed context. Extending the existing
-`debug.arc.web_auth` gate to put the bearer on plain `WEB` answers it in one
-round trip. If WEB also 400s, the credential form is confirmed as the wall and
-the only way through is a cookie credential; if WEB accepts it, the fix is a
-client choice and costs nothing.
+**That experiment has now been run, and the credential form is the wall.**
+`debug.arc.web_auth` was widened from a WEB_EMBED boolean to a client NAME, and
+three arms were forced through `debug.arc.player_client` on one video, one
+network, with the bearer as the only variable (`scratchpad/webauth.py`, run
+`webauth-145115`):
+
+| arm | client | `auth=` | HTTP | body |
+|---|---|---|---|---|
+| A | WEB_EMBED | y | **400** | hash `7b125bdfc2` |
+| B | WEB | y | **400** | hash `7b125bdfc2` |
+| C | WEB | n | **200** | 40 formats |
+
+The same WEB client answers 200 without the bearer and 400 with it, and WEB and
+WEB_EMBED fail with a byte-identical body. So the 400 follows the credential,
+not the embed context, and no reordering of web clients can route around it.
+For contrast the same bearer draws HTTP 200 from TV in the same run - TVHTML5's
+refusal is a playability verdict, not a transport-level rejection.
+
+Ruled out by this: web-client ordering, the embed context, and any hope that a
+different web client accepts the OAuth bearer. What remains is a cookie
+credential, and the decision that gates it is UX, not code.
+
+Note the arms ran on Wi-Fi (`net=wifi:339`) rather than LTE. Acceptable here -
+the question is whether InnerTube accepts a credential, which is not a
+transport property - but it is why these numbers are not comparable to the LTE
+timings in section 18.
 
 Getting SAPISID cookies onto a phone is the part with no good answer yet. The
 app already owns a WebView (BotGuard), so `CookieManager.getInstance()` would

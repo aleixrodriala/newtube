@@ -242,9 +242,20 @@ public class MobileMainApplication extends MainApplication {
             // burns one round trip on the 400 and falls through to VISIONOS, which still plays
             // (verified). Re-run it if YouTube's auth handling changes. The verdict signal is
             // srvAuth= on the player-result line, NOT auth= (that is only what we sent).
-            if ("1".equals(getDebugSystemProperty("debug.arc.web_auth"))) {
+            // "1" keeps its original meaning (WEB_EMBED). A client NAME points the same gate
+            // somewhere else: the 400 above was only ever measured on WEB_EMBED, so it is equally
+            // consistent with "web clients refuse an OAuth bearer" and with "the EMBED context
+            // refuses this request". debug.arc.web_auth=WEB separates the two in one round trip.
+            String webAuth = getDebugSystemProperty("debug.arc.web_auth");
+            if ("1".equals(webAuth)) {
                 VideoInfoService.setWebEmbedAuthEnabled(true);
                 android.util.Log.w("NetPath", "WEB_EMBED account auth enabled (debug)");
+            } else if (webAuth != null && !webAuth.trim().isEmpty()) {
+                if (VideoInfoService.setWebAuthClient(webAuth)) {
+                    android.util.Log.w("NetPath", "web account auth enabled (debug) client=" + webAuth);
+                } else {
+                    android.util.Log.w("NetPath", "unknown debug.arc.web_auth=" + webAuth);
+                }
             }
 
             // ...and for the cold-open arm of the eager watch-page fetch ("0" = the fetch waits
