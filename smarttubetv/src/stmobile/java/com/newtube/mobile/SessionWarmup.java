@@ -2,6 +2,9 @@ package com.newtube.mobile;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.sharedutils.mylogger.Log;
@@ -46,6 +49,10 @@ public final class SessionWarmup {
     private static final long LAUNCH_FALLBACK_DELAY_MS = 15_000;
 
     private static final SessionWarmupGate sGate = new SessionWarmupGate();
+    // This handler owns only our timers, so cancelling all its callbacks cannot affect UI work.
+    // Sleeping worker threads used to retain two native stacks until their deadlines, even when
+    // real playback had already made the speculative fetch unnecessary.
+    private static final Handler sHandler = new Handler(Looper.getMainLooper());
 
     private SessionWarmup() {
     }
@@ -55,43 +62,42 @@ public final class SessionWarmup {
      * player's first-run hint, which may be consulted before any feed paints) and arms the
      * launch fallback. Does NOT fire the warmup fetch — that waits for the first feed paint.
      */
-    public static void init(Context context) {
+    public static synchronized void init(Context context) {
         Context appContext = context.getApplicationContext();
         sGate.restore(prefs(appContext).getBoolean(KEY_SETUP_DONE, false));
         if (!sGate.tryScheduleFallback()) {
             return;
         }
 
-        Thread fallback = new Thread(() -> {
-            try {
-                Thread.sleep(LAUNCH_FALLBACK_DELAY_MS);
-                start(appContext);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }, "session-warmup-fallback");
-        fallback.setDaemon(true);
-        fallback.start();
+        sHandler.postDelayed(() -> start(appContext), LAUNCH_FALLBACK_DELAY_MS);
+        trace("fallback-scheduled delayMs=" + LAUNCH_FALLBACK_DELAY_MS);
     }
 
     /** Kick the one-shot background warmup. Safe to call more than once; only the first acts. */
-    public static void start(Context context) {
+    public static synchronized void start(Context context) {
         if (!sGate.trySchedule()) {
             return;
         }
 
         Context appContext = context.getApplicationContext();
+        sHandler.removeCallbacksAndMessages(null); // the feed won; the launch fallback is obsolete
+        sHandler.postDelayed(() -> beginFetch(appContext), START_DELAY_MS);
+        trace("fetch-scheduled delayMs=" + START_DELAY_MS);
+    }
+
+    private static synchronized void beginFetch(Context appContext) {
+        // Real playback or memory pressure may arrive during the feed delay. Claim the fetch
+        // before allocating a worker; after this point an in-flight fetch is allowed to finish.
+        if (!sGate.tryBeginFetch()) {
+            return;
+        }
 
         Thread thread = new Thread(() -> {
+            long startedMs = SystemClock.elapsedRealtime();
             try {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
-                Thread.sleep(START_DELAY_MS);
-                // Real playback may have started while we let the feed paint. Recheck after
-                // the delay so a throwaway request cannot compete with the selected video.
-                if (!sGate.tryBeginFetch()) {
-                    return;
-                }
                 Log.d(TAG, "session warmup: start");
+                trace("fetch-start");
                 // Blocking on purpose: this thread IS the background executor. The result is
                 // discarded - every expensive stage behind it stays cached for the real playback.
                 MediaItemFormatInfo formatInfo = YouTubeServiceManager.instance()
@@ -99,15 +105,17 @@ public final class SessionWarmup {
                         .getFormatInfo(WARMUP_VIDEO_ID);
                 if (formatInfo != null) {
                     Log.d(TAG, "session warmup: done");
+                    trace("fetch-done elapsedMs=" + (SystemClock.elapsedRealtime() - startedMs));
                     markWarm(appContext);
                 } else {
                     Log.d(TAG, "session warmup: empty result (will warm on first real playback)");
+                    trace("fetch-empty elapsedMs=" + (SystemClock.elapsedRealtime() - startedMs));
                 }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
             } catch (Throwable e) {
                 // Offline first launch etc. - the first real playback warms the session instead.
                 Log.d(TAG, "session warmup failed: %s", e.getMessage());
+                trace("fetch-failed elapsedMs=" + (SystemClock.elapsedRealtime() - startedMs)
+                        + " error=" + e.getClass().getSimpleName());
             }
         }, "session-warmup");
         thread.setDaemon(true);
@@ -120,13 +128,24 @@ public final class SessionWarmup {
     }
 
     /** The selected video owns setup now; pending speculative work must yield to it. */
-    public static void onPlaybackRequested() {
+    public static synchronized void onPlaybackRequested() {
         sGate.onPlaybackRequested();
+        sHandler.removeCallbacksAndMessages(null);
+        trace("pending-cancelled reason=playback");
+    }
+
+    /** Do not allocate a speculative extractor/JS heap after the OS asks us to free memory. */
+    public static synchronized void onMemoryPressure() {
+        sGate.onMemoryPressure();
+        sHandler.removeCallbacksAndMessages(null);
+        trace("pending-cancelled reason=memory-pressure");
     }
 
     /** Record that the session is set up - called by the warmup or by the first real playback. */
-    public static void markWarm(Context context) {
-        if (!sGate.markWarm()) {
+    public static synchronized void markWarm(Context context) {
+        boolean needsPersist = sGate.markWarm();
+        sHandler.removeCallbacksAndMessages(null);
+        if (!needsPersist) {
             return;
         }
         try {
@@ -138,5 +157,13 @@ public final class SessionWarmup {
 
     private static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+    }
+
+    private static void trace(String event) {
+        if (com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG) {
+            // The shared logger may be suppressed; correlate allocations with the same direct
+            // credential-free diagnostic stream used by playback and transport measurements.
+            android.util.Log.d("NetPath", "session-warmup " + event);
+        }
     }
 }

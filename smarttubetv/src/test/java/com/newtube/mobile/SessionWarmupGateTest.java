@@ -127,6 +127,43 @@ public class SessionWarmupGateTest {
     }
 
     @Test
+    public void memoryPressureBeforeFeedPaintSuppressesSpeculationButNotRealSetup() {
+        SessionWarmupGate gate = new SessionWarmupGate();
+        assertTrue(gate.tryScheduleFallback());
+        gate.onMemoryPressure();
+
+        assertFalse(gate.trySchedule());
+        assertFalse(gate.tryScheduleFallback());
+        assertFalse(gate.tryBeginFetch());
+        assertFalse(gate.isWarm());
+        assertTrue(gate.markWarm()); // real playback still performs setup and clears the hint
+        assertTrue(gate.isWarm());
+    }
+
+    @Test
+    public void memoryPressureDuringFeedDelayPreventsHeavyAllocation() {
+        SessionWarmupGate gate = new SessionWarmupGate();
+        gate.restore(true);
+        assertTrue(gate.trySchedule());
+        gate.onMemoryPressure();
+
+        assertFalse(gate.tryBeginFetch());
+        assertTrue(gate.isWarm()); // the historical first-run hint remains unchanged
+    }
+
+    @Test
+    public void memoryPressureDoesNotInvalidateAlreadyRunningSetup() {
+        SessionWarmupGate gate = new SessionWarmupGate();
+        assertTrue(gate.trySchedule());
+        assertTrue(gate.tryBeginFetch());
+        gate.onMemoryPressure();
+
+        assertTrue(gate.markWarm());
+        assertTrue(gate.isWarm());
+        assertFalse(gate.tryBeginFetch());
+    }
+
+    @Test
     public void concurrentFeedAndFallbackTriggersClaimExactlyOneWorker() throws Exception {
         SessionWarmupGate gate = new SessionWarmupGate();
         assertEquals(1, race(gate::trySchedule));

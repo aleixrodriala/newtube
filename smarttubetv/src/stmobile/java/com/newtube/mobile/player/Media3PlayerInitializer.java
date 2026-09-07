@@ -13,6 +13,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
 
 import com.liskovsoft.sharedutils.helpers.DeviceHelpers;
+import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
 
@@ -24,7 +25,7 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
  * <ul>
  *   <li>steady-state buffer sized by the "Video buffer" setting (see {@link #createPlayer};
  *       default = the BUFFER_HIGH preset that used to be hardcoded: 50s min / 75s max),</li>
- *   <li>start gate 1s first frame / 2.5s after rebuffer (TTFF fix),</li>
+ *   <li>start gate 0.5s first frame / 1.5s after rebuffer (TTFF fix),</li>
  *   <li>back-buffer 120s from keyframe with a RAM-clamped byte budget (backward-seek fix),</li>
  *   <li>ABR up-switch after 5s of stable buffer (the mobile tuning from the legacy round), paired
  *       with a down-switch window scaled to the chosen buffer preset (see
@@ -52,7 +53,11 @@ public class Media3PlayerInitializer {
     private static final int LOW_MAX_BUFFER_MS = 30_000;
     private static final int MEDIUM_MAX_BUFFER_MS = 50_000;
     private static final int HIGHEST_MAX_BUFFER_MS = 120_000;
-    private static final int START_BUFFER_MS = 1_000;
+    // TTFF-first startup/seek readiness. Dense-resume ABBA on the Pixel at 1500kbps reduced
+    // visible-picture delay by ~618ms versus 1000ms, with unchanged decoded-first-frame timing.
+    // This spends 500ms of initial cushion; the forward buffer and rebuffer gate stay intact.
+    // 250ms remains a debug comparison until its latency/stability tradeoff is measured.
+    private static final int START_BUFFER_MS = 500;
     // 1500 beat the old 2500 in every pair of a 5-pair interleaved starve/refill A/B on the
     // Pixel 9 (pinned 1080p vp9, 800->2400kbps shaping): median stall 3.21s -> 1.71s. The gain
     // tracks the theoretical refill time of the removed 1000ms of media, so it generalizes.
@@ -186,7 +191,8 @@ public class Media3PlayerInitializer {
         }
     }
 
-    public ExoPlayer createPlayer(DefaultTrackSelector trackSelector, DefaultBandwidthMeter bandwidthMeter) {
+    /** Build the actual policy separately so readiness/loading boundaries can be tested without a decoder. */
+    DefaultLoadControl createLoadControl() {
         BufferPreset preset = resolveBufferPreset();
         int minBufferMs = preset.minBufferMs;
         int maxBufferMs = preset.maxBufferMs;
@@ -197,8 +203,13 @@ public class Media3PlayerInitializer {
         // builds (adb shell setprop debug.arc.rebuffer_gate_ms 1500; engine restart applies it)
         // so the 2500-vs-1500 A/B runs on ONE build with everything else identical. Release
         // builds always use the constant.
+        int startBufferMs = START_BUFFER_MS;
         int startAfterRebufferMs = START_BUFFER_AFTER_REBUFFER_MS;
         if (com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG) {
+            // First-frame gate experiments leave the steady-state/outage buffer intact. Bound
+            // accidental property values so debug QA cannot create an invalid load control.
+            startBufferMs = Math.max(250, Math.min(2_000,
+                    DebugMediaShaper.propInt("debug.arc.start_buffer_ms", startBufferMs)));
             startAfterRebufferMs =
                     DebugMediaShaper.propInt("debug.arc.rebuffer_gate_ms", startAfterRebufferMs);
         }
@@ -207,14 +218,15 @@ public class Media3PlayerInitializer {
                 + " min=" + (minBufferMs / 1000) + "s bytes=" + (targetBufferBytes / MB) + "MB"
                 + " abr-up=" + (ABR_UP_SWITCH_MS / 1000) + "s"
                 + " abr-down=" + (preset.abrDownSwitchWindowMs() / 1000) + "s"
+                + " start-gate=" + startBufferMs + "ms"
                 + (startAfterRebufferMs != START_BUFFER_AFTER_REBUFFER_MS
                         ? " rebuffer-gate=" + startAfterRebufferMs + "ms" : ""));
 
-        DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
+        return new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
                         minBufferMs,
                         maxBufferMs,
-                        START_BUFFER_MS,
+                        startBufferMs,
                         startAfterRebufferMs)
                 .setBackBuffer(BACK_BUFFER_MS, /* retainBackBufferFromKeyframe= */ true)
                 .setTargetBufferBytes(targetBufferBytes)
@@ -224,17 +236,32 @@ public class Media3PlayerInitializer {
                 // the time thresholds always win; the byte cap only guards pathological memory use.
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build();
+    }
+
+    public ExoPlayer createPlayer(DefaultTrackSelector trackSelector, DefaultBandwidthMeter bandwidthMeter) {
+        DefaultLoadControl loadControl = createLoadControl();
 
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(mContext)
                 // A blacklisted/failed primary decoder falls back to another instead of erroring
                 // (replaces the legacy BlacklistMediaCodecSelector's job for the common cases).
                 .setEnableDecoderFallback(true);
 
+        // Media3 1.10.1 leaves both parts of deadline-based playback scheduling disabled. The
+        // renderer flag supplies video deadlines on async decoders (the default on API 31+);
+        // the player flag consumes those deadlines instead of polling at a fixed interval.
+        // Keep this a same-build CPU/drop-frame experiment until measured across the Pixel flows.
+        boolean dynamicScheduling = com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG
+                && "1".equals(DebugMediaShaper.prop("debug.arc.dynamic_scheduling"));
+        renderersFactory.setEnableMediaCodecVideoRendererDurationToProgressUs(dynamicScheduling);
+        NetPath.log("player-scheduling dynamic=" + (dynamicScheduling ? "y" : "n")
+                + " video-deadlines=" + (dynamicScheduling ? "y" : "n"));
+
         ExoPlayer player = new ExoPlayer.Builder(mContext)
                 .setRenderersFactory(renderersFactory)
                 .setTrackSelector(trackSelector)
                 .setLoadControl(loadControl)
                 .setBandwidthMeter(bandwidthMeter)
+                .experimentalSetDynamicSchedulingEnabled(dynamicScheduling)
                 .build();
 
         setupAudio(player);

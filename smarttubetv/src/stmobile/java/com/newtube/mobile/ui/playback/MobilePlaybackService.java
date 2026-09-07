@@ -31,6 +31,7 @@ import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
+import com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 
@@ -67,7 +68,8 @@ public class MobilePlaybackService extends Service {
     public static final String CHANNEL_ID = "newtube_playback_channel";
     private static final int NOTIFICATION_ID = 41337;
     /** Cap the notification/lock-screen art at a sane size instead of decoding the full-res image. */
-    private static final int ART_SIZE_PX = 512;
+    // hqdefault is 480px wide; asking for 512 forced a much larger CDN rendition for a tiny icon.
+    private static final int ART_SIZE_PX = 480;
 
     private static final long SESSION_ACTIONS = PlaybackStateCompat.ACTION_PLAY
             | PlaybackStateCompat.ACTION_PAUSE
@@ -94,9 +96,7 @@ public class MobilePlaybackService extends Service {
      */
     private boolean mReattaching;
 
-    // Simple large-icon (album art) cache so the adapter can answer synchronously on repeat calls.
-    private String mArtUrl;
-    private Bitmap mArtBitmap;
+    private final NotificationArtwork<Bitmap> mArtwork = new NotificationArtwork<>();
     // Held so it can be cleared from Glide on release (avoids the leaked SIZE_ORIGINAL target).
     private CustomTarget<Bitmap> mArtTarget;
 
@@ -318,31 +318,16 @@ public class MobilePlaybackService extends Service {
         });
         mMediaSession.setActive(true);
 
-        // Inline connector: push state + metadata into the session on every relevant player event.
+        // Media3 batches callbacks into one event set. Sync once for that set, rather than rebuilding
+        // and sending identical metadata/album-art parcels for each callback during an open or seek.
         mSessionSyncListener = new Player.Listener() {
             @Override
-            public void onPlaybackStateChanged(int playbackState) {
-                syncSession();
-            }
-
-            @Override
-            public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
-                syncSession();
-            }
-
-            @Override
-            public void onPositionDiscontinuity(Player.PositionInfo oldPosition, Player.PositionInfo newPosition, int reason) {
-                syncSession();
-            }
-
-            @Override
-            public void onPlaybackParametersChanged(androidx.media3.common.PlaybackParameters playbackParameters) {
-                syncSession();
-            }
-
-            @Override
-            public void onTimelineChanged(androidx.media3.common.Timeline timeline, int reason) {
-                syncSession(); // duration became known
+            public void onEvents(Player player, Player.Events events) {
+                if (events.containsAny(Player.EVENT_PLAYBACK_STATE_CHANGED,
+                        Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_POSITION_DISCONTINUITY,
+                        Player.EVENT_PLAYBACK_PARAMETERS_CHANGED, Player.EVENT_TIMELINE_CHANGED)) {
+                    syncSession();
+                }
             }
         };
         player.addListener(mSessionSyncListener);
@@ -466,6 +451,8 @@ public class MobilePlaybackService extends Service {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
             mIsForeground = false;
         }
+        // Invalidate callbacks before cancelling their requests.
+        mArtwork.clear();
         // Release the Glide target so the loaded bitmap + its request can be collected.
         if (mArtTarget != null) {
             try {
@@ -478,8 +465,6 @@ public class MobilePlaybackService extends Service {
         mPresenter = null;
         mPlayer = null;
         mNotificationPlayer = null;
-        mArtUrl = null;
-        mArtBitmap = null;
     }
 
     @Override
@@ -533,8 +518,9 @@ public class MobilePlaybackService extends Service {
         builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE,
                 Helpers.toString(video.getSecondTitleFull()));
         builder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, video.getCardImageUrl());
-        if (mArtBitmap != null) {
-            builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, mArtBitmap);
+        Bitmap art = mArtwork.get(artworkUrl(video));
+        if (art != null) {
+            builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, art);
         }
         // Duration for the lock-screen / media-control scrubber. The player returns C.TIME_UNSET
         // (negative) until the timeline is known, so only publish a real positive duration.
@@ -549,15 +535,28 @@ public class MobilePlaybackService extends Service {
     @Nullable
     private Bitmap loadArt(PlayerNotificationManager.BitmapCallback callback) {
         Video video = mPresenter != null ? mPresenter.getVideo() : null;
-        String url = video != null ? video.getCardImageUrl() : null;
+        String url = artworkUrl(video);
 
         if (TextUtils.isEmpty(url)) {
+            mArtwork.clear();
+            if (mArtTarget != null) {
+                Glide.with(getApplicationContext()).clear(mArtTarget);
+                mArtTarget = null;
+            }
             return null;
         }
 
         // Serve the cached bitmap synchronously for the same video.
-        if (Helpers.equals(url, mArtUrl) && mArtBitmap != null) {
-            return mArtBitmap;
+        Bitmap art = mArtwork.get(url);
+        if (art != null) {
+            return art;
+        }
+
+        // Each notification update supplies a new callback (older ones can be ignored by Media3).
+        // Keep the latest callback while the same URL is loading instead of restarting its request.
+        final long request = mArtwork.request(url, callback::onBitmap);
+        if (request == 0) {
+            return null;
         }
 
         // Cancel any in-flight art load before starting a new one (avoids leaking the target).
@@ -566,14 +565,23 @@ public class MobilePlaybackService extends Service {
             mArtTarget = null;
         }
 
-        final String requestedUrl = url;
         // Bounded target size + .override() so Glide decodes a downscaled bitmap, not SIZE_ORIGINAL.
         mArtTarget = new CustomTarget<Bitmap>(ART_SIZE_PX, ART_SIZE_PX) {
             @Override
             public void onResourceReady(Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
-                mArtUrl = requestedUrl;
-                mArtBitmap = resource;
-                callback.onBitmap(resource);
+                Video selectedVideo = mPresenter != null ? mPresenter.getVideo() : null;
+                if (mArtwork.complete(request, artworkUrl(selectedVideo), resource)) {
+                    // Artwork can arrive after the last player event. Publish it to the lock screen
+                    // now, with the same video identity check used by the notification cache.
+                    if (mMediaSession != null) {
+                        mMediaSession.setMetadata(buildMetadata());
+                    }
+                }
+            }
+
+            @Override
+            public void onLoadFailed(@Nullable android.graphics.drawable.Drawable errorDrawable) {
+                mArtwork.fail(request);
             }
 
             @Override
@@ -589,5 +597,10 @@ public class MobilePlaybackService extends Service {
                 .into(mArtTarget);
 
         return null;
+    }
+
+    private static String artworkUrl(Video video) {
+        return ClickbaitRemover.fitThumbnail(video != null ? video.getCardImageUrl() : null,
+                ART_SIZE_PX);
     }
 }

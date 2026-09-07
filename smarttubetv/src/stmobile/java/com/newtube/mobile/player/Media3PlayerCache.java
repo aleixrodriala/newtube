@@ -3,6 +3,7 @@ package com.newtube.mobile.player;
 import android.content.Context;
 import android.net.Uri;
 import android.text.TextUtils;
+import android.util.LruCache;
 
 import androidx.annotation.Nullable;
 import androidx.media3.database.StandaloneDatabaseProvider;
@@ -51,13 +52,46 @@ public final class Media3PlayerCache {
      * the immutable media bytes; everything else in the URL (host shard, {@code expire},
      * {@code sig}, client ip...) is volatile. Non-googlevideo URLs keep the default URI key.
      */
-    private static final CacheKeyFactory CACHE_KEY_FACTORY = (DataSpec dataSpec) -> {
-        Uri uri = dataSpec.uri;
+    private static final CacheKeyFactory CACHE_KEY_FACTORY = new StableCacheKeyFactory(64);
+
+    /**
+     * A VOD audio/video URI is reused across every byte range. Remember its derived key instead
+     * of repeatedly scanning the long signed query for each chunk/cache lookup. The bound also
+     * covers live segment URLs and source switches; no media bytes or expiry decisions are cached
+     * here. LruCache's get/put operations are thread-safe for concurrent audio/video loaders.
+     */
+    static final class StableCacheKeyFactory implements CacheKeyFactory {
+        private final LruCache<Uri, String> mKeys;
+
+        StableCacheKeyFactory(int maxEntries) {
+            mKeys = new LruCache<>(maxEntries);
+        }
+
+        @Override
+        public String buildCacheKey(DataSpec dataSpec) {
+            Uri uri = dataSpec.uri;
+            String cached = mKeys.get(uri);
+            if (cached != null) {
+                return cached;
+            }
+            String stableKey = buildStableKey(uri);
+            if (stableKey != null) {
+                mKeys.put(uri, stableKey);
+                return stableKey;
+            }
+            // Generic data sources may assign different explicit keys to the SAME URI. Do not
+            // memoize this fallback by URI, or a previous DataSpec would override the new key.
+            return dataSpec.key != null ? dataSpec.key : uri.toString();
+        }
+    }
+
+    @Nullable
+    private static String buildStableKey(Uri uri) {
         String id = uri.getQueryParameter("id");
         String itag = uri.getQueryParameter("itag");
 
         if (id == null || itag == null) {
-            return dataSpec.key != null ? dataSpec.key : uri.toString();
+            return null;
         }
 
         String lmt = uri.getQueryParameter("lmt");
@@ -81,7 +115,7 @@ public final class Media3PlayerCache {
         }
 
         return sq != null ? key + ".sq" + sq : key;
-    };
+    }
 
     private Media3PlayerCache() {
     }

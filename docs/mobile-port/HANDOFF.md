@@ -688,14 +688,18 @@ again. Evidence is under `replay-qa-20260907-122553`; raw logcat is private.
 
 ## 17. Walking past the bot check (2026-09-07, Pixel 9)
 
-The denial in §16 turned out to be three independent problems, and only the
-third was ours. Read this section before touching `VideoInfoService`'s ring.
+Historical observations follow. Section 23 supersedes this round's diagnosis:
+the TV request was missing upstream timestamp normalization, and fixing it
+restores accepted metadata with the existing account. The claims that only the
+circuit breaker was ours, or that a different credential was necessary, were
+premature. Preserve the measurements below, not those causal conclusions.
 
-**One: authenticated TVHTML5 is broken server-side.** Every signed-in `TV` and
+**One: authenticated TVHTML5 returned a reload-page verdict.** Every signed-in `TV` and
 `TV_DOWNGRADED` request answers HTTP 200 / `UNPLAYABLE` with "Es necesario
 volver a cargar la página." on every video, not just Rusowsky. yt-dlp tracks
 the same breakage (issue #17389; its own tv client moved behind
-`tv_downgraded` in commit 5d5b634). Nothing on our side fixes it.
+`tv_downgraded` in commit 5d5b634). This server-side attribution was incorrect;
+the later request-format fix in §23 changes the verdict to `OK`.
 
 **Two: the anonymous partition is challenged on that network.** The bot check
 arrives on the web-family clients, on a carrier CGNAT (`net=cell:333`), for
@@ -769,20 +773,18 @@ the logging interceptor sits above the brotli decoder, so every failed
 
 Every winning line now reads `auth=n`. Playback works and it is anonymous,
 which silently costs age-restricted and members-only videos and server-side
-watch history. P3 established that this is a **credential** problem, not a
-client-ordering one — the next move is a different credential, not another
-client. `VideoInfo.isServerLoggedIn()` (logged as `srvAuth=`) exists to tell
+watch history. P3 did not establish that a different credential was necessary;
+that earlier inference is superseded by §23. `VideoInfo.isServerLoggedIn()`
+(logged as `srvAuth=`) exists to tell
 whether the server considered a request signed in; it reads `?` throughout
 this round and is still unvalidated against a known-positive case.
 
 **Sharpened by the LTE rounds of the same day (§18), and it matters.** Every
 `TV` and `TV_DOWNGRADED` result across all five rounds reads `srvAuth=y` — the
 server *did* consider those requests signed in, and answered "reload page"
-anyway. So our credential is not being rejected or ignored on the TV clients;
-TVHTML5 is broken while holding a credential the server accepts. Combined with
-the HTTP 400 from WEB_EMBED, the gap is narrower than "we need a different
-credential": we need a credential *form* that a client which still works will
-accept, which is what yt-dlp's cookie-derived SAPISIDHASH is. `srvAuth` is
+anyway. So our credential was not being rejected or ignored on the TV clients.
+The later metadata fix demonstrates a request-format problem instead; do not
+use this round to justify new credential forms or session changes. `srvAuth` is
 validated against a known-positive case now; the `?` is the non-TV clients,
 which do not return `serviceTrackingParams` at all.
 
@@ -900,7 +902,7 @@ round ever shows it surviving a trim.
 Playback peak is dominated by Graphics (200-245 MB of the ~500 MB): decoder
 output buffers plus surfaces, released on BACK.
 
-### The cold-start spike is SessionWarmup, and it is ~135 MB for ~2 s
+### A cold-start spike coincides with SessionWarmup: ~135 MB for ~2 s
 
 Sampling meminfo once a second through a cold start isolates it to one sample:
 
@@ -938,12 +940,18 @@ blast radius of §17's open thread is narrower than "signed out":
 
 ### What is left after ruling out the cheap fixes
 
+Correction: the following credential-only interpretation was premature.
+Matching client versions did not check timestamp formatting. Section 23 fixes
+that request field and obtains accepted authenticated TV metadata without
+changing the credential. The web-bearer HTTP 400 results below remain historical
+observations, not proof that the TV account route is unusable.
+
 Our `TV_DOWNGRADED` is `clientVersion = 5.20260707` - **byte-identical to
 yt-dlp's `tv_downgraded`** (checked against its `INNERTUBE_CLIENTS` table).
-So yt-dlp's own TV workaround is already in place here and still answers "Es
-necesario volver a cargar la página" with `srvAuth=y`. That kills the cheapest
-hypothesis (wrong client version) and leaves the credential form, consistent
-with §17.
+That client version was already in place here and still answered "Es necesario
+volver a cargar la página" with `srvAuth=y`. It ruled out a version mismatch,
+not other request-format defects; the missing timestamp normalization in §23
+was not checked in this earlier comparison.
 
 yt-dlp's authed clients are `('web_embedded', 'tv_downgraded', 'web')`, and the
 clients it marks `SUPPORTS_COOKIES` are exactly `web, web_safari, web_embedded,
@@ -958,7 +966,7 @@ emitted three times over `SAPISID`, `__Secure-1PAPISID`, `__Secure-3PAPISID`
 and space-joined. Ours is a TV device-flow OAuth bearer, which InnerTube takes
 on the TV family and refuses on the web family with a flat HTTP 400.
 
-**That experiment has now been run, and the credential form is the wall.**
+**Historical web-bearer comparison; not a diagnosis of the TV verdict.**
 `debug.arc.web_auth` was widened from a WEB_EMBED boolean to a client NAME, and
 three arms were forced through `debug.arc.player_client` on one video, one
 network, with the bearer as the only variable (`scratchpad/webauth.py`, run
@@ -976,18 +984,266 @@ not the embed context, and no reordering of web clients can route around it.
 For contrast the same bearer draws HTTP 200 from TV in the same run - TVHTML5's
 refusal is a playability verdict, not a transport-level rejection.
 
-Ruled out by this: web-client ordering, the embed context, and any hope that a
-different web client accepts the OAuth bearer. What remains is a cookie
-credential, and the decision that gates it is UX, not code.
+These arms demonstrate that the two tested web requests rejected that bearer.
+They do not rule out request-format bugs in the separate TV routes, nor prove
+that importing cookies is necessary. Section 23 restores accepted TV metadata
+using the existing credential.
 
 Note the arms ran on Wi-Fi (`net=wifi:339`) rather than LTE. Acceptable here -
 the question is whether InnerTube accepts a credential, which is not a
 transport property - but it is why these numbers are not comparable to the LTE
 timings in section 18.
 
-Getting SAPISID cookies onto a phone is the part with no good answer yet. The
-app already owns a WebView (BotGuard), so `CookieManager.getInstance()` would
-read them - but Google blocks account sign-in inside an embedded WebView, and
-UA-spoofing past that is fragile. yt-dlp's own answer is to make the user
-export cookies from a browser. Decide the UX before writing the SAPISIDHASH
-code; the hash itself is ten lines.
+The earlier suggestion to design a cookie-import flow is withdrawn. The owner
+explicitly requires the existing sessions, without borrowing or rotation; the
+TV timestamp fix demonstrates why the credential-only conclusion was premature.
+
+## 20. Pixel performance and PiP follow-up (2026-09-07)
+
+See [`PERFORMANCE-2026-09-07.md`](PERFORMANCE-2026-09-07.md) for the full matrix,
+reproduction commands, private artifacts, and caveats. Targeted seek, artwork,
+metadata, hidden-UI polling, warmup, initialization-order, and cache-key fixes
+are installed; 76 Android tests plus 10 offline benchmark tests pass.
+
+Both controlled 13-phase arms played successfully. Whole-process CPU/PSS and
+decoded TTFF did not establish a broad gain. Keep dynamic scheduling off,
+eager startup setup on, and the start gate at 1000 ms. The 500 ms gate saved
+~618 ms of visible-picture delay in a shaped dense-resume ABBA, but its longer
+soak and a final normal-settings check were denied upstream before media.
+Do not count those failed opens as low-CPU or stall-free playback. All debug
+overrides used in the round were restored; no auth/client policy changed.
+
+The earlier allocation attribution in section 19 is only a timing correlation:
+new diagnostics distinguish cancelled speculative format warming from eager
+setup that can still allocate during a real open. Deferring eager setup loses
+about a second of first-play latency on this Pixel.
+
+The apparent second PiP belonged to ReVanced, opened by an incorrectly quoted
+ad-hoc adb URL; the owner dismissed it. The harness now quotes and verifies the
+target package, refuses existing PiP, and tests the quoting regression. The
+later NewTube PiP → different video test left one activity and no pinned task.
+Further rapid-card/lifecycle and normal sustained validation is pending server
+playback availability, not a license to change credentials or client behavior.
+
+## 21. TTFF-first policy and explicit denial retry (2026-09-07)
+
+The owner prioritizes fast visible startup and stable playback over resource
+use. This supersedes section 20's 1000 ms start decision: production now starts
+at 500 ms, with recovery still 1500 ms and forward/back buffers unchanged.
+Native transport/cache prewarming, deferred related rendering, and instant
+post-READY new-video still removal accompany it. See
+[`TTFF-PRIORITY-2026-09-07.md`](TTFF-PRIORITY-2026-09-07.md).
+
+Four local-asset Pixel ABBA runs exercised the real decoder/network readiness
+policy with 1500 kbit/s paced reads. Median READY 1091 → 693 ms, no unexpected
+buffering in 45 s soaks or pause/seek/switch phases. These are not YouTube/API
+TTFF results. 110 Android unit/Robolectric and 13 harness tests pass.
+
+Fresh server bot-check responses continue despite successful account requests;
+the owner confirms the same video works in official YouTube. Do not call this
+solved. The pre-media denial's dead Play/Pause retry was fixed through the normal
+format service, preserving cache/cooldown and avoiding error-driven client
+switching. An actual retry still received denial; the next tap hit the negative
+cache in 7 ms without playback HTTP. Benchmark matrices now stop on unavailable
+playback instead of repeatedly cold-starting past process-local cooldown state.
+No auth, identity, token, or client-order policy changed.
+
+## 22. Existing-session follow-up (2026-09-07)
+
+The owner explicitly wants the current SmartTube/yt-dlp-derived implementation
+and existing sessions, without borrowing sessions or rotating identities.
+The audit confirmed that bundled yt-dlp/EJS code executes in Kotlin/J2V8, but
+the app's own service still owns player requests and authorization. Both the
+prior and new Pixel capture attempt all nine eligible routes; the earlier
+winner also answers an explicit denial. No usable result was demonstrated to
+be discarded before the media-URL processor. Selected-account credential
+ownership/expiry checks do not explain the fresh authenticated server denials.
+
+One older behavior violated the session-preservation requirement:
+`VideoInfoService.noteAnonymousChallenge()` called `rotateWebVisitor()` after
+repeated denials. That call was removed, without changing cooldown, threshold,
+client ordering or normal session expiry. Five real-method offline tests and
+seven actual-converter parser tests pass. The normal Pixel replay logs
+`sessionPreserved=y` but still receives no media; the benchmark exits 2 after
+9.51 s. No further playback attempts were started. This is not a playback fix
+or real-video end-to-end acceptance. Details, APK hash and artifacts are in
+[`TTFF-PRIORITY-2026-09-07.md`](TTFF-PRIORITY-2026-09-07.md).
+
+The new runtime change/tests are uncommitted in `MediaServiceCore` (still on
+its original branch); do not treat the submodule as unchanged after this round.
+No commits, pushes, credential exports or account resets were performed.
+
+## 23. Existing TV request metadata repaired; media 403 remains (2026-09-07)
+
+The upstream comparison found the missing TV-specific timestamp normalization
+in `QueryBuilder`. The Pixel had a five-digit cached scalar; both TV request
+routes sent it unchanged. Porting the upstream automatic five-to-eight-digit
+formatting changes the same signed-in route from reload-page `UNPLAYABLE` to
+`OK` with 22 usable adaptive formats. Account, visitor, client ordering and
+non-TV requests are unchanged. This supersedes the credential-only/server-only
+conclusions in sections 17 and 19.
+
+One real Pixel availability check on the installed candidate reached media
+preparation, then both initial ranges returned HTTP 403 with zero media bytes.
+The app exhausted its existing four-error recovery cap without a first frame.
+Do not report this failed run's resource usage as playback performance, or its
+error-cleanup still removal as visible TTFF. Cold/immediate, warm-card,
+mid-playback switch and sustained real-video acceptance remain outstanding on
+this candidate.
+
+Eight serialization tests plus eight nonsecret diagnostic tests were added;
+all 138 focused Android tests and debug/release builds pass. The upstream clone
+and local yt-dlp comparison found identical bundled solver code; no demonstrated
+media-URL handoff defect or skipped usable non-SABR response explains the 403.
+Cached-code consistency and transformation-output completeness remain evidence
+gaps, not established causes or a reason to change identities. Details, precise
+scope, current APK hash and artifacts:
+[`PLAYER-METADATA-2026-09-07.md`](PLAYER-METADATA-2026-09-07.md).
+
+## 24. Cache integrity repaired; current media 403 not resolved (2026-09-07)
+
+Three offline fault-injection tests reproduced incoherent cache publication:
+old contents could be returned under a new key/version after a failed write.
+CacheService now stores one atomic envelope per section containing the full key,
+code and metadata, under a shared load/store/clear lock. Unverifiable legacy entries
+are ignored without deletion; IO failures preserve the previous complete entry.
+Fifteen cache tests cover real partial-write rollback and interrupted recovery,
+in addition to eight nonsecret transformation-diagnostic tests.
+
+The installed debug candidate is
+`5eb8e3dcbbb25c0f975311ed7f6ca5bd65fbaedb22ca13f4e5f374401b07cf41`.
+One normal Pixel replay still returns initial media 403 and no first frame.
+New cached code has the same SHA-256 as the old code. All 23 requested values
+in each transformation group have present, changed outputs of matching list
+length. These results close the missing-output/cache-corruption hypotheses for
+this capture; they do not prove algorithmic correctness or server acceptance.
+The benchmark stopped at non-connectivity recovery exhaustion; no further
+playback requests were made by the test. No session/account/client-policy change.
+
+All 161 focused Android + 27 offline harness tests and debug/release builds pass.
+SABR support remains a concrete capability gap: the accepted TV response needs a
+streaming-source/protocol module missing from this Media3 port. The `tv-legacy`
+tag preserves SmartTube's implementation, but it is bound to old ExoPlayer APIs
+and cannot be enabled by changing response classification or imports alone.
+Supporting it is a substantial new integration, not a verified cure for these
+403s. Exact evidence, private artifacts and integration scope:
+[`MEDIA-CACHE-INTEGRITY-2026-09-07.md`](MEDIA-CACHE-INTEGRITY-2026-09-07.md).
+
+## 25. Isolated SABR proof stopped at media HTTP 403 (2026-09-07)
+
+User approved proof before a full production streaming-source port. Added
+test-only retained SABR schemas, bounded UMP inspection, opted-in instrumentation
+and an in-memory decoder helper. 218 app unit tests passed; the Pixel's local
+fixture produced 30 decoded output buffers per track in 2 passing helper tests.
+These are not real-video render/TTFF/soak evidence.
+
+Headless instrumentation initially skipped normal SplashPresenter preferences
+setup. The harness now initializes the same target-app preferences and waits for
+existing account restore. The resulting single live probe confirmed TV raw `OK`,
+server authentication and no bot flag (1044 ms), selected AAC 140 / AVC 136, then
+received HTTP 403 on the first audio SABR POST (333 ms). It stopped immediately;
+no video request, denial retries, session rotation or new credentials.
+
+The URL was deliberately used as issued, not run through the normal parameter
+processing path. Therefore this negative result is not proof of full SABR
+incompatibility or the cause of the denial. No production SABR source was added;
+the main installed APK remains `5eb8e3dcbbb25c0f975311ed7f6ca5bd65fbaedb22ca13f4e5f374401b07cf41`.
+Current real-video cold/warm/switch/sustained acceptance remains open.
+Evidence, exact bounds and limitations:
+[`SABR-PROOF-2026-09-07.md`](SABR-PROOF-2026-09-07.md).
+
+## 26. The timestamp hack is what kills the media URLs (2026-09-07, Pixel 9 + off-device)
+
+Rusowsky (`Fo89b8zAIE4`) plays. It has been playing all along — every open just
+failed once first, and that failure is what kept the phone anonymous.
+
+**The open, before this round.** `TV_DOWNGRADED` answers `OK` with 22 formats and
+`srvAuth=y`; its media URLs 403 on the very first byte range; the app quarantines
+the route, reloads on `VISIONOS` and plays. Tap to first frame 5.15–5.48 s,
+against 2.80 s when `VISIONOS` is forced (`debug.arc.player_client`).
+
+**Reproduced off the device** — a laptop on a different IP, a fresh anonymous
+visitor from `sw.js_data`, and the app's own bundled EJS solver
+(`assets/nsigsolver`) run under node, so the app's exact transform is what
+signs the URL. One video, one session, one minute:
+
+| request | verdict | media |
+|---|---|---|
+| TVHTML5 5.x, real sts `20697` | `UNPLAYABLE` "the page needs to be reloaded" | — |
+| TVHTML5 5.x, suffixed sts `20697001` | OK, 22 ciphered formats | **403** on the first byte |
+| TVHTML5 7.x, suffixed sts | OK | SABR-only, no URLs |
+| TVHTML5 7.20260901.15.00 (the version youtube.com/tv actually serves), real sts | `UNPLAYABLE` reload | — |
+| any TVHTML5 with no `signatureTimestamp` at all | `UNPLAYABLE` reload | — |
+| **TVHTML5_SIMPLY, real sts** | OK, 22 ciphered formats | **206** |
+| TVHTML5_SIMPLY, suffixed sts | OK, the same 22 formats | **403** |
+
+The last two rows are the finding. Same client, same session, same IP, only the
+timestamp differing: the upstream `+001` suffix makes the server answer with
+formats whose URLs are already dead. That is also what kills `TV_DOWNGRADED` —
+except there the suffix is the only thing that gets an answer at all, so the
+TVHTML5 family has no working configuration today, with or without the account.
+This supersedes §23's "media 403 remains" as an open question: the metadata fix
+was real, the URLs it unlocked never were.
+
+**Our signature solver is correct.** TVHTML5_SIMPLY's ciphered URLs, deciphered
+by our own solver, serve 206; stripping the transformed `n` from the same URL
+returns 403. Both transforms are right, which closes the cached-code and
+transformation-output gaps left open in §23 and §24. Every player JS variant
+(`main`, `es6`, `tce`, `es6_tce`, `tv`, `tv_es6`, `phone`) yields byte-identical
+output, so variant choice is not a variable either.
+
+**What the bot check is.** `LOGIN_REQUIRED` / "Sign in to confirm you're not a
+bot" is a property of the anonymous identity, not of the video: the same client
+on the same IP is challenged with no `visitorData` and answers `OK` with a
+freshly minted one. It is not purely identity-bound either — `ANDROID_VR` is
+challenged on a brand-new visitor, and §17 recorded a `WEB_EMBED` challenge on
+the very visitor `ANDROID_VR` then played from. Read it as a joint verdict on
+(client, identity, IP). The phone meets it because the dead account route leaves
+every playback anonymous on a carrier CGNAT.
+
+### What changed
+
+- **`QueryBuilder`: the `+001` suffix is scoped to the Cobalt `TVHTML5` client**
+  (`AppClient.usesTvSignatureTimestamp`) instead of every enum whose name starts
+  with `TV`. Upstream applies it to all of them; on TVHTML5_SIMPLY that is the
+  difference between 206 and 403. Latent for now — see the caveat below.
+- **A SABR-only answer from an account head is a no-media verdict**
+  (`isAuthRouteSabrOnlyVerdict`). `TV` returns `formats=22+1 usableAdaptive=0
+  sabr=y`, which this port cannot play (§24/§25), yet nothing quarantined it, so
+  the walk paid for it on every open. It now feeds the same
+  two-different-videos streak as the reload-page shape, with restricted videos
+  excluded so a gated video is never read as evidence about the route.
+- **The 403 quarantine survives a process restart** (`AuthRouteQuarantineStore`,
+  phone only). Same 10-minute TTL and network keying, so the route is still
+  re-probed when it expires — just not once per cold start.
+- **A fresh bot challenge rotates the anonymous identity**
+  (`setRotateVisitorOnAnonChallenge`, phone only): visitor cookie, cached app
+  info, persisted app info and the Web PO-token session. **This deliberately
+  reverses §22**, at the owner's request in this session, and is narrower than
+  the behaviour removed there: the ACCOUNT credential is untouched, only the
+  guest identity rotates, at most once per 15-minute cooldown per network.
+
+**Measured after, Pixel 9 / LTE:** the walk converges in two videos (`TV`
+quarantined `2/2` by the SABR verdict, `TV_DOWNGRADED` by the 403), then every
+cold open restores `quarantined=2/2` from prefs and goes straight to `VISIONOS`
+— one `/player`, no 403, no reload, tap to first frame 3.2–3.8 s, 27 clean media
+loads on a sustained watch, zero bot checks. 139 focused youtubeapi + 218
+smarttubetv + 48 common tests pass; debug build green.
+
+### Caveats
+
+- **TVHTML5_SIMPLY is NOT in the phone ring and must not be added yet.** Fixed
+  timestamp and all, it serves the first ~300 KB and then 403s deep ranges
+  (bytes 5,000,000+) — yt-dlp marks `tv_simply` GVS-PO-token-required and that
+  matches. `VISIONOS` served the identical deep ranges 206 in the same run. The
+  timestamp fix is correctness for the day a GVS PO token exists, not a route.
+- **The rotation has not been exercised against a real challenge.** No bot check
+  occurred in any run this round, so what is verified is the mechanism (unit
+  tests: every cached copy of the old visitor is dropped) and the fact that a
+  fresh visitor clears a challenge off-device — not that rotation fixes a
+  challenge the phone is actually under. The `visitorRotated=` field on
+  `player-ring anon-challenged` says which happened; read it before claiming it.
+- Restoring authenticated playback still has no known path. TVHTML5 is dead at
+  every timestamp we can send, `WEB_EMBED` refuses our OAuth bearer with HTTP 400
+  (§19), and TVHTML5_SIMPLY does not support auth at all. What is left is a
+  credential form we do not have (cookie-derived SAPISIDHASH) or SABR support.

@@ -4,7 +4,6 @@ import android.os.Build.VERSION;
 import android.text.TextUtils;
 
 import com.liskovsoft.mediaserviceinterfaces.MediaItemService;
-import com.liskovsoft.mediaserviceinterfaces.ServiceManager;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaFormat;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemMetadata;
@@ -27,7 +26,6 @@ import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
-import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
 
 import io.reactivex.rxjava3.disposables.Disposable;
 
@@ -42,6 +40,7 @@ public class VideoLoaderController extends BasePlayerController {
     private ErrorFixerController mErrorFixerController;
     private long mSleepTimerStartMs;
     private Disposable mFormatInfoAction;
+    private final PreMediaRetryGate mPreMediaRetry = new PreMediaRetryGate();
     private final Runnable mReloadVideo = () -> {
         Video video = getVideo();
         NetPath.log(NetPath.context() + " reload-dispatch video="
@@ -84,6 +83,7 @@ public class VideoLoaderController extends BasePlayerController {
 
     @Override
     public void onNewVideo(Video item) {
+        mPreMediaRetry.clear();
         if (item == null) {
             return;
         }
@@ -118,7 +118,37 @@ public class VideoLoaderController extends BasePlayerController {
 
     @Override
     public void onEngineReleased() {
+        mPreMediaRetry.clear();
         disposeActions();
+    }
+
+    @Override
+    public void onPlayClicked() {
+        retryPreMediaDenial();
+    }
+
+    @Override
+    public void onPauseClicked() {
+        // The first toggle after a denial may be Pause because playWhenReady stayed true.
+        retryPreMediaDenial();
+    }
+
+    private void retryPreMediaDenial() {
+        PlaybackView player = getPlayer();
+        Video video = getVideo();
+        if (player == null || video == null || player.containsMedia()
+                || !mPreMediaRetry.tryBeginRetry(video.videoId)) {
+            return;
+        }
+
+        // A server playability denial happens before a MediaSource exists, so the engine's
+        // error-capped retry never owns it. Re-enter ONLY the normal format-fetch path: keep
+        // its negative cache and bot-check cooldown, and never apply the media-error route
+        // switch or invalidate authentication. A repeated tap cannot overlap this fetch.
+        NetPath.logTap(video.videoId);
+        NetPath.log(NetPath.context() + " pre-media-retry user=y cache-policy=unchanged");
+        player.setPlayWhenReady(true);
+        loadVideo(video);
     }
 
     @Override
@@ -296,11 +326,11 @@ public class VideoLoaderController extends BasePlayerController {
         Utils.post(mShowProgressBar);
         disposeActions();
 
-        ServiceManager service = YouTubeServiceManager.instance();
-        MediaItemService mediaItemManager = service.getMediaItemService();
+        MediaItemService mediaItemManager = getMediaItemService();
         mFormatInfoAction = mediaItemManager.getFormatInfoObserve(video.videoId)
                 .subscribe(this::processFormatInfo,
                            error -> {
+                               mPreMediaRetry.clear(); // ordinary transport-error recovery owns this failure
                                getPlayer().showProgressBar(false);
                                mErrorFixerController.runFormatErrorAction(error);
                            });
@@ -312,6 +342,9 @@ public class VideoLoaderController extends BasePlayerController {
         if (player == null || getVideo() == null) {
             return;
         }
+
+        mPreMediaRetry.onResult(getVideo().videoId,
+                formatInfo.isUnplayable() && formatInfo.isBotCheckRequired());
 
         // NetPath milestone 2: InnerTube metadata/streamingData arrived (consumer side).
         NetPath.logInfo(getVideo().videoId,

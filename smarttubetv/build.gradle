@@ -262,6 +262,9 @@ dependencies {
     androidTestImplementation 'androidx.test:runner:' + testXSupportVersion
     androidTestImplementation 'androidx.test:rules:' + testXSupportVersion
     androidTestImplementation 'androidx.test.espresso:espresso-core:' + espressoVersion
+    // Isolated protocol proof only; neither the generated schemas nor runtime enter release APKs.
+    androidTestImplementation 'com.google.protobuf:protobuf-javalite:3.22.3'
+    testImplementation 'com.google.protobuf:protobuf-javalite:3.22.3'
 
     implementation dependencies.project(':common')
     implementation dependencies.project(':sharedutils')
@@ -281,4 +284,42 @@ dependencies {
 
     // ByeByeDPI fix
     implementation 'org.conscrypt:conscrypt-android:' + conscryptVersion
+}
+
+// No production SABR engine is enabled. Generate only the schemas used by the instrumentation
+// proof; a pinned compiler keeps this reproducible without a machine-local protoc installation.
+configurations {
+    sabrProofProtoc
+}
+dependencies {
+    sabrProofProtoc 'com.google.protobuf:protoc:3.22.3:linux-x86_64@exe'
+}
+def sabrProofProtoRoot = file('src/androidTest/proto')
+def sabrProofGeneratedJava = layout.buildDirectory.dir('generated/sabrProof/java')
+def generateSabrProofProto = tasks.register('generateSabrProofProto', Exec) {
+    inputs.files(fileTree(sabrProofProtoRoot) { include '**/*.proto' })
+    inputs.files(configurations.sabrProofProtoc)
+    outputs.dir(sabrProofGeneratedJava)
+    doFirst {
+        def compiler = configurations.sabrProofProtoc.singleFile
+        if (!compiler.canExecute() && !compiler.setExecutable(true)) {
+            throw new GradleException('Cannot execute the SABR proof schema compiler')
+        }
+        def destination = sabrProofGeneratedJava.get().asFile
+        destination.mkdirs()
+        commandLine([compiler.absolutePath, '--proto_path=' + sabrProofProtoRoot.absolutePath,
+                     '--java_out=lite:' + destination.absolutePath]
+                + fileTree(sabrProofProtoRoot).matching { include '**/*.proto' }.files
+                    .sort { it.path }.collect { it.absolutePath })
+    }
+}
+android.sourceSets.androidTest.java.srcDir(sabrProofGeneratedJava.get().asFile)
+android.sourceSets.test.java.srcDir(sabrProofGeneratedJava.get().asFile)
+android.sourceSets.test.java.srcDir('src/androidTest/java/com/newtube/mobile/sabrproof')
+tasks.configureEach {
+    if (name.startsWith('compile') && (name.endsWith('AndroidTestJavaWithJavac')
+            || name.endsWith('UnitTestJavaWithJavac') || name.endsWith('AndroidTestKotlin')
+            || name.endsWith('UnitTestKotlin'))) {
+        dependsOn(generateSabrProofProto)
+    }
 }

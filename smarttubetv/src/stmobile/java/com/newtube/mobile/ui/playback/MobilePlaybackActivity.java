@@ -267,10 +267,14 @@ public class MobilePlaybackActivity extends MobileActivity
     // NEWTUBE(mobile-ttff): the watch header binds from the SINGLE metadata document that
     // SuggestionsController already loads (delivered via PlaybackView.onWatchMetadata), instead of a
     // 2nd getMetadataObserve. Header binding is deferred until the first frame has rendered so it never
-    // competes with first-frame render: metadata arriving early is stashed here and applied on first
-    // STATE_READY. Accessed on the UI thread only.
-    private MediaItemMetadata mPendingMetadata;
-    private boolean mFirstFrameReady;
+    // competes with first-frame render: metadata arriving early is stashed here and applied when
+    // the selected video's loading still lifts. Accessed on the UI thread only.
+    private final WatchMetadataGate mWatchMetadataGate = new WatchMetadataGate();
+    private final DeferredPlaybackUi mRelatedRenderGate = new DeferredPlaybackUi();
+    // Separate from the image hold: onStop and sheet openings cancel that hold, but must not strand
+    // metadata when an unavailable stream never renders a frame. This one-shot survives onStop.
+    private static final long WATCH_METADATA_TIMEOUT_MS = 6_000;
+    private final Runnable mReleaseWatchMetadata = this::releaseWatchMetadata;
 
     // Suggestions store: id -> accumulated videos (LinkedHashMap keeps delivery/row order).
     private final LinkedHashMap<Integer, List<Video>> mSuggestionVideos = new LinkedHashMap<>();
@@ -1035,6 +1039,10 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onStart() {
         super.onStart();
         mIsStopped = false;
+        if (mControlsVisible) {
+            startProgressUpdates();
+            armAutoHide();
+        }
     }
 
     @Override
@@ -1130,6 +1138,8 @@ public class MobilePlaybackActivity extends MobileActivity
         super.onStop();
 
         mIsStopped = true;
+        stopProgressUpdates();
+        cancelAutoHide();
 
         // Glide pauses the activity's request manager on its own here and resumes it on the next
         // onStart. Drop our hold flag (WITHOUT resuming - that would defeat Glide's background
@@ -1205,6 +1215,8 @@ public class MobilePlaybackActivity extends MobileActivity
         cancelAutoHide();
         hideRelatedSkeleton(); // cancels the pulse animator + pending timeout
         Utils.removeCallbacks(mReleaseImageRequests);
+        Utils.removeCallbacks(mReleaseWatchMetadata);
+        mRelatedRenderGate.cancelPending();
         // The loading still is loaded through the application request manager (see
         // maybeShowLoadingStill), which has no lifecycle of its own - clear it by hand or the
         // pending request keeps this activity's ImageView alive.
@@ -2439,7 +2451,9 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private void armAutoHide() {
         cancelAutoHide();
-        Utils.postDelayed(mHideControlsRunnable, AUTO_HIDE_MS);
+        if (!mIsStopped) {
+            Utils.postDelayed(mHideControlsRunnable, AUTO_HIDE_MS);
+        }
     }
 
     /**
@@ -2500,7 +2514,7 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     private void onAutoHideTick() {
-        if (!mControlsVisible) {
+        if (!mControlsVisible || mIsStopped) {
             return;
         }
 
@@ -2886,7 +2900,9 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private void startProgressUpdates() {
         stopProgressUpdates();
-        Utils.postDelayed(mProgressUpdateRunnable, 0);
+        if (!mIsStopped && mControlsVisible) {
+            Utils.postDelayed(mProgressUpdateRunnable, 0);
+        }
     }
 
     private void stopProgressUpdates() {
@@ -2894,7 +2910,7 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     private void onProgressTick() {
-        if (mPlayer == null || mExoPlayerController == null) {
+        if (mIsStopped || !mControlsVisible || mPlayer == null || mExoPlayerController == null) {
             return;
         }
 
@@ -3003,14 +3019,13 @@ public class MobilePlaybackActivity extends MobileActivity
                         mStillAwaitReady = false;
                         mStillAwaitFrame = true;
                     }
-                    // NEWTUBE(mobile-ttff): first frame has rendered. Now (and only now) apply any
-                    // watch-header metadata that arrived early, so the bind stays off the first-frame
-                    // path. Runs on the UI thread (ExoPlayer callbacks post here).
-                    if (!mFirstFrameReady) {
-                        mFirstFrameReady = true;
-                        if (mPendingMetadata != null) {
-                            bindWatchMetadata(mPendingMetadata);
-                        }
+                    // READY can precede the first rendered frame. Only an audio-only stream has
+                    // no video frame to wait for; visible video releases its header when the new
+                    // stream's texture frame lifts the loading still.
+                    if (mBackgroundAudioMode || (mPlayer != null
+                            && !mPlayer.getCurrentTracks().isTypeSelected(
+                                    androidx.media3.common.C.TRACK_TYPE_VIDEO))) {
+                        releaseWatchMetadata();
                     }
                     break;
                 case Player.STATE_ENDED:
@@ -3041,6 +3056,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
         @Override
         public void onPlayerError(PlaybackException error) {
+            releaseWatchMetadata();
             // Never leave the loading still covering an error state.
             mStillAwaitReady = false;
             mStillAwaitFrame = false;
@@ -3075,6 +3091,8 @@ public class MobilePlaybackActivity extends MobileActivity
     private boolean mStillAwaitReady;
     /** ...then for the next actually-rendered frame; only then the still lifts. */
     private boolean mStillAwaitFrame;
+    /** New selections reveal instantly once ready; mini-player handoffs retain their short fade. */
+    private boolean mNewVideoStill;
     private String mStillVideoId;
 
     /** Build the code-managed video texture + still inside the PlayerView's content frame. */
@@ -3134,7 +3152,11 @@ public class MobilePlaybackActivity extends MobileActivity
             // A real frame just rendered behind the still: lift it.
             if (mStillAwaitFrame && !mStillAwaitReady) {
                 mStillAwaitFrame = false;
-                hideVideoStill();
+                hideVideoStill(mNewVideoStill);
+                // The persistent Surface can deliver the previous video's queued renderer event
+                // after a new selection. Reuse the still's new-stream READY + texture-frame gate
+                // instead of letting an unconditional onRenderedFirstFrame release its metadata.
+                releaseWatchMetadata();
             }
         }
     };
@@ -3191,6 +3213,7 @@ public class MobilePlaybackActivity extends MobileActivity
             return;
         }
         mStillVideoId = item.videoId;
+        mNewVideoStill = true;
         mStillAwaitReady = true; // the OLD stream is still READY; wait for the new one
         mStillAwaitFrame = false;
         mVideoStill.animate().cancel();
@@ -3228,6 +3251,7 @@ public class MobilePlaybackActivity extends MobileActivity
                     .centerCrop()
                     .error(Glide.with(getApplicationContext())
                             .load(narrow)
+                            .onlyRetrieveFromCache(true)
                             .diskCacheStrategy(DiskCacheStrategy.ALL)
                             .format(DecodeFormat.PREFER_RGB_565)
                             .override(mStillW, mStillH)
@@ -3304,6 +3328,22 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     private void hideVideoStill() {
+        hideVideoStill(false);
+    }
+
+    private void hideVideoStill(boolean revealNewVideo) {
+        mNewVideoStill = false;
+        if (revealNewVideo) {
+            boolean hidden = hideLoadingStillImmediately(mVideoStill);
+            if (hidden && mVideoArea != null && mVideoArea.isShown()) {
+                // UI visibility milestone after READY + a texture update, not a compositor-present
+                // timestamp. There is no remaining still-fade interval after this event.
+                NetPath.log(NetPath.context() + " picture-visible +" + NetPath.elapsedMs()
+                        + " state=ready-texture-overlay-gone");
+            }
+            releaseImageRequests("picture-visible");
+            return;
+        }
         // The still lifting IS the first-frame milestone, so it is also where the page's other
         // images get the link back. Before the visibility guard: every path that gives up on the
         // still (player error, a hand-off that never showed one) must release the hold too.
@@ -3317,6 +3357,18 @@ public class MobilePlaybackActivity extends MobileActivity
             mVideoStill.setAlpha(1f);
             mVideoStill.setImageDrawable(null);
         }).start();
+    }
+
+    /** Only called for a new stream after the caller observed READY and its next texture frame. */
+    static boolean hideLoadingStillImmediately(@Nullable ImageView still) {
+        if (still == null || still.getVisibility() != View.VISIBLE) {
+            return false;
+        }
+        still.animate().cancel();
+        still.setVisibility(View.GONE);
+        still.setAlpha(1f);
+        still.setImageDrawable(null);
+        return true;
     }
 
     private void releaseSessionTexture() {
@@ -3940,6 +3992,7 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     public void clearSuggestions() {
         runOnUiThread(() -> {
+            mRelatedRenderGate.cancelPending();
             mSuggestionVideos.clear();
             mSuggestionGroups.clear();
             mRelatedVideos.clear();
@@ -4751,6 +4804,11 @@ public class MobilePlaybackActivity extends MobileActivity
 
         if (isNewVideo) {
             mWatchVideoId = item.videoId;
+            mWatchMetadataGate.open(item.videoId);
+            mRelatedRenderGate.reset();
+            Utils.removeCallbacks(mReleaseWatchMetadata);
+            Utils.postDelayed(mReleaseWatchMetadata, WATCH_METADATA_TIMEOUT_MS);
+            clearSuggestions();
             resetWatchHeader();
             if (mWatchScroll != null) {
                 mWatchScroll.scrollTo(0, 0);
@@ -4797,13 +4855,6 @@ public class MobilePlaybackActivity extends MobileActivity
         if (!TextUtils.isEmpty(item.description)) {
             mWatchDescription.setText(item.description);
         }
-
-        if (isNewVideo) {
-            // NEWTUBE(mobile-ttff): a new video resets the header to its fallback and clears any stale
-            // stashed metadata. The real header data now arrives via onWatchMetadata (the single
-            // metadata document SuggestionsController loads), not a 2nd getMetadataObserve here.
-            mPendingMetadata = null;
-        }
     }
 
     private void resetWatchHeader() {
@@ -4841,13 +4892,17 @@ public class MobilePlaybackActivity extends MobileActivity
 
         // NEWTUBE(mobile-ttff): delivered on the metadata load thread by SuggestionsController. Marshal
         // to the UI thread, then either bind now (first frame already rendered) or stash and bind on
-        // the first STATE_READY, so the header bind never competes with first-frame render.
+        // the new stream's first texture frame. Reset for EVERY new video, including related taps
+        // on the reused activity; a session-wide ready flag allowed all later opens to bind early.
         runOnUiThread(() -> {
-            mPendingMetadata = metadata;
-            if (mFirstFrameReady) {
-                bindWatchMetadata(metadata);
-            }
+            bindWatchMetadata(mWatchMetadataGate.offer(metadata));
         });
+    }
+
+    private void releaseWatchMetadata() {
+        Utils.removeCallbacks(mReleaseWatchMetadata);
+        bindWatchMetadata(mWatchMetadataGate.release());
+        mRelatedRenderGate.release();
     }
 
     private void bindWatchMetadata(MediaItemMetadata metadata) {
@@ -5044,6 +5099,11 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     private void maybePageSuggestions() {
+        // A temporarily empty adapter can look scrolled to the bottom while its model is already
+        // populated. Do not let that layout callback bypass the first-frame rendering gate.
+        if (!mRelatedRenderGate.isReleased()) {
+            return;
+        }
         if (mPresenter == null || mRelatedVideos.isEmpty()) {
             return;
         }
@@ -5102,7 +5162,18 @@ public class MobilePlaybackActivity extends MobileActivity
             }
         }
 
-        bindQueueCard(current, currentId, queueId);
+        // Keep these models current for controller queries and queue actions, but coalesce the
+        // adapter submissions/row inflation until moving playback has priority on the main thread.
+        mRelatedRenderGate.renderWhenReady(this::renderRelatedList);
+    }
+
+    private void renderRelatedList() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        Video current = getVideo();
+        String currentId = current != null ? current.videoId : null;
+        bindQueueCard(current, currentId, findQueueGroupId(current));
 
         submitRelatedWindow();
 

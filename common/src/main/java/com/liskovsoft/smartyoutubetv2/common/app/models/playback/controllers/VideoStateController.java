@@ -531,8 +531,11 @@ public class VideoStateController extends BasePlayerController {
             state = new State(item, getPlayer().getDurationMs() - getLiveBuffer());
         }
 
-        // Do I need to check that item isn't live? (state != null && !item.isLive)
-        if (state != null) {
+        // An explicit positive timestamp is applied by restorePendingPosition() immediately
+        // afterwards. Seeking to history first schedules obsolete media loads (measured: saved
+        // 259957ms then link 1000ms only 9ms apart). Keep state/speed and play-state restoration;
+        // skip only this superseded seek, including the live-position fallback above.
+        if (state != null && item.pendingPosMs <= 0) {
             getPlayer().setPositionMs(state.positionMs);
         }
 

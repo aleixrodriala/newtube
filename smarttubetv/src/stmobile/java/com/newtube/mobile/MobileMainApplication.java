@@ -280,6 +280,22 @@ public class MobileMainApplication extends MainApplication {
         // TV never calls this -> TV keeps the full 13-client ring unchanged.
         VideoInfoService.setSkipTvFallbackClients(true);
 
+        // DEAD-ROUTE MEMORY (mobile-only): the 403 quarantine that demotes an account-bearing
+        // client after its media URLs are refused was process-local, so every cold start paid the
+        // same proven-dead probe again -- 5.48s to first frame against 2.80s when the working
+        // client leads (Pixel 9, LTE, 2026-09-07, Fo89b8zAIE4). Persisting it keeps the existing
+        // 10-minute cooldown and network keying, so the route is still re-probed when it expires;
+        // it just is not re-probed once per process launch. TV never calls this.
+        VideoInfoService.setAuthRouteQuarantineStore(new AuthRouteQuarantineStore(this));
+
+        // GUEST IDENTITY (mobile-only): a bot challenge on the anonymous partition now starts a
+        // NEW visitor instead of only starting the 15-minute cooldown on the challenged one. Off
+        // device, the same client and IP answered "Sign in to confirm you're not a bot" with no
+        // visitorData and OK with a freshly minted one. Not a guaranteed cure -- a challenge can
+        // also be bound to the client context -- so the outcome is logged (visitorRotated=) rather
+        // than assumed. TV keeps its previous behaviour.
+        VideoInfoService.setRotateVisitorOnAnonChallenge(true);
+
         // STORYBOARD TRIM (mobile-only): the touch UI has no seek-preview thumbnails yet
         // (MobilePlaybackActivity.loadStoryboard is a stub), but a winning client without a
         // storyboard spec fires a deferred IOS /player per non-live open purely to refetch that
@@ -329,12 +345,6 @@ public class MobileMainApplication extends MainApplication {
         // funnel through the same choke point). TV never calls this.
         YouTubeMediaItemService.setPreconnectMediaHost(true);
 
-        // WEB PO-TOKEN WARMUP (mobile-only): initialize WebView/BotGuard at app start so the first
-        // web-family /player request does not pay the ~1.5-2.5s cold cost. Tokens remain scoped to
-        // Web clients: a BotGuard token cannot attest ANDROID_VR/TV/IOS and must not be appended as
-        // a cross-platform media-URL fallback. TV never calls this.
-        VideoInfoService.warmUpPoTokenGate();
-
         // NOTE(perf history): a head-of-stream segment prefetch into the disk cache was tried here
         // and REMOVED - a cold-cache A/B showed no TTFF win (median +339ms WORSE with it on: the
         // starting player bypasses cache spans the prefetcher still holds and re-downloads the same
@@ -365,8 +375,37 @@ public class MobileMainApplication extends MainApplication {
         // StreamResetException on old TV boxes; on phones it just costs every InnerTube call
         // multiplexing + connection reuse (Home fires several section fetches in parallel = N TLS
         // handshakes on H1 vs one shared H2 connection). Must run before the first client build
-        // (earliest network is SessionWarmup at +1200ms). TV never calls this.
+        // (the token warmup immediately below can build it). TV never calls this.
         OkHttpManager.setPreferHttp2(true);
+
+        // TTFF-first product policy: pay native transport and disk-index initialization while
+        // launching, on a worker, instead of on the playback Activity's first construction.
+        // These are the same synchronized singletons used by real playback; this sends no extra
+        // player/media request and owns no Activity, Surface, decoder or playback session.
+        com.newtube.mobile.player.PlayerInfrastructureWarmup.start(this);
+
+        // WEB PO-TOKEN WARMUP (mobile-only): initialize WebView/BotGuard at app start so the first
+        // web-family /player request does not pay the ~1.5-2.5s cold cost. Tokens remain scoped to
+        // Web clients: a BotGuard token cannot attest ANDROID_VR/TV/IOS and must not be appended as
+        // a cross-platform media-URL fallback. TV never calls this.
+        // Start only AFTER the persisted-app-info and HTTP/2 flags above: its background thread
+        // immediately reads AppService.visitorData and can initialize the shared HTTP client.
+        // Starting it earlier raced both options, potentially paying a cold app-info fetch and
+        // retaining an HTTP/1.1-only connection pool for the entire process.
+        // Measurement only: defer this speculative initialization to its existing demand path.
+        // VISIONOS/ANDROID_VR also initialize this generator to obtain their existing visitor,
+        // even when no token is sent, so disabling eagerness can delay their first /player too.
+        // The flag changes no client, visitor source, credential, or request-token policy.
+        boolean deferEagerTokenWarmup = com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG
+                && "off".equals(getDebugSystemProperty("debug.arc.eager_token_warmup"));
+        if (deferEagerTokenWarmup) {
+            android.util.Log.d("NetPath", "startup token-warmup deferred (debug; demand initialization retained)");
+        } else {
+            if (com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG) {
+                android.util.Log.d("NetPath", "startup token-warmup scheduled");
+            }
+            VideoInfoService.warmUpPoTokenGate();
+        }
 
         // POOL EVICTION (mobile-only): with H2 on, every InnerTube call rides ONE connection, and
         // that connection dies silently when the default network is replaced (Wi-Fi -> cellular,
@@ -540,6 +579,9 @@ public class MobileMainApplication extends MainApplication {
         super.onTrimMemory(level);
 
         if (level >= TRIM_MEMORY_RUNNING_LOW) {
+            if (level != TRIM_MEMORY_UI_HIDDEN) {
+                SessionWarmup.onMemoryPressure();
+            }
             VideoInfoService.releaseSigRuntime();
         }
     }
@@ -548,6 +590,7 @@ public class MobileMainApplication extends MainApplication {
     public void onLowMemory() {
         super.onLowMemory();
 
+        SessionWarmup.onMemoryPressure();
         VideoInfoService.releaseSigRuntime();
     }
 

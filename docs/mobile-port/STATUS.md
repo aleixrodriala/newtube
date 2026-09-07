@@ -13,6 +13,97 @@ ANDROID_HOME=<sdk> ./gradlew :smarttubetv:assembleStmobileDebug
 # -> smarttubetv/build/outputs/apk/stmobile/debug/NewTube_<ver>_universal.apk
 ```
 
+## The bot check traced to a dead account route (2026-09-07)
+
+Rusowsky (`Fo89b8zAIE4`) plays on the Pixel over LTE and has all along; every
+open just burned a failed attempt first. Reproduced off the device with a fresh
+anonymous visitor on a different IP, using the app's own bundled solver: the
+upstream `+001` signature-timestamp suffix makes YouTube answer with formats
+whose media URLs are already dead. Same client, same session, only the timestamp
+differing — TVHTML5_SIMPLY serves HTTP 206 at the real five-digit value and 403
+on the first byte at the suffixed one. TVHTML5 has no working configuration
+either way (real timestamp → "the page needs to be reloaded", suffixed → dead
+URLs at 5.x, SABR-only at 7.x), so the account cannot play anything, the phone
+plays anonymous, and an anonymous guest identity on carrier CGNAT is what gets
+bot-challenged.
+
+Our signature/`n` solver is correct — proven by deciphering TVHTML5_SIMPLY's
+URLs to a 206 — which closes the evidence gaps left open by the cache-integrity
+and player-metadata rounds. Shipped: the timestamp suffix is scoped to the
+Cobalt TVHTML5 client, a SABR-only answer from an account head now counts as a
+no-media verdict, the 403 quarantine survives a process restart, and a fresh bot
+challenge rotates the anonymous identity (reversing the earlier
+session-preservation removal, at the owner's request; the account credential is
+untouched). Cold open on the Pixel goes from 5.15–5.48 s to first frame to
+3.2–3.8 s, one `/player` instead of three, zero 403s. 139 focused youtubeapi +
+218 smarttubetv + 48 common tests pass. Details, the full client/timestamp
+matrix and the caveats: [`HANDOFF.md`](HANDOFF.md) section 26.
+
+## TTFF and playback stability take priority (2026-09-07)
+
+Product decision: spend CPU/memory/bandwidth for faster startup and stable
+playback. The start gate is now 500 ms; 1500 ms recovery and all forward/back
+buffers remain unchanged. Native/cache initialization starts on a worker during
+launch, related UI rendering yields until playback, and the ready new-video
+still disappears without its 120 ms fade. Local Pixel ABBA reached READY at a
+median 693 ms vs 1091 ms, with four clean 45 s soaks plus seek/pause/switch checks.
+These are decoder/readiness results, not newly measured YouTube TTFF.
+
+The server bot check still blocks NewTube while the owner reports official
+YouTube works. Play-to-retry after pre-media denial is repaired and honors
+existing cooldown/cache; the benchmark now aborts at an unavailable phase.
+110 Android + 13 offline tests pass. Details and limitations:
+[`TTFF-PRIORITY-2026-09-07.md`](TTFF-PRIORITY-2026-09-07.md).
+
+Existing-session follow-up: removed an older denial-triggered visitor reset,
+preserving the current session, cooldown and playback-route ordering. The
+initial replay still received denial from all nine routes. A subsequent
+upstream comparison found the missing TV request-timestamp normalization.
+That narrow fix is installed: the same authenticated TV route now returns
+`OK` with 22 usable adaptive formats, instead of the reload-page verdict.
+The existing account was not the demonstrated cause of that verdict.
+
+Playback is still blocked at the next stage: initial audio/video media ranges
+return HTTP 403 with zero bytes and no first frame. This is not a successful
+soak or a TTFF measurement. 138 focused Android tests and both APK builds pass;
+real-video acceptance remains open. The current finding supersedes the older
+claims below that client-side fixes were ruled out or new credentials were
+necessary. See [the metadata follow-up](PLAYER-METADATA-2026-09-07.md).
+
+Latest media follow-up: fixed and installed an independently reproduced cache
+publication bug (key/code/metadata now commit together). The Pixel still gets
+initial media 403 with no frame. Freshly rebuilt cached code matches the legacy
+code exactly, and all requested transformations return complete, changed outputs;
+neither cache corruption nor missing outputs explains this capture. 161 Android
+and 27 harness tests and debug/release builds pass. The accepted SABR-only response
+exposes a missing Media3 streaming-source capability, not a demonstrated working
+media endpoint. A SABR port is substantial and remains unimplemented. See
+[cache evidence and next integration scope](MEDIA-CACHE-INTEGRITY-2026-09-07.md).
+
+SABR proof follow-up: a test-only Pixel probe confirmed raw `OK` and server
+authentication with the existing account, then its first **untouched-URL** SABR
+audio POST returned HTTP 403 after 333 ms. It stopped without a video request or
+recovery. This does not prove a complete SABR port would fail or solve the media
+problem. 218 app unit tests and 2 local decoder-helper device tests passed;
+the latter are not SABR/YouTube playback. Main APK unchanged. See
+[isolated proof and limitations](SABR-PROOF-2026-09-07.md).
+
+## Pixel performance follow-up (2026-09-07, before TTFF-priority decision)
+
+Implemented redundant-seek, artwork, metadata-lifetime, hidden-control polling,
+warmup-timer, initialization-order, and cache-key allocation fixes. 26 controlled
+cold/immediate/switch/sustained phases reached a first frame; 86 focused checks
+pass. Aggregate CPU, PSS, and decoded TTFF did not show a convincing improvement,
+so dynamic scheduling and deferred eager setup were rejected. A 500 ms start
+gate reduced visible dense-resume latency in short shaped runs, but its longer
+test and the final normal-settings soak were blocked by an explicit server
+bot check before media preparation. Keep the 1000 ms default; all experimental
+device overrides were restored. The reported external PiP was traced to an
+adb quoting mistake; the subsequent NewTube PiP-to-next-video test passed.
+
+Full protocol, measured results, retained fixes, and limitations:
+[`PERFORMANCE-2026-09-07.md`](PERFORMANCE-2026-09-07.md).
+
 ## Measured (added 2026-09-07 — memory profile and how far the account gets)
 
 Two open questions from the LTE rounds closed by measurement. Full evidence in
@@ -26,30 +117,32 @@ are legitimately in the back stack. A forced trim drops the process to 256 MB
 back under pressure. The 453 MB quoted earlier was a mid-playback sample.
 Playback peaks ~500 MB, half of it decoder surfaces, all released on BACK.
 
-**The cold-start peak is SessionWarmup**: native heap spikes 57 → 186 MB for
+**A cold-start peak coincides with SessionWarmup**: native heap spikes 57 → 186 MB for
 about two seconds at t+5s, exactly inside the warmup window, then collapses
 back. Invisible on the Pixel 9 (11.8 GB). It would matter on a 3–4 GB phone,
 where a 471 MB peak five seconds into every cold start is prime LMK territory;
 `isLowRamDevice()` gating is the mitigation if NewTube ever targets those.
-Which allocation inside the window is responsible was not isolated.
+Which allocation inside the window is responsible was not isolated. The later
+performance follow-up above distinguishes the speculative format fetch from
+eager startup setup; timing alone does not attribute the entire spike to one.
 
-**The account works everywhere except /player.** Every `/browse` and `/account`
+**Historical result, superseded by the metadata follow-up:** Every `/browse` and `/account`
 call is `auth=y`; only `/player` lands anonymous. So feeds, playlists, likes and
 subscribe are all fine, and the cost of §17's open thread is precisely:
 age-restricted, members-only and private playback, server-side watch history
 (tracking pings inherit the anonymous /player session), and Premium
 entitlements.
 
-**And the client-side fixes are ruled out.** Our `TV_DOWNGRADED` is
+**The earlier credential-only diagnosis was premature.** Our `TV_DOWNGRADED` is
 `5.20260707`, byte-identical to yt-dlp's `tv_downgraded`, and still returns
 "reload page" with `srvAuth=y`. A three-arm run then isolated the bearer as the
 only variable: WEB_EMBED+bearer and WEB+bearer both give HTTP 400 with a
 byte-identical body, while the same WEB client without the bearer gives 200.
-The 400 follows the credential, not the embed context — so no web-client
-ordering can route around it, and a cookie-derived SAPISIDHASH is the only
-remaining path. `debug.arc.web_auth` now takes a client NAME so the comparison
-stays runnable. The blocker is UX, not code: Google blocks account sign-in in an
-embedded WebView, and yt-dlp's own answer is to have the user export cookies.
+The 400 followed the bearer in those web-client comparisons; that did not
+rule out a malformed TV request. Matching client versions missed the TV-specific
+timestamp format. With that fixed, the existing bearer receives accepted TV
+playback metadata. No cookie import, new sign-in UX or session borrowing is
+justified by those earlier measurements. `debug.arc.web_auth` remains inactive.
 
 ## Works (added 2026-09-07 — LTE soak follow-up)
 
@@ -94,10 +187,11 @@ yt-dlp's signed-in head, returns HTTP 400 "Request contains an invalid
 argument." every time — InnerTube will not take a TV device-flow bearer on a
 web client.
 
-**Open:** every winning line reads `auth=n`. Playback is anonymous, which costs
-age-restricted/members-only videos and server-side history; the fix is a
-different credential, not a different client. 244 focused tests pass. Detail
-and measurements: [`HANDOFF.md` §17](HANDOFF.md).
+**Historical open issue:** every winning line in that round read `auth=n`.
+The later metadata fix now yields accepted signed-in TV responses, but media
+403 still blocks playback. Do not infer that a different credential is required.
+244 focused tests passed in that earlier round. Detail and measurements:
+[`HANDOFF.md` §17 and §23](HANDOFF.md).
 
 ## Playback denial and scheduling follow-up (2026-09-07)
 
