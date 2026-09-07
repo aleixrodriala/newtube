@@ -2,6 +2,119 @@
 
 All notable user-facing changes to NewTube ("SmartTube for phones").
 
+## 1.8.0 — 2026-09-08 — Eugenio Edition
+
+“Saben aquell que diu… que el vídeo no arrancaba.” A fictional homage to
+Eugenio, with fewer long pauses from the player. This release collects all ten
+main-repository commits and the dependency changes since 1.7.0 (`1997fdb`,
+4 August), plus the final upstream correctness fixes listed below.
+
+### Playback startup and data use
+
+- Related-video thumbnails request an appropriately sized CDN image instead of
+  downloading a large image and shrinking it afterward. Related rows are loaded
+  in windows; image downloads have bounded concurrency and a mobile-friendly timeout.
+- The loading still prefers cached artwork and avoids a separate full-resolution
+  download. Watch-page layout, images and nonessential work are coordinated with
+  playback startup; cancelled opens cannot publish stale UI or media sources.
+- Initial automatic quality now uses recent, measured bandwidth. Old or invalid
+  estimates expire, network changes reset confidence, and quality can climb as
+  useful transfers complete. Estimates are saved during playback, not just on exit.
+  Explicit manual-quality choices are preserved.
+- Adaptive down-switch thresholds now follow the selected buffer preset, so a
+  weak connection can reduce quality before the buffer runs dry.
+- Player/network infrastructure warms off the UI thread. Warmup cannot start a
+  competing fetch after the user has already opened a video. Media-host warmups
+  are bounded, shared while in flight and retriable after failure or network change.
+- Nested metadata mapping reuses the parsed JSON tree instead of reparsing every
+  child. The dense regression fixture needs one text parse instead of 76; this
+  is a reduction in parser work, **not** a 76× playback speedup.
+- Pixel weak-link comparisons observed approximately **0.4–0.7 seconds less time
+  to READY** in the startup-bandwidth round. Samples are small and initial quality
+  is deliberately lower; this is not a universal or direct-LTE speed guarantee.
+
+### Network failures, recovery and playback UI
+
+- Cronet remains the primary media transport, with Media3's OkHttp adapter as the
+  fallback instead of the slower plain HTTP path. API calls are bounded while bulk
+  transfers retain their own budgets; connections can be reused.
+- A tunnel can leave Android reporting a validated network even though no request
+  gets through. Such transport failures now remain eligible for bounded recovery;
+  actual server refusals are distinguished from connectivity loss.
+- A validated replacement network wakes recovery even without an `onLost` callback.
+  Cancelled callbacks cannot revive an old playback episode. In-player switches
+  cancel abandoned requests and source builds.
+- Existing playback-route cooldowns survive process restarts, avoiding repeated
+  known failures. An unavailable video alone no longer counts as evidence that an
+  account route is broken. Live-manifest lookup avoids unnecessary round trips.
+- A pre-media failure has a visible, persistent explanation and Play can retry.
+  Denied opens clear unrelated suggestions instead of leaving a misleading watch
+  page. Opening the player without a video returns to Home rather than a dead 00:00.
+- Network errors from watch metadata no longer throw raw stack traces over playback.
+  Buffering no longer permanently disables the user's subtitles. The feed has an
+  offline/retry state, and position restoration preserves valid requested timestamps.
+- Notification/lock-screen artwork shares in-flight requests, rejects stale images
+  after video switches and updates when artwork arrives. Batched player events
+  avoid rebuilding identical session metadata repeatedly.
+
+### Casting and TV pairing
+
+- Recommended receiver priority is paired **SmartTube → direct Cast → unidentified
+  saved TV apps → stock YouTube**. Explicit receiver choices remain explicit;
+  falling back to stock YouTube warns that it may show ads.
+- One physical TV can retain several receiver identities without duplicate rows
+  or losing a SmartTube pairing when discovery updates. Ambiguous devices stay
+  separate, and old pairings are not guessed to be SmartTube just from their names.
+- A brief discovery window avoids selecting a saved YouTube route just before an
+  ad-free option appears. Connection and playback deadlines permit bounded fallback;
+  disconnect, pause or a new selection cancels pending work.
+- One **Link TV** action, a shorter Spanish prompt, and an app-specific dark pairing
+  dialog. SmartTube instructions point to **Settings → Remote control**. Choose
+  the TV app, then enter its 12-digit code; incomplete input cannot be submitted.
+
+### Upstream fixes and data correctness
+
+- Incorporated SmartTube's buffering-duration fix, with monotonic time, duplicate
+  event guards and a nonnegative recovery delay.
+- Seeking while still buffering re-arms the stall watchdog after its seek reset,
+  without scheduling false recovery for paused or already-ready playback.
+- Incorporated request-JSON validation without changing quoted string values, plus
+  safe integer-overflow fallback when parsing metadata.
+- Final release review also ports ordinary-video title refresh while preserving
+  upcoming-event titles, clears the watch-history record cache after removal
+  feedback so a replay can create it again, and retains remote playlist titles
+  even before a local playlist cache exists.
+- Cached preprocessing data is now published atomically with its key and metadata.
+  Interrupted writes preserve the previous valid entry; invalid or oversized data
+  is a cache miss. No account reset or user-cache deletion is required to upgrade.
+
+### Verification and developer tools
+
+- Added whole-app network shaping, blackout controls, sanitized playback metrics,
+  lifecycle/cleanup tests, offline decoder fixtures and release-style benchmarks.
+- Included an app baseline profile and tests for startup, autoplay handoff,
+  cancellation, manual quality, casting, parsing, caches and recovery. The measured
+  profile comparison did **not** establish a startup speed benefit.
+- Full commit inventory, upstream decisions and release validation are recorded in
+  [the release record](docs/releases/1.8.0.md). The
+  [Spanish announcement](docs/releases/whatsapp-1.8.0.txt) and
+  [Eugenio poster](images/release_1.8.0.png) accompany the APK.
+
+### Still limited
+
+- This is not a blanket fix for every YouTube 403 or bot/account restriction.
+  Public playback can use an anonymous fallback; account-only videos and server
+  watch history may consequently remain unavailable even when feeds are signed in.
+- **SABR is not a production playback source.** Its proof code is test-only.
+  Next-video sample preloading is implemented but **disabled by default** after
+  the real-network acceptance check failed; no preload speedup is advertised.
+- Direct Cast still requires the phone on the network and does not support live
+  streams or subtitles. The latest pairing UI was checked on the Pixel, but the
+  new SmartTube receiver-priority flow still needs an end-to-end TV-code test.
+- Upstream was reviewed through SmartTube `f23438b`, MediaServiceCore `0b01a017`
+  and SharedModules `86f0327`. TV-only changes, reverted patches and incompatible
+  alternatives were not blindly merged; see the release record for exclusions.
+
 ## 1.7.0 — 2026-08-04
 
 Playlists finally behave like playlists: a real playlist page, a "Playing

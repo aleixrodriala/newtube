@@ -1,16 +1,18 @@
 # NewTube — Status
 
-**v1.3.0 (versionCode 10300), main = loop-round-3 merge (resume-gate 1500 +
-pin-rescue + ABR verification + stuck-state fixes, 2026-07-13); submodules
-unchanged since the 2026-07-12 push.** Phone-only: the TV flavors, vendored ExoPlayer fork, and
-leanback modules were deleted ("slice 2"); the engine is androidx.media3
-1.10.1 on embedded Cronet (H2/QUIC). Toolchain: AGP 8.9.3 / Gradle 8.11.1 /
-Kotlin 2.1.20 / compileSdk 36 / targetSdk 35 / minSdk 24.
+**v1.8.0 (versionCode 10800), Eugenio Edition, 2026-09-08.** Release scope,
+upstream review, validation and distribution are recorded in
+[the release record](../releases/1.8.0.md). Older dated investigations below
+remain historical evidence, not the current release verdict.
+
+Phone-only: the TV flavors, vendored ExoPlayer fork and Leanback modules were
+deleted. Playback uses Media3 1.10.1 with embedded Cronet and an OkHttp fallback.
+Toolchain: AGP 9.2.1 / Gradle 9.6.1 / compileSdk 37 / targetSdk 37 / minSdk 24.
 
 Build a phone APK:
 ```
 ANDROID_HOME=<sdk> ./gradlew :smarttubetv:assembleStmobileDebug
-# -> smarttubetv/build/outputs/apk/stmobile/debug/NewTube_<ver>_universal.apk
+# -> smarttubetv/build/outputs/renamed_apks/stmobileDebug/NewTube_<ver>_universal.apk
 ```
 
 ## Startup bandwidth, real preload, and release profiling (2026-09-08)

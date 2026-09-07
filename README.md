@@ -9,9 +9,11 @@ for **phones and tablets**: portrait-first layouts, bottom navigation, touch
 gestures, and a minimizable mini-player, instead of SmartTube's TV/D-pad
 (Leanback) UI.
 
-> ⚠️ **Status: early, active development.** The backend, player engine, and
-> account login are reused from SmartTube and work today; the touch UI is being
-> built in waves. Not yet ready for daily use. See the roadmap below.
+> **Current version: 1.8.0 — Eugenio Edition.** Actively tested on Android phones,
+> with native touch navigation, Media3 playback and TV casting. Distribution
+> currently follows the existing tester-group APK workflow, not GitHub Releases.
+> See the [changelog](CHANGELOG.md), [novedades en español](CHANGELOG.es.md) and
+> [release record](docs/releases/1.8.0.md), including known playback limitations.
 
 ---
 
@@ -37,8 +39,8 @@ upstream project: https://github.com/yuliskov/SmartTube
 
 ## Architecture & roadmap
 
-The port reuses SmartTube's MVP core (presenters, data, player engine, account
-login) and replaces only the Leanback UI with touch screens.
+The port reuses SmartTube's presenters, data and account integration, with a
+native touch UI and a Media3 player in place of the legacy TV playback stack.
 
 - [`docs/mobile-port/ARCHITECTURE.md`](docs/mobile-port/ARCHITECTURE.md) — what we
   keep vs reuse vs rebuild, and the exact seams the touch UI attaches to.
@@ -46,29 +48,34 @@ login) and replaces only the Leanback UI with touch screens.
   waves toward full feature parity on touch.
 
 **Tech choices:** Android Views + Material Components, Activity-per-screen
-navigation (reusing SmartTube's `ViewManager`), Java/Kotlin, minSdk 21.
+navigation (reusing SmartTube's `ViewManager`), Java/Kotlin, minSdk 24.
 
 ## Building
 
-Requirements: JDK 17, Android SDK (compileSdk 34, build-tools 30.0.3). Point
+Requirements: JDK 17, Android SDK 37 (minimum Android 7/API 24). Point
 `local.properties` at your SDK (`sdk.dir=...`).
 
 ```bash
 # Build the mobile (touch) debug APK
 ./gradlew :smarttubetv:assembleStmobileDebug
 
+# Signed distribution build (requires the existing private keystore.properties)
+./gradlew :smarttubetv:assembleStmobileRelease
+
 # Output (per-ABI + universal):
-#   smarttubetv/build/outputs/apk/stmobile/debug/
+#   smarttubetv/build/outputs/renamed_apks/stmobileDebug/
+#   smarttubetv/build/outputs/renamed_apks/stmobileRelease/
 ```
 
 Install the universal APK on a connected device:
 
 ```bash
-adb install -r smarttubetv/build/outputs/apk/stmobile/debug/*universal*.apk
+adb -s DEVICE_SERIAL install -r smarttubetv/build/outputs/renamed_apks/stmobileDebug/NewTube_1.8.0_universal.apk
 ```
 
-The original TV build flavors (`stbeta`, `ststable`, `stfdroid`) remain intact and
-continue to build unchanged.
+The TV flavors were removed; pre-port source is retained under `tv-legacy`.
+Without the private signing key, debug uses a separate `.debug` application ID.
+Never uninstall a daily-driver installation to work around a signing mismatch.
 
 ## Credits & third-party data
 

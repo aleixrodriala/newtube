@@ -703,6 +703,13 @@ public class Media3PlayerController implements Player.Listener {
                 mNextPreloader.cancel("seek");
             }
             mEventListener.onSeekEnd();
+            // SmartTube 6331ce5: seek completion resets the buffering watchdog. Media3 may
+            // already have emitted BUFFERING, with no further state transition until data arrives.
+            // Re-arm only an actively playing seek; paused or already-ready seeks must stay idle.
+            if (mPlayer != null && mPlayer.getPlayWhenReady()
+                    && mPlayer.getPlaybackState() == Player.STATE_BUFFERING) {
+                mEventListener.onBuffering();
+            }
         }
     }
 

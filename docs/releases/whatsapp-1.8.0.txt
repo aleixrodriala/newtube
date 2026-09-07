@@ -1,0 +1,42 @@
+🎤 NEWTUBE 1.8.0 — EDICIÓN EUGENIO
+
+Saben aquell que diu que abre un vídeo… y le da tiempo a hacerse mayor.
+
+Pues hemos estado trabajando en eso.
+En el vídeo. Lo de hacerse mayor sigue igual.
+
+⚡ MENOS ESPERA
+Las miniaturas ya no descargan un cartel de cine para enseñarte una foto pequeña. Cargamos las recomendaciones por tandas, aprovechamos las imágenes guardadas y quitamos trabajo del arranque. La calidad automática empieza según la conexión que tienes ahora, no la que tenías ayer en casa de tu primo. Después sube cuando puede. Si eliges calidad manual, la respeta.
+
+En las pruebas del Pixel con red limitada, la última mejora recortó unos 0,4–0,7 segundos hasta reproducir. No en todos los casos, y empezando con menos resolución. Milagros no hacemos. Bastante tenemos con Internet.
+
+🚇 EL TÚNEL
+Android decía que había conexión. El túnel decía que no. Ahora distinguimos una avería de red de una respuesta de YouTube, reintentamos con límites y reaccionamos al volver la conexión o cambiar de red. Si un transporte se atasca al arrancar, tenemos una alternativa mejor. Y se recuerdan temporalmente los caminos que ya fallaron, para no tropezar en cada apertura.
+
+▶️ PLAY SIGNIFICA ALGO
+Si no arranca, se ve el motivo y puedes reintentar con Play. Cambiar de vídeo cancela lo anterior; no aparecen sugerencias de una apertura fallida ni se queda un reproductor vacío a 00:00. El Inicio también tiene reintento cuando estás sin conexión.
+
+🖼️ CADA COSA EN SU SITIO
+Portadas correctas en la notificación y la pantalla de bloqueo, menos descargas repetidas, posiciones de reproducción bien conservadas y subtítulos que no desaparecen para siempre porque haya habido una pausa. Las pausas las pongo yo.
+
+📺 LA TELE, CON PREFERENCIAS
+Primero SmartTube emparejado; después Cast directo. YouTube queda para el final y avisa si puede haber anuncios. Una tele no tiene por qué salir varias veces ni perder su vinculación. Si eliges una opción concreta, se queda con esa.
+
+Un solo botón «Vincular TV», instrucciones claras y doce dígitos. En SmartTube, el código está en Ajustes → Control remoto. Con once no conecta. Es un código, no una estimación.
+
+🔧 TAMBIÉN HEMOS MIRADO A SMARTTUBE
+Revisados sus cambios de red y reproducción: incorporamos arreglos del búfer —también al adelantar o retroceder—, las peticiones, los números de los metadatos, los títulos, las listas y el historial al borrar y volver a ver un vídeo. La caché interna se guarda de forma segura si se corta una escritura, y los metadatos hacen menos trabajo repetido. Todo acompañado de nuevas pruebas y mediciones en el Pixel.
+
+🥃 LA LETRA PEQUEÑA
+YouTube todavía puede rechazar vídeos o cuentas; no prometemos curar todos los 403. Los vídeos restringidos y el historial de la cuenta pueden seguir fallando. SABR aún no está en el reproductor y la precarga del siguiente vídeo sigue apagada porque no pasó la prueba real. Cast directo sigue sin directos ni subtítulos, y la nueva prioridad de SmartTube necesita su comprobación completa con la tele. Lo que no está terminado, no lo contamos como terminado.
+
+Adjunto el APK firmado para móviles ARM64, como la vez anterior. Android 7 o superior. Instálalo encima del anterior, sin desinstalar ni borrar datos.
+
+Novedades completas:
+https://github.com/aleixrodriala/newtube/blob/main/CHANGELOG.es.md
+
+Actualicen ustedes.
+Yo espero.
+El vídeo, un poco menos.
+
+Parodia y homenaje no oficial a Eugenio.

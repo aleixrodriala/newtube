@@ -3,6 +3,120 @@
 Cambios visibles para el usuario, en español. El historial completo de
 versiones anteriores está en [CHANGELOG.md](CHANGELOG.md) (en inglés).
 
+## 1.8.0 — 08-09-2026 — Edición Eugenio
+
+*Parodia y homenaje no oficial. Novedades narradas con el humor seco de Eugenio.*
+
+Saben aquell que diu que abre un vídeo… y le da tiempo a hacerse mayor.
+Pues hemos estado trabajando en eso. En el vídeo. Lo de hacerse mayor sigue igual.
+
+Esta versión reúne los diez commits y los cambios de las dependencias desde la
+1.7.0 del 4 de agosto, más los últimos arreglos revisados para esta entrega.
+
+### El vídeo, antes que las fotos
+
+- Las miniaturas descargan una imagen del tamaño que necesitan, no un cartel de
+  cine para luego encogerlo. Las recomendaciones se cargan por tandas, con menos
+  descargas de imágenes simultáneas y un tiempo de espera adecuado para el móvil.
+- La imagen de espera aprovecha la caché y evita otra descarga a máxima resolución.
+  La interfaz y las tareas secundarias se coordinan con el arranque del vídeo.
+  Si cambias de vídeo, lo abandonado ya no puede volver a colarse en pantalla.
+- La calidad automática arranca con una estimación reciente de la conexión,
+  descarta las antiguas y sube al comprobar que hay ancho de banda. Guarda las
+  mediciones mientras reproduces y se adapta al cambiar de red. Si eliges una
+  calidad manual, la respeta. No discute. Eso también es una mejora.
+- La bajada automática de calidad tiene en cuenta el búfer elegido, para actuar
+  antes de vaciarlo. Y la preparación en segundo plano ya no empieza a competir
+  con un vídeo que acabas de abrir.
+- Las conexiones se preparan con límites y pueden volver a intentarlo tras un
+  fallo o un cambio de red. Los metadatos reutilizan el JSON ya leído: en una
+  prueba densa pasamos de 76 análisis de texto a uno. No significa que el vídeo
+  vaya 76 veces más rápido. Si fuera así, terminaría antes de pulsar Play.
+- En las pruebas del Pixel con conexión limitada, la última mejora de calidad
+  inicial recortó aproximadamente **0,4–0,7 segundos hasta empezar a reproducir**.
+  Son muestras pequeñas y se empieza con menos resolución; no es una promesa
+  para todos los vídeos, móviles o conexiones LTE.
+
+### El túnel ya no es una residencia habitual
+
+- Si Cronet se atasca al arrancar, la alternativa de transporte usa OkHttp. Las
+  llamadas tienen límites adecuados y se aprovechan las conexiones abiertas.
+- Ahora se distingue entre «YouTube ha respondido que no» y «no llega nada».
+  Android podía decir que había Internet dentro del túnel. Muy optimista, Android.
+  Los fallos de conexión siguen teniendo recuperación automática limitada.
+- El cambio a otra red válida despierta la recuperación aunque Android no avise
+  de que perdió la anterior. Un reintento cancelado no puede revivir un vídeo viejo.
+  Se cancelan las peticiones y preparaciones abandonadas al cambiar de vídeo.
+- Se recuerdan temporalmente los caminos que ya han fallado, también al reiniciar
+  la app. Un vídeo indisponible no basta para dar por rota la ruta de la cuenta.
+  La búsqueda del manifiesto de los directos evita viajes innecesarios.
+- Si falla antes de empezar, aparece el motivo y Play permite reintentar. Se
+  limpian las recomendaciones de una apertura denegada; una pantalla de reproducción
+  abierta sin vídeo vuelve a Inicio en vez de quedarse mirando el 00:00.
+- Los fallos de los metadatos no escupen errores técnicos encima del vídeo, el
+  búfer no desactiva para siempre tus subtítulos y el Inicio tiene estado sin
+  conexión y reintento. También se conservan las posiciones solicitadas válidas.
+- La notificación y la pantalla de bloqueo comparten la descarga de la portada,
+  descartan la del vídeo anterior y se actualizan cuando llega la correcta.
+  Menos trabajo repetido. Las pausas, si puede ser, las pongo yo.
+
+### Lo de la tele
+
+- La selección recomendada prefiere **SmartTube emparejado**, después **Cast
+  directo**, luego las apps guardadas sin identificar y, al final, **YouTube**.
+  Si hay que pasar al YouTube de la tele, avisa de que puede haber anuncios.
+  Si escoges una opción concreta, no te la cambia a escondidas.
+- Una tele puede conservar sus distintas apps en una sola fila sin perder el
+  emparejamiento con SmartTube. Los nombres ambiguos no mezclan dispositivos,
+  y a una vinculación antigua no se le atribuye SmartTube por intuición.
+- Hay una espera breve para encontrar opciones mejores y límites para conectar
+  y comprobar que la reproducción arrancó. Pausar, desconectar o cambiar de tele
+  cancela lo pendiente.
+- Un solo botón **Vincular TV**, indicaciones más claras en español y un diálogo
+  oscuro que explica cada app por separado. En SmartTube: **Ajustes → Control
+  remoto**. Eliges la app e introduces los doce dígitos. Con once no. Es un
+  código, no una aproximación.
+
+### También hemos mirado al vecino SmartTube
+
+- Incorporados sus arreglos del cómputo del búfer, del JSON de las peticiones y
+  de los números demasiado grandes en los metadatos. El tiempo de espera ya no
+  puede acabar siendo negativo por contar dos veces la misma pausa.
+- Al adelantar o retroceder y quedarse cargando, vuelve a activarse la vigilancia
+  del atasco. Si está pausado o ya puede reproducir, no inventa un problema.
+- Esta revisión añade la actualización de títulos sin pisar el horario de los
+  próximos estrenos, la limpieza de la caché del historial tras borrar una
+  entrada para permitir añadirla al volver a verla, y los títulos de listas
+  remotas aunque todavía no exista una lista guardada localmente.
+- La caché interna de preparación guarda juntos el contenido, la clave y sus
+  datos. Si se interrumpe una escritura, conserva la entrada válida anterior.
+  No hace falta borrar datos ni volver a configurar la cuenta para actualizar.
+- Revisados SmartTube `f23438b`, MediaServiceCore `0b01a017` y SharedModules
+  `86f0327`. Los cambios exclusivos de TV, los parches retirados y las opciones
+  incompatibles no se han copiado sin más. El detalle está en el
+  [registro de la versión](docs/releases/1.8.0.md).
+
+### Debajo del capó, y la letra pequeña
+
+- Nuevas pruebas de arranque, recuperación, portadas, listas, casting, cachés y
+  cancelaciones; herramientas que limitan toda la red de la app y simulan cortes;
+  pruebas locales de vídeo y mediciones con compilaciones de distribución.
+- Se incluye un perfil de arranque, pero su comparación no demostró una mejora
+  de velocidad. La precarga del siguiente vídeo sigue **desactivada**: la prueba
+  real no pasó. **SABR no está implementado en el reproductor de producción**;
+  el código de prueba no se vende como una función terminada.
+- No prometemos acabar con todos los 403 ni con las restricciones de YouTube.
+  La reproducción pública puede acabar sin la cuenta, aunque tus listas y
+  suscripciones sigan conectadas; los vídeos restringidos y el historial del
+  servidor pueden seguir fallando.
+- Cast directo sigue necesitando el móvil conectado y no reproduce directos ni
+  subtítulos. La nueva interfaz se comprobó en el Pixel; falta comprobar de punta
+  a punta la nueva prioridad de SmartTube con un código real de la tele.
+
+El [mensaje para WhatsApp](docs/releases/whatsapp-1.8.0.txt) y el
+[cartel de Eugenio](images/release_1.8.0.png) acompañan al APK.
+Se instala encima de la anterior. Sin desinstalar. Que las cuentas ya estaban sentadas.
+
 ## 1.7.0 — 04-08-2026
 
 Las listas de reproducción por fin se comportan como tales: página de lista
