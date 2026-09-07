@@ -383,6 +383,23 @@ public class SuggestionsController extends BasePlayerController {
         loadMetadata(video, metadata -> updateSuggestions(metadata, video));
     }
 
+    /**
+     * Stop speculative metadata work for a video that cannot be played and remove any result that
+     * won the race with the player verdict. Mobile starts {@code /next} in parallel with
+     * {@code /player}; without this explicit cancellation, a bot-check response can leave an
+     * unrelated up-next list on the denial screen and keep work alive after playback has stopped.
+     */
+    public void cancelPendingSuggestions() {
+        disposeActions();
+        mEagerVideoId = null;
+        mEagerDelivered = false;
+        mLoadedVideoId = null;
+
+        if (getPlayer() != null) {
+            getPlayer().clearSuggestions();
+        }
+    }
+
     private void loadMetadata(Video video, OnMetadata callback) {
         disposeActions();
 

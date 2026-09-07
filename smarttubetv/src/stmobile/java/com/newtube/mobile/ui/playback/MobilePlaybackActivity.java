@@ -428,6 +428,61 @@ public class MobilePlaybackActivity extends MobileActivity
             showCastOverlay();
         }
         updateCastIconTint();
+
+        finishIfNothingToPlay(savedInstanceState);
+    }
+
+    /**
+     * NEWTUBE(dead-player): this Activity can be brought up by something OTHER than a video open,
+     * and when it is, nothing downstream ever gives it a video - so it renders the full watch page
+     * parked at 00:00 with an empty title/duration, no error and no way forward. Observed on the
+     * Pixel 9 after an in-place update (2026-09-07): the install killed the process
+     * ("Force removing ActivityRecord{...MobilePlaybackActivity}: app died, no saved state") and
+     * SystemUI relaunched the component directly - {@code START u0 {cmp=.../MobilePlaybackActivity}
+     * with LAUNCH_SINGLE_TOP from uid 10244 (com.android.systemui)} - a bare Intent with no video.
+     * The process then logged nothing at all beyond auto-hide timer ticks for 19 minutes. The same
+     * shape applies to any task restore after process death.
+     *
+     * <p>The video always precedes the Activity on a real open: {@code PlaybackPresenter.openVideo}
+     * runs {@code onNewVideo} (which strongly parks the item in {@code Playlist.instance()}, so the
+     * presenter's WeakReference cannot be collected out from under us) BEFORE
+     * {@code startView(PlaybackView.class)}. So "presenter has no video" at the end of onCreate is
+     * a reliable "nobody asked for a video", not a race. A pending card morph is treated as a real
+     * open too, belt-and-braces, and a configuration recreate is exempt (it has saved state and the
+     * presenter still holds the video).
+     *
+     * <p>Deliberately at the END of onCreate rather than an early return: the Activity is fully
+     * constructed, so every later lifecycle callback stays safe on the way out. Building a player
+     * we immediately discard costs a few hundred ms on a path that only happens after an app
+     * update - far cheaper than guarding seven lifecycle methods against a half-built screen.
+     */
+    private void finishIfNothingToPlay(@Nullable Bundle savedInstanceState) {
+        if (mPresenter == null) {
+            return;
+        }
+
+        if (!shouldFinishWithoutVideo(savedInstanceState != null,
+                PlayerTransitionBridge.hasPending(), mPresenter.getVideo() != null)) {
+            return;
+        }
+
+        NetPath.log("playback-activity abort=no-video reason=bare-launch");
+
+        // Land the user on Home instead of a dead player. startDefaultView picks the stack top, or
+        // the root (Browse) when the stack is empty - which is exactly the cold-process case here.
+        getViewManager().startDefaultView();
+        finishReally();
+    }
+
+    /**
+     * Decision half of {@link #finishIfNothingToPlay}, split out so the exact conditions are
+     * unit-testable without an Activity. Bail out ONLY on a fresh launch that carries no video
+     * anywhere: saved state means a configuration recreate (the presenter still owns the video),
+     * and a pending card morph means a tap is in flight.
+     */
+    static boolean shouldFinishWithoutVideo(boolean hasSavedState, boolean hasPendingTransition,
+            boolean presenterHasVideo) {
+        return !hasSavedState && !hasPendingTransition && !presenterHasVideo;
     }
 
     @Override
@@ -5500,6 +5555,9 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     public void setVideo(Video item) {
+        if (item != null && item.videoId != null) {
+            SessionWarmup.onPlaybackRequested();
+        }
         if (mExoPlayerController != null) {
             mExoPlayerController.setVideo(item);
         }
@@ -5507,6 +5565,9 @@ public class MobilePlaybackActivity extends MobileActivity
         // Same keep-last-known-good rule as bindWatchVideo: a same-video rebind with an empty
         // title (bare error-reload Video) must not blank the controls title.
         boolean sameVideo = item != null && Helpers.equals(item.videoId, mWatchVideoId);
+        if (!sameVideo) {
+            showPlaybackNotice(null);
+        }
         if (!sameVideo || (item != null && !TextUtils.isEmpty(item.getTitleFull()))) {
             setTitle(item != null ? item.getTitleFull() : null);
         }

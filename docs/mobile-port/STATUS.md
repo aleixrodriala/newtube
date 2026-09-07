@@ -13,6 +13,96 @@ ANDROID_HOME=<sdk> ./gradlew :smarttubetv:assembleStmobileDebug
 # -> smarttubetv/build/outputs/apk/stmobile/debug/NewTube_<ver>_universal.apk
 ```
 
+## Works (added 2026-09-07 — bot check walked past, playback anonymous)
+
+The denial above was three problems, not one. Authenticated TVHTML5 answers
+`UNPLAYABLE` "reload page" for every video (yt-dlp #17389); the anonymous
+partition is separately challenged on the carrier CGNAT; and our circuit
+breaker aborted the client walk at attempt 3 of 10, then blocked every video
+for 15 minutes.
+
+The ring now keeps walking past a challenge while a later client neither needs
+a web PO token nor is skipped, and only raises the verdict if it genuinely runs
+out — with one probe per minute so a cleared challenge is noticed early. Two
+authenticated heads returning `UNPLAYABLE` with no media of any kind quarantine
+that route after two hits on different videos; `VISIONOS` leads the signed-in
+fallback from then on. Five videos at shipping defaults: 0 bot checks, 0 load
+errors, 0 403s, 70 clean media loads, first frame 2221 → 822 ms as three
+`/player` round trips became one.
+
+Two paths were measured and rejected, and are documented at their flags rather
+than deleted. A player PO token for `ANDROID_VR` does not prevent its deep-range
+403 (both A/B arms died at the same wall). Putting the account on `WEB_EMBED`,
+yt-dlp's signed-in head, returns HTTP 400 "Request contains an invalid
+argument." every time — InnerTube will not take a TV device-flow bearer on a
+web client.
+
+**Open:** every winning line reads `auth=n`. Playback is anonymous, which costs
+age-restricted/members-only videos and server-side history; the fix is a
+different credential, not a different client. 244 focused tests pass. Detail
+and measurements: [`HANDOFF.md` §17](HANDOFF.md).
+
+## Playback denial and scheduling follow-up (2026-09-07)
+
+Captured an explicit YouTube LOGIN_REQUIRED/bot-check result before media
+preparation on Rusowsky. The owner reports normal playback in YouTube itself.
+The server denial remains unresolved; this is separate from the earlier media
+transport delay.
+
+Pending session warmup now yields to a selected video, with atomic scheduling
+and a post-delay check. Idle-browse warming remains available for cache refresh.
+Obsolete queued MPD builds are skipped before work, and late source publication
+cannot undo reset/release cleanup. An eager `/next` request is now cancelled and
+its rendered result cleared when `/player` reports a bot check. The three
+profiles in the captured walk were internally consistent and match current
+upstream definitions, so no profile or auth-header values were changed. No
+external-player flow was added. The debug APK and 87 focused tests pass.
+Evidence and validation: [`BOT-CHECK-2026-09-07.md`](BOT-CHECK-2026-09-07.md).
+
+A controlled replay at 12:27 reproduced the denial in 2.55 seconds and never
+reached media preparation. Suggestions cancellation worked, but QA found that
+portrait hid the server reason in its unused overlay-title field. Unplayable
+reasons now use the persistent playback notice and clear only on a different
+video or a playable result. The rebuilt candidate was installed at 12:35:32;
+there was no post-install replay.
+
+## Works (added 2026-09-07 — startup transport follow-up)
+
+Cronet remains the primary media transport with QUIC enabled. Its fallback is
+now the official Media3 OkHttp adapter: on the Pixel, successful initialization
+requests took 121–366 ms through standard OkHttp versus 8185–8292 ms through
+the old regular HTTP fallback. Both Cronet and OkHttp still encountered the
+existing initial media 403 pattern; this change does not claim to fix it.
+
+Preconnect no longer suppresses a host indefinitely after one attempt. Success
+expires after 60 seconds, failures retry after five seconds, and a different
+default network invalidates stale warming. Active work and remembered hosts
+are bounded. All 38 focused tests pass. Measurements, comparison limits and
+live recovery verification:
+[`STARTUP-TRANSPORT-2026-09-07.md`](STARTUP-TRANSPORT-2026-09-07.md).
+
+## Works (added 2026-09-07 — Pixel pass and default-network recovery)
+
+Live Pixel QA covered four Tiny Desk sessions plus an autoplay video, deep
+seeks, related switches, and PiP. Milo J reproduced a media HTTP 403 on both
+the installed 1.6.1 baseline and the 1.7.0 candidate; existing automatic
+recovery rendered a frame in about 2.7–2.9 s overall. The rejection remains
+reproducible. Client identity and token settings were unchanged.
+
+Fixed a separate capped-player recovery gap: a validated replacement default
+network can arrive without `onLost(old)`. The callback now recognizes that
+handover, waits for validation, and retries once. Healthy registration replay
+does not retry, and cancelled callbacks cannot reload a later episode.
+Twelve callback regression tests pass, including an isolated failing test with
+the handover detection removed. Six media load-policy tests pass, including a
+local socket reproduction of a ranged HTTP 403.
+
+The final candidate also recovered automatically after a 150-second computer
+emulator blackout; first frame arrived about 4.5 s after recorded restoration.
+This is one observation, not a worst-case latency bound. Full video timings,
+build verification, and test limitations:
+[`LIVE-PASS-2026-09-07.md`](LIVE-PASS-2026-09-07.md).
+
 ## Works (added 2026-08-06 — netshape round: a real bad-link rig, and what it found)
 The previous round's fixes were reasoned about but never measured under
 contention, because nothing on the bench could shape the WHOLE app. This round

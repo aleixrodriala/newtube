@@ -161,6 +161,29 @@ public class MobileMainApplication extends MainApplication {
         // memory-constrained and keep the historical dispose-every-time behaviour.
         VideoInfoService.setKeepSigRuntimeAlive(true);
 
+        // PLAYER PO TOKEN (mobile-only): stays OPT-IN. yt-dlp's `not_required_with_player_token`
+        // is set for android_vr on all three GVS protocols, so attesting the /player request
+        // should make the media URLs it returns stop needing a token. MEASURED ON THE PIXEL 9,
+        // 2026-09-07 13:14-13:15, one video per arm with debug.arc.player_client=ANDROID_VR: it
+        // does not. Both arms played, then died on the same deep-range 403 about nine seconds in
+        //   pot off (playerPot=n, L_jWHffIx5E): first-frame +924,  load[E-http] code=403 at
+        //                                       req=854906+158684
+        //   pot on  (playerPot=y, fJ9rUzIMcZQ): first-frame +1395, load[E-http] code=403 at
+        //                                       req=991541+181034
+        // which is exactly the wall yt-dlp recorded on 2026-08-17 ("ALL formats ... are 403'd
+        // with version 1.65.10", commit dae52d8) before dropping the client. Attesting does not
+        // buy it back, so paying a BotGuard mint for it is cost without benefit.
+        //
+        // We no longer need to rescue that client anyway: VISIONOS now leads the fallback (see
+        // VideoInfoService's token-free injection) and served 140 media loads across two sessions
+        // in the same round with zero errors and zero 403s. ANDROID_VR is a late fallback again,
+        // not the route. Keep the flag for re-measuring if YouTube's enforcement moves.
+        //
+        // What DID have to change is correctness, and that is not gated on this flag:
+        // PoTokenGate now separates the /player request body from googlevideo media URLs, so a
+        // Web-minted token can never be appended to a non-Web client's media URLs.
+        // Re-measure with: adb shell setprop debug.arc.player_pot 1 (then force-stop).
+
         // 403 PLAYGROUND (debug builds only): force one /player client and disable the fallback
         // ring so client/token behavior is independently measurable on the connected device.
         // Re-read on process start; device-soak.sh sets the property then force-stops the app.
@@ -187,12 +210,41 @@ public class MobileMainApplication extends MainApplication {
                 android.util.Log.w("NetPath", "sig-runtime keep-alive disabled (debug)");
             }
 
-            // PLAYER-POT PLAYGROUND: "1" gives ANDROID_VR a PO token in its /player request, so the
-            // media URLs it returns stop needing one. Opt-IN, unlike the two above: it trades that
-            // client's cheapness for protection against an enforcement we have not observed here.
+            // PLAYER-POT PLAYGROUND: "1" attests ANDROID_VR's /player request. Opt-IN, because
+            // the 2026-09-07 A/B showed it does not prevent that client's deep-range 403 -- see
+            // the measured numbers at the setPlayerPotEnabled site above.
             if ("1".equals(getDebugSystemProperty("debug.arc.player_pot"))) {
                 VideoInfoService.setPlayerPotEnabled(true);
                 android.util.Log.w("NetPath", "player PO token enabled for ANDROID_VR (debug)");
+            }
+
+            // WEB-AUTH PLAYGROUND: "1" lets WEB_EMBED carry the account on /player, and leads the
+            // fallback walk with it -- yt-dlp's signed-in head since 2026-08-18 (commit 5d5b634).
+            // MEASURED 2026-09-07 ON THE PIXEL 9 -- IT DOES NOT WORK. Keep it off.
+            //
+            // The motivation was real: every authenticated TVHTML5 request currently answers
+            // "reload page", so the phone is served anonymously (`client=VISIONOS ... auth=n` on
+            // every winning line of that round), which silently costs age-restricted/members-only
+            // videos and server-side history. But YouTube rejects our credential on this client
+            // outright -- three opens, three identical failures:
+            //   player-http[C] rid=8 code=400 ... clen=141
+            //   player-http[E] rid=8 code=400 body={"error":{"code":400,
+            //       "message":"Request contains an invalid argument.", ... "reason":"badRequest"}}
+            // Not 401, not "ignored and served anonymously" -- a hard 400 before any playability
+            // verdict. Note the SAME string is already sitting above WEB_CREATOR in AppClient:
+            // upstream met this years ago. InnerTube will not take an OAuth bearer on a web
+            // client; yt-dlp's web_embedded head works because it sends cookie-derived
+            // SAPISIDHASH, and yt-dlp removed OAuth support entirely (_base.py `_perform_login`).
+            // Restoring authenticated playback needs a different credential, not a different
+            // client, so that is the thread to pull next -- not this flag.
+            //
+            // Left in place because it is cheap and self-correcting: when on, WEB_EMBED leads,
+            // burns one round trip on the 400 and falls through to VISIONOS, which still plays
+            // (verified). Re-run it if YouTube's auth handling changes. The verdict signal is
+            // srvAuth= on the player-result line, NOT auth= (that is only what we sent).
+            if ("1".equals(getDebugSystemProperty("debug.arc.web_auth"))) {
+                VideoInfoService.setWebEmbedAuthEnabled(true);
+                android.util.Log.w("NetPath", "WEB_EMBED account auth enabled (debug)");
             }
 
             // ...and for the cold-open arm of the eager watch-page fetch ("0" = the fetch waits

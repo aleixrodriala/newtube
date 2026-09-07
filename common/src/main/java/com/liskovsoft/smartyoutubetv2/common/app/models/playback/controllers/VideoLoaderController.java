@@ -344,6 +344,12 @@ public class VideoLoaderController extends BasePlayerController {
             MessageHelpers.showMessage(getContext(), formatInfo.getPaidContentText());
         }
 
+        if (!formatInfo.isUnplayable()) {
+            // Clear a persistent mobile error only after /player has produced a usable result.
+            // Same-video retries keep the previous reason visible while the retry is in flight.
+            player.showPlaybackNotice(null);
+        }
+
         if (formatInfo.isUnplayable()) {
             if (isEmbedPlayer()) {
                 player.finish();
@@ -351,6 +357,10 @@ public class VideoLoaderController extends BasePlayerController {
             }
 
             player.setTitle(formatInfo.getPlayabilityReason());
+            // The touch portrait layout hides the legacy overlay title because the normal
+            // video title already appears below the player. Put errors in its dedicated,
+            // persistent notice so a zero-duration denial cannot look like a frozen player.
+            player.showPlaybackNotice(formatInfo.getPlayabilityReason());
             player.showProgressBar(false);
             bgImageUrl = getVideo().getBackgroundUrl();
 
@@ -360,7 +370,10 @@ public class VideoLoaderController extends BasePlayerController {
                 // A bot-check is a session/IP throttle, not a bad video. Loading suggestions and
                 // auto-advancing turns one rejection into a tight /player + /next request loop and
                 // extends the restriction. Leave recovery to an explicit retry or sign-in.
-                android.util.Log.w("NetPath", "bot-check autoplay=n suggestions=n");
+                // Mobile may already have started its eager /next in parallel with /player, so
+                // cancel and clear it as well as declining to launch another request here.
+                mSuggestionsController.cancelPendingSuggestions();
+                android.util.Log.w("NetPath", "bot-check autoplay=n suggestions=cancelled");
             } else {
                 mSuggestionsController.loadSuggestions(getVideo());
                 // 18+ video or the video is hidden/removed

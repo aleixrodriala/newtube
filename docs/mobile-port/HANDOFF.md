@@ -597,3 +597,180 @@ Facts that make it work, each of which cost time to establish:
   reached far less often, but on a link that is slow rather than dead it is
   still the single most expensive entry in the ring.
 - Everything in §12's "still open" list remains open; none of it was revisited.
+
+## 14. Pixel pass and default-network callback recovery (2026-09-07)
+
+See [`LIVE-PASS-2026-09-07.md`](LIVE-PASS-2026-09-07.md) for the baseline,
+candidate checks, local HTTP failure reproduction, and 150-second emulator
+outage result. A spontaneous Milo J media 403 remains reproducible and was
+automatically recovered on the Pixel. No new client profiles were added.
+
+`ErrorFixerController` now uses `DefaultNetworkRecoveryCallback`: Android's
+default-network handover can omit `onLost(old)`, so the callback tracks the
+replacement identity and waits for its validated capabilities. A replay of
+the same healthy default at registration must remain quiet. Each registration
+owns its posted retry and cancellation token; unregistering alone cannot stop
+an in-flight callback from posting into a later capped episode. The 12 tests
+cover these event sequences without changing the physical phone's radio.
+
+The same-network silent-outage case still uses the bounded retry ladder. This
+change does not add liveness polling or reduce its maximum 300-second spacing.
+
+## 15. Startup transport comparison and fallback (2026-09-07)
+
+See [`STARTUP-TRANSPORT-2026-09-07.md`](STARTUP-TRANSPORT-2026-09-07.md).
+The old DefaultHttpDataSource fallback took about 8.2 seconds for every small
+init range in a three-video Pixel sample. Stock OkHttp took 121–366 ms for the
+same initialization ranges. Cronet remains primary with QUIC enabled; OkHttp
+now serves the existing startup-timeout cooldown and missing-engine path.
+Neither transport eliminated the existing initial media 403. The native
+4.4-second delay seen earlier was not reproduced, so do not claim it is fixed.
+
+MediaHttpClient shares the app pool for default-network eviction and retains
+proxy routing/authentication, but uses stock TLS and excludes API interceptors,
+cookies and origin authentication. Its whole-call deadline is zero for long
+streams; read/write inactivity is four seconds, connection timeout eight.
+Media3 owns ranges and headers; the existing cache remains above the transport.
+
+MediaHostPreconnect now uses PreconnectGate: 60-second positive freshness,
+five-second failure cooldown, current-network invalidation, two active jobs,
+four remembered hosts, eight-second deadline and stale-completion protection.
+This repair and Cronet metrics touch submodules currently on master. Do not
+commit them or switch branches without resolving the main-only workflow.
+
+Debug comparison properties are media_cache, media_transport and cronet_quic
+under debug.arc. QUIC requires process restart; cache bypass preserves data.
+Always clear comparison and one-shot timeout properties and restart before
+handing the phone back. Negotiated protocol `unknown` is not proof of H2/H3.
+OkHttp `result=ok` means transport completion; inspect HTTP status for 403.
+
+## 16. Explicit playback denial and queued work (2026-09-07)
+
+[`BOT-CHECK-2026-09-07.md`](BOT-CHECK-2026-09-07.md) records the preserved Pixel
+screen and HTTP200/LOGIN_REQUIRED response for Rusowsky. No media preparation
+occurred. The owner confirmed the video plays in the official YouTube app;
+that does not establish the cause of NewTube's denial. The existing challenge
+cooldown stays intact. No fingerprint/client-identity changes or external-player
+flow were added.
+
+The captured walk already covered `TV_DOWNGRADED`, `TV` and `VISIONOS`.
+Both TV requests carried OAuth auth; all three body/header identity tuples match
+the current upstream client declarations. There is no evidenced profile
+constant to change. The eager `/next` request had started before the denial and
+could still populate the failed watch page; the bot-check branch now disposes
+that work and clears any delivered suggestions. This is request suppression and
+UI cleanup, not a claim that the upstream playability result is fixed.
+
+SessionWarmup now yields pending speculative jobs when the playback view
+receives a video. Historical first_setup_done remains a hint, not an extractor
+freshness guarantee: idle-browse warming is retained. Atomic claims prevent
+duplicate feed/fallback scheduling and the post-delay check catches a real
+selection during the delay. Already-running warmup is not forcibly interrupted.
+
+SourceBuildGeneration skips stale queued source builders and checks delivery.
+Its short publication lock coordinates with reset/release cleanup; keep lock
+order generation then stash, and never hold the generation lock for XML work.
+Completed matching source stashes must still survive the target video's reset.
+
+The profile-audit debug APK was installed in place on the Pixel at 12:21:28 without
+launching it or replaying the challenged video. Build plus 87 focused tests
+passed; see the incident document for the exact command and private log path.
+
+The owner then requested one controlled replay. At 12:27 the same Rusowsky open
+again ended before media: two authenticated TV profiles returned `UNPLAYABLE`,
+then `WEB_EMBED` returned the explicit Spanish bot check. Tap-to-info was
+2.55 seconds. The eager suggestions cancellation ran, but the portrait UI hid
+the reason because `setTitle` targets an overlay title suppressed in portrait.
+The unplayable branch now also uses `showPlaybackNotice`; a playable result or
+different video clears it. The rebuilt APK was installed at 12:35:32 with a
+matching hash and inactive debug overrides. It was not launched or replayed
+again. Evidence is under `replay-qa-20260907-122553`; raw logcat is private.
+
+## 17. Walking past the bot check (2026-09-07, Pixel 9)
+
+The denial in §16 turned out to be three independent problems, and only the
+third was ours. Read this section before touching `VideoInfoService`'s ring.
+
+**One: authenticated TVHTML5 is broken server-side.** Every signed-in `TV` and
+`TV_DOWNGRADED` request answers HTTP 200 / `UNPLAYABLE` with "Es necesario
+volver a cargar la página." on every video, not just Rusowsky. yt-dlp tracks
+the same breakage (issue #17389; its own tv client moved behind
+`tv_downgraded` in commit 5d5b634). Nothing on our side fixes it.
+
+**Two: the anonymous partition is challenged on that network.** The bot check
+arrives on the web-family clients, on a carrier CGNAT (`net=cell:333`), for
+any video. It is a guest-session throttle, not a per-video verdict.
+
+**Three, ours: the circuit breaker aborted the walk.** A challenge at attempt
+3 of 10 raised the verdict immediately, so the ring never reached a client
+that does not answer from the challenged web identity — and then suppressed
+every video for 15 minutes. Two working clients sat unvisited behind a wall we
+built ourselves.
+
+### What changed
+
+`BotCheckWalkState` holds the verdict instead of throwing it. A challenge is
+recorded, and the walk continues while `hasUnchallengedClientAfter` finds a
+later client that neither requires a web PO token nor is skipped. The verdict
+is only raised if the ring genuinely ran out; `getActiveBotCheckResult` now
+requires `mBotCheckRingExhausted` and lets one probe through per
+`BOT_CHECK_PROBE_INTERVAL_MS` (60s), so a cleared challenge is noticed without
+waiting out the window.
+
+Two authenticated heads answering `UNPLAYABLE` with **zero** adaptive, regular,
+DASH, HLS and SABR entries is a structural signal — `isAuthRouteReloadVerdict`
+does not read the message text. Two such hits on *different* videoIds
+(`AUTH_RELOAD_QUARANTINE_MIN_HITS`) quarantine the route; `BotCheckDetector.
+isReloadPageVerdict` exists for the log line only, and routing must never
+start depending on it. `VISIONOS` is injected ahead of the web-PO-token
+clients in the signed-in fallback, so a quarantined open goes straight there.
+
+Measured, five videos at shipping defaults: 0 bot checks, 0 load errors,
+0 403s, 70 clean media loads. The quarantine arms on video 2
+(`quarantine-auth-route reason=no-media-verdict quarantined=1/2` then `2/2`)
+and time to first frame goes 2221 → 1060 → 822 ms as three `/player` round
+trips collapse into one. `VISIONOS` served 140 media loads across two sessions
+with zero errors.
+
+### Two paths measured and rejected — do not re-litigate without new evidence
+
+**A player PO token for `ANDROID_VR` does not prevent its 403.** yt-dlp marks
+the client `not_required_with_player_token` on all three GVS protocols, so
+attesting the request should make its media URLs stop needing a token. Both
+arms reached first frame and both died on the same deep-range
+`load[E-http] code=403` about nine seconds in: pot off at `req=854906+158684`,
+pot on at `req=991541+181034`. That is the wall yt-dlp recorded on 2026-08-17
+before dropping the client (commit dae52d8). Off behind
+`debug.arc.player_pot`; the measured numbers are at the `setPlayerPotEnabled`
+call site.
+
+The correctness half of that work is **not** gated on the flag:
+`PoTokenGate.getPoToken` used to feed both the `/player` body and three
+media-URL call sites through one branch, so a Web-minted token could reach a
+non-Web client's media URLs. `getPlayerRequestPoToken` is now the only site
+allowed to attest a non-Web `/player` body, with the decision table extracted
+to `PoTokenSelection` so it is testable without a WebView.
+
+**The account cannot ride `WEB_EMBED`.** yt-dlp's default signed-in head
+returns HTTP 400 `{"message":"Request contains an invalid argument.",
+"reason":"badRequest"}` for us — three opens, three identical failures, before
+any playability verdict. The same string already annotates `WEB_CREATOR` in
+`AppClient`: upstream met this years ago. yt-dlp gets away with it because it
+sends cookie-derived SAPISIDHASH; it removed OAuth support entirely. InnerTube
+will not take a TV device-flow bearer on a web client. Off behind
+`debug.arc.web_auth`.
+
+To read that 400 at all, `RetrofitOkHttpHelper` had to decode error bodies:
+the logging interceptor sits above the brotli decoder, so every failed
+`/player` printed as mojibake. Decoded by reflection, since `okhttp-brotli` is
+`implementation`-scoped in another module.
+
+### The open thread
+
+Every winning line now reads `auth=n`. Playback works and it is anonymous,
+which silently costs age-restricted and members-only videos and server-side
+watch history. P3 established that this is a **credential** problem, not a
+client-ordering one — the next move is a different credential, not another
+client. `VideoInfo.isServerLoggedIn()` (logged as `srvAuth=`) exists to tell
+whether the server considered a request signed in; it reads `?` throughout
+this round and is still unvalidated against a known-positive case.
