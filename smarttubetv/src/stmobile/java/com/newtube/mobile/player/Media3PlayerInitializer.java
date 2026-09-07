@@ -3,14 +3,17 @@ package com.newtube.mobile.player;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.analytics.PlayerId;
+import androidx.media3.exoplayer.source.preload.DefaultPreloadManager;
 import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
-import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
+import androidx.media3.exoplayer.upstream.BandwidthMeter;
 
 import com.liskovsoft.sharedutils.helpers.DeviceHelpers;
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
@@ -81,6 +84,8 @@ public class Media3PlayerInitializer {
 
     private final Context mContext;
     private final int mMaxBufferBytes;
+    @Nullable private DefaultPreloadManager.Builder mPreloadManagerBuilder;
+    @Nullable private DefaultTrackSelector mPreloadTrackSelector;
 
     public Media3PlayerInitializer(Context context) {
         mContext = context.getApplicationContext();
@@ -230,6 +235,9 @@ public class Media3PlayerInitializer {
                         startAfterRebufferMs)
                 .setBackBuffer(BACK_BUFFER_MS, /* retainBackBufferFromKeyframe= */ true)
                 .setTargetBufferBytes(targetBufferBytes)
+                // Separate from the foreground budget. The sample target is only two seconds;
+                // this is its allocation backstop (an in-flight segment can finish above it).
+                .setPlayerTargetBufferBytes(PlayerId.PRELOAD.name, 4 * MB)
                 // The byte cap above is a memory BACKSTOP only: without this flag the loader stops
                 // at the byte target even below the preset's min (on 2-3GB devices the RAM clamp
                 // binds before the time target -> shorter real buffer -> more rebuffers). With it,
@@ -238,8 +246,19 @@ public class Media3PlayerInitializer {
                 .build();
     }
 
-    public ExoPlayer createPlayer(DefaultTrackSelector trackSelector, DefaultBandwidthMeter bandwidthMeter) {
+    public ExoPlayer createPlayer(DefaultTrackSelector trackSelector, BandwidthMeter bandwidthMeter) {
+        boolean enablePreloading = (com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG
+                || com.liskovsoft.smartyoutubetv2.tv.BuildConfig.BENCHMARK)
+                && "1".equals(DebugMediaShaper.prop("debug.arc.next_media_preload"));
+        return createPlayer(trackSelector, bandwidthMeter, enablePreloading);
+    }
+
+    /** The debug-only offline fixture opts in explicitly without altering any global property. */
+    ExoPlayer createPlayer(DefaultTrackSelector trackSelector, BandwidthMeter bandwidthMeter,
+            boolean enablePreloading) {
         DefaultLoadControl loadControl = createLoadControl();
+        mPreloadManagerBuilder = null;
+        mPreloadTrackSelector = null;
 
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(mContext)
                 // A blacklisted/failed primary decoder falls back to another instead of erroring
@@ -256,17 +275,55 @@ public class Media3PlayerInitializer {
         NetPath.log("player-scheduling dynamic=" + (dynamicScheduling ? "y" : "n")
                 + " video-deadlines=" + (dynamicScheduling ? "y" : "n"));
 
-        ExoPlayer player = new ExoPlayer.Builder(mContext)
+        ExoPlayer.Builder playerBuilder = new ExoPlayer.Builder(mContext)
                 .setRenderersFactory(renderersFactory)
                 .setTrackSelector(trackSelector)
                 .setLoadControl(loadControl)
                 .setBandwidthMeter(bandwidthMeter)
-                .experimentalSetDynamicSchedulingEnabled(dynamicScheduling)
-                .build();
+                .experimentalSetDynamicSchedulingEnabled(dynamicScheduling);
+        if (!enablePreloading) {
+            // A disabled prototype must not add a second selector or manager builder to TTFF.
+            ExoPlayer player = playerBuilder.build();
+            setupAudio(player);
+            return player;
+        }
+
+        // A loaded PreloadMediaSource can transfer its sample queues only on the SAME playback
+        // looper and allocator. Build both owners from one builder, while keeping their mutable
+        // selectors independent: the first factory request creates foreground, the second preload.
+        mPreloadTrackSelector = createTrackSelector();
+        DefaultTrackSelector preloadTrackSelector = mPreloadTrackSelector;
+        boolean[] foregroundSelectorReturned = {false};
+        mPreloadManagerBuilder = new DefaultPreloadManager.Builder(mContext,
+                rank -> DefaultPreloadManager.PreloadStatus.specifiedRangeLoaded(
+                        0, Media3NextPreloader.TARGET_DURATION_MS))
+                .setRenderersFactory(renderersFactory)
+                .setTrackSelectorFactory(context -> {
+                    if (!foregroundSelectorReturned[0]) {
+                        foregroundSelectorReturned[0] = true;
+                        return trackSelector;
+                    }
+                    return preloadTrackSelector;
+                })
+                .setLoadControl(loadControl)
+                .setBandwidthMeter(bandwidthMeter);
+        ExoPlayer player = mPreloadManagerBuilder.buildExoPlayer(playerBuilder);
 
         setupAudio(player);
 
         return player;
+    }
+
+    /** Valid after createPlayer; the controller owns and releases the built manager. */
+    @Nullable
+    public DefaultPreloadManager.Builder getPreloadManagerBuilder() {
+        return mPreloadManagerBuilder;
+    }
+
+    /** Independent mutable parameters, using the same adaptive-selection factory as foreground. */
+    @Nullable
+    public DefaultTrackSelector getPreloadTrackSelector() {
+        return mPreloadTrackSelector;
     }
 
     private void setupAudio(ExoPlayer player) {

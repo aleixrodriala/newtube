@@ -30,6 +30,7 @@ import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.source.MergingMediaSource;
 import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
+import androidx.media3.exoplayer.upstream.BandwidthMeter;
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy;
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy;
 import androidx.media3.common.util.NetworkTypeObserver;
@@ -88,6 +89,7 @@ public class Media3SourceFactory {
 
     /** Fake base for side-loaded manifests; segment URLs inside the MPD are absolute. */
     private static final Uri GENERATED_MANIFEST_URI = Uri.parse("https://youtube.com/generated.mpd");
+    private static final AtomicLong GENERATED_SOURCE_IDS = new AtomicLong();
 
     /**
      * media3's default gives a segment 3 tries before erroring the whole source; googlevideo
@@ -157,6 +159,7 @@ public class Media3SourceFactory {
     /** Read once as a migration source for installs that predate per-network seeds. */
     private static final String KEY_BITRATE_ESTIMATE = "bw_estimate_bps";
     private static final String KEY_BITRATE_ESTIMATE_PREFIX = "bw_estimate_bps_net_";
+    private static final String KEY_BITRATE_TIME_PREFIX = "bw_estimate_time_net_";
     private static final long MIN_PERSISTED_BITRATE = 100_000;      // 100 kbps
     private static final long MAX_PERSISTED_BITRATE = 50_000_000;   // 50 Mbps
     private static final int[] SEEDED_NETWORK_TYPES = {
@@ -172,9 +175,11 @@ public class Media3SourceFactory {
     };
 
     /** Process-wide meter (replaces {@code DefaultBandwidthMeter.getSingletonInstance}), seeded once. */
-    private static DefaultBandwidthMeter sBandwidthMeter;
+    private static StartupBandwidthMeter sBandwidthMeter;
+    private static long sLastEstimateSaveMs;
+    private static int sLastEstimateNetwork = C.NETWORK_TYPE_UNKNOWN;
 
-    private static synchronized DefaultBandwidthMeter getOrCreateBandwidthMeter(Context context) {
+    private static synchronized StartupBandwidthMeter getOrCreateBandwidthMeter(Context context) {
         if (sBandwidthMeter == null) {
             DefaultBandwidthMeter.Builder builder = new DefaultBandwidthMeter.Builder(context)
                     .setResetOnNetworkTypeChange(true);
@@ -204,28 +209,42 @@ public class Media3SourceFactory {
                     }
                 }
             }
-            sBandwidthMeter = builder.build();
+            // Existing installs have no measurement timestamp: an old fast-network hint must
+            // not select a large first chunk on today's weak link. Fresh transfers can raise
+            // quality immediately; this does not constrain the user's explicit track choice.
+            boolean startupPolicy = !(BuildConfig.DEBUG || BuildConfig.BENCHMARK)
+                    || !"off".equals(DebugMediaShaper.prop("debug.arc.startup_abr"));
+            sBandwidthMeter = new StartupBandwidthMeter(builder.build(),
+                    type -> StartupBandwidthMeter.seedFor(
+                            preferences.getLong(bitrateKey(type), 0),
+                            preferences.getLong(KEY_BITRATE_TIME_PREFIX + type, 0),
+                            System.currentTimeMillis()),
+                    (type, bitrate) -> saveMeasuredEstimate(context, type, bitrate), currentType,
+                    startupPolicy, androidx.media3.common.util.Clock.DEFAULT);
+            android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+            NetworkTypeObserver.getInstance(context).register(
+                    sBandwidthMeter::onNetworkTypeChanged, mainHandler::post);
             NetPath.log(NetPath.context() + " abr-init network=" + networkTypeName(currentType)
-                    + " seed=" + (currentSeed > 0 ? currentSeed : "default")
+                    + " seed=" + sBandwidthMeter.getBitrateEstimate()
+                    + " storedSeed=" + (currentSeed > 0 ? currentSeed : "default")
+                    + " bootstrap=" + (startupPolicy ? "fresh" : "legacy")
                     + " storedTypes=" + seededTypes);
         }
         return sBandwidthMeter;
     }
 
-    /** Persist the current estimate (cheap, async apply); called on player teardown. */
-    void persistBandwidthEstimate() {
-        DefaultBandwidthMeter meter = mBandwidthMeter;
-        if (meter == null) {
-            return;
-        }
-        long estimate = meter.getBitrateEstimate();
-        int networkType = currentNetworkType(mContext);
-        if (isPersistableNetworkType(networkType) && isValidBitrate(estimate)) {
-            mContext.getSharedPreferences(NETWORK_PREFS_NAME, Context.MODE_PRIVATE)
-                    .edit().putLong(bitrateKey(networkType), estimate).apply();
-            NetPath.log(NetPath.context() + " abr-persist network=" + networkTypeName(networkType)
-                    + " estimate=" + estimate);
-        }
+    // Persist real samples during playback: process death/force-stop need not run teardown.
+    private static synchronized void saveMeasuredEstimate(Context context, int networkType, long estimate) {
+        if (!isPersistableNetworkType(networkType) || !isValidBitrate(estimate)) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (networkType == sLastEstimateNetwork && now - sLastEstimateSaveMs < 5_000) return;
+        sLastEstimateSaveMs = now;
+        sLastEstimateNetwork = networkType;
+        context.getSharedPreferences(NETWORK_PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putLong(bitrateKey(networkType), estimate)
+                .putLong(KEY_BITRATE_TIME_PREFIX + networkType, System.currentTimeMillis()).apply();
+        NetPath.log(NetPath.context() + " abr-persist network=" + networkTypeName(networkType)
+                + " estimate=" + estimate + " measured=y");
     }
 
     private static boolean isValidBitrate(long bitrate) {
@@ -306,7 +325,7 @@ public class Media3SourceFactory {
     }
 
     private final Context mContext;
-    private final DefaultBandwidthMeter mBandwidthMeter;
+    private final StartupBandwidthMeter mBandwidthMeter;
     private final DataSource.Factory mHttpDataSourceFactory;
     private final DataSource.Factory mCachedDataSourceFactory;
     private final boolean mCronetAvailable;
@@ -378,7 +397,8 @@ public class Media3SourceFactory {
                 ? new ResolvingDataSource.Factory(leafFactory, Media3SourceFactory::mirrorRangeIntoQuery)
                 : leafFactory;
 
-        boolean bypassCache = BuildConfig.DEBUG && "off".equals(DebugMediaShaper.prop("debug.arc.media_cache"));
+        boolean bypassCache = (BuildConfig.DEBUG || BuildConfig.BENCHMARK)
+                && "off".equals(DebugMediaShaper.prop("debug.arc.media_cache"));
         if (bypassCache) {
             NetPath.log("media-cache bypass=debug");
         }
@@ -465,7 +485,7 @@ public class Media3SourceFactory {
                 mCronetAvailable ? this::markCronetStartupTimeout : null);
     }
 
-    public DefaultBandwidthMeter getBandwidthMeter() {
+    public BandwidthMeter getBandwidthMeter() {
         return mBandwidthMeter;
     }
 
@@ -527,6 +547,10 @@ public class Media3SourceFactory {
                         /* manifestDataSourceFactory= */ null)
                 .setLoadErrorHandlingPolicy(newLoadErrorPolicy())
                 .createMediaSource(manifest, new MediaItem.Builder()
+                        // Every generated MPD shares a fake base URI. Preload callbacks/ownership
+                        // need a unique in-process source identity, including A -> B -> A opens.
+                        // This ID is local metadata only; it never changes an HTTP request.
+                        .setMediaId("generated-source-" + GENERATED_SOURCE_IDS.incrementAndGet())
                         .setUri(GENERATED_MANIFEST_URI)
                         .setMimeType(MimeTypes.APPLICATION_MPD)
                         .build());

@@ -40,6 +40,7 @@ public class VideoLoaderController extends BasePlayerController {
     private ErrorFixerController mErrorFixerController;
     private long mSleepTimerStartMs;
     private Disposable mFormatInfoAction;
+    private long mPlaybackGeneration;
     private final PreMediaRetryGate mPreMediaRetry = new PreMediaRetryGate();
     private final Runnable mReloadVideo = () -> {
         Video video = getVideo();
@@ -118,6 +119,7 @@ public class VideoLoaderController extends BasePlayerController {
 
     @Override
     public void onEngineReleased() {
+        mPlaybackGeneration++;
         mPreMediaRetry.clear();
         disposeActions();
     }
@@ -273,6 +275,7 @@ public class VideoLoaderController extends BasePlayerController {
      */
     private void loadVideo(Video item) {
         if (getPlayer() != null && item != null) {
+            mPlaybackGeneration++;
             NetPath.logOpen(item.videoId, item.getTitle()); // NetPath milestone 1: open requested
             mPlaylist.setCurrent(item);
             getPlayer().setVideo(item);
@@ -785,7 +788,8 @@ public class VideoLoaderController extends BasePlayerController {
      * NEXT video's format info: it lands in the media service's single-slot cache (and the
      * single-flight collapses a concurrent fetch), so the autoplay advance skips the full InnerTube
      * round-trip, and the fetch's media-host preconnect warms the next googlevideo host for free.
-     * Info only - no media bytes. Skipped while paused (user browsing) and when the playback mode
+     * The mobile engine may also preload bounded media once current playback is safely buffered.
+     * Skipped while paused (user browsing) and when the playback mode
      * won't auto-advance.
      */
     private void preloadNextVideoIfNeeded() {
@@ -810,7 +814,14 @@ public class VideoLoaderController extends BasePlayerController {
             // when the open dispatch below (processFormatInfo) would take the plain
             // openDash(formatInfo) branch. The engine stashes it one-slot and consumes it on the
             // matching openDash. No-op on TV (default PlayerEngine method).
+            Video currentVideo = getVideo();
+            long generation = mPlaybackGeneration;
             MediaServiceManager.instance().loadFormatInfo(mSuggestionsController.getNext(), formatInfo -> {
+                // A slow callback from a previous video must not inherit the new engine generation
+                // and start speculative media after a manual switch.
+                if (getVideo() != currentVideo || mPlaybackGeneration != generation) {
+                    return;
+                }
                 PlaybackView player = getPlayer();
                 if (player != null && formatInfo != null && wouldOpenPlainDash(formatInfo)) {
                     player.prebuildNextSource(formatInfo);

@@ -34,6 +34,21 @@ class FakeClock:
 
 
 class PlaybackBenchmarkTest(unittest.TestCase):
+    def test_package_uid_ignores_instrumentation_and_debug_prefix_matches(self):
+        packages = ('package:io.github.example.player.benchmark uid:12001\r\n'
+                    'package:io.github.example.player.test uid:12002\r\n'
+                    'package:io.github.example.player.debug uid:12003\r\n'
+                    'package:io.github.example.player uid:10233\r\n')
+        self.assertEqual(10233, benchmark.exact_package_uid(packages, PACKAGE))
+
+    def test_missing_exact_package_uid_fails_instead_of_reporting_other_app_traffic(self):
+        with self.assertRaisesRegex(RuntimeError, 'exact target package UID'):
+            benchmark.exact_package_uid('package:' + PACKAGE + '.test uid:12002\n', PACKAGE)
+
+    def test_package_uid_escapes_dots_in_the_package_name(self):
+        with self.assertRaises(RuntimeError):
+            benchmark.exact_package_uid('package:ioXgithubXexampleXplayer uid:12002\n', PACKAGE)
+
     def setUp(self):
         # A missed mock must fail locally rather than connect to a developer's phone.
         self.addCleanup(patch.stopall)

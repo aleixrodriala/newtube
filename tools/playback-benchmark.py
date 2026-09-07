@@ -25,6 +25,14 @@ class PlaybackUnavailable(RuntimeError):
     """A failed phase must not turn a matrix into repeated server-denial requests."""
 
 
+def exact_package_uid(packages, package):
+    """pm's filter is a prefix search and can put .test/.benchmark before the actual app."""
+    match = re.search(r'^package:' + re.escape(package) + r'\s+uid:(\d+)\s*$', packages, re.M)
+    if not match:
+        raise RuntimeError('Cannot resolve the exact target package UID')
+    return int(match[1])
+
+
 def playback_milestones(lines):
     """Match frame/visibility evidence within each open, never across recovery episodes.
 
@@ -90,7 +98,7 @@ class Benchmark:
         self.results = []
         self.hz = int(self.shell('getconf', 'CLK_TCK').strip())
         packages = self.shell('pm', 'list', 'packages', '-U', self.pkg)
-        self.uid = int(re.search(r'uid:(\d+)', packages).group(1))
+        self.uid = exact_package_uid(packages, self.pkg)
         self.logfile = (self.out / 'playback.log').open('w')
         self.logger = subprocess.Popen(self.cmd + [
             'logcat', '-T', '1', '-v', 'epoch', 'NetPath:D', 'EventLogger:D',

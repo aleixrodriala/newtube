@@ -20,6 +20,7 @@ import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.ResolvingDataSource;
 import androidx.media3.exoplayer.DecoderCounters;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
 
@@ -40,6 +41,8 @@ public final class TtffFixtureActivity extends Activity implements SurfaceHolder
         }
     };
     private ExoPlayer player;
+    private Media3PlayerInitializer initializer;
+    private boolean preloadComponentsClaimed;
     private SurfaceView surface;
     private DataSource.Factory fixtureSource;
     private int episode;
@@ -63,9 +66,9 @@ public final class TtffFixtureActivity extends Activity implements SurfaceHolder
 
     @Override public void surfaceCreated(SurfaceHolder holder) {
         if (player == null) {
-            Media3PlayerInitializer initializer = new Media3PlayerInitializer(this);
+            initializer = new Media3PlayerInitializer(this);
             player = initializer.createPlayer(initializer.createTrackSelector(),
-                    new DefaultBandwidthMeter.Builder(this).build());
+                    new DefaultBandwidthMeter.Builder(this).build(), /* enablePreloading= */ true);
             player.setVolume(0f); // Decode the fixture's audio without sounding a test tone.
             player.addListener(new Player.Listener() {
                 @Override public void onPlaybackStateChanged(int state) {
@@ -111,6 +114,14 @@ public final class TtffFixtureActivity extends Activity implements SurfaceHolder
     /** Called on main by instrumentation; each open replaces the source on the SAME engine. */
     public void openFixture(String name) {
         if (player == null) throw new IllegalStateException("Fixture surface is not ready");
+        MediaItem item = new MediaItem.Builder().setMediaId("fixture-" + (episode + 1))
+                .setUri(LOGICAL_URI).setMimeType(MimeTypes.VIDEO_MP4).build();
+        openFixtureSource(new ProgressiveMediaSource.Factory(fixtureSource).createMediaSource(item), name);
+    }
+
+    /** Local-source-only hook for the separate preload handoff instrumentation. */
+    void openFixtureSource(MediaSource source, String name) {
+        if (player == null) throw new IllegalStateException("Fixture surface is not ready");
         SessionWarmup.onPlaybackRequested();
         phase = name;
         episode++;
@@ -118,12 +129,17 @@ public final class TtffFixtureActivity extends Activity implements SurfaceHolder
         firstFrameMs = -1;
         firstReadyMs = -1;
         expectedBuffering = true;
-        MediaItem item = new MediaItem.Builder().setMediaId("fixture-" + episode)
-                .setUri(LOGICAL_URI).setMimeType(MimeTypes.VIDEO_MP4).build();
-        player.setMediaSource(new ProgressiveMediaSource.Factory(fixtureSource).createMediaSource(item));
+        player.setMediaSource(source);
         player.prepare();
         player.play();
         log("open");
+    }
+
+    ExoPlayer fixturePlayer() { return player; }
+
+    Media3PlayerInitializer claimPreloadComponents() {
+        preloadComponentsClaimed = true;
+        return initializer;
     }
 
     public void pauseFixture() {
@@ -190,6 +206,9 @@ public final class TtffFixtureActivity extends Activity implements SurfaceHolder
             player.clearVideoSurface();
             player.release();
             player = null;
+        }
+        if (initializer != null && !preloadComponentsClaimed) {
+            initializer.getPreloadTrackSelector().release();
         }
         Log.i(TAG, "event=released episodes=" + episode + " errors=" + errors
                 + " unexpectedBuffering=" + unexpectedBuffering);

@@ -1,0 +1,47 @@
+apply from: gradle.ext.sharedModulesConstants
+apply plugin: 'com.android.test'
+
+android {
+    namespace = 'com.newtube.benchmark'
+    compileSdk = project.ext.compileSdkVersion
+    targetProjectPath = ':smarttubetv'
+    experimentalProperties['android.experimental.self-instrumenting'] = true
+
+    defaultConfig {
+        // Benchmark 1.4 can uninstall/reinstall while resetting compilation below API 34.
+        // Requiring API 34+ prevents that fallback on a phone with an existing account.
+        minSdk = 34
+        targetSdk = project.ext.targetSdkVersion
+        testApplicationId = 'io.github.aleixrodriala.arc.benchmark'
+        testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
+        missingDimensionStrategy 'default', 'stmobile'
+        testInstrumentationRunnerArguments['targetPackage'] = rootProject.file('keystore.properties').exists()
+                ? 'io.github.aleixrodriala.arc' : 'io.github.aleixrodriala.arc.debug'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        benchmark {
+            debuggable true // Only the separate measuring process; the target remains false.
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['benchmark']
+        }
+    }
+}
+
+androidComponents {
+    beforeVariants(selector().all()) { variant ->
+        variant.enable = variant.buildType == 'benchmark'
+    }
+}
+
+dependencies {
+    implementation 'androidx.benchmark:benchmark-macro-junit4:1.4.1'
+    implementation 'androidx.test.ext:junit:' + testExtJunitVersion
+    implementation 'androidx.test:runner:' + testXSupportVersion
+    implementation 'androidx.test.uiautomator:uiautomator:2.3.0'
+}

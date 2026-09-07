@@ -12,6 +12,7 @@ import androidx.media3.common.Tracks;
 import androidx.media3.exoplayer.ExoPlaybackException;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.source.preload.DefaultPreloadManager;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.datasource.HttpDataSource;
 
@@ -68,6 +69,8 @@ public class Media3PlayerController implements Player.Listener {
     /** Open generation: bumped on every open/reset/release so a stale off-main build never prepares. */
     private final SourceBuildGeneration mOpenGeneration = new SourceBuildGeneration();
     private Media3TrackAdapter mTrackAdapter;
+    private DefaultTrackSelector mTrackSelector;
+    private Media3NextPreloader mNextPreloader;
     private ExoPlayer mPlayer;
     private WeakReference<Video> mVideo;
     private boolean mOnSourceChanged;
@@ -99,15 +102,14 @@ public class Media3PlayerController implements Player.Listener {
      * (autoplay prefetch, see {@code VideoLoaderController.preloadNextVideoIfNeeded}) so the
      * auto-advance {@link #openDash(MediaItemFormatInfo)} skips the MPD XML generation+parse.
      * Written on {@link #SOURCE_BUILD_EXECUTOR}, consumed at most once on main (media3 sources
-     * are single-use once prepared) - both under {@code mStashLock}. Invalidated in
+     * are consumed once by this controller) - both under the stash monitor. Invalidated in
      * {@link #resetPlayerState()} (every open runs it, so a mismatching entry never outlives the
      * open that skipped it) and {@link #release()}; overwritten by newer pre-builds. A never-used
-     * entry holds no player resources (a MediaSource allocates loaders/sockets only in
-     * prepareSourceInternal) - dropping the reference is a plain GC.
+     * entry holds no player resources until {@link Media3NextPreloader} adopts it for bounded
+     * sample loading. The preloader explicitly releases its loaders/periods on cancellation and
+     * removes that prepared raw source from this stash; an untouched entry is a plain GC.
      */
-    private final Object mStashLock = new Object();
-    private String mStashedVideoId;
-    private MediaSource mStashedSource;
+    private final SourceStash<MediaSource> mSourceStash = new SourceStash<>();
 
     public Media3PlayerController(Context context, PlayerEventListener eventListener) {
         mContext = context.getApplicationContext();
@@ -173,13 +175,14 @@ public class Media3PlayerController implements Player.Listener {
         final String videoId = formatInfo.getVideoId();
         final int generation = mOpenGeneration.current();
 
-        synchronized (mStashLock) {
-            if (videoId.equals(mStashedVideoId) && mStashedSource != null) {
-                return; // already stashed (the minute tick fires again inside the 80s window)
-            }
+        if (mSourceStash.contains(videoId)) {
+            return; // already stashed (the minute tick fires again inside the 80s window)
         }
 
         SOURCE_BUILD_EXECUTOR.execute(mOpenGeneration.guard(generation, "prebuild", () -> {
+            if (mSourceStash.contains(videoId)) {
+                return; // another queued prebuild already published this exact next video
+            }
             MediaSource mediaSource;
             try {
                 mediaSource = mMediaSourceFactory.fromDashFormatInfo(formatInfo);
@@ -190,12 +193,20 @@ public class Media3PlayerController implements Player.Listener {
 
             if (mediaSource != null) {
                 final MediaSource result = mediaSource;
-                mOpenGeneration.publishIfCurrent(generation, "prebuild-publish", () -> {
-                    synchronized (mStashLock) {
-                        mStashedVideoId = videoId;
-                        mStashedSource = result;
-                    }
-                });
+                mOpenGeneration.publishIfCurrent(generation, "prebuild-publish",
+                        () -> mSourceStash.offerIfAbsent(videoId, result));
+                // Manager/player interactions belong to main. Recorded live/OTF keeps only the
+                // existing XML prebuild; its normalized manifest must not start speculative loads.
+                if (!formatInfo.isLiveContent() && !formatInfo.isUnplayable()) {
+                    mMainHandler.post(mOpenGeneration.guard(generation, "preload-deliver", () -> {
+                        if (!mSourceStash.containsSource(result)) {
+                            return;
+                        }
+                        if (mNextPreloader != null) {
+                            mNextPreloader.offer(videoId, result);
+                        }
+                    }));
+                }
             }
         }));
     }
@@ -208,28 +219,27 @@ public class Media3PlayerController implements Player.Listener {
     private MediaSource takeStashedSource(@Nullable String videoId) {
         MediaSource stashed = null;
 
-        synchronized (mStashLock) {
-            if (mStashedSource == null) {
+        synchronized (mSourceStash) {
+            if (!mSourceStash.hasSource()) {
                 return null; // nothing stashed -> no consult line
             }
-
-            if (videoId != null && videoId.equals(mStashedVideoId)) {
-                stashed = mStashedSource;
-                mStashedVideoId = null;
-                mStashedSource = null; // consumed: media3 sources are single-use
-            }
+            stashed = mSourceStash.take(videoId);
             // Mismatch: leave the entry; resetPlayerState (this very open runs it) clears it.
         }
 
+        if (stashed != null && mNextPreloader != null) {
+            stashed = mNextPreloader.take(videoId, stashed);
+        }
         NetPath.log("prepare-stash " + (stashed != null ? "hit " : "miss ") + videoId);
         return stashed;
     }
 
+    private void discardPreparedStash(MediaSource source) {
+        mSourceStash.discard(source);
+    }
+
     private void clearStashedSource() {
-        synchronized (mStashLock) {
-            mStashedVideoId = null;
-            mStashedSource = null;
-        }
+        mSourceStash.clear();
     }
 
     /**
@@ -245,14 +255,7 @@ public class Media3PlayerController implements Player.Listener {
      * reset of that same open or the next one's mismatch drop.
      */
     private void dropMismatchedStash() {
-        String currentVideoId = getVideoId();
-
-        synchronized (mStashLock) {
-            if (mStashedSource != null && !mStashedVideoId.equals(currentVideoId)) {
-                mStashedVideoId = null;
-                mStashedSource = null;
-            }
-        }
+        mSourceStash.dropExcept(getVideoId());
     }
 
     public void openDash(InputStream dashManifest) {
@@ -330,6 +333,9 @@ public class Media3PlayerController implements Player.Listener {
 
         mPlayer.setMediaSource(mediaSource);
         mPlayer.prepare();
+        if (mNextPreloader != null) {
+            mNextPreloader.onSourceOpened(mediaSource);
+        }
         mLastPrepareMs = System.currentTimeMillis();
         mFocusGraceUsed = false;
 
@@ -353,6 +359,9 @@ public class Media3PlayerController implements Player.Listener {
             return;
         }
 
+        if (mNextPreloader != null) {
+            mNextPreloader.cancel("seek");
+        }
         // A pending seek before the timeline is known is accepted; once duration is known,
         // clamp tiny overflows instead of dropping the jump (same fix as the legacy controller).
         long durationMs = getDurationMs();
@@ -403,6 +412,9 @@ public class Media3PlayerController implements Player.Listener {
         // Any in-flight off-main source build is now stale (a new open resets first, and
         // openMediaSource itself resets) - drop it instead of letting it prepare later.
         mOpenGeneration.invalidate(this::dropMismatchedStash);
+        if (mNextPreloader != null) {
+            mNextPreloader.onReset(getVideoId());
+        }
         mFirstFrameLogged = false; // new open = a fresh NetPath first-frame milestone
 
         if (containsMedia()) {
@@ -421,9 +433,26 @@ public class Media3PlayerController implements Player.Listener {
     }
 
     public void setTrackSelector(DefaultTrackSelector trackSelector) {
+        mTrackSelector = trackSelector;
         mTrackAdapter = new Media3TrackAdapter(trackSelector);
         mTrackAdapter.setPreferOriginalAudio(true); // NEWTUBE(mobile): match the legacy default
         applyPersistedFormats();
+    }
+
+    /** The initializer's shared builder guarantees preload/foreground looper and allocator parity. */
+    public void attachPreloader(@Nullable DefaultPreloadManager.Builder builder,
+            @Nullable DefaultTrackSelector preloadTrackSelector) {
+        if (mNextPreloader != null) {
+            mNextPreloader.release();
+        }
+        boolean enabled = builder != null && preloadTrackSelector != null;
+        NetPath.log("next-preload enabled=" + (enabled ? "y" : "n"));
+        if (!enabled) {
+            mNextPreloader = null;
+            return;
+        }
+        mNextPreloader = new Media3NextPreloader(builder, mTrackSelector, preloadTrackSelector,
+                () -> mPlayer, this::discardPreparedStash);
     }
 
     /** Seed the adapter with the persisted picks (legacy applyShield720pFix analog). */
@@ -442,10 +471,10 @@ public class Media3PlayerController implements Player.Listener {
     public void release() {
         // Also prevents a running prebuild from repopulating the stash after this cleanup.
         mOpenGeneration.invalidate(this::clearStashedSource);
-
-        // NEWTUBE(abr-seed): teardown is the one reliable end-of-session hook; persist the meter's
-        // EWMA so the next cold session's first video starts ABR from real throughput.
-        mMediaSourceFactory.persistBandwidthEstimate();
+        if (mNextPreloader != null) {
+            mNextPreloader.release();
+            mNextPreloader = null;
+        }
 
         if (mPlayer != null) {
             mPlayer.removeListener(this);
@@ -492,6 +521,9 @@ public class Media3PlayerController implements Player.Listener {
 
     public void selectFormat(FormatItem formatItem) {
         if (formatItem != null && mTrackAdapter != null) {
+            if (mNextPreloader != null) {
+                mNextPreloader.cancel("format-change");
+            }
             mTrackAdapter.selectFormat(formatItem);
             mEventListener.onTrackSelected(formatItem);
         }
@@ -503,6 +535,9 @@ public class Media3PlayerController implements Player.Listener {
      * so the track selector has a single owner for its parameters.
      */
     public void setVideoTrackDisabled(boolean disabled) {
+        if (disabled && mNextPreloader != null) {
+            mNextPreloader.cancel("background-audio");
+        }
         if (mTrackAdapter != null) {
             mTrackAdapter.setVideoTrackDisabled(disabled);
         }
@@ -570,6 +605,10 @@ public class Media3PlayerController implements Player.Listener {
             return;
         }
 
+        if (mNextPreloader != null) {
+            mNextPreloader.onForegroundTracksChanged();
+        }
+
         if (mTrackAdapter != null) {
             mTrackAdapter.onTracksChanged(tracks);
         }
@@ -592,11 +631,24 @@ public class Media3PlayerController implements Player.Listener {
 
     @Override
     public void onPlaybackStateChanged(int playbackState) {
+        if (mNextPreloader != null) {
+            mNextPreloader.update();
+        }
         dispatchStateChange(getPlayWhenReady(), playbackState);
     }
 
     @Override
+    public void onIsLoadingChanged(boolean isLoading) {
+        if (mNextPreloader != null) {
+            mNextPreloader.update();
+        }
+    }
+
+    @Override
     public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+        if (mNextPreloader != null) {
+            mNextPreloader.update();
+        }
         // NEWTUBE(focus-grace): see FOCUS_GRACE_MS. One retry per prepare.
         if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS
                 && !mFocusGraceUsed
@@ -647,6 +699,9 @@ public class Media3PlayerController implements Player.Listener {
     @Override
     public void onPositionDiscontinuity(Player.PositionInfo oldPosition, Player.PositionInfo newPosition, int reason) {
         if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
+            if (mNextPreloader != null) {
+                mNextPreloader.cancel("seek");
+            }
             mEventListener.onSeekEnd();
         }
     }
@@ -661,6 +716,9 @@ public class Media3PlayerController implements Player.Listener {
 
     @Override
     public void onPlayerError(PlaybackException error) {
+        if (mNextPreloader != null) {
+            mNextPreloader.onForegroundError();
+        }
         Log.e(TAG, "onPlayerError: " + error);
         NetPath.logError(getVideoId(), error); // NetPath milestone 5: player error
         // Debug playground only: keep a synthetic one-shot media fault active until Media3 really

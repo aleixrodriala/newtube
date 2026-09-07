@@ -13,7 +13,7 @@ import androidx.annotation.Nullable;
 import androidx.media3.common.Format;
 import androidx.media3.exoplayer.DecoderCounters;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
+import androidx.media3.exoplayer.upstream.BandwidthMeter;
 
 /**
  * Minimal media3 "stats for nerds" for the touch player, replacing the exoplayer2-bound
@@ -24,12 +24,12 @@ public class Media3DebugInfoManager {
 
     private final ViewGroup mDebugViewGroup;
     private final ExoPlayer mPlayer;
-    private final DefaultBandwidthMeter mBandwidthMeter;
+    private final BandwidthMeter mBandwidthMeter;
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final Runnable mUpdateRunnable = this::update;
     private TextView mTextView;
 
-    public Media3DebugInfoManager(ViewGroup debugViewGroup, ExoPlayer player, DefaultBandwidthMeter bandwidthMeter) {
+    public Media3DebugInfoManager(ViewGroup debugViewGroup, ExoPlayer player, BandwidthMeter bandwidthMeter) {
         mDebugViewGroup = debugViewGroup;
         mPlayer = player;
         mBandwidthMeter = bandwidthMeter;

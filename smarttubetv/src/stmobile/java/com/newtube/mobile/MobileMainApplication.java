@@ -76,6 +76,10 @@ public class MobileMainApplication extends MainApplication {
 
     @Override
     public void onCreate() {
+        // The shell-protected benchmark fixture uses only bundled media. Suppress speculative
+        // server warmups for that offline run; production builds never enable this path.
+        boolean offlineBenchmark = com.liskovsoft.smartyoutubetv2.tv.BuildConfig.BENCHMARK
+                && "1".equals(getDebugSystemProperty("debug.arc.benchmark_fixture"));
         // 403 playground: keep the persisted-app-info optimization independently switchable.
         // This must be read before the first AppService access; no user data is cleared.
         boolean forceFreshAppInfo = com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG
@@ -398,7 +402,7 @@ public class MobileMainApplication extends MainApplication {
         // The flag changes no client, visitor source, credential, or request-token policy.
         boolean deferEagerTokenWarmup = com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG
                 && "off".equals(getDebugSystemProperty("debug.arc.eager_token_warmup"));
-        if (deferEagerTokenWarmup) {
+        if (deferEagerTokenWarmup || offlineBenchmark) {
             android.util.Log.d("NetPath", "startup token-warmup deferred (debug; demand initialization retained)");
         } else {
             if (com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG) {
@@ -445,7 +449,7 @@ public class MobileMainApplication extends MainApplication {
         // its /player + JS parse never race the launch-critical /browse chain; init() restores
         // the persisted warm flag and arms a 15s fallback for offline/deep-link launches. See
         // SessionWarmup for the locking/caching guarantees. TV never calls this.
-        SessionWarmup.init(this);
+        if (!offlineBenchmark) SessionWarmup.init(this);
 
         // FEED SNAPSHOTS (mobile-only): the grids repaint their last-known content instantly
         // while the presenters refetch (see FeedCache), and since round 2 the last session's
@@ -470,7 +474,7 @@ public class MobileMainApplication extends MainApplication {
             }
         }, "TubePreconnect");
         preconnect.setDaemon(true);
-        preconnect.start();
+        if (!offlineBenchmark) preconnect.start();
 
         ViewManager viewManager = ViewManager.instance(this);
 

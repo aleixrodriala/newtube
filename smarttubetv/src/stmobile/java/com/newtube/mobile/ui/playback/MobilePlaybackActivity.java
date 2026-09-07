@@ -909,6 +909,38 @@ public class MobilePlaybackActivity extends MobileActivity
         if (BuildConfig.DEBUG) {
             mPlayer.addAnalyticsListener(new androidx.media3.exoplayer.util.EventLogger());
             mPlayer.addAnalyticsListener(new NetPathLoadListener(this));
+        } else if (BuildConfig.BENCHMARK) {
+            // Release-like timing evidence without verbose per-chunk/debug transport logging.
+            mPlayer.addListener(new Player.Listener() {
+                private boolean tracksLogged;
+
+                @Override public void onMediaItemTransition(androidx.media3.common.MediaItem item, int reason) {
+                    tracksLogged = false;
+                }
+
+                @Override public void onPlaybackStateChanged(int state) {
+                    String name = state == Player.STATE_READY ? "READY"
+                            : state == Player.STATE_BUFFERING ? "BUFFERING"
+                            : state == Player.STATE_ENDED ? "ENDED" : "IDLE";
+                    com.liskovsoft.smartyoutubetv2.common.misc.NetPath.log("benchmark-state state=" + name
+                            + " position-ms=" + (mPlayer != null ? mPlayer.getCurrentPosition() : -1)
+                            + " elapsed-realtime-ms=" + android.os.SystemClock.elapsedRealtime());
+                }
+
+                @Override public void onTracksChanged(androidx.media3.common.Tracks tracks) {
+                    if (tracksLogged || tracks.getGroups().isEmpty()) return;
+                    tracksLogged = true;
+                    for (androidx.media3.common.Tracks.Group group : tracks.getGroups()) {
+                        for (int index = 0; index < group.length; index++) {
+                            if (!group.isTrackSelected(index)) continue;
+                            androidx.media3.common.Format format = group.getTrackFormat(index);
+                            com.liskovsoft.smartyoutubetv2.common.misc.NetPath.log("benchmark-track type="
+                                    + group.getType() + " width=" + format.width + " height=" + format.height
+                                    + " bitrate=" + format.bitrate + " mime=" + format.sampleMimeType);
+                        }
+                    }
+                }
+            });
         }
         mPlayer.setPlayWhenReady(true);
 
@@ -918,6 +950,8 @@ public class MobilePlaybackActivity extends MobileActivity
         mPlayer.setSeekParameters(MOBILE_SEEK_PARAMETERS);
 
         mExoPlayerController.setPlayer(mPlayer);
+        mExoPlayerController.attachPreloader(mPlayerInitializer.getPreloadManagerBuilder(),
+                mPlayerInitializer.getPreloadTrackSelector());
         mPlayerView.setPlayer(mPlayer);
 
         // Persistent surface: PlayerView owns no surface (surface_type="none"); hand the

@@ -1,4 +1,5 @@
 include ':smarttubetv', ':common', ':filepicker-lib', ':doubletapplayerview-media3', ':slidableactivity'
+include ':macrobenchmark'
 
 def rootDir = settingsDir
 
@@ -11,4 +12,3 @@ gradle.ext.sharedModulesConstants = new File(gradle.ext.sharedModulesRoot, 'cons
 // git submodule
 gradle.ext.mediaServiceCoreRoot = new File(rootDir, '../MediaServiceCore').exists() ? new File(rootDir, '../MediaServiceCore') : new File(rootDir, './MediaServiceCore')
 apply from: new File(gradle.ext.mediaServiceCoreRoot, 'core_settings.gradle')
-

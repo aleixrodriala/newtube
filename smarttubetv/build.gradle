@@ -80,6 +80,7 @@ android {
         versionName "31.97"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "long", "TIMESTAMP", System.currentTimeMillis() + "L"
+        buildConfigField "boolean", "BENCHMARK", "false"
 
         // The content of Universal apk
         ndk {
@@ -138,6 +139,24 @@ android {
                 applicationIdSuffix ".debug"
             }
         }
+        benchmark {
+            initWith release
+            debuggable false
+            // Retain the production no-minification contract while measuring release code.
+            minifyEnabled false
+            matchingFallbacks = ['release']
+            buildConfigField "boolean", "BENCHMARK", "true"
+            // Match the existing debug install identity; never require uninstalling user data.
+            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+            if (!keystorePropertiesFile.exists()) {
+                applicationIdSuffix ".debug"
+            }
+        }
+    }
+
+    sourceSets {
+        // Reuse the generated offline media fixture only in the benchmark APK, never release.
+        benchmark.assets.srcDir 'src/debug/assets'
     }
 
     packagingOptions {

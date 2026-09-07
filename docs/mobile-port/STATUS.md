@@ -13,6 +13,58 @@ ANDROID_HOME=<sdk> ./gradlew :smarttubetv:assembleStmobileDebug
 # -> smarttubetv/build/outputs/apk/stmobile/debug/NewTube_<ver>_universal.apk
 ```
 
+## Startup bandwidth, real preload, and release profiling (2026-09-08)
+
+Startup ABR now ages measured per-network bandwidth hints, starts cautiously when
+the hint is stale, and recovers quality from real transfers. On the controlled
+Pixel runs, READY improved about 0.4 seconds at 700 kbit/s and 0.7 seconds at
+1.5 Mbit/s. These are small-sample observations, not general speedup guarantees;
+the first chunk is deliberately lower quality. A direct LTE/5G-NSA sanity check
+reached 1080p about nine seconds after READY without an observed rebuffer.
+
+Bounded actual next-video sample preloading is implemented but remains opt-in.
+The local Pixel decoder fixture passed handoff, cancellation and manual-quality
+checks. Ordinary autoplay's speculative media returned HTTP 403 and was cancelled
+without retry; no live preload hit was established, so the default remains off.
+Disabled preloading adds no preload builder or second selector to cold startup.
+
+Added a non-debuggable Macrobenchmark target and generated/reviewed 456
+app-specific baseline-profile rules. All rules were verified in both compiled
+benchmark and release APKs; profile compilation and live-network speed claims
+remain separate. Twelve reversed-order cold starts found no convincing profile
+TTFF improvement. The final broad local pass has 391 passing Android and 49 host tests, with
+debug, AndroidTest, benchmark, release and measuring-APK builds passing.
+
+Details and exact artifact identities: [startup follow-up](STARTUP-SPEED-2026-09-07.md),
+[Pixel network evidence](PIXEL-STARTUP-ABR-2026-09-07.md),
+[preload acceptance](NEXT-MEDIA-PRELOAD-2026-09-07.md), and
+[release measurements](RELEASE-BENCHMARK-2026-09-08.md).
+
+## Latest TTFF, upstream, and Pixel network pass (2026-09-07, evening)
+
+Removed redundant nested JSON serialization/parsing before playback: the real
+24-format metadata fixture now needs one text parse instead of 76, with mapped
+values preserved. Ported three missing upstream fixes: strict request JSON,
+active-only buffering-watchdog accounting, and integer-overflow fallback.
+175 focused Android tests pass, as do debug/release builds and release lint.
+
+Two agents coordinated direct-cellular and whole-app shaped-network tests on
+the USB-connected Pixel. The 250 ms gate did not improve the successful startup
+episode over 500 ms, and deferred metadata loading showed no convincing gain;
+both production policies remain unchanged. The parser candidate's two
+1500 kbit/s opens were effectively tied with the prior candidate (median
+4.13 vs 4.17 seconds to decoded frame). A ten-second whole-app blackout was
+absorbed by the buffer, with media loads resuming afterward. These are not
+compositor-visible-frame measurements or an isolated parser-only speed claim.
+
+The current runs reached playback after one initial media 403 and normal app
+recovery. Older statements below about total denial or zero initial 403s belong
+to their earlier builds/captures, not this test round. Exact candidate hashes,
+weak-link results, test scope, restoration, and caveats:
+[latest TTFF/network report](TTFF-NETWORK-2026-09-07.md),
+[upstream/network comparison](UPSTREAM-NETWORK-2026-09-07.md), and
+[cellular gate ABBA](PIXEL-TTFF-GATE-2026-09-07.md).
+
 ## The bot check traced to a dead account route (2026-09-07)
 
 Rusowsky (`Fo89b8zAIE4`) plays on the Pixel over LTE and has all along; every
