@@ -861,3 +861,114 @@ seekbar's real bounds read from `uiautomator dump`; guessed coordinates produce
 Airplane mode is the wrong outage lever on this device: it re-associates Wi-Fi
 on the way back and hands the default network to it, silently ending an
 LTE test. Use `svc data disable`/`enable`.
+
+## 19. Where the memory goes, and how far the account gets (2026-09-07, Pixel 9, LTE)
+
+Two questions closed by measurement rather than by reasoning: is the ~450 MB
+PSS a leak, and what does anonymous playback actually cost.
+
+### PSS is a working set, not a leak
+
+PSS (Proportional Set Size) counts a process's private pages in full and its
+shared pages divided by the number of sharers - roughly "what comes back if
+this process dies". The 453 MB quoted in §18 was sampled mid-playback and was
+never a resting figure.
+
+Six videos, one sample while playing and one after BACK (`scratchpad/mem.py`,
+run `mem-143620`):
+
+| after video | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| playing (MB) | 426 | 515 | 499 | 522 | 482 | 508 |
+| resting (MB) | 370 | 358 | 355 | 375 | 364 | 366 |
+
+Resting is flat across six opens - no trend. Views pin at exactly 400 from the
+first open and never grow; AppContexts oscillate 10-11; Activities stay at 2
+(`MobileBrowseActivity` + `MobilePlaybackActivity`, both legitimately in the
+back stack). Java heap allocation stays in the 14-40 MB band with no drift.
+
+A forced `am send-trim-memory COMPLETE` drops the process to **256 MB**:
+graphics 91 -> 6 MB, views 400 -> 177, contexts 11 -> 8, activities 2 -> 1. So
+~110 MB of the resting figure is cache the app hands back the moment the system
+asks. Nothing here is a leak.
+
+The one monotonic series is native heap at rest: 60, 64, 67, 68, 71, 73 MB,
+about +2.2 MB per video - and the trim returns it to 59 MB, i.e. it is
+allocator/cache retention rather than growth. Worth re-measuring if a future
+round ever shows it surviving a trim.
+
+Playback peak is dominated by Graphics (200-245 MB of the ~500 MB): decoder
+output buffers plus surfaces, released on BACK.
+
+### The cold-start spike is SessionWarmup, and it is ~135 MB for ~2 s
+
+Sampling meminfo once a second through a cold start isolates it to one sample:
+
+```
+t=+4s   native= 57 MB   PSS=344 MB
+t=+5s   native=186 MB   PSS=471 MB    <- SessionWarmup 14:44:17.863 -> .722
+t=+6s   native= 51 MB   PSS=332 MB
+```
+
+The window matches `SessionWarmup` exactly (`session warmup: start` ->
+`session warmup: done`, 859 ms, containing the player-JS work and the three
+warmup /player calls). Which component inside that window allocates the 135 MB
+was NOT isolated - the JS parse is the likely candidate given the class comment
+describes a multi-MB parse, but treat that as unconfirmed.
+
+On this device (11.8 GB) it is invisible and self-correcting. It matters only
+on a low-RAM phone, where a 471 MB peak at second five of every cold start -
+before the user has touched anything - lands exactly when the LMK is most
+willing to kill a young process. If NewTube ever targets 3-4 GB devices, gating
+the warmup on `ActivityManager.isLowRamDevice()` is the cheap mitigation. Not
+done: no low-RAM device to measure on, and guessing at the threshold is how you
+ship a regression to the machines you cannot test.
+
+### The account works everywhere except /player
+
+Measured on a cold start: every `/browse` and `/account` call carries the
+account (`api-http[S] ... auth=y`), and only `/player` lands anonymous. So the
+blast radius of §17's open thread is narrower than "signed out":
+
+- **Works:** home/subscriptions feeds, playlists, likes, subscribe, account list.
+- **Broken:** age-restricted, members-only and private/unlisted playback;
+  server-side watch history (the `cpn`/`ei` that `TrackingApi` pings with come
+  out of the /player response, which is the anonymous one, so watch time
+  credits the anonymous visitor); Premium entitlements if the account has them.
+
+### What is left after ruling out the cheap fixes
+
+Our `TV_DOWNGRADED` is `clientVersion = 5.20260707` - **byte-identical to
+yt-dlp's `tv_downgraded`** (checked against its `INNERTUBE_CLIENTS` table).
+So yt-dlp's own TV workaround is already in place here and still answers "Es
+necesario volver a cargar la página" with `srvAuth=y`. That kills the cheapest
+hypothesis (wrong client version) and leaves the credential form, consistent
+with §17.
+
+yt-dlp's authed clients are `('web_embedded', 'tv_downgraded', 'web')`, and the
+clients it marks `SUPPORTS_COOKIES` are exactly `web, web_safari, web_embedded,
+web_music, web_creator, mweb, tv, tv_downgraded`. Its credential is
+cookie-derived (`_make_sid_authorization`, ytdlp `_base.py`):
+
+```
+SAPISIDHASH <ts>_<sha1(f"{ts} {SAPISID} https://www.youtube.com")>
+```
+
+emitted three times over `SAPISID`, `__Secure-1PAPISID`, `__Secure-3PAPISID`
+and space-joined. Ours is a TV device-flow OAuth bearer, which InnerTube takes
+on the TV family and refuses on the web family with a flat HTTP 400.
+
+**The next experiment, and it is one flag not a project:** WEB_EMBED's 400 has
+never been separated from "web-family clients refuse an OAuth bearer" - it
+could equally be about the embed context. Extending the existing
+`debug.arc.web_auth` gate to put the bearer on plain `WEB` answers it in one
+round trip. If WEB also 400s, the credential form is confirmed as the wall and
+the only way through is a cookie credential; if WEB accepts it, the fix is a
+client choice and costs nothing.
+
+Getting SAPISID cookies onto a phone is the part with no good answer yet. The
+app already owns a WebView (BotGuard), so `CookieManager.getInstance()` would
+read them - but Google blocks account sign-in inside an embedded WebView, and
+UA-spoofing past that is fragile. yt-dlp's own answer is to make the user
+export cookies from a browser. Decide the UX before writing the SAPISIDHASH
+code; the hash itself is ten lines.

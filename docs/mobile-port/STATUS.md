@@ -13,6 +13,39 @@ ANDROID_HOME=<sdk> ./gradlew :smarttubetv:assembleStmobileDebug
 # -> smarttubetv/build/outputs/apk/stmobile/debug/NewTube_<ver>_universal.apk
 ```
 
+## Measured (added 2026-09-07 — memory profile and how far the account gets)
+
+Two open questions from the LTE rounds closed by measurement. Full evidence in
+HANDOFF §19.
+
+**PSS is a working set, not a leak.** Six videos, resting PSS after each:
+370 / 358 / 355 / 375 / 364 / 366 MB — flat, no trend. Views pin at 400 from
+the first open, AppContexts oscillate 10–11, Activities stay at the two that
+are legitimately in the back stack. A forced trim drops the process to 256 MB
+(graphics 91 → 6 MB), so ~110 MB of the resting figure is cache handed straight
+back under pressure. The 453 MB quoted earlier was a mid-playback sample.
+Playback peaks ~500 MB, half of it decoder surfaces, all released on BACK.
+
+**The cold-start peak is SessionWarmup**: native heap spikes 57 → 186 MB for
+about two seconds at t+5s, exactly inside the warmup window, then collapses
+back. Invisible on the Pixel 9 (11.8 GB). It would matter on a 3–4 GB phone,
+where a 471 MB peak five seconds into every cold start is prime LMK territory;
+`isLowRamDevice()` gating is the mitigation if NewTube ever targets those.
+Which allocation inside the window is responsible was not isolated.
+
+**The account works everywhere except /player.** Every `/browse` and `/account`
+call is `auth=y`; only `/player` lands anonymous. So feeds, playlists, likes and
+subscribe are all fine, and the cost of §17's open thread is precisely:
+age-restricted, members-only and private playback, server-side watch history
+(tracking pings inherit the anonymous /player session), and Premium
+entitlements.
+
+**The cheap fix for that is ruled out.** Our `TV_DOWNGRADED` is
+`5.20260707`, byte-identical to yt-dlp's `tv_downgraded`, and it still returns
+"reload page" with `srvAuth=y`. Next experiment is one flag, not a project:
+extend `debug.arc.web_auth` to put the bearer on plain `WEB` and see whether
+the HTTP 400 is about the credential form or about the embed context.
+
 ## Works (added 2026-09-07 — LTE soak follow-up)
 
 Five soak rounds on LTE found two ring bugs. The auth-route quarantine counted
