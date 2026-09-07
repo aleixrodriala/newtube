@@ -20,6 +20,7 @@ import androidx.media3.datasource.ResolvingDataSource;
 import androidx.media3.datasource.cache.Cache;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cronet.CronetDataSource;
+import androidx.media3.datasource.okhttp.OkHttpDataSource;
 import androidx.media3.exoplayer.dash.DashMediaSource;
 import androidx.media3.exoplayer.dash.DefaultDashChunkSource;
 import androidx.media3.exoplayer.dash.manifest.DashManifest;
@@ -36,6 +37,7 @@ import androidx.media3.common.util.NetworkTypeObserver;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.sharedutils.cronet.CronetManager;
 import com.liskovsoft.sharedutils.mylogger.Log;
+import com.liskovsoft.sharedutils.okhttp.OkHttpManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.tv.BuildConfig;
 
@@ -68,8 +70,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * </ul>
  *
  * <p>Networking: the media path rides H2/QUIC via the embedded Cronet engine when available
- * (matching what the legacy engine had), with media3 {@link DefaultHttpDataSource} as the
- * build-time fallback and per-request fallback factory. The shared singleton
+ * (matching what the legacy engine had), with media3 {@link OkHttpDataSource} as the
+ * fallback when Cronet is unavailable or a zero-progress startup timeout triggers recovery.
+ * The shared singleton
  * {@link DefaultBandwidthMeter} is attached as transfer listener to the chosen leaf transport -
  * same "one meter feeds both the estimator and the track selector" wiring the legacy round added -
  * plus the on-disk {@link CacheDataSource} tier (stable YouTube cache keys, see
@@ -110,7 +113,7 @@ public class Media3SourceFactory {
      * A zero-progress timeout while reading DASH initialization bytes is different from a
      * mid-stream segment stall: there is no playable buffer yet, so replaying the same QUIC stream
      * up to six times only extends the spinner. Surface that first timeout to the app-level source
-     * recovery and temporarily build the replacement source on the regular HTTP transport.
+     * recovery and temporarily build the replacement source on the OkHttp transport.
      */
     private static final long CRONET_STARTUP_TIMEOUT_BYPASS_MS = 2 * 60_000L;
 
@@ -328,6 +331,10 @@ public class Media3SourceFactory {
         // http<->https redirects natively (no setAllowCrossProtocolRedirects equivalent needed).
         CronetEngine cronetEngine = CronetManager.getEngine(mContext);
         mCronetAvailable = cronetEngine != null;
+        OkHttpDataSource.Factory okHttp = new OkHttpDataSource.Factory(
+                MediaHttpClient.create(OkHttpManager.instance().getClient()))
+                .setUserAgent(USER_AGENT)
+                .setTransferListener(mBandwidthMeter);
         DataSource.Factory leafFactory;
         if (mCronetAvailable) {
             Log.d(TAG, "media transport: cronet");
@@ -345,14 +352,15 @@ public class Media3SourceFactory {
                     .setConnectionTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
                     .setReadTimeoutMs(READ_TIMEOUT_MS)
                     .setKeepPostFor302Redirects(true)
-                    .setFallbackFactory(defaultHttp);
+                    .setFallbackFactory(okHttp);
             // Factory selection happens for each newly-created chunk/source. A startup timeout
             // marks Cronet unhealthy before ErrorFixerController remints the source, so the
-            // replacement uses DefaultHttp rather than replaying the same stalled QUIC session.
-            leafFactory = () -> createTransportDataSource(cronetHttp, defaultHttp);
+            // replacement uses OkHttp. Factory fallback alone only handles a missing engine;
+            // it does not retry a failed request on another transport.
+            leafFactory = () -> createTransportDataSource(cronetHttp, okHttp, defaultHttp);
         } else {
-            Log.d(TAG, "media transport: http (cronet unavailable)");
-            leafFactory = defaultHttp;
+            Log.d(TAG, "media transport: okhttp (cronet unavailable)");
+            leafFactory = () -> createTransportDataSource(null, okHttp, defaultHttp);
         }
 
         // NEWTUBE(debug-shaper): runtime bandwidth/fault shaping for on-device experiments
@@ -370,7 +378,11 @@ public class Media3SourceFactory {
                 ? new ResolvingDataSource.Factory(leafFactory, Media3SourceFactory::mirrorRangeIntoQuery)
                 : leafFactory;
 
-        Cache mediaCache = Media3PlayerCache.get(mContext);
+        boolean bypassCache = BuildConfig.DEBUG && "off".equals(DebugMediaShaper.prop("debug.arc.media_cache"));
+        if (bypassCache) {
+            NetPath.log("media-cache bypass=debug");
+        }
+        Cache mediaCache = bypassCache ? null : Media3PlayerCache.get(mContext);
         if (mediaCache != null) {
             mCachedDataSourceFactory = new CacheDataSource.Factory()
                     .setCache(mediaCache)
@@ -383,13 +395,24 @@ public class Media3SourceFactory {
     }
 
     private synchronized DataSource createTransportDataSource(
-            DataSource.Factory cronetFactory, DataSource.Factory fallbackFactory) {
-        if (!shouldBypassCronet()) {
+            @Nullable DataSource.Factory cronetFactory, DataSource.Factory fallbackFactory,
+            DataSource.Factory legacyHttpFactory) {
+        // Compare the same requests, ranges and player response through the existing transports.
+        // This override is inert in release builds and does not touch persisted preferences.
+        if (BuildConfig.DEBUG && "http".equals(DebugMediaShaper.prop("debug.arc.media_transport"))) {
+            NetPath.log(NetPath.context() + " media-transport http reason=debug-comparison");
+            return legacyHttpFactory.createDataSource();
+        }
+        if (BuildConfig.DEBUG && "okhttp".equals(DebugMediaShaper.prop("debug.arc.media_transport"))) {
+            NetPath.log(NetPath.context() + " media-transport okhttp reason=debug-comparison");
+            return fallbackFactory.createDataSource();
+        }
+        if (cronetFactory != null && !shouldBypassCronet()) {
             return cronetFactory.createDataSource();
         }
-        if (!mCronetBypassUseLogged) {
+        if (cronetFactory != null && !mCronetBypassUseLogged) {
             mCronetBypassUseLogged = true;
-            NetPath.log(NetPath.context() + " media-transport http-fallback active reason="
+            NetPath.log(NetPath.context() + " media-transport okhttp-fallback active reason="
                     + "startup-init-timeout net=" + mCronetBypassNetwork);
         }
         return fallbackFactory.createDataSource();

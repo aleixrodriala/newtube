@@ -32,7 +32,6 @@ import java.lang.ref.WeakReference;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
@@ -67,7 +66,7 @@ public class Media3PlayerController implements Player.Listener {
     private final PlayerEventListener mEventListener;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
     /** Open generation: bumped on every open/reset/release so a stale off-main build never prepares. */
-    private final AtomicInteger mOpenGeneration = new AtomicInteger();
+    private final SourceBuildGeneration mOpenGeneration = new SourceBuildGeneration();
     private Media3TrackAdapter mTrackAdapter;
     private ExoPlayer mPlayer;
     private WeakReference<Video> mVideo;
@@ -114,6 +113,12 @@ public class Media3PlayerController implements Player.Listener {
         mContext = context.getApplicationContext();
         mMediaSourceFactory = new Media3SourceFactory(context);
         mEventListener = eventListener;
+        // A dropped build is a legitimate outcome, but a SILENT one is indistinguishable from a
+        // player that was never asked to open anything - both leave a spinner at 00:00 and no log.
+        // One line per drop is what makes that difference readable in a NetPath trace.
+        mOpenGeneration.setDropListener((stage, generation, currentGeneration) ->
+                NetPath.log("source-build dropped stage=" + stage + " gen=" + generation
+                        + " current=" + currentGeneration + " video=" + getVideoId()));
     }
 
     // ---------------------------------------------------------------------------------
@@ -142,7 +147,7 @@ public class Media3PlayerController implements Player.Listener {
                 // Adopt exactly like a fresh build: bump the open generation first (any in-flight
                 // off-main build is stale now), then the same openMediaSource path (whose
                 // resetPlayerState bumps again - the off-main route also bumps twice per open).
-                mOpenGeneration.incrementAndGet();
+                mOpenGeneration.next();
                 openMediaSource(stashed, "dash-mpd-stash");
                 return;
             }
@@ -166,6 +171,7 @@ public class Media3PlayerController implements Player.Listener {
         }
 
         final String videoId = formatInfo.getVideoId();
+        final int generation = mOpenGeneration.current();
 
         synchronized (mStashLock) {
             if (videoId.equals(mStashedVideoId) && mStashedSource != null) {
@@ -173,7 +179,7 @@ public class Media3PlayerController implements Player.Listener {
             }
         }
 
-        SOURCE_BUILD_EXECUTOR.execute(() -> {
+        SOURCE_BUILD_EXECUTOR.execute(mOpenGeneration.guard(generation, "prebuild", () -> {
             MediaSource mediaSource;
             try {
                 mediaSource = mMediaSourceFactory.fromDashFormatInfo(formatInfo);
@@ -183,12 +189,15 @@ public class Media3PlayerController implements Player.Listener {
             }
 
             if (mediaSource != null) {
-                synchronized (mStashLock) {
-                    mStashedVideoId = videoId;
-                    mStashedSource = mediaSource;
-                }
+                final MediaSource result = mediaSource;
+                mOpenGeneration.publishIfCurrent(generation, "prebuild-publish", () -> {
+                    synchronized (mStashLock) {
+                        mStashedVideoId = videoId;
+                        mStashedSource = result;
+                    }
+                });
             }
-        });
+        }));
     }
 
     /**
@@ -273,14 +282,14 @@ public class Media3PlayerController implements Player.Listener {
     /**
      * NEWTUBE(open-latency): build the MediaSource (MPD XML generation + parse, 50-160ms) on the
      * background executor, then hand it to {@link #openMediaSource} back on main. The open
-     * generation guards staleness: any newer open/reset/release bumps it, and this build's result
-     * is dropped instead of preparing over the newer video. URL-only paths stay synchronous - they
-     * are already lazy (no XML work at open time).
+     * generation skips obsolete queued work before XML generation, and checks again on main so
+     * an open/reset/release during the build cannot prepare over the newer video. URL-only paths
+     * stay synchronous - they are already lazy (no XML work at open time).
      */
     private void openMediaSourceOffMain(Supplier<MediaSource> mediaSourceBuilder, String netPathType) {
-        final int generation = mOpenGeneration.incrementAndGet();
+        final int generation = mOpenGeneration.next();
 
-        SOURCE_BUILD_EXECUTOR.execute(() -> {
+        SOURCE_BUILD_EXECUTOR.execute(mOpenGeneration.guard(generation, () -> {
             MediaSource mediaSource;
             try {
                 mediaSource = mediaSourceBuilder.get();
@@ -290,18 +299,17 @@ public class Media3PlayerController implements Player.Listener {
             }
 
             final MediaSource result = mediaSource;
-            mMainHandler.post(() -> {
-                if (generation != mOpenGeneration.get()) {
-                    Log.d(TAG, "openMediaSourceOffMain: dropping stale build (gen " + generation + ")");
-                    return;
-                }
-                openMediaSource(result, netPathType);
-            });
-        });
+            mMainHandler.post(mOpenGeneration.guard(generation, "deliver",
+                    () -> openMediaSource(result, netPathType)));
+        }));
     }
 
     private void openMediaSource(@Nullable MediaSource mediaSource, String netPathType) {
         if (mPlayer == null) {
+            // Nothing downstream reports this, so without a line here the open simply evaporates:
+            // no prepare, no error, no NetPath milestone - just a player stuck at 00:00.
+            NetPath.log("source-open skipped reason=no-engine type=" + netPathType
+                    + " video=" + getVideoId());
             return;
         }
 
@@ -394,9 +402,8 @@ public class Media3PlayerController implements Player.Listener {
     public void resetPlayerState() {
         // Any in-flight off-main source build is now stale (a new open resets first, and
         // openMediaSource itself resets) - drop it instead of letting it prepare later.
-        mOpenGeneration.incrementAndGet();
+        mOpenGeneration.invalidate(this::dropMismatchedStash);
         mFirstFrameLogged = false; // new open = a fresh NetPath first-frame milestone
-        dropMismatchedStash(); // see the method doc: keep only the entry this open will consume
 
         if (containsMedia()) {
             mPlayer.stop();
@@ -433,8 +440,8 @@ public class Media3PlayerController implements Player.Listener {
     }
 
     public void release() {
-        mOpenGeneration.incrementAndGet(); // drop any in-flight off-main source build
-        clearStashedSource(); // never-prepared = no player resources held; plain GC
+        // Also prevents a running prebuild from repopulating the stash after this cleanup.
+        mOpenGeneration.invalidate(this::clearStashedSource);
 
         // NEWTUBE(abr-seed): teardown is the one reliable end-of-session hook; persist the meter's
         // EWMA so the next cold session's first video starts ABR from real throughput.

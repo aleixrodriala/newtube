@@ -93,11 +93,9 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     /** Gate shared by the timer and the network callback ({@link SystemClock#elapsedRealtime()}). */
     private long mNextAutoRetryAtMs;
     private ConnectivityManager mConnectivityManager;
-    private ConnectivityManager.NetworkCallback mNetworkCallback;
-    // Both retry triggers are posted to the main thread and funnel through the same gate. Distinct
-    // Runnable instances on purpose: Utils.post/postDelayed dedupe per instance, so a network event
-    // must not silently cancel a pending timer (or vice versa).
-    private final Runnable mConnectivityRetry = () -> requestAutoRetry("network", true);
+    private DefaultNetworkRecoveryCallback mNetworkCallback;
+    // The network callback owns a cancellable Runnable per registration. The timer stays separate
+    // because Utils.post/postDelayed dedupe per instance; neither trigger may cancel the other.
     private final Runnable mScheduledRetry = () -> requestAutoRetry("timer", false);
 
     @Override
@@ -740,8 +738,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     /**
      * Schedules the next timer-driven automatic retry on the {@link #AUTO_RETRY_BACKOFF_MS}
      * schedule. This is the recovery path for the common mobile outage - a tunnel, a lift, a
-     * platform, a Wi-Fi->cellular handover - where the link stops delivering packets but Android
-     * keeps reporting the network as connected and VALIDATED, so {@link #armConnectivityRetry}
+     * platform - where the link stops delivering packets but Android keeps reporting the network
+     * as connected and VALIDATED, so {@link #armConnectivityRetry}
      * never observes an edge to fire on (measured: data-stall detection took ~12 min to invalidate
      * a wedged LTE network, while the player gives up within seconds).
      */
@@ -762,8 +760,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     /**
      * The one gate every automatic retry passes through, on the main thread.
      *
-     * @param connectivityEdge the trigger was a PROVEN disconnected->validated transition, not our
-     *                         own inference. That's strong evidence the outage is over, so it
+     * @param connectivityEdge the trigger was a disconnected->validated transition or a validated
+     *                         replacement default network. That's evidence of recovery, so it
      *                         refills the weak-evidence backoff budget (and revives a spent one)
      *                         and retries immediately.
      */
@@ -783,8 +781,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
 
         long waitMs = mNextAutoRetryAtMs - SystemClock.elapsedRealtime();
         if (waitMs > 0) {
-            // Too soon. Typically the connectivity callback replaying the state of a network that
-            // is already up at registration time; re-arm for the remainder instead of firing.
+            // A timer arrived before its deadline; re-arm for the remainder instead of firing.
             Utils.postDelayed(mScheduledRetry, waitMs);
             return;
         }
@@ -800,9 +797,10 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
      * network that's ALREADY up, so a level-triggered "validated = retry" would fire instantly when
      * the cap trips on a slow-but-alive link (SocketTimeoutException/ERR_TIMED_OUT) - an unbounded
      * cap->arm->fire->cap loop against googlevideo, exactly what {@link #MAX_CONSECUTIVE_AUTO_FIXES}
-     * exists to prevent. That's why this path stays edge-triggered even though the edge often never
-     * comes; {@link #scheduleAutoRetry} owns the no-edge case on a bounded budget. Registered on the
-     * APPLICATION context (never the Activity - a backgrounded dead player would otherwise leak it).
+     * exists to prevent. A replacement default network also counts as an edge once it validates;
+     * Android can hand over without onLost(old). {@link #scheduleAutoRetry} owns the no-edge case
+     * on a bounded budget. Registered on the APPLICATION context (never the Activity - a
+     * backgrounded dead player would otherwise leak it).
      * Idempotent: one live registration per dead-state episode.
      */
     private void armConnectivityRetry() {
@@ -819,56 +817,33 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
 
         // Seed the edge detector from the CURRENT state: mid-outage (no default network, or one
         // that isn't VALIDATED) the disconnect edge already happened - fire on the next validation.
-        // If the network is validated right now, stay quiet until a real disconnect is observed;
-        // the play-tap manual retry covers the network-is-fine-but-slow case.
+        // If it is already validated, wait for validation loss/restore or a different default
+        // network. Replaying this same healthy network must not bypass the timer's retry budget.
         Network active = cm.getActiveNetwork();
         NetworkCapabilities activeCaps = active != null ? cm.getNetworkCapabilities(active) : null;
         boolean seedDisconnected = activeCaps == null || !activeCaps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
         NetPath.log(NetPath.context() + " recovery-network-arm seedDisconnected="
                 + (seedDisconnected ? "y" : "n") + ' ' + NetPath.networkSnapshot(context));
 
-        ConnectivityManager.NetworkCallback callback = new ConnectivityManager.NetworkCallback() {
-            // Confined to this callback: all events of one registration are serialized on a single
-            // ConnectivityManager handler thread, so a plain boolean is safe.
-            private boolean mSeenDisconnected = seedDisconnected;
-
-            @Override
-            public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) {
-                if (capabilities != null && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
-                    if (mSeenDisconnected) {
-                        mSeenDisconnected = false; // one fire per observed disconnect (disarm lands on the main thread)
-                        NetPath.log(NetPath.context() + " recovery-network-restored "
-                                + NetPath.networkSnapshot(context, network));
-                        onConnectivityRestored();
-                    }
-                } else {
-                    mSeenDisconnected = true;
-                }
-            }
-
-            @Override
-            public void onLost(Network network) {
-                mSeenDisconnected = true;
-                NetPath.log(NetPath.context() + " recovery-network-lost net="
-                        + network.hashCode());
-            }
-        };
-
+        DefaultNetworkRecoveryCallback callback = new DefaultNetworkRecoveryCallback(
+                active, !seedDisconnected, Utils::post, network -> {
+                    NetPath.log(NetPath.context() + " recovery-network-restored "
+                            + NetPath.networkSnapshot(context, network));
+                    requestAutoRetry("network", true);
+                });
+        // Publish the registration before callbacks can arrive. Its posted retry runs on the main
+        // thread, so cancellation and player state changes cannot race with retry delivery.
+        mConnectivityManager = cm;
+        mNetworkCallback = callback;
         try {
             cm.registerDefaultNetworkCallback(callback);
         } catch (RuntimeException e) { // e.g. TOO_MANY_REQUESTS or a restricted OEM build
+            callback.cancel();
+            Utils.removeCallbacks(callback);
+            mConnectivityManager = null;
+            mNetworkCallback = null;
             Log.e(TAG, "Failed to register connectivity retry: %s", e.getMessage());
-            return;
         }
-
-        mConnectivityManager = cm;
-        mNetworkCallback = callback;
-    }
-
-    private void onConnectivityRestored() {
-        // Fires on a binder thread - hop to the main thread before touching player/controller state.
-        // The stable Runnable dedupes repeated callbacks (Utils.post drops any pending copy first).
-        Utils.post(mConnectivityRetry);
     }
 
     /**
@@ -925,16 +900,22 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     }
 
     private void disarmAutoRetry() {
-        Utils.removeCallbacks(mConnectivityRetry, mScheduledRetry);
-        if (mConnectivityManager != null && mNetworkCallback != null) {
+        DefaultNetworkRecoveryCallback callback = mNetworkCallback;
+        mNetworkCallback = null;
+        if (callback != null) {
+            // Cancel before unregistering/removing queued work: a callback already in flight can
+            // still post afterward, but its own cancelled token prevents retrying another episode.
+            callback.cancel();
+        }
+        Utils.removeCallbacks(callback, mScheduledRetry);
+        if (mConnectivityManager != null && callback != null) {
             try {
-                mConnectivityManager.unregisterNetworkCallback(mNetworkCallback);
+                mConnectivityManager.unregisterNetworkCallback(callback);
             } catch (RuntimeException e) { // never registered / already unregistered
                 Log.e(TAG, "Failed to unregister connectivity retry: %s", e.getMessage());
             }
         }
         mConnectivityManager = null;
-        mNetworkCallback = null;
     }
 
     /**

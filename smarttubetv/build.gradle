@@ -243,6 +243,7 @@ dependencies {
     stmobileImplementation 'androidx.media3:media3-exoplayer:' + media3Version
     stmobileImplementation 'androidx.media3:media3-exoplayer-dash:' + media3Version
     stmobileImplementation 'androidx.media3:media3-exoplayer-hls:' + media3Version
+    stmobileImplementation 'androidx.media3:media3-datasource-okhttp:' + media3Version
     stmobileImplementation 'androidx.media3:media3-ui:' + media3Version
     // Cronet leaf transport for the media path (H2/QUIC, like the legacy engine had). The
     // engine is the embedded org.chromium.net:cronet-embedded already shipped by :sharedutils

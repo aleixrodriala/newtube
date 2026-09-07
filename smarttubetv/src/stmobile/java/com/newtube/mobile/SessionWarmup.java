@@ -18,7 +18,8 @@ import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
  * video-independent, so it can run in the background while the user is still browsing Home.
  *
  * This fires a throwaway blocking format fetch for a stable public video on a low-priority
- * thread once the first feed has painted (launch fallback: 15s). Every stage it warms is cached (and partly persisted) by
+ * thread once the first feed has painted (launch fallback: 15s). It yields to real playback
+ * before starting a pending fetch. Every stage it warms is cached (and partly persisted) by
  * MediaServiceCore, so the user's first real video open drops to the normal ~1-2s. If the user
  * taps a video WHILE the warmup is mid-flight, the two requests serialize on MediaServiceCore's
  * internal locks (mAppInfoSync/mPlayerSync/mClientDataSync) and share the caches - the tap waits
@@ -44,8 +45,7 @@ public final class SessionWarmup {
      */
     private static final long LAUNCH_FALLBACK_DELAY_MS = 15_000;
 
-    private static volatile boolean sStarted;
-    private static volatile boolean sWarm;
+    private static final SessionWarmupGate sGate = new SessionWarmupGate();
 
     private SessionWarmup() {
     }
@@ -57,7 +57,10 @@ public final class SessionWarmup {
      */
     public static void init(Context context) {
         Context appContext = context.getApplicationContext();
-        sWarm = prefs(appContext).getBoolean(KEY_SETUP_DONE, false);
+        sGate.restore(prefs(appContext).getBoolean(KEY_SETUP_DONE, false));
+        if (!sGate.tryScheduleFallback()) {
+            return;
+        }
 
         Thread fallback = new Thread(() -> {
             try {
@@ -73,10 +76,9 @@ public final class SessionWarmup {
 
     /** Kick the one-shot background warmup. Safe to call more than once; only the first acts. */
     public static void start(Context context) {
-        if (sStarted) {
+        if (!sGate.trySchedule()) {
             return;
         }
-        sStarted = true;
 
         Context appContext = context.getApplicationContext();
 
@@ -84,6 +86,11 @@ public final class SessionWarmup {
             try {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
                 Thread.sleep(START_DELAY_MS);
+                // Real playback may have started while we let the feed paint. Recheck after
+                // the delay so a throwaway request cannot compete with the selected video.
+                if (!sGate.tryBeginFetch()) {
+                    return;
+                }
                 Log.d(TAG, "session warmup: start");
                 // Blocking on purpose: this thread IS the background executor. The result is
                 // discarded - every expensive stage behind it stays cached for the real playback.
@@ -109,15 +116,19 @@ public final class SessionWarmup {
 
     /** True once any format fetch has succeeded on this install (persisted). */
     public static boolean isWarm() {
-        return sWarm;
+        return sGate.isWarm();
+    }
+
+    /** The selected video owns setup now; pending speculative work must yield to it. */
+    public static void onPlaybackRequested() {
+        sGate.onPlaybackRequested();
     }
 
     /** Record that the session is set up - called by the warmup or by the first real playback. */
     public static void markWarm(Context context) {
-        if (sWarm) {
+        if (!sGate.markWarm()) {
             return;
         }
-        sWarm = true;
         try {
             prefs(context.getApplicationContext()).edit().putBoolean(KEY_SETUP_DONE, true).apply();
         } catch (Exception e) {
