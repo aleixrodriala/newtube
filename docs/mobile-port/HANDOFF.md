@@ -774,3 +774,79 @@ client-ordering one — the next move is a different credential, not another
 client. `VideoInfo.isServerLoggedIn()` (logged as `srvAuth=`) exists to tell
 whether the server considered a request signed in; it reads `?` throughout
 this round and is still unvalidated against a known-positive case.
+
+## 18. Two LTE soak rounds after the ring change (2026-09-07)
+
+Wi-Fi off, LTE only (`net=cell:337`), five rounds on the Pixel 9. Two bugs, one
+of them caused by §17, and one non-finding worth recording so it is not
+rediscovered.
+
+### The quarantine counted evidence it did not have
+
+`isAuthRouteReloadVerdict` matches a structural shape — account-bearing client,
+UNPLAYABLE, zero media of any kind. A video that is simply unavailable produces
+that shape from *every* client, so the "two different videoIds" safeguard
+separated nothing: two unavailable videos in a row is an ordinary afternoon.
+
+Opening the lofi 24/7 stream (`jfKfPfyJRdk`), whose recording is not published,
+walked all eleven clients and scored a quarantine hit on both authenticated
+heads — with `reloadPage=n` printed on the same line. The failure is silent:
+the account route is demoted and everything afterwards is served anonymously.
+
+`AuthRouteWalkState` holds each observation until some other client serves the
+same video. Something plays → the auth head is the outlier, count it. Nothing
+plays → the video is the outlier, drop it. Verified on device: the lofi stream
+logs `auth-route held` twice and counts nothing; two videos that do play
+elsewhere still reach `1/2` then `2/2` and quarantine the route as before.
+
+### The live dash search cost six round trips, not one
+
+`sPreferDashManifestForLive` holds an HLS-only live result and walks on toward a
+client with a dash manifest. Its comment says this costs one extra round trip,
+and that was true while ANDROID_VR sat near the front. §17's quarantine
+reordering pushed it to seventh, so it cost six.
+
+Evidence gathered before changing anything, two 24/7 streams: every web-family
+client answered `dash=n`, ANDROID_VR answered `dash=y` for both. The walk now
+skips clients that cannot answer with a dash manifest (`isLiveDashCandidate`).
+`5yx6BWlEVcY` reached ANDROID_VR at attempt 4 instead of 7; `4xDzrJKXOOY` at 2
+instead of 5, first frame +2472ms → +1216ms. VOD unchanged (+723ms).
+
+### Not a bug: the 25s LTE outage
+
+Cutting mobile data for 25s mid-video looked at first like a 26-second freeze —
+the network validated at 14:13:04 and the player did not report an error until
+14:13:30. It is the opposite. Position advanced 68194ms over 71s of wall clock
+(0.96x, the gap being the initial first frame) with zero buffering events: the
+50s buffer covered the entire outage, and the error is the buffer finally
+running dry. One `url-remint` reload, first frame 3s later, resuming at the same
+position. Read the position delta before calling a quiet log a stall.
+
+The one thing left on the table there: between the network returning and the
+buffer running dry there were 27 seconds in which the failed chunk could have
+been refetched, which would have made the outage invisible. That needs media3 to
+retry a chunk after a fatal source error, which is not reachable from here, and
+it is worth 3 seconds.
+
+Also observed, and deliberately not changed: `applyNoPlaybackFix` on the
+recovery path calls `switchNextFormat`, which for a VISIONOS/ANDROID_VR winner
+resets the PO token cache — so a pure `ERR_INTERNET_DISCONNECTED` costs a
+BotGuard re-mint (`visitorAgeMs=0` on the recovery walk). It is the same
+"blame the client for the network" shape as the quarantine bug, but the
+existing comment argues a network reattach may sit behind a new public IP that
+the old identity no longer matches, so a fresh visitor may well be right. No
+evidence either way; measured recovery was 3s. Left alone.
+
+### Harness notes
+
+`scratchpad/soak.py` streams logcat to a file instead of reading the ring
+buffer at the end — a 3.5-minute debug round produced 7356 lines and rolled the
+first three opens out of the buffer (`EventLogger` and `pixel-thermal` dominate;
+NetPath was 404 of them, and both `EventLogger` and the per-chunk
+`NetPathLoadListener` are `BuildConfig.DEBUG`-gated). Seek drags need the
+seekbar's real bounds read from `uiautomator dump`; guessed coordinates produce
+`position-discontinuity delta=0` and look like a seek that did nothing.
+
+Airplane mode is the wrong outage lever on this device: it re-associates Wi-Fi
+on the way back and hands the default network to it, silently ending an
+LTE test. Use `svc data disable`/`enable`.

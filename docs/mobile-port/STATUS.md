@@ -13,6 +13,25 @@ ANDROID_HOME=<sdk> ./gradlew :smarttubetv:assembleStmobileDebug
 # -> smarttubetv/build/outputs/apk/stmobile/debug/NewTube_<ver>_universal.apk
 ```
 
+## Works (added 2026-09-07 — LTE soak follow-up)
+
+Five soak rounds on LTE found two ring bugs. The auth-route quarantine counted
+videos that are unavailable to *every* client as evidence that the account route
+is broken — two such videos in a row silently demoted a healthy route and served
+everything anonymously from then on. An observation now counts only once some
+other client has served the same video.
+
+And the live dash-manifest search, documented as costing one extra `/player`
+round trip, was costing six after the quarantine reordering pushed ANDROID_VR to
+seventh in the ring. Measured across two 24/7 streams, only ANDROID_VR ever
+returns a live dash manifest, so the walk skips the clients that cannot: first
+frame +2472ms → +1216ms on one stream, VOD untouched.
+
+A 25s LTE outage mid-video is covered entirely by the buffer — position advances
+at 0.96x wall clock with zero buffering events — and costs one 3s reload at the
+same position when the buffer runs dry. 252 focused tests pass. Detail:
+[`HANDOFF.md` §18](HANDOFF.md).
+
 ## Works (added 2026-09-07 — bot check walked past, playback anonymous)
 
 The denial above was three problems, not one. Authenticated TVHTML5 answers
