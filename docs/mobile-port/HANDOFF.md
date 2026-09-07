@@ -775,6 +775,17 @@ client. `VideoInfo.isServerLoggedIn()` (logged as `srvAuth=`) exists to tell
 whether the server considered a request signed in; it reads `?` throughout
 this round and is still unvalidated against a known-positive case.
 
+**Sharpened by the LTE rounds of the same day (§18), and it matters.** Every
+`TV` and `TV_DOWNGRADED` result across all five rounds reads `srvAuth=y` — the
+server *did* consider those requests signed in, and answered "reload page"
+anyway. So our credential is not being rejected or ignored on the TV clients;
+TVHTML5 is broken while holding a credential the server accepts. Combined with
+the HTTP 400 from WEB_EMBED, the gap is narrower than "we need a different
+credential": we need a credential *form* that a client which still works will
+accept, which is what yt-dlp's cookie-derived SAPISIDHASH is. `srvAuth` is
+validated against a known-positive case now; the `?` is the non-TV clients,
+which do not return `serviceTrackingParams` at all.
+
 ## 18. Two LTE soak rounds after the ring change (2026-09-07)
 
 Wi-Fi off, LTE only (`net=cell:337`), five rounds on the Pixel 9. Two bugs, one
