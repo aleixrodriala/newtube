@@ -1,7 +1,6 @@
 package com.liskovsoft.smartyoutubetv2.common.app.presenters.settings;
 
 import android.content.Context;
-import android.os.Build;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.smartyoutubetv2.common.R;
@@ -13,7 +12,6 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.base.BasePresenter;
 import com.liskovsoft.smartyoutubetv2.common.prefs.DeArrowData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
-import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.ColorScheme;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover;
 
@@ -45,121 +43,30 @@ public class MainUISettingsPresenter extends BasePresenter<Void> {
         return new MainUISettingsPresenter(context);
     }
 
+    /**
+     * Phone-only note: several categories this screen used to show were TV knobs whose values
+     * nothing on the phone reads any more, so they offered choices that did nothing - a colour
+     * scheme behind a "restart the app" toast (mobile overrides {@code initTheme()} to a no-op),
+     * 15 marquee speeds for card text that never scrolls, focus-triggered card previews, and top
+     * bar buttons for a top bar that is fixed. They were dropped rather than gated: each of
+     * {@code getColorScheme}, {@code getCardTextScrollSpeed}, {@code getCardPreviewType},
+     * {@code isCardTextAutoScrollEnabled}, {@code isCardMultilineTitleEnabled},
+     * {@code isUiTweakEnabled} and {@code isTopButtonEnabled} has zero readers outside
+     * {@code MainUIData} itself. The stored values are untouched, so nothing is lost if a knob
+     * ever gets wired up again.
+     */
     public void show() {
         AppDialogPresenter settingsPresenter = AppDialogPresenter.instance(getContext());
 
-        appendTopButtonsCategory(settingsPresenter);
-        appendColorScheme(settingsPresenter);
-        if (Build.VERSION.SDK_INT > 19) {
-            appendCardTextScrollSpeed(settingsPresenter);
-        }
-        appendCardPreviews(settingsPresenter);
-        appendCardStyle(settingsPresenter);
         appendThumbSource(settingsPresenter);
         //appendCardTitleLines(settingsPresenter);
         appendChannelSortingCategory(settingsPresenter);
         //appendPlaylistsCategoryStyle(settingsPresenter);
         appendScaleUI(settingsPresenter);
-        if (Build.VERSION.SDK_INT > 19) {
-            appendVideoGridScale(settingsPresenter);
-        }
         //appendTimeFormatCategory(settingsPresenter);
         appendMiscCategory(settingsPresenter);
 
         settingsPresenter.showDialog(getContext().getString(R.string.dialog_main_ui), mOnFinish);
-    }
-
-    private void appendTopButtonsCategory(AppDialogPresenter settingsPresenter) {
-        List<OptionItem> options = new ArrayList<>();
-
-        for (int[] pair : new int[][] {
-                {R.string.settings_search, MainUIData.TOP_BUTTON_SEARCH},
-                {R.string.settings_language_country, MainUIData.TOP_BUTTON_CHANGE_LANGUAGE},
-                {R.string.settings_accounts, MainUIData.TOP_BUTTON_BROWSE_ACCOUNTS}}) {
-            options.add(UiOptionItem.from(getContext().getString(pair[0]), optionItem -> {
-                if (optionItem.isSelected()) {
-                    mMainUIData.setTopButtonEnabled(pair[1]);
-                } else {
-                    mMainUIData.setTopButtonDisabled(pair[1]);
-                }
-            }, mMainUIData.isTopButtonEnabled(pair[1])));
-        }
-
-        settingsPresenter.appendCheckedCategory(getContext().getString(R.string.various_buttons), options);
-    }
-
-    private void appendColorScheme(AppDialogPresenter settingsPresenter) {
-        List<ColorScheme> colorSchemes = mMainUIData.getColorSchemes();
-
-        settingsPresenter.appendRadioCategory(getContext().getString(R.string.color_scheme), fromColorSchemes(colorSchemes));
-    }
-
-    private List<OptionItem> fromColorSchemes(List<ColorScheme> colorSchemes) {
-        List<OptionItem> styleOptions = new ArrayList<>();
-
-        for (ColorScheme colorScheme : colorSchemes) {
-            styleOptions.add(UiOptionItem.from(
-                    getContext().getString(colorScheme.nameResId),
-                    option -> {
-                        mMainUIData.setColorScheme(colorScheme);
-                        mRestartApp = true;
-                    },
-                    colorScheme.equals(mMainUIData.getColorScheme())));
-        }
-
-        return styleOptions;
-    }
-
-    private void appendCardPreviews(AppDialogPresenter settingsPresenter) {
-        List<OptionItem> options = new ArrayList<>();
-
-        for (int[] pair : new int[][] {
-                {R.string.option_disabled, MainUIData.CARD_PREVIEW_DISABLED},
-                {R.string.card_preview_full, MainUIData.CARD_PREVIEW_FULL},
-                {R.string.card_preview_muted, MainUIData.CARD_PREVIEW_MUTED}}) {
-            options.add(UiOptionItem.from(getContext().getString(pair[0]), optionItem -> {
-                mMainUIData.setCardPreviewType(pair[1]);
-            }, mMainUIData.getCardPreviewType() == pair[1]));
-        }
-
-        settingsPresenter.appendRadioCategory(getContext().getString(R.string.card_preview), options);
-    }
-
-    private void appendCardStyle(AppDialogPresenter settingsPresenter) {
-        List<OptionItem> options = new ArrayList<>();
-
-        OptionItem multilineTitle = UiOptionItem.from(getContext().getString(R.string.card_multiline_title),
-                option -> mMainUIData.setCardMultilineTitleEnabled(option.isSelected()), mMainUIData.isCardMultilineTitleEnabled());
-
-        OptionItem multilineSubtitle = UiOptionItem.from(getContext().getString(R.string.card_multiline_subtitle),
-                option -> mMainUIData.setCardMultilineSubtitleEnabled(option.isSelected()), mMainUIData.isCardMultilineSubtitleEnabled());
-
-        OptionItem autoScrolledTitle = UiOptionItem.from(getContext().getString(R.string.card_auto_scrolled_title),
-                option -> mMainUIData.setCardTextAutoScrollEnabled(option.isSelected()), mMainUIData.isCardTextAutoScrollEnabled());
-
-        OptionItem unlocalizedTitle = UiOptionItem.from(getContext().getString(R.string.card_unlocalized_titles),
-                option -> mMainUIData.setUnlocalizedTitlesEnabled(option.isSelected()), mMainUIData.isUnlocalizedTitlesEnabled());
-
-        OptionItem roundedCardCorners = UiOptionItem.from(getContext().getString(R.string.rounded_card_corners),
-                option -> {
-                    if (option.isSelected()) {
-                        mMainUIData.setUiTweakEnabled(MainUIData.UI_TWEAK_ROUNDED_CORNERS);
-                    } else {
-                        mMainUIData.setUiTweakDisabled(MainUIData.UI_TWEAK_ROUNDED_CORNERS);
-                    }
-                    mRestartApp = true;
-                },
-                mMainUIData.isUiTweakEnabled(MainUIData.UI_TWEAK_ROUNDED_CORNERS));
-        
-        options.add(multilineTitle);
-        options.add(multilineSubtitle);
-        if (Build.VERSION.SDK_INT > 19) {
-            options.add(autoScrolledTitle);
-        }
-        options.add(unlocalizedTitle);
-        options.add(roundedCardCorners);
-
-        settingsPresenter.appendCheckedCategory(getContext().getString(R.string.cards_style), options);
     }
 
     private void appendCardTitleLines(AppDialogPresenter settingsPresenter) {
@@ -235,33 +142,6 @@ public class MainUISettingsPresenter extends BasePresenter<Void> {
         }
 
         settingsPresenter.appendRadioCategory(getContext().getString(R.string.scale_ui), options);
-    }
-
-    private void appendCardTextScrollSpeed(AppDialogPresenter settingsPresenter) {
-        List<OptionItem> options = new ArrayList<>();
-
-        for (float factor : new float[] {1, 1.5f, 2, 2.5f, 3, 3.5f, 4, 4.5f, 5, 5.5f, 6, 6.5f, 7, 7.5f, 8}) {
-            options.add(UiOptionItem.from(String.format("%sx", Helpers.formatFloat(factor)),
-                    optionItem -> mMainUIData.setCardTextScrollSpeed(factor),
-                    Helpers.floatEquals(factor, mMainUIData.getCardTextScrollSpeed())));
-        }
-
-        settingsPresenter.appendRadioCategory(getContext().getString(R.string.card_text_scroll_factor), options);
-    }
-
-    private void appendVideoGridScale(AppDialogPresenter settingsPresenter) {
-        List<OptionItem> options = new ArrayList<>();
-
-        for (float scale : new float[] {0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.25f, 1.3f, 1.35f, 1.4f, 1.5f}) {
-            options.add(UiOptionItem.from(String.format("%sx", scale),
-                    optionItem -> {
-                        mMainUIData.setVideoGridScale(scale);
-                        mRestartApp = true;
-                    },
-                    Helpers.floatEquals(scale, mMainUIData.getVideoGridScale())));
-        }
-
-        settingsPresenter.appendRadioCategory(getContext().getString(R.string.video_grid_scale), options);
     }
 
     private void appendTimeFormatCategory(AppDialogPresenter settingsPresenter) {

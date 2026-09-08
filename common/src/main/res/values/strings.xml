@@ -683,6 +683,9 @@
     <string name="channels_filter">Show Filter channels field inside Channels section</string>
     <string name="channel_search_bar">Search bar inside the Channel page</string>
     <string name="header_sports">Sports</string>
+    <!-- Nav/section title. The badge string ("LIVE") shouted next to Sports/Gaming/News in
+         the phone's section list, so the section carries its own sentence-case name. -->
+    <string name="header_live">Live</string>
     <string name="keep_finished_activities">Keep finished activities</string>
     <string name="disable_channels_service">Disable Channels service</string>
     <string name="replace_titles">Replace titles</string>

@@ -9,6 +9,74 @@ Phone-only: the TV flavors, vendored ExoPlayer fork and Leanback modules were
 deleted. Playback uses Media3 1.10.1 with embedded Cronet and an OkHttp fallback.
 Toolchain: AGP 9.2.1 / Gradle 9.6.1 / compileSdk 37 / targetSdk 37 / minSdk 24.
 
+## UX pass: the pink app, the pale band, and a settings screen that lied (2026-09-08)
+
+A sweep of the phone surfaces on the Pixel 9, screenshot by screenshot. Three
+things turned out to be app-wide rather than local.
+
+**The theme never had an accent, so it kept Material's.** `mobile_color_accent`
+was still `#FF4081` - the stock Material pink - and `colorAccent` feeds far more
+than its name suggests. On a black-and-red app that painted: every section header
+in Settings, every checked checkbox and radio dot (the whole `Interfaz de usuario`
+screen came out hot pink), the search field's text caret, and the three
+indeterminate spinners that carried no explicit tint (search, channel, channel
+uploads). Selection controls are monochrome now - `colorAccent`, `colorSecondary`
+and `colorControlActivated` all point at `mobile_color_on_surface` - the untinted
+spinners were given the same `mobile_color_primary` red the other five already
+used, and the dialog section header dropped `textAllCaps` for the secondary-white
+14sp the You page's own group label uses. The one coloured icon state left in the
+app is cast-connected, which got its own name (`mobile_color_cast_active`,
+`#4FC3F7`) instead of riding on the theme.
+
+**Every bottom sheet stopped 63px short of the display edge.** Edge-to-edge means
+Material pads the sheet frame by the navigation inset - but all seven of our
+sheets paint their surface on the view INSIDE that frame, so the padded strip
+showed whatever the frame was: a dark band under the gear/quality/captions/speed
+sheets, a paler `#3F3F3F` one under comments and accounts, with the gesture pill
+floating on it. Two causes, one fix. Without `bottomSheetDialogTheme` a
+`BottomSheetDialog` falls back to Material's `Theme.Design.Light.BottomSheetDialog`
+(a WHITE frame - which is what the old "paint the frame transparent" workaround in
+four files was hiding), and where the frame did get a surface, the 16dp sheet
+elevation blended 14.75% white into `#1E1E1E` and produced exactly `#3F3F3F`.
+Styling the frame properly - our own `bottomSheetDialogTheme` with
+`elevationOverlayEnabled=false` and top-only 16dp corners - fixes both, because
+Material paints the frame itself on every layout and quietly wins over any
+background assigned in code. That is why the code-side workarounds never stuck.
+
+**The UI settings screen offered choices that did nothing.** `Esquema de color`
+(9 options behind a "restart the app" toast) is read only by
+`MotherActivity.initTheme()`, which `MobileActivity` overrides to a no-op;
+`Velocidad desplazamiento texto tarjeta` (15 marquee speeds), `Vista previa de la
+tarjeta`, the card-style checkboxes and the top-bar button pickers have zero
+readers anywhere outside `MainUIData` itself. All dropped from
+`MainUISettingsPresenter` (stored values untouched, so nothing is lost if a knob
+is ever wired up). What is left - thumb source, channel sorting, UI scale, misc -
+is live.
+
+Two smaller ones: the `En vivo` section was titled with `badge_live`, the
+uppercase thumbnail badge string, so it shouted next to Deportes/Noticias/Música
+(new `header_live`, sentence case, EN + ES); and the comments and live-chat sheets
+sized themselves from `getResources().getDisplayMetrics().heightPixels`, which
+`MotherActivity.initDpi()` replaces process-wide with a single instance cached at
+the first Activity's `onCreate` - start the app in landscape and the comments
+sheet opened 918px tall (85% of 1080) in portrait for the rest of the process.
+Both sheets now measure the live display through `MobileSheets.expandTo`.
+
+**Pixel 9 verified** (portrait and landscape, screenshots + pixel sampling): sheet
+surface `#1E1E1E` continuous to y=2423 on the gear, quality, comments and accounts
+sheets; comments now opens at 2060px (0.85 x 2424) instead of 918; settings radios
+and the search caret white; `En vivo` in the section list. The landscape player's
+system bars reappearing while a sheet is open was A/B'd against a build with the
+sheet theme removed and behaves identically - pre-existing, not introduced here.
+378 unit tests pass (plus 51 in sabr-media3).
+
+**Left open, found but not fixed:** `Listas de reproducción` and `Mis vídeos`
+share `icon_playlist` in `BrowsePresenter`'s section mapping (needs a new asset,
+the section icons are TV density-bucket PNGs); and the Misc category of the same
+settings screen was not audited knob by knob the way the top-level categories
+were - several of its entries (corner clock, channels old look, fullscreen mode,
+pinned channel rows) look TV-shaped too.
+
 ## Playlist Shuffle stops being an app-wide setting (2026-09-08)
 
 Closes the parity gap listed under Open - product/UX: "`Shuffle` turns the
@@ -1581,6 +1649,12 @@ open:
 - Channel rows in search suggestions; channel page header/sort polish.
 - Age-gated videos: silent ~6 s stall then auto-skip — needs an error dialog.
 - In-player "Video buffer" row (knob currently applies at next player open).
+- UI/UX pass DONE 2026-09-08 (see the section at the top): the Material-pink
+  accent leak, bottom sheets stopping 63px short of the display edge, and the
+  dead TV knobs in the UI settings screen. Two follow-ups it recorded rather
+  than fixed: `Listas de reproducción` and `Mis vídeos` share one icon, and
+  the settings Misc category still needs the same knob-by-knob audit the
+  top-level categories got.
 - UI sweep DONE: PiP enter-animation flash fixed (gear→PiP pre-strips the
   window to video-only BEFORE enterPictureInPictureMode, so the shrink never
   captures the squeezed watch page; refused-entry path restores the layout;
@@ -1601,7 +1675,6 @@ open:
   libs as unaligned (`libcronet.105.0.5195.68.so` LOAD segment, plus libj2v8,
   libconscrypt_jni, libglide-webp). Runs fine on 4 KB-page devices today, but
   16 KB-only devices are coming; needs updated .so dependencies or repack.
-- Proper edge-to-edge insets before targetSdk 36.
 - Unstripped native libs (needs NDK 21); `newtube.json` update manifest for
   the in-app updater.
 - 77 of the 78 strings in `smarttubetv/src/main/res/values/strings.xml` are TV
