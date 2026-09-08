@@ -66,3 +66,17 @@ without auditing `LiveDashManifestParser` + `Helpers.setField` call sites).
   evicting the entry the feature depended on (negative format-info cache;
   MediaSource stash cleared by its own open's reset). When adding "remember
   one thing" logic, walk the eviction timeline first.
+- **A bottom sheet's surface is a THEME setting, not a `setBackground` call.**
+  Material re-applies its own `MaterialShapeDrawable` to `design_bottom_sheet` on
+  every layout, so code that paints that frame is silently overwritten (four files
+  carried a workaround that never worked). Style `bottomSheetDialogTheme` ->
+  `bottomSheetStyle` instead, and keep `elevationOverlayEnabled=false` on the theme
+  overlay — the 16dp sheet elevation blends 14.75% white into `colorSurface`, which
+  turned #1E1E1E into #3F3F3F.
+- **`getResources().getDisplayMetrics()` is NOT this device's metrics.**
+  `MotherActivity.initDpi()` (private, called from its `onCreate` — not overridable)
+  swaps in one process-wide cached instance: density is derived from a 1920px TV
+  reference (2.525 on a Pixel 9, not 2.625), and width/height are frozen at whatever
+  orientation the FIRST activity saw. Anything sizing itself off `heightPixels` must
+  read the live display instead (`MobileSheets.expandTo`); `UI scale` multiplies that
+  same density, which is why that settings knob is still live.

@@ -49,7 +49,43 @@
              bars. What keeps modern devices right is MobileActivity.installContentInsets().
              Same split applies to statusBarColor/navigationBarColor above. -->
         <item name="android:windowOptOutEdgeToEdgeEnforcement" tools:targetApi="35">true</item>
+        <!-- Bottom sheets. Without this, a BottomSheetDialog falls back to Material's
+             Theme.Design.Light.BottomSheetDialog - a WHITE sheet frame under our dark
+             content (hence the old "paint the frame transparent" workaround), and on the
+             fragment path an elevation overlay lightened the surface to #3F3F3F. Either
+             way the wrong colour showed through the navigation-inset padding Material adds
+             to the frame: a pale band between the sheet and the display edge. Style the
+             frame properly instead - Material paints it itself, on every layout, so a
+             background assigned in code never sticks. -->
+        <item name="bottomSheetDialogTheme">@style/ThemeOverlay.NewTube.BottomSheetDialog</item>
         <item name="android:windowAnimationStyle">@style/BrowseWindowAnimation</item>
+    </style>
+
+    <style name="ThemeOverlay.NewTube.BottomSheetDialog" parent="ThemeOverlay.MaterialComponents.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/Widget.NewTube.BottomSheet</item>
+        <!-- ElevationOverlayProvider reads this off the THEME, not off the widget style.
+             Left on, the sheet's 16dp elevation blended 14.75% white into colorSurface -
+             #1E1E1E came out as exactly #3F3F3F, which is the pale band that showed under
+             the sheet in the first place. -->
+        <item name="elevationOverlayEnabled">false</item>
+    </style>
+
+    <!--
+      The sheet surface itself: our flat #1E1E1E (no elevation overlay) with the same top-only
+      16dp corners as bg_mobile_sheet, so the frame and the content it wraps line up exactly and
+      the colour runs under the gesture bar to the display edge.
+    -->
+    <style name="Widget.NewTube.BottomSheet" parent="Widget.MaterialComponents.BottomSheet.Modal">
+        <item name="backgroundTint">@color/mobile_color_surface</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.NewTube.BottomSheet</item>
+    </style>
+
+    <style name="ShapeAppearance.NewTube.BottomSheet" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSizeTopLeft">16dp</item>
+        <item name="cornerSizeTopRight">16dp</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
     </style>
 
     <!--

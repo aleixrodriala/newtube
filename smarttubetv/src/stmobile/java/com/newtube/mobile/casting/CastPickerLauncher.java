@@ -75,8 +75,6 @@ public final class CastPickerLauncher {
         dialog.setOnShowListener(d -> {
             View sheetView = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
             if (sheetView != null) {
-                // The frame's own white background would poke out around bg_mobile_sheet's corners.
-                sheetView.setBackgroundColor(android.graphics.Color.TRANSPARENT);
                 BottomSheetBehavior<View> behavior = BottomSheetBehavior.from(sheetView);
                 behavior.setSkipCollapsed(true);
                 behavior.setState(BottomSheetBehavior.STATE_EXPANDED);

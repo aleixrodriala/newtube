@@ -1,7 +1,5 @@
 package com.newtube.mobile.ui.playback;
 
-import android.app.Dialog;
-import android.graphics.Color;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -14,8 +12,6 @@ import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.google.android.material.bottomsheet.BottomSheetBehavior;
-import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import com.liskovsoft.mediaserviceinterfaces.CommentsService;
 import com.liskovsoft.mediaserviceinterfaces.data.CommentGroup;
@@ -23,6 +19,7 @@ import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.rx.RxHelper;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
+import com.newtube.mobile.ui.common.MobileSheets;
 
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import io.reactivex.rxjava3.disposables.Disposable;
@@ -126,20 +123,8 @@ public class CommentsSheet extends BottomSheetDialogFragment implements Comments
     @Override
     public void onStart() {
         super.onStart();
-        // Make the sheet tall (most of the screen) and let its own rounded background show through.
-        Dialog dialog = getDialog();
-        if (dialog instanceof BottomSheetDialog) {
-            View sheet = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet);
-            if (sheet != null) {
-                sheet.setBackgroundColor(Color.TRANSPARENT);
-                int height = Math.round(getResources().getDisplayMetrics().heightPixels * 0.85f);
-                sheet.getLayoutParams().height = height;
-                sheet.requestLayout();
-                BottomSheetBehavior<View> behavior = BottomSheetBehavior.from(sheet);
-                behavior.setPeekHeight(height);
-                behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-            }
-        }
+        // Tall sheet, official-app style: most of the screen, opened expanded.
+        MobileSheets.expandTo(getDialog(), 0.85f);
     }
 
     @Override
