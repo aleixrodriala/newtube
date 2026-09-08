@@ -9,15 +9,15 @@ Phone-only: the TV flavors, vendored ExoPlayer fork and Leanback modules were
 deleted. Playback uses Media3 1.10.1 with embedded Cronet and an OkHttp fallback.
 Toolchain: AGP 9.2.1 / Gradle 9.6.1 / compileSdk 37 / targetSdk 37 / minSdk 24.
 
-## 1.8.1: optional SABR VOD source (2026-09-08)
+## 1.8.1: optional SABR VOD source, shipped OFF (2026-09-08)
 
-Native Media3 SABR now has two roles. **Fallback** (default **ON**) carries a
+Native Media3 SABR has two roles, **both default OFF**. **Fallback** carries a
 response whose adaptive formats have no URL at all - the case where the app
-previously just skipped to the next video. **“Prefer SABR even when links work”**
-(default **OFF**) is the unchanged byte-saving experiment. The decoder handles
-bounded initialization/continuation, seeks, quality changes, cancellation and
-lazy captions. A failing *preferred* source is terminal; a failing *fallback*
-source defers to the normal client recovery.
+otherwise skips to the next video. **“Prefer SABR even when links work”** is the
+byte-saving experiment. The decoder handles bounded
+initialization/continuation, seeks, quality changes, cancellation and lazy
+captions. A failing *preferred* source is terminal; a failing *fallback* source
+defers to the normal client recovery.
 
 **Real YouTube SABR delivery now works** (2026-09-08, later round). The earlier
 HTTP 403 was the client gate, not the protocol: eligibility required an
@@ -37,30 +37,56 @@ in all 12 opens, zero rebuffers and zero dropped frames: first frame median
 per eight seconds of 720p. One video, one network, no soak, no cellular arm, no
 ABR or battery evidence. The preference stays **off by default**.
 
-**The fallback was dead wiring until now** (2026-09-08, latest round). A
-link-less response never reached the decoder — `containsAdaptiveVideoInfo()`
-reports such a list as no adaptive video, so `containsSabrFormats()` was false
-and the `openSabr` branch never ran, while `isUnplayable()` already said
-"playable". Enabling SABR turned "skip to the next video" into "sit with no
-source"; the only way SABR ever ran was by displacing a working DASH route.
-Fixed in the DTO, the preference split and the failure path. Verified on four
-Tiny Desk videos: the normal ring is unchanged (`type=dash-mpd`, first frame),
-and a link-less IOS response now reaches `prepare type=sabr-vod` on 4/4 instead
-of being skipped. **Open:** every IOS SABR POST then answers 426 bytes carrying
-`RELOAD_PLAYER_RESPONSE`, bounded at four recovery attempts. See HANDOFF §28.
+**The fallback was dead wiring, was fixed, and still earns nothing**
+(2026-09-08, latest round). A link-less response never reached the decoder —
+`containsAdaptiveVideoInfo()` reports such a list as no adaptive video, so
+`containsSabrFormats()` was false and the `openSabr` branch never ran, while
+`isUnplayable()` already said "playable". Enabling SABR turned "skip to the next
+video" into "sit with no source". Fixed in the DTO, the preference split and the
+failure path; a link-less IOS response now reaches `prepare type=sabr-vod` on
+4/4. That fix is *internal to the feature* — with the capability off, upstream's
+classification is correct and the ring walks on as it always did.
 
-Shipped as a **second delivery path** in the signed **1.8.1** build (versionCode
-10801): both toggles are in Settings, DASH remains the default for anything with
-working links, and the SABR module's runtime classes are in the release DEX
-while its proof/fixture code is not. Not published as a GitHub release — no
-release record, poster or announcement copy was produced for 1.8.1, only
-CHANGELOG entries.
+**Then it was turned off by default, on the measurement.** It has never carried
+a video that would not otherwise play: seven unpinned opens all went VISIONOS →
+`dash-mpd` → first frame (the ring's lead client still hands out URLs, so the
+fallback is never reached), the media 403 that does occur is rescued by the
+existing quarantine + ring walk on a client with no SABR endpoint at all, and
+when the path is forced it fails on every video. Cost is non-zero — accepting a
+link-less answer stops the ring at that client and spends four recovery attempts
+on SABR first.
 
-It still matters despite being slower: IOS, ANDROID and TVHTML5 already return
-zero formats with URLs — only VISIONOS and ANDROID_VR still hand them out.
+**And it cannot be fixed by request tuning: there is a ~60 s attestation wall.**
+`RELOAD_PLAYER_RESPONSE` was a symptom. Sweeping the start position (three
+videos, fresh anonymous sessions) shows that without a PO token IOS and
+ANDROID_VR are served only up to **between 56.2 s and 60.0 s**, after which
+`STREAM_PROTECTION_STATUS` turns `ATTESTATION_REQUIRED` and no media comes back.
+The wall is positional, not a session quota. The clients that answer *without
+links* — the only ones the fallback ever sees — are exactly the walled ones, so
+the fallback is structurally capped at the first minute of any video. Both
+switches therefore stay off.
 
-501 offline tests pass (303 smarttubetv, 86 youtubeapi, 62 common, 50 SABR
-module); debug/test APK assembly passes.
+**VISIONOS SABR, by contrast, is unwalled and works end-to-end.** Status `OK` at
+every position including the last seconds, and on the Pixel 9 with the
+experiment on: `prepare type=sabr-vod` → `first-frame +2369` → still `PLAYING` at
+**2:34** with zero protection/reload errors over three and a half minutes. The
+opt-in experiment is the working path; the fallback is the broken one. See
+HANDOFF §28.
+
+Shipped as an **opt-in delivery path** in the signed **1.8.1** build (versionCode
+10801): both toggles are in Settings and off, DASH carries everything by
+default, and the SABR module's runtime classes are in the release DEX while its
+proof/fixture code is not. Not published as a GitHub release — no release
+record, poster or announcement copy was produced for 1.8.1, only CHANGELOG
+entries.
+
+Why keep it at all: IOS, ANDROID and TVHTML5 already return zero formats with
+URLs — only VISIONOS and ANDROID_VR still hand them out. When the lead client
+stops, this is the path that has to work, and the remaining gap is the reload
+handshake, not the 403 the work started from.
+
+Offline tests pass (308 smarttubetv, 62 common, 50 SABR module, 35 youtubeapi
+SABR/ring subset); debug/release APK assembly passes.
 
 See [implementation, comparisons and candidate](SABR-MEDIA3-2026-09-08.md) and
 HANDOFF §27.

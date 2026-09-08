@@ -4,19 +4,26 @@ All notable user-facing changes to NewTube ("SmartTube for phones").
 
 ## 1.8.1 — 2026-09-08
 
-### SABR is now a real second playback source
+### SABR ships as an optional playback source — off by default
 
-- **Videos that come back without any direct links are now played instead of
-  skipped.** Some YouTube clients answer with video and audio tracks that carry
-  no download link at all, only a streaming endpoint. NewTube could not use that
-  answer: it moved on to another video. It now plays such a response over SABR.
-  This is on by default and can be turned off in Settings ("Play videos that
-  have no direct links").
-- **It never displaces a video that already works.** Openings with normal links
-  keep using the existing path, at the same speed. Using SABR *instead of*
-  working links stays a separate, off-by-default experiment ("Prefer SABR even
-  when links work"): about 11% fewer bytes, about 66 ms slower to the first
-  frame, measured over six openings per source on Wi-Fi.
+- NewTube can now play a YouTube response that carries **no direct links** —
+  video and audio tracks with only a streaming endpoint — using SABR. Both SABR
+  switches are in Settings and both are **off**: "Play videos that have no
+  direct links" and "Prefer SABR even when links work".
+- **Why it is off.** It was built on by default and turned off before release,
+  because it never once carried a video that would not otherwise play. In seven
+  normal openings the client NewTube uses always returned working links, so the
+  fallback was never reached. When it was forced onto the path, the server
+  answered every request by asking for the video page to be reloaded, and
+  playback failed. Turning it on is also not free: NewTube stops asking further
+  clients for that video, and spends its retry budget on SABR before trying
+  anything else. It stays off until it can finish a playback.
+- **Nothing you see today changes.** Videos still open the way they did in
+  1.8.0, at the same speed, and the playback error that does occasionally happen
+  is still handled by the existing client retry — not by SABR.
+- For anyone who wants to try it: SABR uses about 11% fewer bytes and reaches
+  the first frame about 66 ms later, measured over six openings per source on
+  Wi-Fi.
 - Three faults in the SABR implementation itself were fixed on the way. The
   previous build could never receive SABR video at all, because the source was
   only offered for signed-in TV responses - the one client whose media endpoint
@@ -27,13 +34,11 @@ All notable user-facing changes to NewTube ("SmartTube for phones").
 
 ### Still limited
 
-- The fallback does not yet finish every time. On the test phone, one client
-  (iOS) answers each SABR request by asking for the video page to be reloaded;
-  NewTube retries a bounded number of times and then reports the error rather
-  than looping. Videos with normal links are unaffected.
-- Accepting a link-less answer means NewTube stops asking further clients for
-  that video. On seven openings this changed nothing, because the client it
-  normally uses still returns links.
+- Turned on, the fallback cannot finish a playback, and now we know why: for the
+  clients it uses, YouTube serves only the **first minute** of a video without a
+  device attestation NewTube cannot produce. Past roughly 60 seconds the server
+  simply returns no video. Resuming a part-watched video starts past that line,
+  which is why it failed immediately in testing.
 - SABR speed and data use were measured on one video, one network and one phone;
   there is no evidence yet for long playbacks, mobile data or battery use.
 - Everything listed under 1.8.0 below still applies, except that SABR is no

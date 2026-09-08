@@ -1358,9 +1358,10 @@ endpoint, so SABR cannot help that case at all.
    adaptive when `SabrVodCapability.accepts()` - so `containsSabrFormats()` is
    true and the SABR route is reachable. With the capability off, nothing moves.
 2. `SabrSourcePreference` splits into two roles: **fallback** (carry a response
-   with no links; default **ON**) and **preferred** (displace working DASH links;
-   default **OFF**, unchanged experiment). `openDash` preemption and the
-   next-video prebuild now key on *preferred* only.
+   with no links) and **preferred** (displace working DASH links; unchanged
+   experiment). `openDash` preemption and the next-video prebuild key on
+   *preferred* only. The fallback was built default-**ON** and turned **OFF**
+   before release - see "Verdict" below; both roles are opt-in today.
 3. A failing **fallback** SABR source hands the real cause to the shared fixer
    instead of `TerminalSourceException`, and `allowsAutomaticSourceRecovery()`
    stays true for it. A failing *preferred* source is still terminal - that one
@@ -1370,29 +1371,88 @@ endpoint, so SABR cannot help that case at all.
 
 | arm | client | outcome |
 |---|---|---|
-| E | ring (default) | VISIONOS -> `type=dash-mpd` -> first frame. No preemption, no 403, unchanged from A's happy path |
+| E | ring, fallback on | VISIONOS -> `type=dash-mpd` -> first frame. No preemption, no 403, unchanged from A's happy path |
 | F | IOS (pinned) | **route now reached**: `info dash=0 sabr=y` -> `prepare type=sabr-vod` on 4/4 - then fails `response_reload_required` |
-| G | IOS, fallback off | identical to B - the switch turns it back off cleanly |
+| G | IOS, fallback off (= today's default) | identical to B - the switch turns it back off cleanly |
 
-**Still open - `RELOAD_PLAYER_RESPONSE` (UMP part 46).** On the phone every IOS
-SABR POST answers in 426 bytes with that part, on a freshly fetched response, at
-an unset start position, for all four videos. `SabrProtocol` throws
-`response_reload_required` on it, the fallback defers to recovery, the ring
-re-fetches, and the same thing happens; `ErrorFixerController` caps it at 4
-attempts and surfaces one error (verified - it does NOT spin). Off-device the
-same IOS client returns ~104 KB for the same video, so this is something about
-the request, not a dead client. `StreamerContext.po_token` (field 2) is never
-set by `SabrProtocol.request()`, but `PoTokenGate.getPoToken()` is web-family
-only and returns null for IOS, so wiring that field changes nothing on its own.
-Next step is to read the reload part's payload and find what the server wants
-echoed back.
+**Closed - it was never about the reload part (2026-09-08).** The reload is a
+symptom; the cause is an **attestation wall at ~60 s**, and the request shape was
+innocent all along.
 
-**Trade-off to keep in mind.** Accepting a link-less answer makes the ring
-*stop* at that client instead of walking on to one that might still have URLs.
-Seven unpinned opens (arms A and E) showed no difference - VISIONOS leads the
-ring and still hands out URLs - but on a video where VISIONOS fails and IOS is
-reached, default-on now spends the retry budget on SABR. That is the price of
-the fallback until the reload gap is closed.
+The chase, in order. A new instrumentation test (`SabrReloadDiagnosticTest`,
+androidTest) runs the app's OWN `SabrProtocol.request()` and media transport
+against the endpoint the ordinary metadata pipeline issued, and reports a UMP
+part census. Through it, an IOS request at **position 0** returns real media on
+all four videos (64 KB audio / 188-517 KB video). So the body, the client info,
+the config, the UA and the transport are all fine. What differed in real playback
+was one line in the log: `position-discontinuity reason=seek from=0 to=1029273` -
+the app resumes from watch history, and the failing loads were the ones issued at
+that position.
+
+Sweeping the start position (off-device, three videos, fresh anonymous session):
+
+| start position | IOS / ANDROID_VR | VISIONOS |
+|---|---|---|
+| 0 s | media, `STREAM_PROTECTION_STATUS = ATTESTATION_PENDING` | media, status **OK** |
+| 30 s | media, ATTESTATION_PENDING | media, OK |
+| 60 s and beyond | **no media**, `ATTESTATION_REQUIRED max_retries=10` | media, OK |
+
+The wall sits between **56.2 s and 60.0 s**, identically on all three videos, and
+it is **positional, not a session quota**: a FRESH session asking for 60 s is
+refused, while one session asking for 0 s six times in a row is served every
+time. `ATTESTATION_REQUIRED` is the PO-token demand - which this port cannot
+mint. `SabrProtocol` already maps it to `stream_protection`; the phone reached
+`response_reload_required` instead because the server answers a *post-seek,
+concurrent, previously-aborted* request with part 46 rather than the bare
+protection status. Same wall, different phrasing, and reading the reload token
+would not have helped: there is nothing to echo back that substitutes for
+attestation.
+
+**What this means for the fallback.** The fallback only fires on a response with
+no links, and the clients that answer that way (IOS, ANDROID) are exactly the
+walled ones - VISIONOS and ANDROID_VR still hand out URLs, so they route to
+DASH. So the fallback is structurally capped at the first minute of any video: it
+can never carry a full playback without a PO token. That is the measured reason
+both switches ship **off**, and it is a stronger reason than the one recorded
+above.
+
+**What this means for the experiment.** VISIONOS SABR is unwalled and works
+end-to-end. Verified on the Pixel 9 with `player_client=VISIONOS` and
+`sabr_vod=1`: `prepare type=sabr-vod` -> `first-frame +2369` -> still `PLAYING`
+at **2:34** with 3:00 buffered and zero `stream_protection` /
+`response_reload_required` / `SabrException` lines across three and a half
+minutes. So "Prefer SABR even when links work" is a real, working path today;
+the fallback is the broken one. Reopening the default should start there, not
+with the reload part.
+
+**Verdict: shipped off (2026-09-08).** The fallback was written default-on and
+flipped to default-off the same day, on the evidence above. It has never carried
+a video that would not otherwise play:
+
+- In normal use it is never selected. Seven unpinned opens (arms A and E) went
+  VISIONOS -> `dash-mpd` -> first frame; the ring's leading client still hands
+  out real URLs, so a link-less response never arrives.
+- The 403 that *does* occur in the wild (arm A, TV_DOWNGRADED) is already
+  handled by the existing quarantine + ring walk. TV_DOWNGRADED has no SABR
+  endpoint, so SABR cannot address it even in principle.
+- Forced onto the path (arm F) it prepares and then fails on every video.
+- It *cannot* work: the clients that answer without links are precisely the ones
+  walled at ~60 s without a PO token. See "Closed" below - this is the decisive
+  reason, found after the switch was already flipped.
+- The only arm where SABR delivered frames (D) is the opt-in experiment
+  displacing a route that already worked. That proves the decoder, not the
+  feature - though the decoder turns out to be genuinely good: see the VISIONOS
+  result below.
+
+And it is not free: accepting a link-less answer makes the ring *stop* at that
+client instead of walking on to one that might still have URLs, so on a video
+where VISIONOS fails and IOS is reached, default-on spends
+`ErrorFixerController`'s retry budget (4 attempts, measured) on SABR before
+anything else is tried. Non-zero cost against zero measured benefit - so both
+switches are opt-in until the reload gap below is closed. Note this also means
+the `containsAdaptiveVideoInfo()` change in point 1 is not a standalone bug fix:
+with the capability off, upstream's classification is correct and the ring walks
+on as it always did. It repairs a hole the capability itself opened.
 
 `MediaItemFormatInfoImpl.kt` carries the same `containsSabrFormats()` logic but
 is dead code here (`InnertubeService` is only referenced from a commented-out

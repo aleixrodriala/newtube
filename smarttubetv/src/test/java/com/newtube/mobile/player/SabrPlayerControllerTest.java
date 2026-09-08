@@ -92,43 +92,56 @@ public class SabrPlayerControllerTest {
     }
 
     /**
-     * The fallback is the reason a link-less response plays at all, so it ships on. The
-     * experiment that displaces working links does not.
+     * The fallback was built default-ON and turned off before release. Over seven unpinned opens
+     * the ring never reached a link-less client, and when the path was forced every SABR POST
+     * answered RELOAD_PLAYER_RESPONSE - so it has never carried a video that would not otherwise
+     * play, while accepting a link-less answer does cost the ring a client plus bounded retries.
+     * Both roles stay opt-in until the reload handshake returns media.
      */
-    @Test public void theFallbackIsOnByDefaultAndThePreferenceIsNot() {
+    @Test public void neitherRoleIsOnByDefaultSoTheDecoderStaysOff() {
         Context context = RuntimeEnvironment.getApplication();
-        assertTrue(SabrSourcePreference.isFallbackEnabled(context));
+        assertFalse(SabrSourcePreference.isFallbackEnabled(context));
         assertFalse(SabrSourcePreference.isPreferred(context));
-        assertTrue(SabrSourcePreference.isEnabled(context));
-        SabrSourcePreference.initialize(context);
-        assertTrue(SabrVodCapability.isEnabled());
-    }
-
-    @Test public void turningTheFallbackOffWithoutThePreferenceRemovesTheCapability() {
-        Context context = RuntimeEnvironment.getApplication();
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit().putBoolean("sabr_vod_fallback", false).commit();
         assertFalse(SabrSourcePreference.isEnabled(context));
         SabrSourcePreference.initialize(context);
         assertFalse(SabrVodCapability.isEnabled());
+    }
 
-        // The experiment alone still enables the decoder.
+    @Test public void eitherRoleAloneEnablesTheDecoderAndBothOffRemovesIt() {
+        Context context = RuntimeEnvironment.getApplication();
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit().putBoolean("sabr_vod", true).commit();
+                .edit().putBoolean("sabr_vod_fallback", true).commit();
         assertTrue(SabrSourcePreference.isEnabled(context));
         SabrSourcePreference.initialize(context);
         assertTrue(SabrVodCapability.isEnabled());
+
+        // The experiment alone also enables the decoder.
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean("sabr_vod_fallback", false).putBoolean("sabr_vod", true).commit();
+        assertTrue(SabrSourcePreference.isEnabled(context));
+        SabrSourcePreference.initialize(context);
+        assertTrue(SabrVodCapability.isEnabled());
+
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean("sabr_vod", false).commit();
+        assertFalse(SabrSourcePreference.isEnabled(context));
+        SabrSourcePreference.initialize(context);
+        assertFalse(SabrVodCapability.isEnabled());
     }
 
     @Test public void theTwoSwitchesAreStoredIndependently() {
         Context context = RuntimeEnvironment.getApplication();
         SabrSourcePreference.setPreferred(context, true);
         assertTrue(SabrSourcePreference.isPreferred(context));
+        assertFalse(SabrSourcePreference.isFallbackEnabled(context));
+
+        SabrSourcePreference.setFallbackEnabled(context, true);
+        assertTrue(SabrSourcePreference.isPreferred(context));
         assertTrue(SabrSourcePreference.isFallbackEnabled(context));
 
-        SabrSourcePreference.setFallbackEnabled(context, false);
-        assertTrue(SabrSourcePreference.isPreferred(context));
-        assertFalse(SabrSourcePreference.isFallbackEnabled(context));
+        SabrSourcePreference.setPreferred(context, false);
+        assertFalse(SabrSourcePreference.isPreferred(context));
+        assertTrue(SabrSourcePreference.isFallbackEnabled(context));
     }
 
     @Test public void transientDebugOverrideDoesNotChangeTheStoredPreference() {
@@ -146,14 +159,20 @@ public class SabrPlayerControllerTest {
         assertTrue(SabrSourcePreference.isPreferred(context));
     }
 
+    /** The demo harness arms the off-by-default fallback per run; it must not store that choice. */
     @Test public void theFallbackHasItsOwnTransientDebugOverride() {
         Context context = RuntimeEnvironment.getApplication();
         boolean testBuild = com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG
                 || com.liskovsoft.smartyoutubetv2.tv.BuildConfig.BENCHMARK;
+        Overrides.fallback = "1";
+        assertEquals(testBuild, SabrSourcePreference.isFallbackEnabled(context));
+        assertFalse(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getBoolean("sabr_vod_fallback", false));
+
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean("sabr_vod_fallback", true).commit();
         Overrides.fallback = "0";
         assertEquals(!testBuild, SabrSourcePreference.isFallbackEnabled(context));
-        assertTrue(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getBoolean("sabr_vod_fallback", true));
         Overrides.fallback = "";
         assertTrue(SabrSourcePreference.isFallbackEnabled(context));
     }

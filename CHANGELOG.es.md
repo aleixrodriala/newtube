@@ -5,20 +5,28 @@ versiones anteriores está en [CHANGELOG.md](CHANGELOG.md) (en inglés).
 
 ## 1.8.1 — 08-09-2026
 
-### SABR ya es una segunda fuente de verdad
+### SABR llega como fuente opcional, desactivada por defecto
 
-- **Los vídeos que llegan sin enlaces directos ahora se reproducen en vez de
-  saltarse.** Algunos clientes de YouTube responden con pistas de vídeo y audio
-  que no traen ningún enlace de descarga, solo un punto de streaming. NewTube no
-  sabía qué hacer con esa respuesta: pasaba al siguiente vídeo. Ahora la
-  reproduce por SABR. Viene activado y se puede desactivar en Ajustes
-  ("Reproducir vídeos sin enlaces directos").
-- **Nunca desplaza a un vídeo que ya funciona.** Las aperturas con enlaces
-  normales siguen usando la vía de siempre, a la misma velocidad. Usar SABR *en
-  lugar de* enlaces que funcionan sigue siendo un experimento aparte y
-  desactivado ("Preferir SABR aunque haya enlaces"): alrededor de un 11% menos
-  de datos y unos 66 ms más hasta el primer fotograma, medido en seis aperturas
-  por fuente en Wi-Fi.
+- NewTube ya puede reproducir por SABR una respuesta de YouTube que llega **sin
+  enlaces directos**: pistas de vídeo y audio con solo un punto de streaming.
+  Los dos interruptores de SABR están en Ajustes y los dos vienen
+  **desactivados**: "Reproducir vídeos sin enlaces directos" y "Preferir SABR
+  aunque haya enlaces".
+- **Por qué está desactivado.** Se hizo activado por defecto y se apagó antes de
+  publicar, porque no llegó a rescatar ni un solo vídeo que no se reprodujera ya
+  de otra forma. En siete aperturas normales, el cliente que usa NewTube siempre
+  devolvió enlaces que funcionaban, así que la reserva nunca llegó a entrar. Y
+  al forzarla, el servidor respondió a cada petición pidiendo que se recargara
+  la página del vídeo, sin reproducir nada. Activarla tampoco sale gratis:
+  NewTube deja de preguntar a más clientes por ese vídeo y gasta en SABR sus
+  reintentos antes de probar otra cosa. Seguirá apagada hasta que consiga
+  completar una reproducción.
+- **Nada de lo que ves hoy cambia.** Los vídeos se abren igual que en la 1.8.0 y
+  a la misma velocidad, y el error de reproducción que sí aparece de vez en
+  cuando lo sigue resolviendo el reintento de cliente de siempre, no SABR.
+- Para quien quiera probarlo: SABR gasta alrededor de un 11% menos de datos y
+  tarda unos 66 ms más hasta el primer fotograma, medido en seis aperturas por
+  fuente en Wi-Fi.
 - Por el camino se corrigieron tres fallos del propio SABR. La versión anterior
   no llegaba a recibir vídeo nunca, porque la fuente solo se ofrecía para
   respuestas de TV con sesión iniciada, justo el cliente cuyo servidor responde
@@ -29,13 +37,11 @@ versiones anteriores está en [CHANGELOG.md](CHANGELOG.md) (en inglés).
 
 ### Sigue limitado
 
-- La reserva todavía no termina siempre. En el móvil de pruebas, un cliente
-  (iOS) responde a cada petición SABR pidiendo que se recargue la página del
-  vídeo; NewTube reintenta un número acotado de veces y luego avisa del error en
-  vez de quedarse en bucle. Los vídeos con enlaces normales no se ven afectados.
-- Aceptar una respuesta sin enlaces implica que NewTube deja de preguntar a más
-  clientes por ese vídeo. En siete aperturas esto no cambió nada, porque el
-  cliente que usa normalmente sigue devolviendo enlaces.
+- Activada, la reserva no puede completar una reproducción, y ya sabemos por qué:
+  para los clientes que usa, YouTube solo sirve el **primer minuto** del vídeo
+  sin una atestación de dispositivo que NewTube no puede generar. Pasados unos
+  60 segundos el servidor deja de enviar vídeo. Retomar un vídeo a medias
+  empieza más allá de esa línea, y por eso fallaba de inmediato en las pruebas.
 - La velocidad y el gasto de datos de SABR se midieron en un vídeo, una red y un
   móvil; todavía no hay datos sobre reproducciones largas, datos móviles ni
   batería.
