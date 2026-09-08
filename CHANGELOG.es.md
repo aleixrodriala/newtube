@@ -3,6 +3,45 @@
 Cambios visibles para el usuario, en español. El historial completo de
 versiones anteriores está en [CHANGELOG.md](CHANGELOG.md) (en inglés).
 
+## 1.8.1 — 08-09-2026
+
+### SABR ya es una segunda fuente de verdad
+
+- **Los vídeos que llegan sin enlaces directos ahora se reproducen en vez de
+  saltarse.** Algunos clientes de YouTube responden con pistas de vídeo y audio
+  que no traen ningún enlace de descarga, solo un punto de streaming. NewTube no
+  sabía qué hacer con esa respuesta: pasaba al siguiente vídeo. Ahora la
+  reproduce por SABR. Viene activado y se puede desactivar en Ajustes
+  ("Reproducir vídeos sin enlaces directos").
+- **Nunca desplaza a un vídeo que ya funciona.** Las aperturas con enlaces
+  normales siguen usando la vía de siempre, a la misma velocidad. Usar SABR *en
+  lugar de* enlaces que funcionan sigue siendo un experimento aparte y
+  desactivado ("Preferir SABR aunque haya enlaces"): alrededor de un 11% menos
+  de datos y unos 66 ms más hasta el primer fotograma, medido en seis aperturas
+  por fuente en Wi-Fi.
+- Por el camino se corrigieron tres fallos del propio SABR. La versión anterior
+  no llegaba a recibir vídeo nunca, porque la fuente solo se ofrecía para
+  respuestas de TV con sesión iniciada, justo el cliente cuyo servidor responde
+  a todo con un HTTP 403 vacío. Además, una petición de vídeo tiene que nombrar
+  su pista de audio acompañante y declararla ya descargada, y una respuesta sin
+  vídeo a propósito (el servidor frenando a un cliente que va sobrado) es una
+  espera, no un fallo.
+
+### Sigue limitado
+
+- La reserva todavía no termina siempre. En el móvil de pruebas, un cliente
+  (iOS) responde a cada petición SABR pidiendo que se recargue la página del
+  vídeo; NewTube reintenta un número acotado de veces y luego avisa del error en
+  vez de quedarse en bucle. Los vídeos con enlaces normales no se ven afectados.
+- Aceptar una respuesta sin enlaces implica que NewTube deja de preguntar a más
+  clientes por ese vídeo. En siete aperturas esto no cambió nada, porque el
+  cliente que usa normalmente sigue devolviendo enlaces.
+- La velocidad y el gasto de datos de SABR se midieron en un vídeo, una red y un
+  móvil; todavía no hay datos sobre reproducciones largas, datos móviles ni
+  batería.
+- Todo lo indicado en la 1.8.0 sigue vigente, salvo que SABR ya no es solo
+  código de prueba.
+
 ## 1.8.0 — 08-09-2026 — Edición Eugenio
 
 *Parodia y homenaje no oficial. Novedades narradas con el humor seco de Eugenio.*
@@ -103,8 +142,8 @@ Esta versión reúne los diez commits y los cambios de las dependencias desde la
   pruebas locales de vídeo y mediciones con compilaciones de distribución.
 - Se incluye un perfil de arranque, pero su comparación no demostró una mejora
   de velocidad. La precarga del siguiente vídeo sigue **desactivada**: la prueba
-  real no pasó. **SABR no está implementado en el reproductor de producción**;
-  el código de prueba no se vende como una función terminada.
+  real no pasó. **SABR no estaba implementado en el reproductor de
+  producción** en esta versión; se corrige y se puede activar en la 1.8.1.
 - No prometemos acabar con todos los 403 ni con las restricciones de YouTube.
   La reproducción pública puede acabar sin la cuenta, aunque tus listas y
   suscripciones sigan conectadas; los vídeos restringidos y el historial del

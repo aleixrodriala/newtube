@@ -1,5 +1,6 @@
 include ':smarttubetv', ':common', ':filepicker-lib', ':doubletapplayerview-media3', ':slidableactivity'
 include ':macrobenchmark'
+include ':sabr-media3'
 
 def rootDir = settingsDir
 

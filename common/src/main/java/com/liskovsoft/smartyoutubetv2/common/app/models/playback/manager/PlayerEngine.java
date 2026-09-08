@@ -15,6 +15,8 @@ public interface PlayerEngine extends PlayerConstants {
      * manifest must stay URL-loaded so it can refresh). No-op default -&gt; TV engines unchanged.
      */
     default void prebuildNextSource(MediaItemFormatInfo formatInfo) {}
+    /** Stateful experimental sources own their failures; generic recovery must not change route/quality. */
+    default boolean allowsAutomaticSourceRecovery() { return true; }
     void openSabr(MediaItemFormatInfo formatInfo);
     void openDash(MediaItemFormatInfo formatInfo);
     void openDash(InputStream dashManifest);

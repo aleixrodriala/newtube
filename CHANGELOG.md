@@ -2,6 +2,43 @@
 
 All notable user-facing changes to NewTube ("SmartTube for phones").
 
+## 1.8.1 — 2026-09-08
+
+### SABR is now a real second playback source
+
+- **Videos that come back without any direct links are now played instead of
+  skipped.** Some YouTube clients answer with video and audio tracks that carry
+  no download link at all, only a streaming endpoint. NewTube could not use that
+  answer: it moved on to another video. It now plays such a response over SABR.
+  This is on by default and can be turned off in Settings ("Play videos that
+  have no direct links").
+- **It never displaces a video that already works.** Openings with normal links
+  keep using the existing path, at the same speed. Using SABR *instead of*
+  working links stays a separate, off-by-default experiment ("Prefer SABR even
+  when links work"): about 11% fewer bytes, about 66 ms slower to the first
+  frame, measured over six openings per source on Wi-Fi.
+- Three faults in the SABR implementation itself were fixed on the way. The
+  previous build could never receive SABR video at all, because the source was
+  only offered for signed-in TV responses - the one client whose media endpoint
+  answers every request with an empty HTTP 403. A video request also has to name
+  its companion audio track and declare it already downloaded, and a response
+  that deliberately carries no video (the server pacing a client that is far
+  enough ahead) is a wait, not a failure.
+
+### Still limited
+
+- The fallback does not yet finish every time. On the test phone, one client
+  (iOS) answers each SABR request by asking for the video page to be reloaded;
+  NewTube retries a bounded number of times and then reports the error rather
+  than looping. Videos with normal links are unaffected.
+- Accepting a link-less answer means NewTube stops asking further clients for
+  that video. On seven openings this changed nothing, because the client it
+  normally uses still returns links.
+- SABR speed and data use were measured on one video, one network and one phone;
+  there is no evidence yet for long playbacks, mobile data or battery use.
+- Everything listed under 1.8.0 below still applies, except that SABR is no
+  longer test-only.
+
 ## 1.8.0 — 2026-09-08 — Eugenio Edition
 
 “Saben aquell que diu… que el vídeo no arrancaba.” A fictional homage to
@@ -105,7 +142,8 @@ main-repository commits and the dependency changes since 1.7.0 (`1997fdb`,
 - This is not a blanket fix for every YouTube 403 or bot/account restriction.
   Public playback can use an anonymous fallback; account-only videos and server
   watch history may consequently remain unavailable even when feeds are signed in.
-- **SABR is not a production playback source.** Its proof code is test-only.
+- **SABR was not a production playback source** in this release; it is fixed and
+  selectable in 1.8.1 above.
   Next-video sample preloading is implemented but **disabled by default** after
   the real-network acceptance check failed; no preload speedup is advertised.
 - Direct Cast still requires the phone on the network and does not support live

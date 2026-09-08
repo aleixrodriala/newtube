@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package sabr.videostreaming;
+
+option java_multiple_files = true;
+option java_package = "com.newtube.sabr.proto.videostreaming";
+option optimize_for = LITE_RUNTIME;
+
+message SabrRedirect {
+  optional string redirect_url = 1;
+}

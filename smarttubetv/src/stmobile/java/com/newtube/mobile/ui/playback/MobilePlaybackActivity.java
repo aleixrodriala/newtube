@@ -5429,6 +5429,11 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     @Override
+    public boolean allowsAutomaticSourceRecovery() {
+        return mExoPlayerController == null || mExoPlayerController.allowsAutomaticSourceRecovery();
+    }
+
+    @Override
     public void openDash(MediaItemFormatInfo formatInfo) {
         mExoPlayerController.openDash(formatInfo);
     }

@@ -669,6 +669,14 @@ public class MobileBrowseActivity extends MobileActivity
             dialogPresenter.appendSingleButton(UiOptionItem.from(item.title, optionItem -> item.onClick.run()));
         }
 
+        dialogPresenter.appendSingleSwitch(UiOptionItem.from(getString(R.string.sabr_vod_fallback_option),
+                option -> com.newtube.mobile.player.SabrSourcePreference.setFallbackEnabled(this, option.isSelected()),
+                com.newtube.mobile.player.SabrSourcePreference.isFallbackEnabled(this)));
+
+        dialogPresenter.appendSingleSwitch(UiOptionItem.from(getString(R.string.sabr_vod_option),
+                option -> com.newtube.mobile.player.SabrSourcePreference.setPreferred(this, option.isSelected()),
+                com.newtube.mobile.player.SabrSourcePreference.isPreferred(this)));
+
         // Tag this as the full-screen Settings tree so MobileAppDialogActivity renders it full-screen
         // (nested category screens push onto the same activity and inherit that). Context menus and the
         // player option pickers leave the id unset and get the default bottom-sheet presentation.

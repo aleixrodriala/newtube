@@ -155,6 +155,10 @@ android {
     }
 
     sourceSets {
+        androidTest.java.srcDir '../sabr-media3/src/testSupport/java'
+        // Optional, generated synthetic input for explicitly opted-in link comparisons.
+        // Generate with tools/generate-sabr-comparison-fixtures.sh; never part of the app APK.
+        androidTest.assets.srcDir layout.buildDirectory.dir('generated/sabrComparisonAssets').get().asFile
         // Reuse the generated offline media fixture only in the benchmark APK, never release.
         benchmark.assets.srcDir 'src/debug/assets'
     }
@@ -198,8 +202,8 @@ android {
             // fork-point 31.97/2387). versionCode starts at 10000 - above upstream's code so
             // existing test installs upgrade in place - and encodes the version:
             // 1.0.0 -> 10000, 1.0.1 -> 10001, 1.1.0 -> 10100, 2.0.0 -> 20000.
-            versionCode 10800
-            versionName "1.8.0"
+            versionCode 10801
+            versionName "1.8.1"
         }
     }
 }
@@ -271,6 +275,7 @@ dependencies {
         exclude group: 'com.google.android.gms', module: 'play-services-cronet'
     }
     stmobileImplementation dependencies.project(':doubletapplayerview-media3')
+    stmobileImplementation dependencies.project(':sabr-media3')
 
     //////// END PLAYER ENGINE //////////
 
@@ -281,7 +286,8 @@ dependencies {
     androidTestImplementation 'androidx.test:runner:' + testXSupportVersion
     androidTestImplementation 'androidx.test:rules:' + testXSupportVersion
     androidTestImplementation 'androidx.test.espresso:espresso-core:' + espressoVersion
-    // Isolated protocol proof only; neither the generated schemas nor runtime enter release APKs.
+    // The older proof keeps its own test-only proto namespace. Production SABR has a separate
+    // namespace/runtime dependency in :sabr-media3; no proof inspector enters release APKs.
     androidTestImplementation 'com.google.protobuf:protobuf-javalite:3.22.3'
     testImplementation 'com.google.protobuf:protobuf-javalite:3.22.3'
 

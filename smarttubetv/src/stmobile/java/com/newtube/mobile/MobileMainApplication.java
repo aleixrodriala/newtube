@@ -78,7 +78,8 @@ public class MobileMainApplication extends MainApplication {
     public void onCreate() {
         // The shell-protected benchmark fixture uses only bundled media. Suppress speculative
         // server warmups for that offline run; production builds never enable this path.
-        boolean offlineBenchmark = com.liskovsoft.smartyoutubetv2.tv.BuildConfig.BENCHMARK
+        boolean offlineBenchmark = (com.liskovsoft.smartyoutubetv2.tv.BuildConfig.BENCHMARK
+                || com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG)
                 && "1".equals(getDebugSystemProperty("debug.arc.benchmark_fixture"));
         // 403 playground: keep the persisted-app-info optimization independently switchable.
         // This must be read before the first AppService access; no user data is cleared.
@@ -381,6 +382,9 @@ public class MobileMainApplication extends MainApplication {
         // handshakes on H1 vs one shared H2 connection). Must run before the first client build
         // (the token warmup immediately below can build it). TV never calls this.
         OkHttpManager.setPreferHttp2(true);
+
+        // Decoder capability only: do not switch the metadata client or alter account state.
+        com.newtube.mobile.player.SabrSourcePreference.initialize(this);
 
         // TTFF-first product policy: pay native transport and disk-index initialization while
         // launching, on a worker, instead of on the playback Activity's first construction.

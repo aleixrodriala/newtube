@@ -2,6 +2,9 @@ package com.newtube.mobile.player;
 
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -12,8 +15,8 @@ import com.liskovsoft.sharedutils.okhttp.OkHttpManager;
 import com.liskovsoft.sharedutils.prefs.GlobalPreferences;
 import com.liskovsoft.youtubeapi.common.helpers.AppClient;
 import com.liskovsoft.youtubeapi.service.YouTubeSignInService;
-import com.liskovsoft.youtubeapi.videoinfo.V2.VideoInfoService;
 import com.liskovsoft.youtubeapi.videoinfo.models.VideoInfo;
+import com.liskovsoft.youtubeapi.videoinfo.models.SabrVodCapability;
 import com.liskovsoft.youtubeapi.videoinfo.models.formats.VideoFormat;
 import com.newtube.mobile.SessionWarmup;
 import com.newtube.mobile.sabrproof.SabrProofGate;
@@ -48,15 +51,31 @@ public class SabrDeliveryProofTest {
                 "true".equals(args.getString("allow_network_proof")));
         String videoId = args.getString("video_id");
         require(videoId != null && videoId.matches("[A-Za-z0-9_-]{11}"), "invalid-video-id");
+        boolean previousCapability = SabrVodCapability.isEnabled();
+        SabrVodCapability.setEnabled(true);
         try {
             runProof(videoId);
         } catch (Exception failure) {
             // Exception messages/causes may contain signed URLs or response bodies.
             throw new AssertionError("SABR proof stopped: " + failure.getClass().getSimpleName());
+        } finally {
+            SabrVodCapability.setEnabled(previousCapability);
         }
     }
 
     private static void runProof(String videoId) throws Exception {
+        ConnectivityManager connectivity = InstrumentationRegistry.getInstrumentation()
+                .getTargetContext().getSystemService(ConnectivityManager.class);
+        Network network = connectivity.getActiveNetwork();
+        NetworkCapabilities capabilities = connectivity.getNetworkCapabilities(network);
+        require(network != null && capabilities != null
+                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                && !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN), "unvalidated-or-vpn-network");
+        String actualTransport = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ? "wifi"
+                : capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ? "cellular" : "other";
+        String expectedTransport = InstrumentationRegistry.getArguments().getString("expected_transport");
+        require(expectedTransport == null || expectedTransport.equals(actualTransport), "wrong-network");
+        report("network", "transport=" + actualTransport + " validated=true vpn=false");
         SessionWarmup.onPlaybackRequested();
         require("io.github.aleixrodriala.arc".equals(InstrumentationRegistry.getInstrumentation()
                 .getTargetContext().getPackageName()), "wrong-target-package");
@@ -73,13 +92,15 @@ public class SabrDeliveryProofTest {
         require(signIn.getSelectedAccount() != null, "no-existing-account");
         signIn.checkAuth(); // Restore/refresh this app's selected account normally; no new identity.
         long metadataStart = SystemClock.elapsedRealtime();
-        VideoInfo info = VideoInfoService.instance().getAuthVideoInfo(videoId, null);
+        // The raw authenticated metadata entry point omits normal playback URL preparation.
+        // Use the same complete metadata pipeline as playback, with one declared TV client.
+        VideoInfo info = SabrNetworkComparisonTest.preparedTvMetadata(videoId);
         require(info != null, "no-metadata");
         boolean rawOk = "OK".equals(info.getRawPlayabilityStatus());
         boolean serverAuth = Boolean.TRUE.equals(info.isServerLoggedIn());
         report("metadata", "rawOk=" + rawOk + " serverAuth=" + serverAuth
                 + " botCheck=" + info.isBotCheckRequired()
-                + " elapsedMs=" + (SystemClock.elapsedRealtime() - metadataStart));
+                + " normalPlaybackMetadataPipeline=true elapsedMs=" + (SystemClock.elapsedRealtime() - metadataStart));
         require(rawOk && !info.isBotCheckRequired(), "metadata-denied");
         require(serverAuth && info.getClient() == AppClient.TV, "session-not-confirmed");
         require(info.getVideoDetails() != null
@@ -93,8 +114,8 @@ public class SabrDeliveryProofTest {
                 info.getServerAbrStreamingUrl() != null && !info.getServerAbrStreamingUrl().isEmpty(),
                 true, info.getClient() == AppClient.TV), "delivery-gate-rejected");
 
-        // Deliberately use the server-issued URL unchanged (apart from request numbering).
-        // This is a RAW-URL proof, not evidence about the normal parameter-processing path.
+        // Use the ordinary playback pipeline's URL as-is, apart from request numbering.
+        // No diagnostic URL rewrite, alternate client or player/decoder is involved in the POST.
         String issuedUrl = info.getServerAbrStreamingUrl();
         HttpUrl endpoint = issuedUrl == null ? null : HttpUrl.parse(issuedUrl);
         require(endpoint != null && endpoint.isHttps()
@@ -115,7 +136,16 @@ public class SabrDeliveryProofTest {
                 .retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false)
                 .callTimeout(20, TimeUnit.SECONDS).eventListener(EventListener.NONE).build();
         report("selection", "audioItag=" + audio.getITag() + " videoItag=" + video.getITag()
-                + " height=" + video.getHeight() + " rawIssuedUrl=true");
+                + " height=" + video.getHeight() + " preparedPlaybackUrl=true");
+        // Observe freshness only; never edit expiry or other authorization parameters.
+        String expiry = endpoint.queryParameter("expire");
+        long remainingSeconds = expiry != null && expiry.matches("[0-9]{1,12}")
+                ? Long.parseLong(expiry) - System.currentTimeMillis() / 1000 : Long.MIN_VALUE;
+        report("endpoint", "expiryKnown=" + (remainingSeconds != Long.MIN_VALUE)
+                + " unexpired=" + (remainingSeconds > 0)
+                + " networkUnchanged=" + network.equals(connectivity.getActiveNetwork()));
+        require(remainingSeconds == Long.MIN_VALUE || remainingSeconds > 0, "expired-media-url");
+        require(network.equals(connectivity.getActiveNetwork()), "network-changed-after-metadata");
 
         Inspection audioResult = request(transport, endpoint, (String) userAgent.get(null), videoId,
                 info.getVideoPlaybackUstreamerConfig(), clientInfo, audioId, videoFormatId,
@@ -152,11 +182,18 @@ public class SabrDeliveryProofTest {
         String phase = videoRequest ? "video" : "audio";
         long start = SystemClock.elapsedRealtime();
         try (Response response = transport.newCall(request).execute()) {
+            String type = response.header("Content-Type", "").toLowerCase(java.util.Locale.ROOT);
+            // Fixed categories/counts only: signed URLs, headers and response bodies stay private.
+            String mime = type.startsWith("application/vnd.yt-ump") ? "ump"
+                    : type.startsWith("text/") ? "text" : type.isEmpty() ? "missing" : "other";
             report(phase + "-http", "status=" + response.code()
-                    + " headersMs=" + (SystemClock.elapsedRealtime() - start));
+                    + " headersMs=" + (SystemClock.elapsedRealtime() - start)
+                    + " protocol=" + response.protocol() + " tls=" + (response.handshake() != null)
+                    + " mime=" + mime + " declaredBodyBytes="
+                    + (response.body() == null ? -1 : response.body().contentLength())
+                    + " requestBytes=" + payload.length);
             require(response.code() == 200, phase + "-http-stop-" + response.code());
             require(response.body() != null, "missing-response-body");
-            String type = response.header("Content-Type", "");
             require(type.toLowerCase(java.util.Locale.ROOT).startsWith("application/vnd.yt-ump"),
                     "unexpected-content-type");
             Inspection result = SabrProofProtocol.inspect(response.body().byteStream(), videoId,

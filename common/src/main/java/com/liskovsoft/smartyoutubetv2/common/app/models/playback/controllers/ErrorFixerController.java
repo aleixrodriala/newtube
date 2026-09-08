@@ -90,6 +90,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
      */
     private static final long[] AUTO_RETRY_BACKOFF_MS = {5_000, 15_000, 45_000, 120_000, 300_000};
     private int mAutoRetryAttempt;
+    private boolean mTerminalSourceCapped;
     /** Gate shared by the timer and the network callback ({@link SystemClock#elapsedRealtime()}). */
     private long mNextAutoRetryAtMs;
     private ConnectivityManager mConnectivityManager;
@@ -105,6 +106,12 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
 
     @Override
     public void onEngineError(int type, int rendererIndex, Throwable error) {
+        if (error instanceof com.liskovsoft.smartyoutubetv2.common.app.models.playback.TerminalSourceException) {
+            mBufferingDetector.reset();
+            clearErrorCapped();
+            surfaceCappedError(error.getMessage(), error);
+            return;
+        }
         Log.e(TAG, "Player error occurred: %s. Trying to fix…", type);
         long positionMs = getPlayer() != null ? getPlayer().getPositionMs() : -1;
         long durationMs = getPlayer() != null ? getPlayer().getDurationMs() : -1;
@@ -118,6 +125,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
 
     @Override
     public void onLongBuffering() {
+        if (mTerminalSourceCapped || getPlayer() != null && !getPlayer().allowsAutomaticSourceRecovery()) return;
         if (isStreamEnded()) {
             getMainController().onPlayEnd();
         // NEWTUBE(buffer-rescue): a branch here used to read "VOD + subtitles on" as "the
@@ -610,9 +618,13 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
      * @param errorTitle localized, user-facing. The raw exception text belongs in the NetPath log.
      */
     private void surfaceCappedError(String errorTitle, Throwable error) {
-        boolean connectivity = isConnectivityError(error);
+        boolean connectivity = !(error instanceof
+                com.liskovsoft.smartyoutubetv2.common.app.models.playback.TerminalSourceException)
+                && isConnectivityError(error);
 
         mErrorCapped = true;
+        mTerminalSourceCapped = error instanceof
+                com.liskovsoft.smartyoutubetv2.common.app.models.playback.TerminalSourceException;
 
         // Only connectivity errors arm the auto-retry: reconnecting can't fix a server/content error,
         // and re-hammering it is exactly the anti-abuse behavior the cap exists to prevent.
@@ -768,7 +780,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     private void requestAutoRetry(String trigger, boolean connectivityEdge) {
         // The dead state may have been left in the meantime (new video, engine release, manual
         // retry) - a stale timer or callback must not reload into a player that moved on.
-        if (!mErrorCapped) {
+        if (!mErrorCapped || mTerminalSourceCapped) {
             return;
         }
 
@@ -859,6 +871,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
      *                      or a proven connectivity edge refills that budget on their own.
      */
     private void retryNow(boolean userInitiated) {
+        boolean terminalSource = mTerminalSourceCapped;
+        if (terminalSource && !userInitiated) return;
         NetPath.log(NetPath.context() + " recovery-retry-now user=" + (userInitiated ? "y" : "n")
                 + " pos=" + (getPlayer() != null ? getPlayer().getPositionMs() : -1)
                 + ' ' + NetPath.networkSnapshot(getContext()));
@@ -884,7 +898,11 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         // and replays exactly the URLs that just died (observed on-device: the manual retry burned a
         // full error cycle on the stale manifest before the automatic path re-fetched). Invalidate
         // like the automatic 403 path does, so the retry mints fresh URLs.
-        YouTubeServiceManager.instance().applyNoPlaybackFix();
+        if (terminalSource) {
+            // An explicit Play tap retries the same normal metadata path, not the generic
+            // client/format/token recovery circuit used by other sources.
+            com.liskovsoft.youtubeapi.service.YouTubeMediaItemService.instance().invalidateCache();
+        } else YouTubeServiceManager.instance().applyNoPlaybackFix();
         if (mVideoLoaderController != null) {
             mVideoLoaderController.reloadVideo();
         }
@@ -892,6 +910,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
 
     private void clearErrorCapped() {
         mErrorCapped = false;
+        mTerminalSourceCapped = false;
         // A user action / a new playback session ends the outage episode: automatic recovery starts
         // over at the shortest backoff next time.
         mAutoRetryAttempt = 0;

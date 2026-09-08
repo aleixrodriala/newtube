@@ -328,6 +328,7 @@ public class Media3SourceFactory {
     private final StartupBandwidthMeter mBandwidthMeter;
     private final DataSource.Factory mHttpDataSourceFactory;
     private final DataSource.Factory mCachedDataSourceFactory;
+    @Nullable private DataSource.Factory mSabrDataSourceFactory;
     private final boolean mCronetAvailable;
     private long mCronetBypassUntilMs;
     @Nullable
@@ -354,6 +355,7 @@ public class Media3SourceFactory {
                 MediaHttpClient.create(OkHttpManager.instance().getClient()))
                 .setUserAgent(USER_AGENT)
                 .setTransferListener(mBandwidthMeter);
+
         DataSource.Factory leafFactory;
         if (mCronetAvailable) {
             Log.d(TAG, "media transport: cronet");
@@ -493,6 +495,42 @@ public class Media3SourceFactory {
     @Nullable
     MediaSource fromDashFormatInfo(MediaItemFormatInfo formatInfo) {
         return fromDashManifest(formatInfo.createMpdStream(), formatInfo.isLive());
+    }
+
+    MediaSource fromSabrFormatInfo(MediaItemFormatInfo formatInfo) {
+        com.newtube.sabr.SabrStreamInfo info = SabrFormatAdapter.adapt(formatInfo);
+        MediaSource source = new com.newtube.sabr.SabrMediaSource(info, getSabrDataSourceFactory(), mBandwidthMeter);
+        NetPath.log("sabr source=vod transport=okhttp cache=off tracks=" + info.tracks.size());
+        if (formatInfo.getSubtitles() == null || formatInfo.getSubtitles().isEmpty()) return source;
+        java.util.ArrayList<MediaSource> sources = new java.util.ArrayList<>();
+        sources.add(source);
+        androidx.media3.extractor.text.DefaultSubtitleParserFactory parsers =
+                new androidx.media3.extractor.text.DefaultSubtitleParserFactory();
+        for (com.liskovsoft.mediaserviceinterfaces.data.MediaSubtitle subtitle : formatInfo.getSubtitles()) {
+            if (subtitle == null || subtitle.getBaseUrl() == null) continue;
+            androidx.media3.common.Format format = new androidx.media3.common.Format.Builder()
+                    .setId(subtitle.getVssId()).setSampleMimeType(subtitle.getMimeType())
+                    .setLanguage(subtitle.getLanguageCode()).setLabel(subtitle.getName()).build();
+            if (!parsers.supportsFormat(format)) continue;
+            // Stock Media3 sidecar extraction, lazy until selected. Text is NOT handed to a
+            // container chunk extractor (the null-wrapper failure in the legacy SABR module).
+            sources.add(androidx.media3.exoplayer.source.SabrSubtitleSourceFactory.create(
+                    mHttpDataSourceFactory, format, Uri.parse(subtitle.getBaseUrl())));
+        }
+        return sources.size() == 1 ? source : new MergingMediaSource(sources.toArray(new MediaSource[0]));
+    }
+
+    private synchronized DataSource.Factory getSabrDataSourceFactory() {
+        // Pay no optional transport setup cost on the default DASH startup path. Stateful POSTs
+        // share the existing media pool/proxy/TLS, without account headers, retries or redirects.
+        if (mSabrDataSourceFactory == null) {
+            mSabrDataSourceFactory = new OkHttpDataSource.Factory(
+                    MediaHttpClient.create(OkHttpManager.instance().getClient()).newBuilder()
+                            .retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false)
+                            .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS).build())
+                    .setUserAgent(USER_AGENT).setTransferListener(mBandwidthMeter);
+        }
+        return mSabrDataSourceFactory;
     }
 
     /** Legacy entry point (PlayerEngine.openDash(InputStream)); treated as VOD normalization. */

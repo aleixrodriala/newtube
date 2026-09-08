@@ -93,6 +93,9 @@ public class Media3PlayerController implements Player.Listener {
     private static final long FOCUS_GRACE_MS = 5_000;
     private long mLastPrepareMs;
     private boolean mFocusGraceUsed;
+    private boolean mSabrSourceActive;
+    /** Whether the active SABR source is the automatic fallback rather than the opt-in preference. */
+    private boolean mSabrWasFallback;
     private Runnable mOnVideoLoaded;
     // NEWTUBE(live): last resort for a pathological live stream - rate-limits BLW recoveries.
     private long mLastLiveEdgeRecoveryMs;
@@ -128,6 +131,25 @@ public class Media3PlayerController implements Player.Listener {
     // ---------------------------------------------------------------------------------
 
     public void openSabr(MediaItemFormatInfo formatInfo) {
+        if (SabrSourcePreference.isEnabled(mContext) && SabrFormatAdapter.eligible(formatInfo)) {
+            // A preferred SABR source displaced a working DASH route, so its failure is the
+            // user's experiment failing and stays terminal. A fallback SABR source is the only
+            // thing standing between a link-less response and "unplayable": if it fails, the
+            // normal client/reload recovery must still get its turn.
+            mSabrWasFallback = !SabrSourcePreference.isPreferred(mContext);
+            mOpenGeneration.next(); // Also invalidate old queued source builds when this build fails.
+            try {
+                if (!java.util.Objects.equals(getVideoId(), formatInfo.getVideoId())) {
+                    throw new IllegalArgumentException("Mismatched SABR video");
+                }
+                openMediaSource(mMediaSourceFactory.fromSabrFormatInfo(formatInfo), "sabr-vod");
+            } catch (RuntimeException failure) {
+                NetPath.log("sabr source-build stopped reason=" + failure.getClass().getSimpleName());
+                if (mPlayer != null) mPlayer.stop();
+                mEventListener.onEngineError(ExoPlaybackException.TYPE_SOURCE, -1, sabrTerminalError());
+            }
+            return;
+        }
         Log.e(TAG, "openSabr: SABR-only response on the media3 engine; trying the LQ url list");
 
         if (formatInfo.containsUrlFormats()) {
@@ -140,7 +162,15 @@ public class Media3PlayerController implements Player.Listener {
         }
     }
 
+    public boolean allowsAutomaticSourceRecovery() { return !mSabrSourceActive || mSabrWasFallback; }
+
     public void openDash(MediaItemFormatInfo formatInfo) {
+        // Only the opt-in experiment displaces working DASH links. The default-on fallback never
+        // reaches this route: it exists for responses that have no links to displace.
+        if (SabrSourcePreference.isPreferred(mContext) && SabrFormatAdapter.eligible(formatInfo)) {
+            openSabr(formatInfo);
+            return;
+        }
         // NEWTUBE(prepare-stash): a pre-built source for this exact video skips the XML gen+parse
         // AND the executor round-trip - prepare fires synchronously, within ~1ms of this call.
         if (!formatInfo.isLive()) {
@@ -168,6 +198,8 @@ public class Media3PlayerController implements Player.Listener {
      * matched at open time. Failures leave no entry - the real open just builds normally.
      */
     public void prebuildNextSource(MediaItemFormatInfo formatInfo) {
+        // Prebuilding a DASH source is wasted only when SABR is going to displace it anyway.
+        if (SabrSourcePreference.isPreferred(mContext)) return;
         if (formatInfo == null || formatInfo.getVideoId() == null || formatInfo.isLive()) {
             return;
         }
@@ -324,6 +356,7 @@ public class Media3PlayerController implements Player.Listener {
         }
 
         resetPlayerState(); // same video-artifact fix as the legacy controller
+        mSabrSourceActive = "sabr-vod".equals(netPathType);
 
         if (mTrackAdapter != null) {
             mTrackAdapter.onSourceChanged();
@@ -734,6 +767,21 @@ public class Media3PlayerController implements Player.Listener {
         if (com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG) {
             DebugMediaShaper.disarmOneShotPoisonForRecovery();
         }
+        if (mSabrSourceActive) {
+            int type = error instanceof ExoPlaybackException
+                    ? ((ExoPlaybackException) error).type : ExoPlaybackException.TYPE_UNEXPECTED;
+            if (mSabrWasFallback) {
+                // The response carried no URL formats, so there is nothing to retry here. Hand the
+                // real cause to the shared fixer and let it remint/reload onto another client -
+                // the same recovery a plain source error gets. Its own attempt caps bound the loop.
+                NetPath.log(NetPath.context() + " sabr-fallback failed; deferring to client recovery");
+                mEventListener.onEngineError(type, -1,
+                        error.getCause() != null ? error.getCause() : error);
+            } else {
+                mEventListener.onEngineError(type, -1, sabrTerminalError());
+            }
+            return;
+        }
 
         // NEWTUBE(live): playhead fell out of the live DVR window (device slept, long pause).
         // media3's canonical recovery: jump to the default (live-edge) position and re-prepare the
@@ -765,6 +813,11 @@ public class Media3PlayerController implements Player.Listener {
 
         // The legacy TYPE_* int values match media3's, so the shared error-fixer logic holds.
         mEventListener.onEngineError(type, rendererIndex, nested);
+    }
+
+    private com.liskovsoft.smartyoutubetv2.common.app.models.playback.TerminalSourceException sabrTerminalError() {
+        return new com.liskovsoft.smartyoutubetv2.common.app.models.playback.TerminalSourceException(
+                mContext.getString(com.liskovsoft.smartyoutubetv2.tv.R.string.sabr_vod_stopped));
     }
 
     /**

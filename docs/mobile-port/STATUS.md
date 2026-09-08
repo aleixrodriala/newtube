@@ -9,6 +9,62 @@ Phone-only: the TV flavors, vendored ExoPlayer fork and Leanback modules were
 deleted. Playback uses Media3 1.10.1 with embedded Cronet and an OkHttp fallback.
 Toolchain: AGP 9.2.1 / Gradle 9.6.1 / compileSdk 37 / targetSdk 37 / minSdk 24.
 
+## 1.8.1: optional SABR VOD source (2026-09-08)
+
+Native Media3 SABR now has two roles. **Fallback** (default **ON**) carries a
+response whose adaptive formats have no URL at all - the case where the app
+previously just skipped to the next video. **“Prefer SABR even when links work”**
+(default **OFF**) is the unchanged byte-saving experiment. The decoder handles
+bounded initialization/continuation, seeks, quality changes, cancellation and
+lazy captions. A failing *preferred* source is terminal; a failing *fallback*
+source defers to the normal client recovery.
+
+**Real YouTube SABR delivery now works** (2026-09-08, later round). The earlier
+HTTP 403 was the client gate, not the protocol: eligibility required an
+authenticated **TVHTML5** response, and TVHTML5 is the one client whose media is
+dead. Off-device, from a different network and an anonymous identity with no PO
+token, VISIONOS/IOS/ANDROID_VR/ANDROID each return HTTP 200 and 133,605 bytes of
+UMP media, while TVHTML5 7.x returns 403 with an empty body. Three defects were
+fixed together: the client gate; `enabledTrackTypesBitfield` (there is no
+video-only value, so a video request must name and suppress a companion audio
+format); and treating the server's paced, media-free response as terminal.
+
+Measured on the Pixel 9 over Wi-Fi with the client pinned to VISIONOS for both
+arms — 6 opens each, ABBA order, identical formats (720p AVC itag 136 + AAC 140)
+in all 12 opens, zero rebuffers and zero dropped frames: first frame median
+**DASH 267 ms vs SABR 333 ms** (+24.7 %), app UID bytes **4,590,625 vs
+4,099,509** (−10.7 %), CPU +4.8 %. SABR costs ~66 ms of startup and saves ~490 KB
+per eight seconds of 720p. One video, one network, no soak, no cellular arm, no
+ABR or battery evidence. The preference stays **off by default**.
+
+**The fallback was dead wiring until now** (2026-09-08, latest round). A
+link-less response never reached the decoder — `containsAdaptiveVideoInfo()`
+reports such a list as no adaptive video, so `containsSabrFormats()` was false
+and the `openSabr` branch never ran, while `isUnplayable()` already said
+"playable". Enabling SABR turned "skip to the next video" into "sit with no
+source"; the only way SABR ever ran was by displacing a working DASH route.
+Fixed in the DTO, the preference split and the failure path. Verified on four
+Tiny Desk videos: the normal ring is unchanged (`type=dash-mpd`, first frame),
+and a link-less IOS response now reaches `prepare type=sabr-vod` on 4/4 instead
+of being skipped. **Open:** every IOS SABR POST then answers 426 bytes carrying
+`RELOAD_PLAYER_RESPONSE`, bounded at four recovery attempts. See HANDOFF §28.
+
+Shipped as a **second delivery path** in the signed **1.8.1** build (versionCode
+10801): both toggles are in Settings, DASH remains the default for anything with
+working links, and the SABR module's runtime classes are in the release DEX
+while its proof/fixture code is not. Not published as a GitHub release — no
+release record, poster or announcement copy was produced for 1.8.1, only
+CHANGELOG entries.
+
+It still matters despite being slower: IOS, ANDROID and TVHTML5 already return
+zero formats with URLs — only VISIONOS and ANDROID_VR still hand them out.
+
+501 offline tests pass (303 smarttubetv, 86 youtubeapi, 62 common, 50 SABR
+module); debug/test APK assembly passes.
+
+See [implementation, comparisons and candidate](SABR-MEDIA3-2026-09-08.md) and
+HANDOFF §27.
+
 Build a phone APK:
 ```
 ANDROID_HOME=<sdk> ./gradlew :smarttubetv:assembleStmobileDebug

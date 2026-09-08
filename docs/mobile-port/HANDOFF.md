@@ -105,7 +105,17 @@ verdict ~1.1 s (8-client walk).
   itag-248 SocketTimeout stalls are emulator-NAT artifacts that recover.
 - **Post-seek quality floor / ABR tuning**: dropped — the seeded bandwidth
   meter already eliminated the ladder walk.
-- **SABR**: not ported; dispatch prefers DASH whenever present.
+- **SABR (updated 2026-09-08)**: optional native Media3 VOD source is now implemented,
+  default off, used only when accepted TV metadata actually provides it. The
+  current TV 5.x route remained DASH-only in Wi-Fi/LTE trials; real SABR delivery
+  and speed gains remain unvalidated. No metadata-client switch is part of this
+  option. The TV 7.x diagnostic initially skipped normal URL preparation; that
+  test defect is now fixed. Standalone real audio POSTs using the complete
+  metadata pipeline still return 403 with empty bodies on Wi-Fi (47 ms) and
+  cellular (218 ms), with fresh unexpired URLs and stable validated networks.
+  Media delivery remains unresolved; defer player changes until it works.
+  Controlled fixtures do not replace that missing real-stream A/B.
+  See [implementation and comparisons](SABR-MEDIA3-2026-09-08.md).
 - **media3 DefaultPreloadManager**: structural, deferred; the one-slot stash
   captures most of the win for autoplay advance.
 
@@ -1247,3 +1257,143 @@ smarttubetv + 48 common tests pass; debug build green.
   every timestamp we can send, `WEB_EMBED` refuses our OAuth bearer with HTTP 400
   (§19), and TVHTML5_SIMPLY does not support auth at all. What is left is a
   credential form we do not have (cookie-derived SAPISIDHASH) or SABR support.
+
+## 27. SABR delivers; the 403 was the client gate (2026-09-08, Pixel 9 + off-device)
+
+**The SABR source works on real YouTube.** §25's 403 was never a protocol,
+parser or network problem: eligibility was gated on an authenticated **TVHTML5**
+response, and TVHTML5 is the one client whose media is dead (§26). Pointing SABR
+at a client that actually serves it makes it play.
+
+Reproduced off-device — different network, different IP, anonymous identity, no
+PO token, one video, one session — POSTing each response's own
+`serverAbrStreamingUrl`: **VISIONOS, IOS, ANDROID_VR and ANDROID all return HTTP
+200 with 133,605 bytes of UMP media** (demuxes to H.264 + AAC under `ffprobe`),
+while **TVHTML5 7.x returns HTTP 403 with a zero-byte body**. yt-dlp marks the TV
+family GVS-PO-token-required; this port cannot mint one. TVHTML5 5.x
+(`TV_DOWNGRADED`) has no SABR endpoint at all.
+
+Three defects had to be fixed together — the first alone only exposes the second:
+
+1. `SabrVodCapability.isEligible` now gates on `AppClient.isSabrSupported`
+   (VISIONOS/IOS/ANDROID/ANDROID_VR) instead of on the account. The TV family
+   stays excluded, so its existing SABR-only quarantine verdict is unchanged.
+2. **There is no "video only" request.** `enabledTrackTypesBitfield` is not a
+   bitfield: `1` returns audio alone, and `0`, `2`, `3` all return audio AND
+   video. The old `2` meant every video response carried an unrequested audio
+   format and the parser killed the source with `unexpected_format`. A video
+   request now names the companion audio and declares it fully buffered — the
+   protocol's own suppression mechanism. Foreign formats are discarded, not fatal.
+3. **A media-free response is the server pacing delivery, not an error.** Once
+   ~30 s are buffered ahead of the playhead it answers with control parts and no
+   media. Treating that as terminal is what stopped the first successful device
+   run one second after its first frame. The source now backs off and only fails
+   a stream that has nothing left to play.
+
+**Measured, Pixel 9 / Wi-Fi, client pinned to VISIONOS for both arms, 6 opens
+each in ABBA order, identical formats (itag 136 720p AVC + 140 AAC) in all 12
+opens, zero rebuffers and zero dropped frames throughout:** first frame median
+**DASH 267 ms vs SABR 333 ms** (+24.7 %), app UID bytes **DASH 4,590,625 vs SABR
+4,099,509** (−10.7 %), CPU +4.8 %. SABR costs ~66 ms of startup and saves ~490 KB
+per eight seconds of 720p.
+
+Caveats: one video, one network, six opens per arm, no soak, no cellular, no ABR
+or battery evidence; the UID byte counter includes concurrent loading. **The
+client was pinned** — unpinned, this video was answered by `TV_DOWNGRADED`
+(DASH, no SABR), so SABR only engages once the ring reaches VISIONOS. The
+preference stays **off by default**.
+
+Why it still matters despite being slower: `IOS`, `ANDROID` and `TVHTML5` already
+return zero formats with URLs — they are SABR-only today. `VISIONOS` and
+`ANDROID_VR` are the two that still hand out URLs. A working SABR source is what
+keeps playback possible when VISIONOS follows them.
+
+**Shipped as a second source in 1.8.1** (versionCode 10801, signed with the
+NewTube release key, `releases/1.8.1/`). DASH stays the default and the toggle
+stays off until the user turns it on; the SABR module's runtime classes are in
+the release DEX and its proof/fixture code is not. This supersedes the 1.8.0
+`sabr-experimental` candidate under `releases/experimental-sabr-2026-09-08/`,
+which carries the broken client gate — do not install that one to test SABR.
+Not published as a GitHub release: no release record, poster or announcement
+copy exists for 1.8.1, only CHANGELOG entries.
+
+Full detail, tables and reproduction:
+[`SABR-MEDIA3-2026-09-08.md`](SABR-MEDIA3-2026-09-08.md).
+
+## 28. SABR was never wired as a fallback (2026-09-08, Pixel 9, four Tiny Desk videos)
+
+§27 got SABR *delivering*. It did not make it a **fallback**: the route that was
+supposed to carry a response with no playable links could not be reached at all,
+and the only way SABR ever ran was by displacing a DASH route that already
+worked. Exactly backwards from what a fallback is for.
+
+**The dead wire.** `VideoInfo.containsAdaptiveVideoInfo()` returns false when
+`isAdaptiveFormatsBroken()` - i.e. when every adaptive format lacks a URL, which
+is precisely a SABR-only answer (upstream even left `// TODO: remove when SABR
+parser will be fixed` on it). That false propagates to
+`YouTubeMediaItemFormatInfo.mContainsAdaptiveVideoFormats`, so
+`containsSabrFormats()` is false, so `VideoLoaderController`'s
+`player.openSabr(...)` branch never runs. Meanwhile `VideoInfo.isUnplayable()`
+*already* consulted `SabrVodCapability.accepts()`. Enabling SABR therefore
+flipped the response from "unplayable" to "playable" and then handed the player
+nothing to open.
+
+**Measured, four Tiny Desk videos, Pixel 9 on cell, 20 s per open:**
+
+| arm | client | SABR | outcome |
+|---|---|---|---|
+| A | ring | off | 3/4 opens: TV_DOWNGRADED wins -> **media 403** -> reload -> VISIONOS -> plays |
+| B | IOS (pinned) | off | link-less answer = unplayable -> **app skips to the next video**; 16 episodes, 0 frames |
+| C | IOS (pinned) | on | `playable=y`, **no `prepare` line at all** - the player just sits there |
+| D | ring | on | VISIONOS with working links -> SABR **preempts DASH** and plays |
+
+Arm A is worth keeping in mind on its own: the media 403 of §26 is still there on
+most first opens, and what rescues it is the existing client reload
+(TV_DOWNGRADED -> quarantine -> VISIONOS), not SABR. TV_DOWNGRADED has no SABR
+endpoint, so SABR cannot help that case at all.
+
+**The fix** (three files, all small):
+
+1. `YouTubeMediaItemFormatInfo.from()` publishes a link-less adaptive list as
+   adaptive when `SabrVodCapability.accepts()` - so `containsSabrFormats()` is
+   true and the SABR route is reachable. With the capability off, nothing moves.
+2. `SabrSourcePreference` splits into two roles: **fallback** (carry a response
+   with no links; default **ON**) and **preferred** (displace working DASH links;
+   default **OFF**, unchanged experiment). `openDash` preemption and the
+   next-video prebuild now key on *preferred* only.
+3. A failing **fallback** SABR source hands the real cause to the shared fixer
+   instead of `TerminalSourceException`, and `allowsAutomaticSourceRecovery()`
+   stays true for it. A failing *preferred* source is still terminal - that one
+   displaced something that worked.
+
+**After the fix, same videos, same phone:**
+
+| arm | client | outcome |
+|---|---|---|
+| E | ring (default) | VISIONOS -> `type=dash-mpd` -> first frame. No preemption, no 403, unchanged from A's happy path |
+| F | IOS (pinned) | **route now reached**: `info dash=0 sabr=y` -> `prepare type=sabr-vod` on 4/4 - then fails `response_reload_required` |
+| G | IOS, fallback off | identical to B - the switch turns it back off cleanly |
+
+**Still open - `RELOAD_PLAYER_RESPONSE` (UMP part 46).** On the phone every IOS
+SABR POST answers in 426 bytes with that part, on a freshly fetched response, at
+an unset start position, for all four videos. `SabrProtocol` throws
+`response_reload_required` on it, the fallback defers to recovery, the ring
+re-fetches, and the same thing happens; `ErrorFixerController` caps it at 4
+attempts and surfaces one error (verified - it does NOT spin). Off-device the
+same IOS client returns ~104 KB for the same video, so this is something about
+the request, not a dead client. `StreamerContext.po_token` (field 2) is never
+set by `SabrProtocol.request()`, but `PoTokenGate.getPoToken()` is web-family
+only and returns null for IOS, so wiring that field changes nothing on its own.
+Next step is to read the reload part's payload and find what the server wants
+echoed back.
+
+**Trade-off to keep in mind.** Accepting a link-less answer makes the ring
+*stop* at that client instead of walking on to one that might still have URLs.
+Seven unpinned opens (arms A and E) showed no difference - VISIONOS leads the
+ring and still hands out URLs - but on a video where VISIONOS fails and IOS is
+reached, default-on now spends the retry budget on SABR. That is the price of
+the fallback until the reload gap is closed.
+
+`MediaItemFormatInfoImpl.kt` carries the same `containsSabrFormats()` logic but
+is dead code here (`InnertubeService` is only referenced from a commented-out
+line), so it was deliberately not touched.

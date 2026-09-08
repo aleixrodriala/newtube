@@ -15,6 +15,7 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.Format;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.ResolvingDataSource;
@@ -26,7 +27,7 @@ import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter;
 
 import com.newtube.mobile.SessionWarmup;
 
-/** Debug/instrumentation-only real-decoder fixture. Every media byte comes from an APK asset. */
+/** Debug/instrumentation-only decoder surface. Default source is an APK asset; explicit tests may inject a source. */
 public final class TtffFixtureActivity extends Activity implements SurfaceHolder.Callback {
     public static final String TAG = "TTFFFixture";
     private static final Uri ASSET = Uri.parse("asset:///ttff-fixture.mp4");
@@ -58,7 +59,16 @@ public final class TtffFixtureActivity extends Activity implements SurfaceHolder
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         SessionWarmup.onPlaybackRequested();
+        // Instrumentation owns only this media surface. Let it render while the unattended test
+        // phone is locked, without dismissing keyguard, entering a PIN or exposing other app UI.
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (android.os.Build.VERSION.SDK_INT >= 27) {
+            setShowWhenLocked(true);
+            setTurnScreenOn(true);
+        } else {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                    | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+        }
         surface = new SurfaceView(this);
         surface.getHolder().addCallback(this);
         setContentView(surface);
@@ -90,6 +100,13 @@ public final class TtffFixtureActivity extends Activity implements SurfaceHolder
                 @Override public void onPlayerError(PlaybackException failure) {
                     errors++;
                     error = failure.errorCode + ":" + failure.getClass().getSimpleName();
+                    // Only this module's deliberately sanitized exception text may be reported.
+                    for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+                        if (cause instanceof com.newtube.sabr.SabrException) {
+                            error += ":" + cause.getMessage();
+                            break;
+                        }
+                    }
                     log("error");
                 }
             });
@@ -119,7 +136,7 @@ public final class TtffFixtureActivity extends Activity implements SurfaceHolder
         openFixtureSource(new ProgressiveMediaSource.Factory(fixtureSource).createMediaSource(item), name);
     }
 
-    /** Local-source-only hook for the separate preload handoff instrumentation. */
+    /** Instrumentation hook; network tests require their own explicit opt-in and delivery gate. */
     void openFixtureSource(MediaSource source, String name) {
         if (player == null) throw new IllegalStateException("Fixture surface is not ready");
         SessionWarmup.onPlaybackRequested();
@@ -169,6 +186,8 @@ public final class TtffFixtureActivity extends Activity implements SurfaceHolder
     public Snapshot snapshot() {
         DecoderCounters counters = player != null ? player.getVideoDecoderCounters() : null;
         if (counters != null) counters.ensureUpdated();
+        Format video = player != null ? player.getVideoFormat() : null;
+        Format audio = player != null ? player.getAudioFormat() : null;
         return new Snapshot(player != null, episode,
                 player != null ? player.getPlaybackState() : Player.STATE_IDLE,
                 player != null && player.isPlaying(),
@@ -177,7 +196,9 @@ public final class TtffFixtureActivity extends Activity implements SurfaceHolder
                 firstFrameMs, firstReadyMs,
                 counters != null ? counters.renderedOutputBufferCount : 0,
                 counters != null ? counters.droppedBufferCount : 0,
-                errors, unexpectedBuffering, error);
+                errors, unexpectedBuffering, error, video != null ? video.width : 0,
+                video != null ? video.height : 0, video != null ? video.id : null,
+                audio != null ? audio.id : null);
     }
 
     private long elapsedMs() {
@@ -229,10 +250,15 @@ public final class TtffFixtureActivity extends Activity implements SurfaceHolder
         public final int errors;
         public final int unexpectedBuffering;
         public final String error;
+        public final int width;
+        public final int height;
+        public final String videoItag;
+        public final String audioItag;
 
         Snapshot(boolean initialized, int episode, int state, boolean playing, long positionMs,
                 long bufferedPositionMs, long firstFrameMs, long readyMs, int frames, int dropped,
-                int errors, int unexpectedBuffering, String error) {
+                int errors, int unexpectedBuffering, String error, int width, int height,
+                String videoItag, String audioItag) {
             this.initialized = initialized;
             this.episode = episode;
             this.state = state;
@@ -246,6 +272,10 @@ public final class TtffFixtureActivity extends Activity implements SurfaceHolder
             this.errors = errors;
             this.unexpectedBuffering = unexpectedBuffering;
             this.error = error;
+            this.width = width;
+            this.height = height;
+            this.videoItag = videoItag;
+            this.audioItag = audioItag;
         }
     }
 }

@@ -1,0 +1,80 @@
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.FileSystemOperations
+import javax.inject.Inject
+
+apply from: gradle.ext.sharedModulesConstants
+apply plugin: 'com.android.library'
+
+android {
+    namespace = 'com.newtube.sabr'
+    compileSdk = project.ext.compileSdkVersion
+    defaultConfig { minSdk = 24 }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    testOptions.unitTests.includeAndroidResources = true
+    sourceSets.test.resources.srcDir '../smarttubetv/src/debug/assets/sabr'
+    sourceSets.test.java.srcDir 'src/testSupport/java'
+    lint { disable 'UnsafeOptInUsageError' }
+}
+
+dependencies {
+    implementation 'androidx.annotation:annotation:' + annotationXVersion
+    api 'androidx.media3:media3-exoplayer:' + media3Version
+    implementation 'com.google.protobuf:protobuf-javalite:3.22.3'
+    testImplementation 'junit:junit:' + junitVersion
+    testImplementation 'org.robolectric:robolectric:' + robolectricVersion
+    testImplementation 'androidx.media3:media3-exoplayer-dash:' + media3Version
+}
+
+// Same pinned compiler as the isolated proof. Generated classes are build artifacts only.
+configurations { sabrProtoc }
+dependencies { sabrProtoc 'com.google.protobuf:protoc:3.22.3:linux-x86_64@exe' }
+def protoRoot = file('src/main/proto')
+def generatedJava = layout.buildDirectory.dir('generated/sabr/java')
+abstract class GenerateSabrProto extends Exec {
+    @OutputDirectory abstract DirectoryProperty getOutputDirectory()
+}
+def generateProto = tasks.register('generateSabrProto', GenerateSabrProto) {
+    inputs.files(fileTree(protoRoot) { include '**/*.proto' })
+    inputs.files(configurations.sabrProtoc)
+    outputDirectory.set(generatedJava)
+    doFirst {
+        def compiler = configurations.sabrProtoc.singleFile
+        if (!compiler.canExecute() && !compiler.setExecutable(true)) {
+            throw new GradleException('Cannot execute the SABR schema compiler')
+        }
+        def destination = generatedJava.get().asFile
+        destination.mkdirs()
+        commandLine([compiler.absolutePath, '--proto_path=' + protoRoot.absolutePath,
+                     '--java_out=lite:' + destination.absolutePath]
+                + fileTree(protoRoot).matching { include '**/*.proto' }.files
+                    .sort { it.path }.collect { it.absolutePath })
+    }
+}
+// Preserve notices in binary distributions too, without committing generated copies.
+abstract class GenerateSabrNotices extends DefaultTask {
+    @InputFiles @PathSensitive(PathSensitivity.RELATIVE) abstract ConfigurableFileCollection getNotices()
+    @OutputDirectory abstract DirectoryProperty getOutputDirectory()
+    @Inject abstract FileSystemOperations getFiles()
+    @TaskAction void generate() {
+        files.copy {
+            from(notices)
+            into(outputDirectory.dir('newtube-sabr-legal'))
+        }
+    }
+}
+def legalAssets = tasks.register('generateSabrLegalAssets', GenerateSabrNotices) {
+    notices.from('UPSTREAM-LICENSE', 'PROVENANCE.md')
+    outputDirectory.set(layout.buildDirectory.dir('generated/legalAssets'))
+}
+// Register producer relationships through AGP's generated-source API (also covers lint and
+// annotation extraction); name-based compile-task dependencies are incomplete on AGP 9.
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.sources.java.addGeneratedSourceDirectory(generateProto, { it.outputDirectory })
+        variant.sources.assets.addGeneratedSourceDirectory(legalAssets, { it.outputDirectory })
+    }
+}
