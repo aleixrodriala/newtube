@@ -52,9 +52,16 @@ without auditing `LiveDashManifestParser` + `Helpers.setField` call sites).
   it is NOT redundant; do not dedupe it.
 - `GOOGLEVIDEO_RANGE_QUERY` (Media3SourceFactory) **stays false** — see
   HANDOFF for the 416/cache-poisoning post-mortem before ever revisiting.
-- `android:windowOptOutEdgeToEdgeEnforcement` keeps the opaque system bars but
-  **dies at targetSdk 36** — proper per-screen insets are REQUIRED before any
-  targetSdk bump.
+- Edge-to-edge is **already enforced** (targetSdk 37): the
+  `windowOptOutEdgeToEdgeEnforcement` attr in `styles_mobile.xml` still works on
+  Android ≤15 and is ignored from Android 16 — verified by the `pfl=` window flags
+  of one build on API 35 vs API 37 (`dumpsys window windows`, look for
+  `EDGE_TO_EDGE_ENFORCED`). So on modern devices `setDecorFitsSystemWindows` /
+  `setStatusBarColor` / `setNavigationBarColor` are **no-ops**, and what keeps
+  content off the bars is `MobileActivity.installContentInsets()` plus the
+  `shouldInsetContentFor*` overrides. A new screen either inherits that or
+  applies the insets itself — **an overlay that paints its own scrim must opt
+  out** (`MobileAppDialogActivity`), or the dim stops at the status bar.
 - Single-slot caches self-evict: two shipped bugs came from a newer write
   evicting the entry the feature depended on (negative format-info cache;
   MediaSource stash cleared by its own open's reset). When adding "remember

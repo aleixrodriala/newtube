@@ -26,12 +26,20 @@
         <item name="android:statusBarColor">@color/mobile_color_background</item>
         <item name="android:navigationBarColor">@color/mobile_color_background</item>
         <item name="android:windowLightStatusBar">false</item>
-        <!-- targetSdk 35 forces edge-to-edge (transparent bars, content underneath), which
-             no-ops the fitted opaque #0F0F0F bars painted above and by
-             MobileActivity.applyMobileSystemBars(). Opt out (API 35+ attr; older devices
-             ignore it) so every screen keeps the designed status/nav-bar separation.
-             Stopgap: the attr is deprecated once we target SDK 36 - proper per-screen
-             insets handling is specced in the edge-to-edge follow-up. -->
+        <!-- Edge-to-edge (transparent bars, content underneath) is forced from targetSdk 35 on,
+             which no-ops the fitted opaque #0F0F0F bars painted above. This attr opts out - but
+             ONLY on Android 15 and below; from Android 16 the platform ignores it and the app is
+             edge-to-edge whatever this says. Verified rather than assumed, by reading the private
+             window flags of the same build on two devices (dumpsys window windows, pfl= line):
+
+               Android 15 / API 35 (Mi 8): NO_MOVE_ANIMATION FORCE_DRAW_STATUS_BAR_BACKGROUND ...
+               Android 17 / API 37 (Pixel 9): NO_MOVE_ANIMATION EDGE_TO_EDGE_ENFORCED ...
+
+             - and a neighbouring app on the SAME Android 15 device does carry
+             EDGE_TO_EDGE_ENFORCED, so the flag's absence is this opt-out working, not the OS
+             lacking the feature. So keep it: down at minSdk 24 it is still what separates the
+             bars. What keeps modern devices right is MobileActivity.installContentInsets().
+             Same split applies to statusBarColor/navigationBarColor above. -->
         <item name="android:windowOptOutEdgeToEdgeEnforcement" tools:targetApi="35">true</item>
         <item name="android:windowAnimationStyle">@style/BrowseWindowAnimation</item>
     </style>

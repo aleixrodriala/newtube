@@ -11,6 +11,9 @@ import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
@@ -108,6 +111,9 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
     private boolean mIsPaused = true;
     private int mId;
 
+    /** Last system-bar + cutout insets delivered to {@link #mRoot}. See {@link #applyDialogInsets}. */
+    private Insets mSystemInsets = Insets.NONE;
+
     private final DialogRowAdapter.Listener mRowListener = new DialogRowAdapter.Listener() {
         @Override
         public void onButtonClicked(OptionItem item) {
@@ -189,6 +195,59 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
 
         // Sheet mode: tapping the dim scrim dismisses the whole dialog (like a Material sheet).
         mScrim.setOnClickListener(v -> finish());
+
+        ViewCompat.setOnApplyWindowInsetsListener(mRoot, (view, windowInsets) -> {
+            mSystemInsets = windowInsets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            applyDialogInsets();
+            return windowInsets;
+        });
+    }
+
+    /**
+     * This overlay is full-bleed, so it inherits none of {@link MobileActivity}'s blanket content
+     * padding and places the insets itself.
+     *
+     * <p>Padding the whole activity content is right for an ordinary opaque screen and wrong for a
+     * scrim: on an edge-to-edge device it left the dim stopping at the status bar and the sheet
+     * floating a gesture-bar's height above the display edge (measured on a Pixel 9 / API 37: the
+     * dim began at y=173, exactly the status-bar height, and the sheet surface ended 63px short of
+     * the bottom). A Material sheet dims the whole display and runs its own background under the
+     * gesture bar, so the scrim stays edge to edge and only the sheet's CONTENT is inset.
+     */
+    @Override
+    protected boolean shouldInsetContentForSystemBars() {
+        return false;
+    }
+
+    /**
+     * Sheet: pad the sides and the bottom, never the top - the rounded background then reaches the
+     * display edge while the last row still clears the gesture bar. Full screen: an opaque surface
+     * like any other screen, so it takes the whole inset.
+     */
+    private void applyDialogInsets() {
+        if (mContent == null) {
+            return;
+        }
+
+        if (mFullScreen) {
+            mContent.setPadding(mSystemInsets.left, mSystemInsets.top,
+                    mSystemInsets.right, mSystemInsets.bottom);
+        } else {
+            mContent.setPadding(mSystemInsets.left, 0, mSystemInsets.right, mSystemInsets.bottom);
+            mRecyclerView.setMaxHeight(sheetMaxHeight());
+        }
+    }
+
+    /**
+     * The cap is a fraction of the space the sheet can actually occupy, not of the raw display:
+     * under edge-to-edge the display height includes the bars, so measuring against it would let a
+     * long sheet grow into the status bar.
+     */
+    private int sheetMaxHeight() {
+        int usable = getResources().getDisplayMetrics().heightPixels
+                - mSystemInsets.top - mSystemInsets.bottom;
+        return Math.round(usable * SHEET_MAX_HEIGHT_FRACTION);
     }
 
     private void setupRecyclerView() {
@@ -247,6 +306,8 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
         rlp.height = 0;
         rlp.weight = 1;
         mRecyclerView.setLayoutParams(rlp);
+
+        applyDialogInsets();
     }
 
     private void configureSheet() {
@@ -261,12 +322,12 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
         mContent.setLayoutParams(lp);
 
         // Let the list wrap its content but cap it so a long sheet scrolls instead of overrunning.
-        int maxSheet = Math.round(getResources().getDisplayMetrics().heightPixels * SHEET_MAX_HEIGHT_FRACTION);
         LinearLayout.LayoutParams rlp = (LinearLayout.LayoutParams) mRecyclerView.getLayoutParams();
         rlp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
         rlp.weight = 0;
         mRecyclerView.setLayoutParams(rlp);
-        mRecyclerView.setMaxHeight(maxSheet);
+
+        applyDialogInsets();
 
         // Enter animation: scrim fades in, sheet slides up.
         mScrim.setAlpha(0f);

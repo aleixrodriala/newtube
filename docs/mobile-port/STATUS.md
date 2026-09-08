@@ -9,6 +9,57 @@ Phone-only: the TV flavors, vendored ExoPlayer fork and Leanback modules were
 deleted. Playback uses Media3 1.10.1 with embedded Cronet and an OkHttp fallback.
 Toolchain: AGP 9.2.1 / Gradle 9.6.1 / compileSdk 37 / targetSdk 37 / minSdk 24.
 
+## Edge-to-edge: the rule resolved, and one overlay that was wrong (2026-09-08)
+
+`CLAUDE.md` carried a blocking rule - "`windowOptOutEdgeToEdgeEnforcement` dies
+at targetSdk 36, proper per-screen insets are REQUIRED before any targetSdk
+bump" - while `SharedModules/constants.gradle` has said `targetSdkVersion = 37`
+for some time. Resolved by measurement rather than by reading release notes.
+
+**Which mechanism is actually live, per OS.** Same build, two devices, reading
+the private window flags in `dumpsys window windows` (the `pfl=` line):
+
+| device | Android | `pfl=` on our window |
+|---|---|---|
+| Mi 8 | 15 / API 35 | `NO_MOVE_ANIMATION FORCE_DRAW_STATUS_BAR_BACKGROUND FIT_INSETS_CONTROLLED` |
+| Pixel 9 | 17 / API 37 | `NO_MOVE_ANIMATION EDGE_TO_EDGE_ENFORCED FIT_INSETS_CONTROLLED` |
+
+A different app on the same Android 15 device *does* carry
+`EDGE_TO_EDGE_ENFORCED`, so the flag's absence is our opt-out working, not the
+OS lacking the feature. Conclusion: the attribute is **not** dead - it still
+separates the bars at minSdk 24 - and from Android 16 it is ignored, along with
+`setDecorFitsSystemWindows` / `setStatusBarColor` / `setNavigationBarColor`.
+What keeps modern devices right is `MobileActivity.installContentInsets()`,
+which shipped earlier; the rule's requirement was already met. Rule rewritten
+from a blocker into a description of the two paths.
+
+**The bug the sweep found.** `MobileAppDialogActivity` (every context menu and
+every player picker) inherited the blanket content padding, which is wrong for
+a window that paints its own scrim. Measured on the Pixel 9, sampling the
+screenshot column at x=20: the dim began at **y=173** - exactly the status-bar
+height - and the sheet surface ended at **y=2361**, 63px (the gesture inset)
+short of the display edge. So the status bar sat undimmed above the scrim and
+the sheet floated above the bottom edge.
+
+Fixed by opting the overlay out of the blanket inset
+(`shouldInsetContentForSystemBars() -> false`) and applying the insets inside
+it: the scrim is full-bleed, the sheet takes side+bottom padding only so its
+rounded background reaches the edge while the last row still clears the gesture
+bar, and the sheet's max-height cap is now a fraction of the *usable* height
+rather than of the raw display. Re-measured after: dim starts at y=0, sheet
+surface runs to y=2423. Full-screen settings unchanged (verified), portrait
+player sheet verified, 308 smarttubetv + 62 common unit tests pass.
+
+**Left open, measured not fixed.** The Material `BottomSheetDialog`s hosted by
+the activities (player gear sheet, comments, live chat, cast picker, accounts -
+10 construction sites) still stop 63px short of the bottom: our theme descends
+from `Theme.MaterialComponents`, whose `bottomSheetDialogTheme` does set
+`enableEdgeToEdge=true`, but at targetSdk 36+ the window call Material uses to
+act on it is a no-op, and `showPlayerSheet` deliberately clears the sheet
+frame's background so Material's own inset padding would land outside our
+rounded drawable anyway. Fixing it needs per-site layout work - it belongs to
+the UI/UX sweep, not here.
+
 ## 1.8.1: optional SABR VOD source, shipped OFF (2026-09-08)
 
 Native Media3 SABR has two roles, **both default OFF**. **Fallback** carries a

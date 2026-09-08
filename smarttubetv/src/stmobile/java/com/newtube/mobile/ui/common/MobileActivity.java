@@ -240,6 +240,14 @@ public abstract class MobileActivity extends MotherActivity {
      * Standard phone window chrome: status + navigation bars visible, painted with the app
      * background, white icons (dark theme), and the decor fitting system windows so layouts
      * never end up under the bars. Idempotent - safe to call on resume/rotation.
+     *
+     * <p>Half of this only reaches Android 15 and below. From targetSdk 36 the platform ignores
+     * {@code setDecorFitsSystemWindows}, {@code setStatusBarColor} and
+     * {@code setNavigationBarColor}: the bars are transparent and the window is edge-to-edge no
+     * matter what is requested here. There the same look comes from the theme's window background
+     * showing through the transparent bars, with {@link #installContentInsets()} keeping content
+     * off them - see {@code styles_mobile.xml} for the two-device measurement. Both paths are
+     * wanted: minSdk is 24, so the calls below are still load-bearing on older devices.</p>
      */
     protected void applyMobileSystemBars() {
         Window window = getWindow();
