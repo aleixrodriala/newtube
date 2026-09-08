@@ -1425,6 +1425,59 @@ minutes. So "Prefer SABR even when links work" is a real, working path today;
 the fallback is the broken one. Reopening the default should start there, not
 with the reload part.
 
+### 28b. The companion-audio suppression never worked (2026-09-08)
+
+Measuring the VISIONOS path properly turned up a separate, real bug, and killed
+the data-saving story that motivated the experiment.
+
+**The confound first.** Comparing bytes over a fixed playback window compares how
+much each source chose to PREFETCH, not how efficiently it delivers: at 8 s
+played, DASH had buffered 58.7 s and SABR 32.0 s. On that basis SABR looked 17.5%
+cheaper - which is where the original "~11% fewer bytes" came from. Normalised
+per minute of media actually fetched, the sign flips: SABR cost **8.9 MB/min
+against DASH's 5.8**, +55%, consistently on all four videos. The comparison
+harness now reports `bufferedPositionMs` so this cannot be misread again.
+
+**The cause.** `SabrReloadDiagnosticTest` now attributes MEDIA bytes to the itag
+whose MEDIA_HEADER claimed them. A video request came back carrying
+`itag139=63,583B` of audio **beside** `itag137=123,796B` of video - and the audio
+stream then fetched those same bytes again on its own request. Audio was being
+transferred twice.
+
+**Why.** `suppressCompanionAudio` claimed the whole companion track as buffered,
+but with time fields only. That claim is silently **ignored**: a video request
+with no buffered claim at all and one claiming the whole video returned
+byte-identical responses. Adding `start_segment_index`/`end_segment_index` drops
+the companion to a 2,324-byte initialization segment and the response from
+103,962 to 42,605 bytes. Any non-zero end index behaved identically (1, 2, 10 and
+999999 all gave the same answer), so the server appears to require the field's
+presence rather than a truthful count. The old code comment asserted the
+companion already "costs a single 2,180-byte initialization segment" - that was
+never true.
+
+**Result, same 4 videos, cellular, 3 opens per arm, identical formats (itag 136 +
+140, 720p), zero rebuffers and zero dropped frames:**
+
+| MB per minute of media | DASH | SABR before | SABR after |
+|---|---|---|---|
+| 6tCjflXY9CM | 6.96 | 10.03 | 6.80 |
+| bdneye4pzMw | 4.97 | 7.68 | 5.12 |
+| fOAIrUZbOwo | 3.38 | 7.78 | 3.60 |
+| ouuPSxE1hK4 | 6.55 | 10.18 | 5.97 |
+| **median** | **5.8** | **8.9 (+55%)** | **5.1 (-11%)** |
+
+So SABR is now at **parity** with DASH on data, per video between -9% and +7%,
+not the saving it was sold as. First frame stays ~60 ms slower (373 -> 434 ms
+median). One open of 24 on the fixed build failed with `state=READY frames=0`;
+three re-runs of that same cell (9 further opens) were clean, so it reads as
+cellular flake rather than the fix, but it is one failure that the two pre-fix
+matrices did not have.
+
+**What it changes.** There is no data-saver product case - SABR costs about what
+DASH costs. What the fix buys is that SABR is now *healthy*: if the URL-bearing
+clients ever stop handing out links, the path we would have to fall back on no
+longer wastes half its bandwidth re-downloading audio.
+
 **Verdict: shipped off (2026-09-08).** The fallback was written default-on and
 flipped to default-off the same day, on the evidence above. It has never carried
 a video that would not otherwise play:

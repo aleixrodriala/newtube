@@ -27,7 +27,14 @@ versiones anteriores está en [CHANGELOG.md](CHANGELOG.md) (en inglés).
 - Para quien quiera probarlo: SABR gasta alrededor de un 11% menos de datos y
   tarda unos 66 ms más hasta el primer fotograma, medido en seis aperturas por
   fuente en Wi-Fi.
-- Por el camino se corrigieron tres fallos del propio SABR. La versión anterior
+- **Un cuarto fallo: SABR descargaba el audio dos veces.** Cada petición de vídeo
+  debía avisar al servidor de que el audio ya estaba descargado, pero ese aviso
+  se ignoraba, así que el audio volvía a llegar junto a cada trozo de vídeo.
+  Corregido. Hoy no cambia nada para nadie (SABR está desactivado), pero hacía
+  que la vía experimental gastara alrededor de un 50% más de datos de lo
+  necesario. Medido con datos móviles en cuatro vídeos, SABR ya gasta más o menos
+  lo mismo que la vía normal en vez de bastante más.
+- Por el camino se corrigieron otros tres fallos del propio SABR. La versión anterior
   no llegaba a recibir vídeo nunca, porque la fuente solo se ofrecía para
   respuestas de TV con sesión iniciada, justo el cliente cuyo servidor responde
   a todo con un HTTP 403 vacío. Además, una petición de vídeo tiene que nombrar

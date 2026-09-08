@@ -1,5 +1,4 @@
 <resources>
-    <string name="sabr_vod_fallback_option">Reproducir vídeos sin enlaces directos (SABR de reserva, experimental)</string>
     <string name="sabr_vod_option">Preferir SABR aunque haya enlaces (experimental; próximo vídeo)</string>
     <string name="sabr_vod_stopped">Se ha detenido la reproducción SABR experimental. Pulsa reproducir para reintentar o desactiva SABR en Ajustes.</string>
 </resources>

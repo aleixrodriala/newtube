@@ -134,6 +134,21 @@ public class SabrProtocolTest {
         assertEquals(0, request.getBufferedRanges(0).getStartTimeMs());
         assertEquals(both.durationUs / 1000, request.getBufferedRanges(0).getDurationMs());
         assertEquals(0, request.getSelectedFormatIdsCount());
+        // Load-bearing: a time-only claim is ignored by the server and the whole audio segment is
+        // shipped beside the video anyway (63,583B measured). See suppressCompanionAudio.
+        assertEquals(1, request.getBufferedRanges(0).getStartSegmentIndex());
+        assertTrue("The claim must cover the whole companion track",
+                request.getBufferedRanges(0).getEndSegmentIndex()
+                        >= both.durationUs / 1_000_000);
+    }
+
+    /** The suppression claim must never leak onto the audio stream's own request. */
+    @Test public void anAudioRequestClaimsNoSegmentsOfItsOwnTrack() throws Exception {
+        SabrStreamInfo.Track companion = audio();
+        SabrStreamInfo both = info(track, companion);
+        VideoPlaybackAbrRequest request = VideoPlaybackAbrRequest.parseFrom(SabrProtocol.request(
+                both, companion, null, new SabrProtocol.State(0, both.durationUs), 0, 1, 1));
+        assertEquals(0, request.getBufferedRangesCount());
     }
 
     @Test public void anAudioRequestAsksForAudioAloneAndClaimsNothingElse() throws Exception {

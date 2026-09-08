@@ -131,18 +131,30 @@ final class SabrProtocol {
 
     /**
      * Names the period's own audio as preferred and claims the whole of it, so the server has
-     * nothing to add to a video response. Measured on one video, 2026-09-08: without this a video
-     * request carries 188,265 bytes of the server's default Opus track; with it the companion
-     * costs a single 2,180-byte initialization segment on the first request, and once the format
-     * is declared, nothing at all. The claim is scoped to THIS request - the audio stream sends
-     * its own true buffered ranges - and it only suppresses delivery, never selects a quality.
+     * nothing to add to a video response. The claim is scoped to THIS request - the audio stream
+     * sends its own true buffered ranges - and it only suppresses delivery, never selects a
+     * quality, so over-claiming here cannot starve playback.
+     *
+     * <p><b>The segment indices are load-bearing.</b> A time-only range is silently IGNORED:
+     * measured 2026-09-08 on VISIONOS, a video request with no buffered claim at all and one
+     * claiming the whole video returned byte-identical responses, both shipping a full 63,583-byte
+     * audio segment beside the video. Adding start/end segment index drops that to a 2,324-byte
+     * initialization segment and the response from 103,962 to 42,605 bytes. Any non-zero end index
+     * behaved identically (1, 2, 10 and 999999 all gave the same answer), so the server appears to
+     * require the field's presence rather than a truthful count. Without this the audio is
+     * transferred twice - once on its own stream and again inside every video response - which is
+     * where SABR's ~1.5x bytes-per-second-of-media against DASH came from.</p>
      */
     private static void suppressCompanionAudio(VideoPlaybackAbrRequest.Builder request,
             SabrStreamInfo info, SabrStreamInfo.Track companionAudio, State state) {
         long durationMs = info.durationUs / 1000;
+        // Segments are seconds long, never shorter, so one per second certainly covers the video.
+        // This is a bound, not a count: the server only checks that the range is expressed.
+        int coveringSegments = (int) Math.min(Integer.MAX_VALUE, durationMs / 1000 + 1);
         request.addPreferredAudioFormatIds(companionAudio.identity);
         request.addBufferedRanges(BufferedRange.newBuilder()
                 .setFormatId(companionAudio.identity).setStartTimeMs(0).setDurationMs(durationMs)
+                .setStartSegmentIndex(1).setEndSegmentIndex(coveringSegments)
                 .setTimeRange(TimeRange.newBuilder().setStartTicks(0)
                         .setDurationTicks(durationMs).setTimescale(1000)));
         if (state.declared) request.addSelectedFormatIds(companionAudio.identity);

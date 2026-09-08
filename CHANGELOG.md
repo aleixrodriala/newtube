@@ -24,7 +24,14 @@ All notable user-facing changes to NewTube ("SmartTube for phones").
 - For anyone who wants to try it: SABR uses about 11% fewer bytes and reaches
   the first frame about 66 ms later, measured over six openings per source on
   Wi-Fi.
-- Three faults in the SABR implementation itself were fixed on the way. The
+- **A fourth fault: SABR was downloading every soundtrack twice.** Each video
+  request was supposed to tell the server "I already have the audio", but the
+  claim was being ignored, so the audio arrived again alongside every chunk of
+  video. Fixed. It made no difference to anyone today (SABR is off), but it had
+  been making the experimental path cost about 50% more data than it needed to.
+  Measured on mobile data across four videos, SABR now uses about the same data
+  as the normal path rather than substantially more.
+- Three further faults in the SABR implementation were fixed on the way. The
   previous build could never receive SABR video at all, because the source was
   only offered for signed-in TV responses - the one client whose media endpoint
   answers every request with an empty HTTP 403. A video request also has to name

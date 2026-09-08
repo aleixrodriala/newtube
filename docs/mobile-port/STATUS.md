@@ -73,6 +73,19 @@ experiment on: `prepare type=sabr-vod` → `first-frame +2369` → still `PLAYIN
 opt-in experiment is the working path; the fallback is the broken one. See
 HANDOFF §28.
 
+**The companion-audio suppression never worked, and the data saving was an
+artifact** (HANDOFF §28b). Bytes over a fixed playback window compare *prefetch*,
+not efficiency — at 8 s played DASH had buffered 58.7 s to SABR's 32.0 s, which
+is where "~11% fewer bytes" came from. Per minute of media actually fetched SABR
+cost **8.9 MB against DASH's 5.8** (+55%), because every video response shipped a
+full duplicate audio segment: the whole-track buffered claim was silently ignored
+without `start_segment_index`/`end_segment_index`. With those set the companion
+drops to a 2,324-byte init segment. Re-measured on cellular, 4 videos, 3 opens
+per arm, identical formats, no rebuffers: SABR now costs **5.1 MB/min vs DASH
+5.8** — parity, between −9% and +7% per video, with first frame ~60 ms slower.
+So there is no data-saver case; what the fix buys is that the insurance path no
+longer wastes half its bandwidth.
+
 Shipped as an **opt-in delivery path** in the signed **1.8.1** build (versionCode
 10801): both toggles are in Settings and off, DASH carries everything by
 default, and the SABR module's runtime classes are in the release DEX while its

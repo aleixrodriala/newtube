@@ -10,16 +10,16 @@ import com.liskovsoft.youtubeapi.videoinfo.models.SabrVodCapability;
  * Two independent roles for the same decoder. Debug overrides are transient and never consulted
  * by release builds.
  *
- * <p><b>Fallback</b> (default OFF) only decides what happens to a response that has NO playable
- * links: some clients now answer with adaptive formats that carry no URL at all and a SABR
- * endpoint instead. It was built default-ON and turned off before release, because measurement
- * did not support the claim it was built on: across seven unpinned opens on 2026-09-08 the ring
- * never reached a link-less client at all (VISIONOS leads and still hands out URLs), and when the
- * path was forced (client pinned to IOS) every SABR POST answered RELOAD_PLAYER_RESPONSE. It has
- * therefore never carried a video that would not otherwise play. It is also not free: accepting a
- * link-less answer stops the client ring at that client instead of walking on, and the failure
- * then costs ErrorFixerController's bounded retries (4, measured) before anything else is tried.
- * Turn it on when the reload handshake returns media - see HANDOFF section 28.
+ * <p><b>Fallback</b> (DEBUG-ONLY, never offered in the UI) decides what happens to a response
+ * that has NO playable links. It was built default-ON, turned off before release, and then
+ * withdrawn entirely once it was shown it cannot work: without a PO token the server serves only
+ * up to ~60 s (measured between 56.2 s and 60.0 s on three videos) before
+ * STREAM_PROTECTION_STATUS turns ATTESTATION_REQUIRED and no media comes back. The fallback only
+ * ever sees link-less clients, and those are exactly the walled ones, so it is capped at the
+ * first minute of any video. Enabling it would trade a clean skip for a minute of playback that
+ * then dies - and it costs the client ring a candidate plus four recovery attempts, so it can
+ * even break a video that a later client would have played. Kept behind the debug property
+ * because the diagnostics still arm it deliberately. See HANDOFF section 28.
  *
  * <p><b>Preferred</b> (default OFF) is the experiment: use SABR even when DASH links work. It is
  * a data saving (~11% fewer bytes) paid for with startup (~66 ms), so it stays opt-in.
@@ -28,8 +28,6 @@ public final class SabrSourcePreference {
     private static final String PREFS = "newtube_playback_sources";
     /** Historical key: the "prefer SABR over working DASH links" experiment. */
     private static final String KEY_PREFER = "sabr_vod";
-    /** Separate key so this switch cannot be read as a user choice from the old switch. */
-    private static final String KEY_FALLBACK = "sabr_vod_fallback";
     private SabrSourcePreference() {}
 
     /** SABR replaces a working DASH route. Experiment; off unless the user asks for it. */
@@ -39,11 +37,13 @@ public final class SabrSourcePreference {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_PREFER, false);
     }
 
-    /** SABR carries responses that have no playable links. Off until the reload handshake works. */
+    /**
+     * SABR carries a response with no playable links. Always off in a release build - there is no
+     * stored preference to consult, so an install that had the old switch turned on loses it too.
+     */
     public static boolean isFallbackEnabled(Context context) {
         Boolean override = debugOverride("debug.arc.sabr_fallback");
-        if (override != null) return override;
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_FALLBACK, false);
+        return override != null && override;
     }
 
     /** Whether the metadata layer may accept a link-less response at all. */
@@ -57,10 +57,6 @@ public final class SabrSourcePreference {
 
     public static void setPreferred(Context context, boolean preferred) {
         apply(context, KEY_PREFER, preferred);
-    }
-
-    public static void setFallbackEnabled(Context context, boolean enabled) {
-        apply(context, KEY_FALLBACK, enabled);
     }
 
     private static void apply(Context context, String key, boolean value) {

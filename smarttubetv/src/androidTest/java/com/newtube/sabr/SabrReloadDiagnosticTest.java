@@ -17,6 +17,7 @@ import com.liskovsoft.youtubeapi.videoinfo.V2.VideoInfoService;
 import com.liskovsoft.youtubeapi.videoinfo.models.SabrVodCapability;
 import com.liskovsoft.youtubeapi.videoinfo.models.VideoInfo;
 import com.newtube.mobile.SessionWarmup;
+import com.newtube.sabr.proto.videostreaming.MediaHeader;
 import com.newtube.sabr.proto.videostreaming.ReloadPlayerResponse;
 import com.newtube.sabr.ump.UMPDecoder;
 import com.newtube.sabr.ump.UMPPart;
@@ -142,9 +143,19 @@ public class SabrReloadDiagnosticTest {
         }
     }
 
-    /** Part id census plus, for a reload, the shape of the token the server wants echoed back. */
+    /**
+     * Part id census, plus MEDIA bytes attributed to the itag that asked for them and, for a
+     * reload, the shape of the token the server wants echoed back.
+     *
+     * <p>The per-itag split exists because a fixed-window byte comparison said SABR moved 17.5%
+     * fewer bytes than DASH while buffering only 32 s against DASH's 59 s - i.e. ~1.5x more bytes
+     * per second of media. This says whether the extra bytes are a track the request did not
+     * ask for.</p>
+     */
     private static void census(String label, byte[] payload) {
         Map<Integer, int[]> counts = new LinkedHashMap<>();
+        Map<Integer, long[]> perItag = new LinkedHashMap<>();
+        Map<Long, Integer> headerItag = new java.util.HashMap<>();
         UMPDecoder decoder = new UMPDecoder(32 * 1024 * 1024);
         InputStream input = new java.io.ByteArrayInputStream(payload);
         StringBuilder order = new StringBuilder();
@@ -156,11 +167,30 @@ public class SabrReloadDiagnosticTest {
                 entry[0]++;
                 entry[1] += bytes.length;
                 if (order.length() < 240) order.append(part.partId).append(':').append(bytes.length).append(' ');
-                if (part.partId == UMPPartId.RELOAD_PLAYER_RESPONSE) reload(label, bytes);
+                if (part.partId == UMPPartId.MEDIA_HEADER) {
+                    MediaHeader header = MediaHeader.parseFrom(bytes);
+                    int itag = header.getItag() != 0 ? header.getItag() : header.getFormatId().getItag();
+                    headerItag.put((long) header.getHeaderId(), itag);
+                    long[] slot = perItag.computeIfAbsent(itag, key -> new long[2]);
+                    slot[1]++;
+                } else if (part.partId == UMPPartId.MEDIA && bytes.length > 0) {
+                    // A MEDIA part is prefixed with the header id its bytes belong to.
+                    Integer itag = headerItag.get((long) (bytes[0] & 0xFF));
+                    perItag.computeIfAbsent(itag == null ? -1 : itag, key -> new long[2])[0]
+                            += bytes.length - 1;
+                } else if (part.partId == UMPPartId.RELOAD_PLAYER_RESPONSE) {
+                    reload(label, bytes);
+                }
             }
         } catch (Exception failure) {
             Log.i(TAG, label + " census stopped: " + failure.getClass().getSimpleName());
         }
+        StringBuilder split = new StringBuilder();
+        for (Map.Entry<Integer, long[]> entry : perItag.entrySet()) {
+            split.append("itag").append(entry.getKey()).append('=').append(entry.getValue()[0])
+                    .append("B/").append(entry.getValue()[1]).append("hdr ");
+        }
+        Log.i(TAG, label + " media by itag: " + split);
         StringBuilder summary = new StringBuilder();
         for (Map.Entry<Integer, int[]> entry : counts.entrySet()) {
             summary.append(entry.getKey()).append("x").append(entry.getValue()[0])

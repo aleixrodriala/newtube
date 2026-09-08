@@ -669,10 +669,9 @@ public class MobileBrowseActivity extends MobileActivity
             dialogPresenter.appendSingleButton(UiOptionItem.from(item.title, optionItem -> item.onClick.run()));
         }
 
-        dialogPresenter.appendSingleSwitch(UiOptionItem.from(getString(R.string.sabr_vod_fallback_option),
-                option -> com.newtube.mobile.player.SabrSourcePreference.setFallbackEnabled(this, option.isSelected()),
-                com.newtube.mobile.player.SabrSourcePreference.isFallbackEnabled(this)));
-
+        // Only the experiment is offered. The link-less "fallback" is debug-only: it is capped at
+        // ~60 s by the server's attestation demand, so a switch for it would promise a playback
+        // that cannot finish. See SabrSourcePreference and HANDOFF section 28.
         dialogPresenter.appendSingleSwitch(UiOptionItem.from(getString(R.string.sabr_vod_option),
                 option -> com.newtube.mobile.player.SabrSourcePreference.setPreferred(this, option.isSelected()),
                 com.newtube.mobile.player.SabrSourcePreference.isPreferred(this)));

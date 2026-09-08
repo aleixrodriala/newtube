@@ -214,6 +214,11 @@ public class SabrNetworkComparisonTest {
         metrics.putLong("firstFrameMs", state.firstFrameMs);
         metrics.putLong("readyMs", state.readyMs);
         metrics.putLong("positionMs", state.positionMs);
+        // Bytes over a fixed playback window compare how much each source chose to PREFETCH, not
+        // how efficiently it delivers. DASH fills the LoadControl buffer; SABR's readahead is
+        // server-driven (NextRequestPolicy). Report the buffer so bytes can be normalised per
+        // second of media actually fetched.
+        metrics.putLong("bufferedPositionMs", state.bufferedPositionMs);
         metrics.putInt("frames", state.frames);
         metrics.putInt("dropped", state.dropped);
         metrics.putInt("rebuffers", state.unexpectedBuffering);

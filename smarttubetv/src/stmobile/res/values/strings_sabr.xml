@@ -1,5 +1,4 @@
 <resources>
-    <string name="sabr_vod_fallback_option">Play videos that have no direct links (experimental SABR fallback)</string>
     <string name="sabr_vod_option">Prefer SABR even when links work (experimental; next VOD)</string>
     <string name="sabr_vod_stopped">Experimental SABR playback stopped. Tap play to retry, or disable SABR in Settings.</string>
 </resources>
