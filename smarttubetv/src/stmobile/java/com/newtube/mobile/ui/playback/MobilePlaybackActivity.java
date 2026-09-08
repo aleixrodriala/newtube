@@ -2097,17 +2097,18 @@ public class MobilePlaybackActivity extends MobileActivity
     };
 
     /**
-     * Connected-state affordance on the top-bar cast icon: theme accent while a session is live,
-     * stock white otherwise (matches the official app's colored connected icon). Same accent as
-     * the theme's {@code colorAccent}/dialog headers - the app's "active accent", distinct from
-     * the playback-red used by like/progress states.
+     * Connected-state affordance on the top-bar cast icon: tinted while a session is live,
+     * stock white otherwise (matches the official app's colored connected icon). This is the
+     * ONE coloured icon state left in the app - everything else states itself with a filled vs
+     * outlined glyph - so it gets its own colour name rather than riding on the theme accent,
+     * which is monochrome. Distinct from the playback-red used by like/progress states.
      */
     private void updateCastIconTint() {
         if (mCastButton == null) {
             return;
         }
         if (mCastSessionManager != null && mCastSessionManager.isConnected()) {
-            mCastButton.setColorFilter(getColorInt(R.color.mobile_color_accent));
+            mCastButton.setColorFilter(getColorInt(R.color.mobile_color_cast_active));
         } else {
             mCastButton.clearColorFilter();
         }

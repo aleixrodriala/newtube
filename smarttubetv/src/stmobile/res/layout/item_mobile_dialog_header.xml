@@ -9,8 +9,7 @@
     android:paddingTop="16dp"
     android:paddingEnd="16dp"
     android:paddingBottom="8dp"
-    android:textAllCaps="true"
-    android:textColor="@color/mobile_color_accent"
-    android:textSize="13sp"
+    android:textColor="@color/mobile_color_on_surface_secondary"
+    android:textSize="14sp"
     android:textStyle="bold"
     tools:text="Video quality" />

@@ -21,7 +21,7 @@
         android:layout_height="20dp"
         android:contentDescription="@string/mobile_cast_tv_volume_label"
         android:src="@drawable/ic_mobile_cast"
-        android:tint="@color/mobile_color_accent" />
+        android:tint="@color/mobile_color_cast_active" />
 
     <SeekBar
         android:id="@+id/cast_volume_slider"
@@ -30,8 +30,8 @@
         android:layout_marginStart="4dp"
         android:max="100"
         android:progressBackgroundTint="@color/mobile_color_progress_track"
-        android:progressTint="@color/mobile_color_accent"
-        android:thumbTint="@color/mobile_color_accent" />
+        android:progressTint="@color/mobile_color_cast_active"
+        android:thumbTint="@color/mobile_color_cast_active" />
 
     <TextView
         android:id="@+id/cast_volume_value"

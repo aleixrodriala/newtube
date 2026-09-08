@@ -16,7 +16,15 @@
     <style name="Theme.NewTube" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="colorPrimary">@color/mobile_color_primary</item>
         <item name="colorPrimaryDark">@color/mobile_color_primary_dark</item>
-        <item name="colorAccent">@color/mobile_color_accent</item>
+        <!-- Selection controls (checkbox, radio, switch, text caret) and any untinted
+             indeterminate ProgressBar read the accent. Left at the framework default this
+             was Material pink on a black-and-red app: the whole settings screen - section
+             headers, ticks, radio dots - came out #FF4081. Monochrome instead, per the
+             "subtle states, no tints" rule; red stays the brand/playback colour and the
+             one accent tint left is the cast-connected icon. -->
+        <item name="colorAccent">@color/mobile_color_on_surface</item>
+        <item name="colorSecondary">@color/mobile_color_on_surface</item>
+        <item name="colorControlActivated">@color/mobile_color_on_surface</item>
         <item name="android:colorBackground">@color/mobile_color_background</item>
         <item name="colorSurface">@color/mobile_color_surface</item>
         <item name="colorOnSurface">@color/mobile_color_on_surface</item>

@@ -627,7 +627,7 @@ public class MobileBrowseActivity extends MobileActivity
             }
         }
         if (mCastSessionManager != null && mCastSessionManager.isConnected()) {
-            mCastButton.setColorFilter(getColorInt(R.color.mobile_color_accent));
+            mCastButton.setColorFilter(getColorInt(R.color.mobile_color_cast_active));
         } else {
             mCastButton.clearColorFilter();
         }

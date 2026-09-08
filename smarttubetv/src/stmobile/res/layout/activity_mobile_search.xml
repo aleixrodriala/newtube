@@ -104,7 +104,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:visibility="gone" />
+            android:visibility="gone"
+            android:indeterminateTint="@color/mobile_color_primary"
+            android:indeterminateTintMode="src_in" />
 
         <!-- A search that ends with zero rows used to just... stop (spinner gone, screen
              blank). Shown by showProgressBar(false) when the grid is empty; tap = retry. -->

@@ -2,7 +2,10 @@
 <resources>
     <color name="mobile_color_primary">#FF0000</color>
     <color name="mobile_color_primary_dark">#CC0000</color>
-    <color name="mobile_color_accent">#FF4081</color>
+    <!-- Cast: the only place the app tints an icon to show a live connection. Was the stock
+         Material pink (#FF4081) inherited from the theme's colorAccent, which leaked into
+         every checkbox, radio, caret and untinted spinner - see Theme.NewTube. -->
+    <color name="mobile_color_cast_active">#4FC3F7</color>
     <color name="mobile_color_background">#0F0F0F</color>
     <color name="mobile_color_surface">#1E1E1E</color>
     <color name="mobile_color_on_surface">#FFFFFF</color>
