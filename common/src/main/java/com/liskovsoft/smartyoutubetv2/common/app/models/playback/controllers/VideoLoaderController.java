@@ -17,6 +17,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.data.SimpleMediaItem;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.BasePlayerController;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.QueuePlaybackMode;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerConstants;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
@@ -90,6 +91,8 @@ public class VideoLoaderController extends BasePlayerController {
         }
 
         item.isShuffled = false;
+        // Opening something outside the shuffled playlist ends that queue's shuffle.
+        QueuePlaybackMode.onNewVideo(item);
 
         if (!item.fromQueue && !item.belongsToPlaybackQueue()) {
             mPlaylist.add(item);
@@ -112,7 +115,8 @@ public class VideoLoaderController extends BasePlayerController {
         }
         
         loadVideo(Helpers.firstNonNull(mPendingVideo, getVideo()));
-        getPlayer().setButtonState(R.id.action_repeat, getPlayerData().getPlaybackMode());
+        // The EFFECTIVE mode, so a queue-scoped shuffle shows as shuffle rather than lying.
+        getPlayer().setButtonState(R.id.action_repeat, getPlaybackMode());
         mSleepTimerStartMs = System.currentTimeMillis();
         mPendingVideo = null;
     }
@@ -159,7 +163,8 @@ public class VideoLoaderController extends BasePlayerController {
             return;
         }
         
-        getPlayer().setButtonState(R.id.action_repeat, video.finishOnEnded ? PlayerConstants.PLAYBACK_MODE_CLOSE : getPlayerData().getPlaybackMode());
+        // getPlaybackMode() already folds in finishOnEnded -> CLOSE, plus any queue-scoped shuffle.
+        getPlayer().setButtonState(R.id.action_repeat, getPlaybackMode());
         // Can't set title at this point
         //checkSleepTimer();
     }
@@ -708,7 +713,7 @@ public class VideoLoaderController extends BasePlayerController {
         Video current = getVideo();
 
         if (player == null || playerData == null || current == null || current.playlistInfo == null ||
-                playerData.getPlaybackMode() != PlayerConstants.PLAYBACK_MODE_SHUFFLE) {
+                getPlaybackMode() != PlayerConstants.PLAYBACK_MODE_SHUFFLE) {
             return;
         }
 
@@ -748,10 +753,15 @@ public class VideoLoaderController extends BasePlayerController {
         //}
     }
 
+    /**
+     * The mode playback actually runs by: the stored one, with a queue-scoped shuffle laid over it
+     * ({@link QueuePlaybackMode} - the playlist page's Shuffle button no longer flips the app-wide
+     * setting), and then the two per-video specials that outrank both.
+     */
     private int getPlaybackMode() {
-        int playbackMode = getPlayerData().getPlaybackMode();
-
         Video video = getVideo();
+        int playbackMode = QueuePlaybackMode.apply(video, getPlayerData().getPlaybackMode());
+
         if (video != null && video.finishOnEnded) {
             playbackMode = PlayerConstants.PLAYBACK_MODE_CLOSE;
         } else if (video != null && video.belongsToShortsGroup() && getPlayerTweaksData().isLoopShortsEnabled()) {

@@ -9,6 +9,53 @@ Phone-only: the TV flavors, vendored ExoPlayer fork and Leanback modules were
 deleted. Playback uses Media3 1.10.1 with embedded Cronet and an OkHttp fallback.
 Toolchain: AGP 9.2.1 / Gradle 9.6.1 / compileSdk 37 / targetSdk 37 / minSdk 24.
 
+## Playlist Shuffle stops being an app-wide setting (2026-09-08)
+
+Closes the parity gap listed under Open - product/UX: "`Shuffle` turns the
+player's repeat mode to shuffle, which is a PERSISTED setting - it stays on
+until changed. That is why the button confirms with a toast. YouTube scopes
+shuffle to the queue instead."
+
+**The old behaviour, caught in the wild.** Before touching anything, the test
+Pixel's gear -> More -> Aleatorio read **Activado** on an ordinary home-feed
+video - left over from a playlist Shuffle tapped in some earlier session. One
+tap on one playlist had been quietly shuffling everything since.
+
+**The fix.** New `QueuePlaybackMode` (common/) holds a transient shuffle scoped
+to the playlist that armed it. `VideoLoaderController.getPlaybackMode()` - the
+single funnel every autoplay decision already went through - lays it over the
+stored mode, and the two per-video specials (`finishOnEnded` -> CLOSE, shorts
+loop -> ONE) still outrank both. Nothing is written to disk, so a process
+restart drops it.
+
+Three details worth keeping:
+- **The disarm hangs off `onNewVideo`, not off the read.** The first cut
+  self-disarmed inside `apply()`, which is also read from the preload tick and
+  from menus - and a video can momentarily carry no playlist id while it is
+  being resolved, so a passing glance could have ended the shuffle. `apply()` is
+  now a pure read; only "playback moved to this video" can disarm.
+- **`PlayerData.setPlaybackMode()` clears the override**, so any picker that
+  states a mode outright wins, and no UI site has to remember to do it.
+- **The player's Shuffle row now reads the EFFECTIVE state.** Reading only the
+  stored mode would have shown "Off" while the queue visibly shuffled, and a tap
+  meaning "stop shuffling" would have turned shuffle on for everything instead.
+
+The toast is gone with the reason for it, and `mobile_playlist_shuffle_on` was
+dropped from both locales.
+
+**Pixel 9 verified, stored mode known to be ALL beforehand:** feed video ->
+`Aleatorio: Desactivado`; Shuffle on "Vídeos que me gustan" -> a random item
+opens, `Activado`; back to a feed video -> `Desactivado`. 8 unit tests pin the
+scoping; 378 unit tests pass overall.
+
+**Not claimed:** that the whole rest of a long playlist keeps shuffling. That
+path is gated upstream by `MIN_SHUFFLE_SIZE = 30` (unchanged here) and the test
+playlist holds 10, so it never armed. Worth noting from the same run: the
+shuffled open showed the queue card as `Reproduciendo de Ver más tarde - 1 / 1`
+rather than the playlist it was started from, and pressing next-track left the
+playlist for a related video - the playlist-context gaps already listed under
+Open, not something this change introduced.
+
 ## Edge-to-edge: the rule resolved, and one overlay that was wrong (2026-09-08)
 
 `CLAUDE.md` carried a blocking rule - "`windowOptOutEdgeToEdgeEnforcement` dies
@@ -1165,10 +1212,11 @@ app (ReVanced build on the same phone).
   real androidx `Toolbar` (ours is a LinearLayout). As a list row it just
   scrolls, and the toolbar title fades in over the last quarter of the scroll -
   which is what YouTube does anyway.
-- **`Shuffle`** starts a random item AND sets the player's repeat mode to
-  shuffle, so the rest of the queue keeps shuffling; that mode is persisted, so
-  the action confirms with a toast (not a snackbar - the player opens in the
-  same breath and would take the snackbar with it).
+- **`Shuffle`** starts a random item AND keeps the rest of the queue shuffling.
+  (SUPERSEDED 2026-09-08: it used to do that by writing the PERSISTED repeat
+  mode, with a toast warning about the side effect; it is now scoped to the
+  queue via `QueuePlaybackMode` and the toast is gone - see the 2026-09-08
+  section at the top.)
 - **`Save to Watch later` is on every card menu.** Upstream ships the item OFF;
   flipping `MENU_ITEM_DEFAULT` alone only reaches fresh installs, because
   MainUIData's upgrade path enables a new default only for items MISSING from
@@ -1520,9 +1568,10 @@ open:
   - The playlist page has no `+` / edit / share circular buttons next to
     `Play all` (YouTube shows them on playlists you own).
   - A deliberately-opened Mix shows no queue card (see the RD trade-off above).
-  - `Shuffle` turns the player's repeat mode to shuffle, which is a PERSISTED
-    setting - it stays on until changed. That is why the button confirms with a
-    toast. YouTube scopes shuffle to the queue instead.
+  - ~~`Shuffle` turns the player's repeat mode to shuffle, which is a PERSISTED
+    setting~~ DONE 2026-09-08: scoped to the queue via `QueuePlaybackMode`,
+    Pixel 9 verified (see Works above). What is still open next to it: the
+    per-queue randomisation itself only arms above `MIN_SHUFFLE_SIZE = 30`.
   - Only English and Spanish are current. Spanish is now COMPLETE for the phone
     UI (see the 2026-07-31 section); the other upstream locales still read the
     old TV wording for the reworded playlist items, and have no translation at

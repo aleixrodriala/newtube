@@ -15,13 +15,11 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
-import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
-import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerConstants;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.QueuePlaybackMode;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.ChannelUploadsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelUploadsView;
-import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.browse.VideoCardAdapter;
 import com.newtube.mobile.ui.common.MobileActivity;
@@ -287,9 +285,15 @@ public class MobileChannelUploadsActivity extends MobileActivity
     }
 
     /**
-     * Starts a random item and turns the player's repeat mode to shuffle, so the REST of the
-     * queue keeps shuffling too - randomizing only the first video would be a lie. That mode is
-     * a persisted player setting (and stays on until changed), hence the confirmation.
+     * Starts a random item and keeps the REST of this queue shuffling too - randomizing only the
+     * first video would be a lie.
+     *
+     * <p>Scoped to THIS playlist ({@link QueuePlaybackMode}), not written to the player's stored
+     * repeat mode. Writing the stored mode is what it used to do, and it made one tap here change
+     * every later video's behaviour until the user hunted down the repeat picker; the toast that
+     * stood here existed only to warn about that. YouTube scopes shuffle to the queue, so there is
+     * nothing lasting left to warn about - and a toast would be torn away anyway, since the player
+     * opens in the same breath and takes this screen with it.</p>
      */
     private void shuffle() {
         Video random = findRandomPlayableVideo();
@@ -298,12 +302,10 @@ public class MobileChannelUploadsActivity extends MobileActivity
             return;
         }
 
-        PlayerData.instance(this).setPlaybackMode(PlayerConstants.PLAYBACK_MODE_SHUFFLE);
-        // A toast, not a snackbar: the player opens in the same breath and takes this screen -
-        // and any snackbar anchored to it - away before it could be read.
-        MessageHelpers.showMessage(this, R.string.mobile_playlist_shuffle_on);
+        Video opening = withPlaylistContext(random);
+        QueuePlaybackMode.shuffle(opening.getPlaylistId());
 
-        onVideoClicked(withPlaylistContext(random));
+        onVideoClicked(opening);
     }
 
     /** Random pick among the rows in hand (the loaded page), never the "no items" case. */

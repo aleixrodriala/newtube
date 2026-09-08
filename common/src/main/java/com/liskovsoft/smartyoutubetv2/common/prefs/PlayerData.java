@@ -11,6 +11,7 @@ import com.liskovsoft.sharedutils.helpers.DeviceHelpers;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.locale.LocaleUtility;
 import com.liskovsoft.smartyoutubetv2.common.R;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.QueuePlaybackMode;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerEngine;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerConstants;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleStyle;
@@ -263,8 +264,14 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
         return mBackgroundMode;
     }
 
+    /**
+     * Stating a repeat mode outright also drops any queue-scoped shuffle
+     * ({@link QueuePlaybackMode}) - otherwise the override would keep winning over the choice the
+     * user just made. Done here rather than at each UI site so no picker can forget it.
+     */
     public void setPlaybackMode(int mode) {
         mPlaybackMode = mode;
+        QueuePlaybackMode.clear();
         persistState();
     }
 

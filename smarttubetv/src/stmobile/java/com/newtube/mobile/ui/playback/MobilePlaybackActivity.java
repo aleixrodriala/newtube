@@ -88,6 +88,7 @@ import com.liskovsoft.mediaserviceinterfaces.data.ChatItem;
 import com.liskovsoft.mediaserviceinterfaces.data.PlaylistInfo;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.QueuePlaybackMode;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerConstants;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.service.VideoStateService;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.service.VideoStateService.State;
@@ -2693,7 +2694,10 @@ public class MobilePlaybackActivity extends MobileActivity
         BottomSheetDialog sheet = new BottomSheetDialog(this);
         LinearLayout content = createSheetContent();
 
-        boolean shuffleOn = PlayerData.instance(this).getPlaybackMode() == PlayerConstants.PLAYBACK_MODE_SHUFFLE;
+        // Effective, not stored: a Shuffle started from the playlist page is scoped to that queue
+        // (QueuePlaybackMode) and never reaches PlayerData, so reading the stored mode alone would
+        // show "Off" while the queue is visibly shuffling.
+        boolean shuffleOn = isShuffling();
         boolean statsOn = getButtonState(R.id.action_video_stats) == BUTTON_ON;
 
         // Repeat mode -> playback-mode dialog (long-click path always opens the picker; the plain
@@ -2878,11 +2882,18 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     /** Toggle the SmartTube playback mode between Shuffle and All (default). Persisted in PlayerData. */
+    /** Shuffling right now, whether that came from the stored mode or from this queue. */
+    private boolean isShuffling() {
+        return PlayerData.instance(this).getPlaybackMode() == PlayerConstants.PLAYBACK_MODE_SHUFFLE
+                || QueuePlaybackMode.coversQueueOf(getVideo());
+    }
+
     private void toggleShuffleMode() {
-        PlayerData pd = PlayerData.instance(this);
-        boolean wasShuffle = pd.getPlaybackMode() == PlayerConstants.PLAYBACK_MODE_SHUFFLE;
-        int mode = wasShuffle ? PlayerConstants.PLAYBACK_MODE_ALL : PlayerConstants.PLAYBACK_MODE_SHUFFLE;
-        pd.setPlaybackMode(mode);
+        // Off when anything is shuffling - including a queue-scoped shuffle, which the write below
+        // clears (PlayerData.setPlaybackMode drops the override). Reading only the stored mode
+        // would turn a "stop shuffling" tap into "shuffle everything from now on".
+        int mode = isShuffling() ? PlayerConstants.PLAYBACK_MODE_ALL : PlayerConstants.PLAYBACK_MODE_SHUFFLE;
+        PlayerData.instance(this).setPlaybackMode(mode);
         // Reflect on the (hidden) repeat button state so the menu shows the right On/Off next time.
         setButtonState(R.id.action_repeat, mode);
     }
