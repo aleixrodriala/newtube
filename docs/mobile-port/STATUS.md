@@ -1,13 +1,82 @@
 # NewTube — Status
 
-**v1.8.0 (versionCode 10800), Eugenio Edition, 2026-09-08.** Release scope,
-upstream review, validation and distribution are recorded in
-[the release record](../releases/1.8.0.md). Older dated investigations below
+**v1.9.0 (versionCode 10900), Chiquito Edition, 2026-09-11.** Release scope,
+validation and distribution are recorded in
+[the release record](../releases/1.9.0.md); the 1.8.0 playback/network
+review lives in [its own record](../releases/1.8.0.md). Older dated investigations below
 remain historical evidence, not the current release verdict.
 
 Phone-only: the TV flavors, vendored ExoPlayer fork and Leanback modules were
 deleted. Playback uses Media3 1.10.1 with embedded Cronet and an OkHttp fallback.
 Toolchain: AGP 9.2.1 / Gradle 9.6.1 / compileSdk 37 / targetSdk 37 / minSdk 24.
+
+## Downloads: a fifth tab, files that play like any other video (2026-09-11)
+
+NewTube can now keep videos on the phone. The ask was NewPipe-shaped ("an option
+to download videos together with a downloads section"), then sharpened mid-way:
+the section is **a tab on the bottom bar**, not a You-page row, and downloading
+plus replaying "should feel part of the whole app". So there is no separate
+downloads screen: **Downloads is a real browse section** (`VideoDownloads.SECTION_ID
+= 200`, deliberately outside the `MediaGroup.TYPE_*` range) fed through the
+existing local-grid path, drawn by the same card adapter, opened by the same
+player. `Home · Suscripciones · Historial · Descargas · Tú`.
+
+**Where "Download" lives.** The card context menu (new `MENU_ITEM_DOWNLOAD`,
+listed in the context-menu settings like any other item), the watch page (a
+Download pill between Share and Save, YouTube's slot) and gear → More. The shared
+menus only offer it while the phone has installed a handler
+(`common/.../misc/VideoDownloads`), so no shared code references the phone stack.
+The picker is the standard app dialog: one row per H.264 rung with the real size
+(`1080p · MP4 · 765 MB`) plus `Audio only · M4A`. Live and upcoming streams are
+refused up front.
+
+**What a download is.** YouTube serves separate video and audio DASH tracks, so a
+video download fetches the H.264 track and the AAC track and joins them on the
+device with `MediaExtractor` → `MediaMuxer` (no re-encoding; the fragmented MP4
+parts parse natively on the Pixel 9). VP9/AV1 rungs above 1080p are not offered:
+there is no platform WebM muxer worth trusting. Audio-only writes a clean `.m4a`.
+Files go to the public collections through MediaStore (`Movies/NewTube`,
+`Music/NewTube`; the muxer writes straight into the collection's descriptor, so
+nothing is copied) on Android 10+, and to `Android/media/<pkg>/NewTube` on 7-9.
+A foreground service of type `dataSync` drains the queue one item at a time with a
+progress notification; the registry is one JSON file under `files/downloads/`.
+
+**Two things the transfer had to learn from the player.**
+- googlevideo must be fetched with the player's `MediaHttpClient` (no InnerTube
+  interceptors); ranged reads of 10 MiB via the `Range:` header, never the
+  `range=` query (HANDOFF §5 post-mortem stands). yt-dlp chunks the same way.
+- **A media 403 is normal.** The first /player client's links (TVHTML5 route,
+  `pot=n`) were refused for the very video the player was playing - the player
+  gets the same 403 and recovers with `markCurrentPlaybackRouteForbidden` +
+  `applyNoPlaybackFix` + a remint. The downloader does exactly that, up to four
+  routes, matching the same itags in the fresh format info. Before that rule the
+  first two attempts on the Pixel failed identically.
+
+**Seamless replay.** A finished card carries `Video.localUri`;
+`VideoLoaderController` skips the /player path and opens it as a progressive
+source, `Media3SourceFactory` routes `content://`/`file://` to `DefaultDataSource`.
+The watch page, likes, related and comments still load when online. Two more
+seams: if the network path fails and a downloaded copy exists, the player plays
+the copy (offline resilience without ever pre-empting streaming when online), and
+the pill reads `Downloaded` / a live percentage / `Download` for the video on
+screen. Cards are the same `Video` instances mutated in place and pushed through
+`ACTION_SYNC`, so progress updates never blink a thumbnail. Every not-ready state
+(queued, fetching, finishing, failed) dims the thumbnail and carries a badge - a
+user noted that "Terminando…" read as already playable.
+
+**Pixel 9 verified (Android 17, debug build):** 47-minute video at 144p fetched
+in ~6 s, muxed to a 67 MB `Hall of Legends Caps.mp4` in `Movies/NewTube`
+(`is_pending=0`, duration 47:18); the card showed `75%` + the red bar mid-way;
+audio-only of a 1:06 video published as a 1.1 MB `.m4a` in `Music/NewTube`;
+tapping a finished card prepared `type=progressive` with first frame at +984 ms
+and no /player call. With airplane mode on and a cold start: Downloads tab lists
+both, the audio file plays, and the video opened from the Home snapshot falls
+back to the local copy. 10 new unit tests (rung selection, original-audio
+preference, size/duration/file-name formatting, Content-Range parsing).
+
+**Not done / open:** no pause-resume (cancel and retry only; a retry resumes the
+part files); no Wi-Fi-only or storage-location setting; playlist downloads;
+subtitles are not saved; VP9/AV1 rungs above 1080p not offered.
 
 ## UX pass: the pink app, the pale band, and a settings screen that lied (2026-09-08)
 

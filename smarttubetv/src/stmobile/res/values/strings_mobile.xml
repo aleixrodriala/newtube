@@ -257,4 +257,31 @@
     <string name="mobile_cast_switch_subtitles_message">The TV app supports subtitles and controls quality with the TV remote. We try paired SmartTube first to keep playback ad-free. YouTube is the fallback and may show ads.</string>
     <string name="mobile_cast_switch_subtitles_positive">Switch</string>
     <string name="mobile_cast_tv_volume_label">TV volume</string>
+
+    <!-- Downloads -->
+    <string name="mobile_download_started">Download started</string>
+    <string name="mobile_download_preparing">Preparing download…</string>
+    <string name="mobile_download_unavailable">This video can\'t be downloaded</string>
+    <string name="mobile_download_unavailable_live">Live streams can\'t be downloaded</string>
+    <string name="mobile_download_audio_only">Audio only</string>
+    <string name="mobile_download_already">already downloaded</string>
+    <string name="mobile_download_state_queued">Waiting to download</string>
+    <string name="mobile_download_state_downloading">Downloading · %1$d%% · %2$s of %3$s</string>
+    <string name="mobile_download_state_downloading_bytes">Downloading · %1$s</string>
+    <string name="mobile_download_state_processing">Finishing…</string>
+    <string name="mobile_download_error_generic">Download failed. Tap to retry.</string>
+    <string name="mobile_download_error_link">Download link expired. Tap to retry.</string>
+    <string name="mobile_download_done_title">Download complete</string>
+    <string name="mobile_download_play">Play</string>
+    <string name="mobile_download_retry">Retry download</string>
+    <string name="mobile_download_cancel">Cancel download</string>
+    <string name="mobile_download_delete">Delete download</string>
+    <string name="mobile_download_file_missing">The downloaded file is no longer on this device</string>
+    <string name="mobile_download_pill_downloaded">Downloaded</string>
+    <string name="mobile_downloads_empty">Videos you download appear here.\nUse Download in a video\'s menu or on the watch page.</string>
+    <string name="mobile_download_badge_queued">Queued</string>
+    <string name="mobile_download_badge_downloading">Downloading</string>
+    <string name="mobile_download_badge_failed">Failed</string>
+    <string name="mobile_download_channel_name">Downloads</string>
+    <string name="mobile_download_channel_desc">Progress of video downloads</string>
 </resources>

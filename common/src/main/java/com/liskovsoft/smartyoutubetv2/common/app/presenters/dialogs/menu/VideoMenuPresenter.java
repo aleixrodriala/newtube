@@ -28,6 +28,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.provide
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelUploadsView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
+import com.liskovsoft.smartyoutubetv2.common.misc.VideoDownloads;
 import com.liskovsoft.smartyoutubetv2.common.misc.StreamReminderService;
 import com.liskovsoft.smartyoutubetv2.common.prefs.BlockedChannelData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
@@ -62,6 +63,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
     private boolean mIsOpenChannelUploadsButtonEnabled;
     private boolean mIsSubscribeButtonEnabled;
     private boolean mIsShareLinkButtonEnabled;
+    private boolean mIsDownloadButtonEnabled;
     private boolean mIsShareQRLinkButtonEnabled;
     private boolean mIsShareEmbedLinkButtonEnabled;
     private boolean mIsAddToWatchLaterButtonEnabled;
@@ -249,6 +251,27 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
                 UiOptionItem.from(
                         getContext().getString(R.string.dialog_add_to_playlist),
                         optionItem -> AppDialogUtil.showAddToPlaylistDialog(getContext(), mVideo, mCallback)
+                ));
+    }
+
+    /**
+     * NEWTUBE(downloads): "Download" sits next to the save actions, as on YouTube's card menu.
+     * The item exists only while the phone has installed a handler (see {@link VideoDownloads}),
+     * and only for a finished, ordinary video - live and upcoming streams have nothing to fetch.
+     */
+    private void appendDownloadButton() {
+        if (!mIsDownloadButtonEnabled) {
+            return;
+        }
+
+        if (!VideoDownloads.canDownload(mVideo) || mVideo.isPlaylistAsChannel()) {
+            return;
+        }
+
+        mDialogPresenter.appendSingleButton(
+                UiOptionItem.from(
+                        getContext().getString(R.string.dialog_download),
+                        optionItem -> VideoDownloads.request(getContext(), mVideo)
                 ));
     }
 
@@ -972,6 +995,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
         mIsAddToWatchLaterButtonEnabled = mainUIData.isMenuItemEnabled(MainUIData.MENU_ITEM_ADD_TO_WATCH_LATER);
         mIsAddToPlaylistButtonEnabled = mainUIData.isMenuItemEnabled(MainUIData.MENU_ITEM_ADD_TO_PLAYLIST);
         mIsShareLinkButtonEnabled = mainUIData.isMenuItemEnabled(MainUIData.MENU_ITEM_SHARE_LINK);
+        mIsDownloadButtonEnabled = mainUIData.isMenuItemEnabled(MainUIData.MENU_ITEM_DOWNLOAD);
         mIsShareQRLinkButtonEnabled = mainUIData.isMenuItemEnabled(MainUIData.MENU_ITEM_SHARE_QR_LINK);
         mIsShareEmbedLinkButtonEnabled = mainUIData.isMenuItemEnabled(MainUIData.MENU_ITEM_SHARE_EMBED_LINK);
         mIsNotInterestedButtonEnabled = mainUIData.isMenuItemEnabled(MainUIData.MENU_ITEM_NOT_INTERESTED);
@@ -1002,6 +1026,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
         mMenuMapping.put(MainUIData.MENU_ITEM_RECENT_PLAYLIST, new MenuAction(this::appendAddToRecentPlaylistButton, false));
         mMenuMapping.put(MainUIData.MENU_ITEM_ADD_TO_WATCH_LATER, new MenuAction(this::appendAddToWatchLaterButton, true));
         mMenuMapping.put(MainUIData.MENU_ITEM_ADD_TO_PLAYLIST, new MenuAction(this::appendAddToPlaylistButton, false));
+        mMenuMapping.put(MainUIData.MENU_ITEM_DOWNLOAD, new MenuAction(this::appendDownloadButton, false));
         mMenuMapping.put(MainUIData.MENU_ITEM_CREATE_PLAYLIST, new MenuAction(this::appendCreatePlaylistButton, false));
         mMenuMapping.put(MainUIData.MENU_ITEM_RENAME_PLAYLIST, new MenuAction(this::appendRenamePlaylistButton, false));
         mMenuMapping.put(MainUIData.MENU_ITEM_ADD_TO_NEW_PLAYLIST, new MenuAction(this::appendAddToNewPlaylistButton, false));

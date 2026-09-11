@@ -24,10 +24,10 @@ import okhttp3.Protocol;
 import okhttp3.Response;
 
 /** Standard OkHttp transport for media, with bounded inactivity but no whole-stream deadline. */
-final class MediaHttpClient {
+public final class MediaHttpClient {
     private MediaHttpClient() {}
 
-    static OkHttpClient create(OkHttpClient sharedClient) {
+    public static OkHttpClient create(OkHttpClient sharedClient) {
         // Start with stock TLS and headers. Share the pool so the existing default-network
         // handover eviction also retires media sockets, and retain the configured proxy route.
         // API interceptors, cookies and origin authentication do not belong on media requests.

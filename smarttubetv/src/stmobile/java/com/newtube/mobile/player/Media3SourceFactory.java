@@ -14,6 +14,7 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.datasource.DataSchemeDataSource;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DataSpec;
+import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.HttpDataSource;
 import androidx.media3.datasource.ResolvingDataSource;
@@ -86,6 +87,8 @@ public class Media3SourceFactory {
 
     private static final String USER_AGENT =
             "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36";
+    /** The UA every googlevideo fetch in the app identifies with - the downloader must match it. */
+    public static final String MEDIA_USER_AGENT = USER_AGENT;
 
     /** Fake base for side-loaded manifests; segment URLs inside the MPD are absolute. */
     private static final Uri GENERATED_MANIFEST_URI = Uri.parse("https://youtube.com/generated.mpd");
@@ -692,9 +695,22 @@ public class Media3SourceFactory {
             return null;
         }
 
+        Uri uri = Uri.parse(urlList.get(0));
+        if (isLocalUri(uri)) {
+            // NEWTUBE(downloads): a downloaded file. The HTTP/cache tiers cannot open content://
+            // or file:// - DefaultDataSource routes those to the content and file readers.
+            return new ProgressiveMediaSource.Factory(new DefaultDataSource.Factory(mContext))
+                    .createMediaSource(MediaItem.fromUri(uri));
+        }
+
         return new ProgressiveMediaSource.Factory(mCachedDataSourceFactory)
                 .setLoadErrorHandlingPolicy(newLoadErrorPolicy())
-                .createMediaSource(MediaItem.fromUri(urlList.get(0)));
+                .createMediaSource(MediaItem.fromUri(uri));
+    }
+
+    private static boolean isLocalUri(Uri uri) {
+        String scheme = uri.getScheme();
+        return "content".equals(scheme) || "file".equals(scheme);
     }
 
     /** DASH (generated) + extended-quality HLS in one source. */

@@ -2,6 +2,7 @@ package com.newtube.mobile.ui.browse;
 
 import android.Manifest;
 import android.animation.ValueAnimator;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
@@ -54,6 +55,11 @@ import com.liskovsoft.smartyoutubetv2.common.misc.AppDataSourceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import com.liskovsoft.smartyoutubetv2.common.misc.VideoDownloads;
+import com.newtube.mobile.downloads.DownloadItem;
+import com.newtube.mobile.downloads.DownloadMenu;
+import com.newtube.mobile.downloads.DownloadRegistry;
+import com.newtube.mobile.downloads.DownloadsBridge;
 import com.newtube.mobile.SessionWarmup;
 import com.newtube.mobile.casting.CastPickerLauncher;
 import com.newtube.mobile.casting.CastSessionManager;
@@ -101,6 +107,8 @@ public class MobileBrowseActivity extends MobileActivity
      */
     private static final int YOU_ITEM_ID = 2_000_000;
     private static final int REQUEST_POST_NOTIFICATIONS = 1;
+    /** Intent action (download notifications) that lands on the Downloads tab. */
+    public static final String ACTION_OPEN_DOWNLOADS = "com.newtube.mobile.OPEN_DOWNLOADS";
 
     /**
      * Preferred bottom-nav sections, in priority order. Matched primarily by
@@ -112,11 +120,13 @@ public class MobileBrowseActivity extends MobileActivity
             MediaGroup.TYPE_HOME,
             MediaGroup.TYPE_SUBSCRIPTIONS,
             MediaGroup.TYPE_HISTORY,
+            VideoDownloads.SECTION_ID,
     };
     private static final int[] PREFERRED_SECTION_TITLE_RES = {
             R.string.header_home,
             R.string.header_subscriptions,
             R.string.header_history,
+            R.string.header_downloads,
     };
 
     private BrowsePresenter mPresenter;
@@ -205,6 +215,11 @@ public class MobileBrowseActivity extends MobileActivity
         mPresenter = BrowsePresenter.instance(this);
         mPresenter.setView(this);
         mPresenter.onViewInitialized();
+
+        // NEWTUBE(downloads): keep the Downloads grid live (progress badges, finished files)
+        // while it is the section on screen; see onDownloadsChanged.
+        DownloadRegistry.instance(this).addListener(mDownloadsListener);
+        handleOpenDownloads(getIntent());
 
         // Android 13+ (targetSdk 35): POST_NOTIFICATIONS is a runtime permission - without it
         // the media-playback notification never shows on a fresh install. Ask plainly on every
@@ -883,7 +898,7 @@ public class MobileBrowseActivity extends MobileActivity
         // Falls back to the persisted snapshot on the process's first paint of this section,
         // so even a cold start shows cards instead of the skeleton (display-only until the
         // refetch replaces it — see FeedCache class doc).
-        List<Video> cached = FeedCache.getOrRestore(sectionId);
+        List<Video> cached = sectionId == VideoDownloads.SECTION_ID ? null : FeedCache.getOrRestore(sectionId);
 
         mCurrentVideos.clear();
         mAwaitingFreshContent = cached != null;
@@ -932,6 +947,15 @@ public class MobileBrowseActivity extends MobileActivity
             return;
         }
 
+        // NEWTUBE(downloads): a card that is still downloading (or failed) has no file to play
+        // yet - its tap opens the download's own menu (cancel / retry / delete). A finished one
+        // carries its local file and goes through the ordinary play route below.
+        DownloadItem download = DownloadsBridge.instance(this).itemFor(video);
+        if (download != null && !download.isDone()) {
+            DownloadMenu.show(this, download);
+            return;
+        }
+
         mPresenter.onVideoItemSelected(video);
 
         // Cards without a videoId (playlists, mixes, channels) don't open the player - they kick
@@ -962,6 +986,14 @@ public class MobileBrowseActivity extends MobileActivity
     private boolean onVideoLongClicked(Video video) {
         if (mPresenter == null) {
             return false;
+        }
+
+        // NEWTUBE(downloads): the Downloads card menu is about the file (play, share, delete),
+        // not about the feed (not interested, block channel...).
+        DownloadItem download = DownloadsBridge.instance(this).itemFor(video);
+        if (download != null) {
+            DownloadMenu.show(this, download);
+            return true;
         }
 
         mPresenter.onVideoItemLongClicked(video);
@@ -1000,6 +1032,85 @@ public class MobileBrowseActivity extends MobileActivity
         if (mYouShowing) {
             rebuildYouRows();
         }
+        openPendingDownloads();
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Downloads section
+    // ---------------------------------------------------------------------------------
+
+    /** A notification tap asked for the Downloads tab before the sections had arrived. */
+    private boolean mPendingDownloadsOpen;
+
+    private final DownloadRegistry.Listener mDownloadsListener = this::onDownloadsChanged;
+
+    private void handleOpenDownloads(Intent intent) {
+        if (intent == null || !ACTION_OPEN_DOWNLOADS.equals(intent.getAction())) {
+            return;
+        }
+        intent.setAction(null); // consume: a rotation must not re-open the tab
+        mPendingDownloadsOpen = true;
+        openPendingDownloads();
+    }
+
+    private void openPendingDownloads() {
+        if (!mPendingDownloadsOpen) {
+            return;
+        }
+        for (BrowseSection section : mSections) {
+            if (section.getId() == VideoDownloads.SECTION_ID) {
+                mPendingDownloadsOpen = false;
+                hideYouPanel();
+                onSectionChosen(VideoDownloads.SECTION_ID);
+                return;
+            }
+        }
+    }
+
+    private boolean isDownloadsSectionShowing() {
+        return mCurrentSectionId == VideoDownloads.SECTION_ID && !mYouShowing;
+    }
+
+    /**
+     * Registry change while the Downloads grid is on screen. Progress on the cards already
+     * shown is an in-place sync (payloaded partial rebind, no thumbnail reload, no blink); a
+     * download appearing or leaving the list needs the presenter to rebuild the grid.
+     */
+    private void onDownloadsChanged() {
+        if (!isDownloadsSectionShowing() || mPresenter == null) {
+            return;
+        }
+
+        List<DownloadItem> items = DownloadRegistry.instance(this).itemsNewestFirst();
+        boolean sameSet = items.size() == mCurrentVideos.size();
+        if (sameSet) {
+            for (int i = 0; i < items.size(); i++) {
+                if (!items.get(i).id.equals(mCurrentVideos.get(i).downloadId)) {
+                    sameSet = false;
+                    break;
+                }
+            }
+        }
+
+        if (sameSet) {
+            VideoGroup sync = VideoGroup.from(DownloadsBridge.instance(this).syncCards());
+            sync.setAction(VideoGroup.ACTION_SYNC);
+            updateSection(sync);
+        } else {
+            mPresenter.refresh(false);
+        }
+    }
+
+    /** The Downloads tab with nothing in it: say what the tab is for instead of a blank grid. */
+    private void showDownloadsEmptyState() {
+        setSkeletonVisible(false);
+        mContentSwipe.setRefreshing(false);
+        mContentGrid.setVisibility(View.GONE);
+        mErrorContainer.setVisibility(View.VISIBLE);
+        mErrorIcon.setVisibility(View.VISIBLE);
+        mErrorMessage.setText(R.string.mobile_downloads_empty);
+        mErrorAction.setVisibility(View.GONE);
+        mErrorAction.setTag(null);
     }
 
     private void rebuildBottomNav() {
@@ -1070,6 +1181,8 @@ public class MobileBrowseActivity extends MobileActivity
                 return R.drawable.ic_nav_subscriptions;
             case MediaGroup.TYPE_HISTORY:
                 return R.drawable.ic_nav_history;
+            case VideoDownloads.SECTION_ID:
+                return R.drawable.ic_nav_downloads;
             default:
                 return 0;
         }
@@ -1231,8 +1344,16 @@ public class MobileBrowseActivity extends MobileActivity
     }
 
     @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleOpenDownloads(intent);
+    }
+
+    @Override
     protected void onDestroy() {
         MiniPlayerBridge.unregisterMiniHost(this);
+        DownloadRegistry.instance(this).removeListener(mDownloadsListener);
 
         // Stop observing the cast session; the session itself outlives this screen by design.
         if (mCastSessionManager != null) {
@@ -1418,6 +1539,17 @@ public class MobileBrowseActivity extends MobileActivity
 
             mLastPaginationTriggerCount = -1; // allow pagination to trigger again on the new size
             mAdapter.submitList(new ArrayList<>(mCurrentVideos));
+
+            if (isDownloadsSectionShowing()) {
+                // Local cards carry their file and registry entry - not something a persisted
+                // snapshot can restore, so the section never goes through FeedCache.
+                if (mCurrentVideos.isEmpty()) {
+                    showDownloadsEmptyState();
+                } else {
+                    setSkeletonVisible(false);
+                }
+                return;
+            }
 
             if (!mCurrentVideos.isEmpty()) {
                 setSkeletonVisible(false);

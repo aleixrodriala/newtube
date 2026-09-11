@@ -4,6 +4,7 @@
     <string name="title_search">Search</string>
     <string name="header_subscriptions">Subscriptions</string>
     <string name="header_history">History</string>
+    <string name="header_downloads">Downloads</string>
     <string name="header_music">Music</string>
     <string name="header_news">News</string>
     <string name="header_gaming">Gaming</string>
@@ -46,6 +47,7 @@
     <string name="section_is_empty">Oops! There is nothing in here</string>
     <!-- NEWTUBE(mobile): YouTube's wording. Doubles as the Save sheet title and the card-menu row. -->
     <string name="dialog_add_to_playlist">Save to playlist</string>
+    <string name="dialog_download">Download</string>
     <!-- NEWTUBE(mobile): "Signed users only" was TV shorthand; these say what to DO. -->
     <string name="msg_signed_users_only">Sign in to use this</string>
     <string name="msg_sign_in_to_save">Sign in to save videos to playlists</string>

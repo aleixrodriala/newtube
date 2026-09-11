@@ -73,6 +73,12 @@ without auditing `LiveDashManifestParser` + `Helpers.setField` call sites).
   `bottomSheetStyle` instead, and keep `elevationOverlayEnabled=false` on the theme
   overlay — the 16dp sheet elevation blends 14.75% white into `colorSurface`, which
   turned #1E1E1E into #3F3F3F.
+- **Any googlevideo fetch outside the player must copy the player's two habits**
+  (downloads learned both the hard way, 2026-09-11): use `MediaHttpClient` (the
+  shared OkHttp client's InnerTube interceptors get a 403), and treat a media 403
+  as routine — the first /player client's links are often refused; recover like
+  `ErrorFixerController` (`markCurrentPlaybackRouteForbidden` + `applyNoPlaybackFix`
+  + re-resolve the same itags), never by retrying the same link.
 - **`getResources().getDisplayMetrics()` is NOT this device's metrics.**
   `MotherActivity.initDpi()` (private, called from its `onCreate` — not overridable)
   swaps in one process-wide cached instance: density is derived from a 1920px TV

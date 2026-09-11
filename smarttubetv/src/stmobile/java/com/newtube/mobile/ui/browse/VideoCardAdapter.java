@@ -228,6 +228,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
 
             bindBadge(context, video);
             bindProgress(video);
+            bindReadiness(video);
             bindThumbnail(context, video);
         }
 
@@ -247,6 +248,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
 
             bindBadge(context, video);
             bindProgress(video);
+            bindReadiness(video);
 
             String thumbnailUrl = ClickbaitRemover.updateThumbnail(video, MainUIData.instance(context).getThumbQuality());
             if (thumbnailUrl == null ? mBoundThumbUrl != null : !thumbnailUrl.equals(mBoundThumbUrl)) {
@@ -274,6 +276,15 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
                         video.isLive || video.isUpcoming ? R.color.mobile_color_badge_live_bg : R.color.mobile_color_badge_bg));
                 mBadge.setVisibility(View.VISIBLE);
             }
+        }
+
+        /**
+         * NEWTUBE(downloads): a download that is not playable yet (queued, fetching, finishing,
+         * failed) keeps its thumbnail dimmed so it never reads as a ready video - the badge and
+         * the meta line say what it is doing.
+         */
+        private void bindReadiness(Video video) {
+            mThumbnail.setAlpha(video.isPendingDownload() ? 0.4f : 1f);
         }
 
         private void bindProgress(Video video) {

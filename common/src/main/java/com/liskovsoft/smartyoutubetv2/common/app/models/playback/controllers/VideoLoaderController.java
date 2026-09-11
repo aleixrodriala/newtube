@@ -24,6 +24,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.VideoActionPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
+import com.liskovsoft.smartyoutubetv2.common.misc.VideoDownloads;
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
@@ -334,12 +335,30 @@ public class VideoLoaderController extends BasePlayerController {
         Utils.post(mShowProgressBar);
         disposeActions();
 
+        // NEWTUBE(downloads): a downloaded video plays straight from its file. There is nothing to
+        // resolve and nothing to fail over to, so the whole /player path is skipped.
+        if (video.isLocal()) {
+            mPreMediaRetry.clear();
+            getPlayer().showProgressBar(false);
+            getPlayer().openUrlList(java.util.Collections.singletonList(video.localUri));
+            return;
+        }
+
         MediaItemService mediaItemManager = getMediaItemService();
         mFormatInfoAction = mediaItemManager.getFormatInfoObserve(video.videoId)
                 .subscribe(this::processFormatInfo,
                            error -> {
                                mPreMediaRetry.clear(); // ordinary transport-error recovery owns this failure
                                getPlayer().showProgressBar(false);
+                               // NEWTUBE(downloads): the network path failed, but a downloaded
+                               // copy of this very video is on the device - play that instead of
+                               // showing an outage. Online, the download never pre-empts streaming.
+                               String localCopy = VideoDownloads.localUriFor(video.videoId);
+                               if (localCopy != null && getPlayer() != null) {
+                                   video.localUri = localCopy;
+                                   getPlayer().openUrlList(java.util.Collections.singletonList(localCopy));
+                                   return;
+                               }
                                mErrorFixerController.runFormatErrorAction(error);
                            });
     }

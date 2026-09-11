@@ -65,6 +65,14 @@ no-op seam, `NetPath` (common/.../misc) logging.
   profiler is OFF by default — flipping it required BOTH
   `OkHttpCommons.enableProfiler` AND the no-arg `OkHttpManager.instance()`
   overload that overwrote it.
+- **Downloads (2026-09-11)** fetch googlevideo outside the player
+  (`com.newtube.mobile.downloads.StreamFetcher`): `MediaHttpClient` transport, 10 MiB
+  `Range:` chunks, and the player's own media-403 recovery
+  (`markCurrentPlaybackRouteForbidden` + `applyNoPlaybackFix` + re-resolve the same
+  itags, up to 4 routes) - the first client's links were refused for the very video
+  the player was playing, and the player itself remints. Local playback of a finished
+  file goes `Video.localUri` -> `VideoLoaderController` (no /player) ->
+  `Media3SourceFactory.fromUrlList` -> `DefaultDataSource` (content://, file://).
 - Signed-out `get_add_to_playlist` is gated off in `YouTubeMediaItemService`
   (was 16×401 per watch page).
 

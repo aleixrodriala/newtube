@@ -137,6 +137,15 @@ public class MobileMainApplication extends MainApplication {
             migrations.edit().putBoolean("watch_later_menu_item", true).apply();
         }
 
+        // DOWNLOADS SECTION (mobile-only, one-shot): the Downloads tab is a default section, but
+        // SidebarService only seeds defaults on an EMPTY pinned list, i.e. on a fresh install.
+        // Enable it once for existing installs; hiding it afterwards (section menu) sticks.
+        if (!migrations.getBoolean("downloads_section", false)) {
+            com.liskovsoft.smartyoutubetv2.common.app.presenters.service.SidebarService.instance(this)
+                    .enableSection(com.liskovsoft.smartyoutubetv2.common.misc.VideoDownloads.SECTION_ID, true);
+            migrations.edit().putBoolean("downloads_section", true).apply();
+        }
+
         // NOTE(buffering): the back-buffer / start-gate / forward-buffer tuning that used to be
         // pushed into the legacy engine here (ExoPlayerInitializer.set*Override) moved into the
         // media3 engine itself - see Media3PlayerInitializer (back 120s, start gate 1000/2500ms).
@@ -479,6 +488,10 @@ public class MobileMainApplication extends MainApplication {
         }, "TubePreconnect");
         preconnect.setDaemon(true);
         if (!offlineBenchmark) preconnect.start();
+
+        // NEWTUBE(downloads): the shared menus offer "Download" only once a handler is installed;
+        // the Downloads section reads its cards through the same seam.
+        com.newtube.mobile.downloads.DownloadsBridge.install(this);
 
         ViewManager viewManager = ViewManager.instance(this);
 

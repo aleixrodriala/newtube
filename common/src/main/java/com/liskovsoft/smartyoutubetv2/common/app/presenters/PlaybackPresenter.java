@@ -133,7 +133,7 @@ public class PlaybackPresenter extends BasePresenter<PlaybackView> implements Pl
         // the player Activity's onCreate (layout inflation + ExoPlayer construction) instead of after
         // them. The player's own fetch at the end of onCreate shares this in-flight request via the
         // media service's single-flight, so there's no duplicate round-trip. TV never enables this.
-        if (sPrefetchOnOpenEnabled) {
+        if (sPrefetchOnOpenEnabled && !video.isLocal()) {
             MediaServiceManager.instance().prefetchFormatInfo(video);
         }
 

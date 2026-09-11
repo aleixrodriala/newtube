@@ -4,6 +4,7 @@
   <string name="title_search">Buscar</string>
   <string name="header_subscriptions">Suscripciones</string>
   <string name="header_history">Historial</string>
+  <string name="header_downloads">Descargas</string>
   <string name="header_music">Música</string>
   <string name="header_news">Noticias</string>
   <string name="header_gaming">Videojuegos</string>
@@ -42,6 +43,7 @@
   <string name="install_update">Instalar actualización</string>
   <string name="section_is_empty">¡Ups! No hay nada aquí.</string>
   <string name="dialog_add_to_playlist">Guardar en una lista</string>
+  <string name="dialog_download">Descargar</string>
   <string name="msg_signed_users_only">Inicia sesión para usar esto</string>
   <string name="msg_sign_in_to_save">Inicia sesión para guardar vídeos en listas</string>
   <string name="msg_cant_load_content">No se puede cargar el contenido.\n1) Comprueba la fecha y la hora del dispositivo.\n2) Comprueba la conexión a la red.\n3) Intenta acceder a tu cuenta.</string>

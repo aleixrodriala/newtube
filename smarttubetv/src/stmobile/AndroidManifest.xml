@@ -37,6 +37,9 @@
          normal, auto-granted permissions. POST_NOTIFICATIONS is already declared in the main manifest. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Video downloads run as a dataSync foreground service (the type Android 14 accepts for
+         transfers); this is its API 34+ companion permission. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- Casting (Route B): SSDP/DIAL discovery needs multicast (Android filters multicast in
          hardware unless a MulticastLock is held - see DialDiscovery); the cast session service
@@ -119,6 +122,17 @@
             android:name="com.newtube.mobile.casting.CastSessionService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <!--
+          Video-download foreground service (downloads wave). Drains the download queue one
+          item at a time with a progress notification; type dataSync is the one Android 14+
+          allows for transfers. Started from the foreground on enqueue, promoted at once in
+          onStartCommand, stopped when the queue is empty.
+        -->
+        <service
+            android:name="com.newtube.mobile.downloads.MobileDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!--
           Touch AppDialog renderer (Wave 3). configChanges/launchMode mirror the other

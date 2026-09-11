@@ -120,6 +120,11 @@ import com.liskovsoft.smartyoutubetv2.common.utils.AppDialogUtil;
 import com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import com.liskovsoft.smartyoutubetv2.common.misc.VideoDownloads;
+import com.newtube.mobile.downloads.DownloadItem;
+import com.newtube.mobile.downloads.DownloadMenu;
+import com.newtube.mobile.downloads.DownloadOption;
+import com.newtube.mobile.downloads.DownloadRegistry;
 import com.newtube.mobile.SessionWarmup;
 import com.newtube.mobile.ui.common.MobileActivity;
 import com.newtube.mobile.ui.dialog.MaxHeightRecyclerView;
@@ -238,6 +243,9 @@ public class MobilePlaybackActivity extends MobileActivity
     private View mWatchSave;
     private ImageView mWatchSaveIcon;
     private TextView mWatchSaveLabel;
+    private View mWatchDownload;
+    private ImageView mWatchDownloadIcon;
+    private TextView mWatchDownloadLabel;
     private ImageView mWatchAvatar;
     private TextView mWatchChannelName;
     private TextView mWatchSubs;
@@ -555,6 +563,9 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchSave = findViewById(R.id.mobile_watch_save);
         mWatchSaveIcon = findViewById(R.id.mobile_watch_save_icon);
         mWatchSaveLabel = findViewById(R.id.mobile_watch_save_label);
+        mWatchDownload = findViewById(R.id.mobile_watch_download);
+        mWatchDownloadIcon = findViewById(R.id.mobile_watch_download_icon);
+        mWatchDownloadLabel = findViewById(R.id.mobile_watch_download_label);
         mWatchAvatar = findViewById(R.id.mobile_watch_avatar);
         mWatchChannelName = findViewById(R.id.mobile_watch_channel_name);
         mWatchSubs = findViewById(R.id.mobile_watch_subs);
@@ -731,6 +742,9 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchShare.setOnClickListener(v -> shareCurrentVideo());
         // Save opens the same add/remove-from-playlist sheet as gear -> More -> Save to playlist.
         mWatchSave.setOnClickListener(v -> openPlayerOption(R.id.action_playlist_add, false));
+        // Download: the quality picker, or the download's own menu once it is on the device.
+        mWatchDownload.setOnClickListener(v -> onDownloadTapped());
+        DownloadRegistry.instance(this).addListener(mDownloadsListener);
 
         // Channel row (avatar + name/subs) opens the channel page; the Subscribe button inside
         // the row keeps its own click. ChannelPresenter resolves the channelId from metadata
@@ -1247,6 +1261,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     protected void onDestroy() {
+        DownloadRegistry.instance(this).removeListener(mDownloadsListener);
         cancelAutoHide();
         hideRelatedSkeleton(); // cancels the pulse animator + pending timeout
         Utils.removeCallbacks(mReleaseImageRequests);
@@ -2719,6 +2734,11 @@ public class MobilePlaybackActivity extends MobileActivity
         // Add to playlist.
         addMenuRow(content, sheet, R.drawable.ic_player_playlist_add, R.string.mobile_menu_playlist_add,
                 null, true, () -> openPlayerOption(R.id.action_playlist_add, false));
+        // Download (same target as the watch-page pill), with its state as the trailing value.
+        if (VideoDownloads.canDownload(getVideo()) || currentDownload() != null) {
+            addMenuRow(content, sheet, R.drawable.ic_watch_download, R.string.dialog_download,
+                    downloadStateLabel(), true, this::onDownloadTapped);
+        }
         // Playback queue.
         addMenuRow(content, sheet, R.drawable.ic_player_queue, R.string.mobile_menu_queue,
                 null, true, () -> openPlayerOption(R.id.action_playback_queue, false));
@@ -4865,6 +4885,7 @@ public class MobilePlaybackActivity extends MobileActivity
         if (isNewVideo || !TextUtils.isEmpty(item.getTitleFull())) {
             mWatchTitle.setText(item.getTitleFull());
         }
+        updateDownloadPill();
         // Channel name has the same bare-reload-Video blanking problem as the title above.
         if (isNewVideo || !TextUtils.isEmpty(item.getAuthor())) {
             mWatchChannelName.setText(item.getAuthor());
@@ -5104,6 +5125,85 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private int getColorInt(int colorRes) {
         return androidx.core.content.ContextCompat.getColor(this, colorRes);
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Downloads (watch-page pill + gear -> More row)
+    // ---------------------------------------------------------------------------------
+
+    private final DownloadRegistry.Listener mDownloadsListener = this::updateDownloadPill;
+
+    /** The download (finished or in flight) of the video on screen, if any. */
+    @Nullable
+    private DownloadItem currentDownload() {
+        Video video = getVideo();
+        if (video == null || video.videoId == null) {
+            return null;
+        }
+        DownloadRegistry registry = DownloadRegistry.instance(this);
+        DownloadItem active = registry.findActive(video.videoId);
+        return active != null ? active : registry.findDone(video.videoId, DownloadOption.KIND_VIDEO);
+    }
+
+    /** Trailing value for the More row: "Downloaded", "45%", "Waiting..." or nothing. */
+    @Nullable
+    private String downloadStateLabel() {
+        DownloadItem item = currentDownload();
+        if (item == null) {
+            return null;
+        }
+        if (item.isDone()) {
+            return getString(R.string.mobile_download_pill_downloaded);
+        }
+        if (item.state == DownloadItem.STATE_DOWNLOADING && item.progressPercent() >= 0) {
+            return item.progressPercent() + "%";
+        }
+        if (item.isFailed()) {
+            return getString(R.string.mobile_download_retry);
+        }
+        return getString(R.string.mobile_download_badge_queued);
+    }
+
+    private void onDownloadTapped() {
+        DownloadItem item = currentDownload();
+        if (item != null) {
+            DownloadMenu.show(this, item);
+        } else {
+            VideoDownloads.request(this, getVideo());
+        }
+    }
+
+    /**
+     * The pill mirrors the download state of the video on screen, like YouTube's: "Download"
+     * -> a live percentage while it fetches -> "Downloaded" (check icon). Hidden for streams
+     * that cannot be downloaded (live, upcoming).
+     */
+    private void updateDownloadPill() {
+        if (mWatchDownload == null) {
+            return;
+        }
+        runOnUiThread(() -> {
+            Video video = getVideo();
+            DownloadItem item = currentDownload();
+            boolean offered = VideoDownloads.canDownload(video) || (video != null && video.isLocal()) || item != null;
+            mWatchDownload.setVisibility(offered ? View.VISIBLE : View.GONE);
+            if (!offered) {
+                return;
+            }
+            if (item != null && item.isDone()) {
+                mWatchDownloadIcon.setImageResource(R.drawable.ic_watch_downloaded);
+                mWatchDownloadLabel.setText(R.string.mobile_download_pill_downloaded);
+            } else if (item != null && item.state == DownloadItem.STATE_DOWNLOADING && item.progressPercent() >= 0) {
+                mWatchDownloadIcon.setImageResource(R.drawable.ic_watch_download);
+                mWatchDownloadLabel.setText(item.progressPercent() + "%");
+            } else if (item != null && item.isActive()) {
+                mWatchDownloadIcon.setImageResource(R.drawable.ic_watch_download);
+                mWatchDownloadLabel.setText(R.string.mobile_download_badge_queued);
+            } else {
+                mWatchDownloadIcon.setImageResource(R.drawable.ic_watch_download);
+                mWatchDownloadLabel.setText(R.string.dialog_download);
+            }
+        });
     }
 
     private void shareCurrentVideo() {

@@ -97,6 +97,17 @@ public final class Video {
     public boolean isLiveEnd;
     public boolean isShuffled;
     public String searchQuery;
+    /**
+     * NEWTUBE(downloads): a file on this device (content:// or file://) that plays instead of the
+     * network formats. Never serialized: a downloaded item is recreated from the download registry.
+     */
+    public String localUri;
+    /**
+     * NEWTUBE(downloads): the download registry entry this card stands for (set only on the
+     * Downloads section's items). Part of the identity so two downloads of one video - say the
+     * audio track and the 720p file - stay two cards.
+     */
+    public String downloadId;
     private int startSegmentNum;
     private long liveDurationMs = -1;
     private long durationMs = -1;
@@ -190,6 +201,8 @@ public final class Video {
         video.clickTrackingParams = item.clickTrackingParams;
         video.mediaItem = item.mediaItem;
         video.group = item.group;
+        video.localUri = item.localUri;
+        video.downloadId = item.downloadId;
 
         return video;
     }
@@ -257,6 +270,9 @@ public final class Video {
     public int hashCode() {
         // NOTE: With full hash code won't jump to last known position
         int hashCode = Helpers.hashCodeAny(videoId, playlistId, reloadPageKey, playlistParams, channelId, sectionId, channelGroupId, mediaItem);
+        if (hashCode != -1 && downloadId != null) {
+            hashCode = 31 * hashCode + downloadId.hashCode();
+        }
         return hashCode != -1 ? hashCode : super.hashCode();
     }
 
@@ -489,6 +505,16 @@ public final class Video {
 
     public boolean hasVideo() {
         return videoId != null;
+    }
+
+    /** NEWTUBE(downloads): plays from a local file, no format-info fetch needed. */
+    public boolean isLocal() {
+        return localUri != null;
+    }
+
+    /** NEWTUBE(downloads): a Downloads card whose file is not ready yet (queued, fetching, failed). */
+    public boolean isPendingDownload() {
+        return downloadId != null && localUri == null;
     }
 
     public boolean hasChannel() {

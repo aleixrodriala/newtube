@@ -249,4 +249,31 @@
     <string name="mobile_cast_switch_subtitles_title">¿Usar la app de la TV para los subtítulos?</string>
     <string name="mobile_cast_switch_subtitles_message">La app de la TV permite usar subtítulos y elegir la calidad con el mando. Probamos primero SmartTube vinculado para mantener la reproducción sin anuncios. YouTube es la alternativa y puede mostrar anuncios.</string>
     <string name="mobile_cast_switch_subtitles_positive">Cambiar</string>
+
+    <!-- Descargas -->
+    <string name="mobile_download_started">Descarga iniciada</string>
+    <string name="mobile_download_preparing">Preparando la descarga…</string>
+    <string name="mobile_download_unavailable">Este vídeo no se puede descargar</string>
+    <string name="mobile_download_unavailable_live">Los directos no se pueden descargar</string>
+    <string name="mobile_download_audio_only">Solo audio</string>
+    <string name="mobile_download_already">ya descargado</string>
+    <string name="mobile_download_state_queued">Esperando para descargar</string>
+    <string name="mobile_download_state_downloading">Descargando · %1$d%% · %2$s de %3$s</string>
+    <string name="mobile_download_state_downloading_bytes">Descargando · %1$s</string>
+    <string name="mobile_download_state_processing">Terminando…</string>
+    <string name="mobile_download_error_generic">La descarga ha fallado. Toca para reintentar.</string>
+    <string name="mobile_download_error_link">El enlace de descarga ha caducado. Toca para reintentar.</string>
+    <string name="mobile_download_done_title">Descarga completada</string>
+    <string name="mobile_download_play">Reproducir</string>
+    <string name="mobile_download_retry">Reintentar la descarga</string>
+    <string name="mobile_download_cancel">Cancelar la descarga</string>
+    <string name="mobile_download_delete">Eliminar la descarga</string>
+    <string name="mobile_download_file_missing">El archivo descargado ya no está en este dispositivo</string>
+    <string name="mobile_download_pill_downloaded">Descargado</string>
+    <string name="mobile_downloads_empty">Los vídeos que descargues aparecerán aquí.\nUsa Descargar en el menú de un vídeo o en la página de reproducción.</string>
+    <string name="mobile_download_badge_queued">En cola</string>
+    <string name="mobile_download_badge_downloading">Descargando</string>
+    <string name="mobile_download_badge_failed">Error</string>
+    <string name="mobile_download_channel_name">Descargas</string>
+    <string name="mobile_download_channel_desc">Progreso de las descargas de vídeo</string>
 </resources>

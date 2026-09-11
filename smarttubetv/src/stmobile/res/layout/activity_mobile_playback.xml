@@ -761,6 +761,39 @@
 
                     </LinearLayout>
 
+                    <!-- Download. Opens the quality picker; once the video is on the device the
+                         pill reads "Downloaded" and opens the download's own menu. -->
+                    <LinearLayout
+                        android:id="@+id/mobile_watch_download"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/mobile_watch_pill_bg"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="8dp">
+
+                        <ImageView
+                            android:id="@+id/mobile_watch_download_icon"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:contentDescription="@string/dialog_download"
+                            android:src="@drawable/ic_watch_download" />
+
+                        <TextView
+                            android:id="@+id/mobile_watch_download_label"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="6dp"
+                            android:text="@string/dialog_download"
+                            android:textColor="@color/mobile_color_on_surface"
+                            android:textSize="14sp" />
+
+                    </LinearLayout>
+
                     <!-- Save to playlist. Same action as gear -> More -> Save to playlist; it lives
                          here too because that is where YouTube puts it and where people look. -->
                     <LinearLayout
