@@ -1,0 +1,43 @@
+🕺 NEWTUBE 1.9.0 — EDICIÓN CHIQUITO
+
+¡Te das cuen! Hasta ahora, si querías ver un vídeo en el metro, sin cobertura… no podías, pecador de la pradera. Te quedabas mirando la ruedecita como un fistro duodenal.
+
+Pues ya no. ¡Jarl!
+
+⬇️ DESCARGAS, POR LA GLORIA DE MI MADRE
+Cualquier vídeo se puede descargar desde el menú de la tarjeta, desde el botón nuevo de la página del vídeo o desde el engranaje → Más. Eliges la calidad (todas las de H.264 hasta 1080p, con el tamaño real para que no te lleves un susto) o solo el audio. Los directos no, cobarde, que están en directo.
+
+📥 UNA PESTAÑA NUEVA
+Abajo, entre Historial y Tú: Descargas. Lo que tienes en el móvil, como tarjetas normales. Mientras baja ves el porcentaje y la barrita roja; cuando termina, la duración y «720p · 299 MB». Si la tarjeta está atenuada es que todavía no está. ¡No puedor! Esperar es de sabios.
+
+▶️ SE REPRODUCEN COMO UNO MÁS
+Tocas y se abre en el mismo reproductor, con la misma página de siempre. Y sin conexión también: modo avión, cueva, sótano de tu suegra… sale. Si un vídeo no carga en línea y lo tienes descargado, NewTube te pone la copia sin preguntar. Que para eso la bajaste.
+
+Los archivos van a Movies/NewTube y Music/NewTube, se ven en la galería y en cualquier gestor de archivos. Se descargan en segundo plano con notificación de progreso y desde ahí se cancelan. Mantén pulsada una tarjeta para Compartir, Eliminar o Reintentar.
+
+🎨 YA NO ES ROSA, ¡COMOR!
+La pantalla de ajustes «Interfaz de usuario» salía rosa fucsia. Rosa. En una app negra y roja. Nadie lo eligió: era el color que trae Material de fábrica. Ahora las casillas y los puntitos son blancos, como manda la ley.
+
+🧻 LOS PANELES LLEGAN ABAJO DEL TODO
+Todos los paneles (calidad, velocidad, comentarios, cuentas…) se quedaban a un dedo del borde con una franja de otro color. Ahora llegan hasta la barrita de gestos. Y el menú contextual atenúa también la barra de estado, que antes se quedaba ahí, mirando.
+
+🔀 EL ALEATORIO YA NO SE QUEDA A VIVIR
+Si pulsabas Aleatorio en una lista, TODO lo que venía después salía aleatorio, para siempre jamás, hasta que lo encontrabas en un menú. Ahora el aleatorio es de esa lista y se acaba con ella.
+
+⚙️ AJUSTES QUE NO HACÍAN NADA, FUERA
+Nueve esquemas de color, quince velocidades de texto, vistas previas de tarjeta… en el móvil no hacían nada. Se han quitado. Menos es más, y más es un fistro.
+
+📡 SABR (para los muy cafeteros)
+Un modo nuevo, apagado por defecto, para reproducir vídeos que llegan sin enlaces directos. Viene apagado porque no rescató ni uno: YouTube solo sirve el primer minuto sin una atestación que no podemos dar. Está en Ajustes, por si alguien quiere jugar. Y ya no descarga el audio dos veces.
+
+🥃 LA LETRA PEQUEÑA
+No hay pausa: cancelar y reintentar, que reanuda por donde iba. No se descargan listas enteras ni subtítulos. Por encima de 1080p no hay opción (VP9/AV1 sin un muxer decente en Android, ¡jarl!). Unir vídeo y audio de 300 MB tarda minuto y medio en un Pixel 9; mientras diga «Terminando…», no ha terminado. Y YouTube sigue diciendo que no a algunos vídeos y cuentas; eso no lo arregla ni Chiquito.
+
+Adjunto el APK firmado para ARM64, como siempre. Android 7 o superior. Instálalo encima del anterior, sin desinstalar ni borrar datos. Al abrir, la pestaña Descargas aparece sola.
+
+Novedades completas:
+https://github.com/aleixrodriala/newtube/blob/main/CHANGELOG.es.md
+
+Hasta luego, Lucaaaas.
+
+Parodia y homenaje no oficial a Chiquito de la Calzada.

@@ -3,6 +3,71 @@
 Cambios visibles para el usuario, en español. El historial completo de
 versiones anteriores está en [CHANGELOG.md](CHANGELOG.md) (en inglés).
 
+## 1.9.0 — 11-09-2026 — Edición Chiquito
+
+«¡Te das cuen! Ya se descargan.» Homenaje ficticio a Chiquito de la Calzada,
+con vídeos que ahora viajan en el bolsillo. Esta versión reúne todo lo hecho
+desde la 1.8.0 (8 de septiembre): el trabajo de SABR de la 1.8.1, el repaso de
+interfaz del 8 de septiembre y la nueva función de Descargas.
+
+### Descargas
+
+- **Descarga cualquier vídeo** desde el menú de la tarjeta, la página de
+  reproducción (nuevo botón Descargar) o el engranaje → Más. Elige la calidad
+  (todos los escalones H.264 hasta 1080p, con el tamaño real) o solo el audio.
+  Los directos no se pueden descargar.
+- **Una pestaña Descargas** en la barra inferior muestra lo que hay en el móvil
+  como tarjetas normales: progreso y porcentaje mientras se descarga, y después
+  la duración y "144p · 67,1 MB". Toca para reproducir; mantén pulsado (o ⋮)
+  para Compartir / Eliminar / Reintentar. Una tarjeta que aún no está lista se
+  ve atenuada y lo indica.
+- **Los vídeos descargados se reproducen como cualquier otro**, en el mismo
+  reproductor y con la misma página de reproducción, también sin conexión. Si
+  un vídeo no carga en línea y existe una copia descargada, se reproduce la
+  copia.
+- Los archivos van a `Movies/NewTube` (vídeo, MP4) y `Music/NewTube` (audio,
+  M4A), visibles para la galería y cualquier gestor de archivos. Las descargas
+  siguen en segundo plano con una notificación de progreso desde la que se
+  pueden cancelar.
+
+### Aspecto, paneles y ajustes
+
+- **La app ya no es rosa donde nadie eligió rosa.** El color de acento seguía
+  siendo el `#FF4081` de fábrica de Material, y pintaba todas las cabeceras de
+  sección de Ajustes, cada casilla y cada punto de opción marcados, el cursor
+  del buscador y tres ruedas de carga. Los controles de selección son blancos,
+  las ruedas usan el rojo de la app y el icono de Cast conserva su azul propio
+  mientras hay sesión.
+- **Los paneles inferiores llegan al final de la pantalla.** Todos (engranaje,
+  calidad, subtítulos, velocidad, comentarios, cuentas) se quedaban a la altura
+  de la barra de gestos con una franja de otro color debajo. El marco se estila
+  desde el tema y la superficie pasa por debajo de la barra de gestos. Los
+  paneles que se miden respecto a la pantalla ya no heredan la altura de la
+  orientación con la que se abrió la app.
+- **Los menús contextuales atenúan toda la pantalla.** El fondo de los menús de
+  tarjeta y de los selectores del reproductor empezaba debajo de la barra de
+  estado y su panel flotaba por encima del borde inferior; ahora ambos llegan a
+  los bordes.
+- **El Aleatorio de una lista se queda en esa lista.** Un toque en Aleatorio
+  dejaba en modo aleatorio todo lo que se reprodujera después. Ahora se limita
+  a la cola que lo activó y termina con ella; la fila Aleatorio del reproductor
+  muestra el estado real.
+- **Fuera los ajustes que no hacían nada.** Esquema de color (nueve opciones
+  tras un aviso de «reinicia la app»), velocidad del texto de la tarjeta, vista
+  previa de la tarjeta y las casillas de estilo de tarjeta no tenían lector en
+  el móvil. El título de la sección «En vivo» deja de gritar en mayúsculas.
+
+### Sigue limitado
+
+- Las descargas no tienen pausa: cancelar y reintentar, y el reintento reanuda
+  las partes ya bajadas. No se descargan listas enteras, no se guardan los
+  subtítulos y no se ofrecen escalones VP9/AV1 por encima de 1080p (no hay un
+  muxer WebM de confianza en la plataforma). Unir un vídeo de 300 MB con su
+  audio tarda alrededor de minuto y medio en un Pixel 9; la tarjeta dice
+  «Terminando…» y todavía no se puede reproducir.
+- Todo lo indicado en 1.8.1 y 1.8.0 sigue vigente: YouTube aún puede rechazar
+  algunos vídeos y cuentas, y SABR sigue apagado.
+
 ## 1.8.1 — 08-09-2026
 
 ### SABR llega como fuente opcional, desactivada por defecto

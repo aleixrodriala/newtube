@@ -2,6 +2,64 @@
 
 All notable user-facing changes to NewTube ("SmartTube for phones").
 
+## 1.9.0 — 2026-09-11 — Chiquito Edition
+
+“¡Te das cuen! Ya se descargan.” A fictional homage to Chiquito de la Calzada,
+with videos that now travel in your pocket. This release ships everything since
+1.8.0 (`cddae01`, 8 September): the 1.8.1 SABR work below, the phone UX sweep of
+8 September, and the new Downloads feature.
+
+### Downloads
+
+- **Download any video** from the card menu, the watch page (new Download pill)
+  or gear → More. Pick a quality (every H.264 rung up to 1080p, with the real
+  size) or audio only. Live streams can't be downloaded.
+- **A Downloads tab** on the bottom bar lists what's on the phone as ordinary
+  cards: progress and a percentage while it fetches, then the duration badge
+  and "144p · 67.1 MB". Tap to play, long-press (or ⋮) for Share / Delete /
+  Retry. A card that isn't ready yet is dimmed and says so.
+- **Downloaded videos play like any other video**, in the same player with the
+  same watch page - also with no connection at all. When a video fails to load
+  online and a downloaded copy exists, the copy plays instead.
+- Files land in `Movies/NewTube` (video, MP4) and `Music/NewTube` (audio, M4A),
+  visible to the gallery and any file manager. Downloads continue in the
+  background with a progress notification and can be cancelled from it.
+
+### Looks, sheets and settings
+
+- **The app is no longer pink where nobody chose pink.** The theme accent was
+  still Material's stock `#FF4081`, which painted every settings section
+  header, every checked checkbox and radio dot, the search caret and three
+  loading spinners. Selection controls are white now, spinners are the app red,
+  and the cast icon keeps its own blue while a session is live.
+- **Bottom sheets reach the bottom of the screen.** Every sheet (gear, quality,
+  captions, speed, comments, accounts) stopped a gesture-bar's height short of
+  the edge with a band of the wrong colour under it. The sheet frame is styled
+  through the theme now, so the surface runs under the gesture bar. Sheets that
+  size themselves from the screen also stopped inheriting the height of
+  whatever orientation the app was launched in.
+- **Context menus dim the whole screen.** The overlay behind card menus and
+  player pickers began below the status bar and its sheet floated above the
+  bottom edge; both now reach the display edges.
+- **Shuffle on a playlist stays on that playlist.** One tap on a playlist's
+  Shuffle used to persist shuffle for everything played afterwards. It is now
+  scoped to the queue that armed it and ends with it; the player's Shuffle row
+  shows the effective state.
+- **Settings that did nothing are gone.** Colour scheme (nine options behind a
+  "restart the app" toast), card text scroll speed, card preview and the
+  card-style checkboxes had no reader on the phone. The `Live` section title
+  also dropped the shouting badge caps.
+
+### Still limited
+
+- Downloads have no pause: cancel and retry, and a retry resumes the part files
+  already fetched. Playlists cannot be downloaded in one go, subtitles are not
+  saved, and VP9/AV1 rungs above 1080p are not offered (no trustworthy WebM
+  muxer on the platform). Joining a 300 MB video and its audio takes about
+  90 seconds on a Pixel 9; the card says "Finishing…" and is not playable yet.
+- Everything under 1.8.1 and 1.8.0 still applies: YouTube can still refuse some
+  videos and accounts, and SABR stays off.
+
 ## 1.8.1 — 2026-09-08
 
 ### SABR ships as an optional playback source — off by default
