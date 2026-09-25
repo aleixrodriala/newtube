@@ -1658,7 +1658,19 @@ public class MobileBrowseActivity extends MobileActivity
                 || sectionId == MediaGroup.TYPE_SUBSCRIPTIONS;
         return video != null
                 && (!shortsFiltered || !video.isShorts)
-                && (!video.isChannel() || video.isPlaylistAsChannel());
+                && (!video.isChannel() || video.isPlaylistAsChannel())
+                && !isSearchQueryTile(video);
+    }
+
+    /**
+     * NEWTUBE(feed): the TV Home feed mixes in search-suggestion tiles - a thumbnail plus a query
+     * ("Rivian owner experience"), no video, playlist or channel behind it. On the phone they
+     * rendered as video cards whose meta line repeated the title, and tapping one opened Search
+     * instead of playing: a card that lies about what it is. Dropped from the grids.
+     */
+    private static boolean isSearchQueryTile(Video video) {
+        return video.searchQuery != null
+                && video.videoId == null && video.playlistId == null && video.channelId == null;
     }
 
     private void syncVideos(List<Video> videos) {

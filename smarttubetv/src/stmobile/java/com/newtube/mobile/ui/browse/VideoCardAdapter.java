@@ -192,7 +192,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             itemView.setOnClickListener(v -> {
                 if (mVideo != null && clickListener != null) {
                     if (mVideo.videoId != null) {
-                        PlayerTransitionBridge.prepare(mThumbnailFrame);
+                        PlayerTransitionBridge.prepare(mThumbnailFrame, mBadge, mWatchProgress);
                     } else {
                         PlayerTransitionBridge.clear();
                     }
@@ -250,6 +250,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             bindProgress(video);
             bindReadiness(video);
 
+            com.newtube.mobile.ui.common.LocalThumbnails.fill(video);
             String thumbnailUrl = ClickbaitRemover.updateThumbnail(video, MainUIData.instance(context).getThumbQuality());
             if (thumbnailUrl == null ? mBoundThumbUrl != null : !thumbnailUrl.equals(mBoundThumbUrl)) {
                 bindThumbnail(context, video);
@@ -320,6 +321,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
         }
 
         private void bindThumbnail(Context context, Video video) {
+            com.newtube.mobile.ui.common.LocalThumbnails.fill(video);
             int thumbQuality = MainUIData.instance(context).getThumbQuality();
             String thumbnailUrl = ClickbaitRemover.updateThumbnail(video, thumbQuality);
             mBoundThumbUrl = thumbnailUrl;

@@ -26,6 +26,17 @@ public final class PlayerTransitionBridge {
 
     /** Capture a fully-visible thumbnail immediately before its click opens playback. */
     public static void prepare(@Nullable View source) {
+        prepare(source, (View[]) null);
+    }
+
+    /**
+     * NEWTUBE(open-snapshot): as {@link #prepare(View)}, with {@code hideWhileCapturing} (the
+     * card's duration badge and red watch-progress bar) left out of the captured frame. The
+     * snapshot covers the video box until the first frame; baked into it, the card's "27:16"
+     * sat next to the player's own "27:15" and the progress bar floated inside the player.
+     * Hidden only for the synchronous draw below, so the card never renders without them.
+     */
+    public static void prepare(@Nullable View source, @Nullable View... hideWhileCapturing) {
         clear();
         if (source == null || source.getWidth() <= 0 || source.getHeight() <= 0
                 || !source.isShown() || source.getWindowToken() == null) {
@@ -43,6 +54,7 @@ public final class PlayerTransitionBridge {
             return;
         }
 
+        int[] savedVisibility = hideForCapture(hideWhileCapturing);
         try {
             Bitmap frame = Bitmap.createBitmap(
                     source.getWidth(), source.getHeight(), Bitmap.Config.ARGB_8888);
@@ -50,6 +62,36 @@ public final class PlayerTransitionBridge {
             sPending = new LaunchSnapshot(bounds, frame, SystemClock.uptimeMillis());
         } catch (RuntimeException ignored) {
             // Layout changed between the bounds check and draw; fall back to the normal open.
+        } finally {
+            restoreAfterCapture(hideWhileCapturing, savedVisibility);
+        }
+    }
+
+    @Nullable
+    private static int[] hideForCapture(@Nullable View[] views) {
+        if (views == null) {
+            return null;
+        }
+        int[] saved = new int[views.length];
+        for (int i = 0; i < views.length; i++) {
+            if (views[i] != null) {
+                saved[i] = views[i].getVisibility();
+                if (saved[i] == View.VISIBLE) {
+                    views[i].setVisibility(View.INVISIBLE); // INVISIBLE: no relayout, only this draw
+                }
+            }
+        }
+        return saved;
+    }
+
+    private static void restoreAfterCapture(@Nullable View[] views, @Nullable int[] saved) {
+        if (views == null || saved == null) {
+            return;
+        }
+        for (int i = 0; i < views.length; i++) {
+            if (views[i] != null && views[i].getVisibility() != saved[i]) {
+                views[i].setVisibility(saved[i]);
+            }
         }
     }
 
