@@ -204,6 +204,10 @@ public class MobileSearchActivity extends MobileActivity
             public void afterTextChanged(Editable s) {
                 syncClearButton();
                 if (!mSuppressTextWatcher) {
+                    // NEWTUBE(page-load-errors): the "No results for ..." / offline state speaks for
+                    // the SUBMITTED query; once the text is edited it would be about the wrong one
+                    // (and it showed through an empty suggestion list).
+                    mSearchMessage.setVisibility(View.GONE);
                     // Debounce typed text (one suggest call per keystroke burst, not per key);
                     // an emptied field switches to history immediately - that transition is
                     // the visible one, and stale in-flight suggestions are generation-gated.
@@ -677,9 +681,12 @@ public class MobileSearchActivity extends MobileActivity
                 // A failed load and a zero-result search both end exactly here (spinner off,
                 // grid empty); showLoadFailure, when the presenter reported an error, tells
                 // them apart. Without one the device's network decides: offline, or no results.
-                mLoadState.show(mPendingFailure >= 0 ? mPendingFailure
+                // Retry stays unless the search positively came back empty: a request that failed
+                // into a cause-free error (a 503 surfaces that way) classifies as EMPTY too.
+                boolean failed = mPendingFailure >= 0;
+                mLoadState.show(failed ? mPendingFailure
                         : com.liskovsoft.smartyoutubetv2.common.utils.LoadFailure.classify(this, null),
-                        mSubmittedQuery);
+                        mSubmittedQuery, !failed);
             }
         });
     }
