@@ -92,7 +92,10 @@ public class MobileSearchActivity extends MobileActivity
     private GridLayoutManager mLayoutManager;
     private VideoCardAdapter mAdapter;
     private ProgressBar mProgressBar;
-    private TextView mSearchMessage;
+    private View mSearchMessage;
+    private SearchLoadState mLoadState;
+    /** LoadFailure state of the search in flight, set by showLoadFailure; -1 = none reported. */
+    private int mPendingFailure = -1;
 
     private MediaServiceSearchTagProvider mTagsProvider;
 
@@ -151,7 +154,7 @@ public class MobileSearchActivity extends MobileActivity
         mGrid = findViewById(R.id.mobile_search_grid);
         mProgressBar = findViewById(R.id.mobile_search_progress);
         mSearchMessage = findViewById(R.id.mobile_search_message);
-        mSearchMessage.setOnClickListener(v -> {
+        mLoadState = new SearchLoadState(mSearchMessage, () -> {
             if (mSubmittedQuery != null) {
                 submitSearch(mSubmittedQuery);
             }
@@ -346,6 +349,7 @@ public class MobileSearchActivity extends MobileActivity
         mSearchInput.removeCallbacks(mSuggestReload); // a pending suggest reload is moot now
         mSuggestGeneration++;                         // and any in-flight response is stale
         mSubmittedQuery = normalized;
+        mPendingFailure = -1;
         mSearchMessage.setVisibility(View.GONE);
         hideKeyboard();
         mSearchInput.clearFocus();
@@ -648,6 +652,11 @@ public class MobileSearchActivity extends MobileActivity
     }
 
     @Override
+    public void showLoadFailure(int state) {
+        runOnUiThread(() -> mPendingFailure = state);
+    }
+
+    @Override
     public void setTagsProvider(MediaServiceSearchTagProvider provider) {
         mTagsProvider = provider;
     }
@@ -663,10 +672,12 @@ public class MobileSearchActivity extends MobileActivity
                 mSearchMessage.setVisibility(View.GONE);
             } else if (mVideos.isEmpty() && mSubmittedQuery != null
                     && mSuggestions.getVisibility() != View.VISIBLE) {
-                // SearchView has no error callback: a failed load and a zero-result search
-                // both end exactly here (spinner off, grid empty). Anything beats the old
-                // behavior of silently showing a blank screen.
-                mSearchMessage.setVisibility(View.VISIBLE);
+                // A failed load and a zero-result search both end exactly here (spinner off,
+                // grid empty); showLoadFailure, when the presenter reported an error, tells
+                // them apart. Without one the device's network decides: offline, or no results.
+                mLoadState.show(mPendingFailure >= 0 ? mPendingFailure
+                        : com.liskovsoft.smartyoutubetv2.common.utils.LoadFailure.classify(this, null),
+                        mSubmittedQuery);
             }
         });
     }

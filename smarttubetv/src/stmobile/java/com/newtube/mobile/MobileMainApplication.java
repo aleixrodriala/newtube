@@ -336,6 +336,11 @@ public class MobileMainApplication extends MainApplication {
         // TV never calls this -> TV keeps the combined-window sort unchanged.
         com.liskovsoft.youtubeapi.browse.v2.BrowseServiceGates.setSkipContinuationPreCombine(true);
 
+        // SEARCH HISTORY (mobile-only): a typed query the suggest endpoint has nothing for used to
+        // list the user's WHOLE search history as its suggestions; now only the past searches that
+        // match it. The empty field still shows the full history. TV never calls this.
+        com.liskovsoft.youtubeapi.search.v2.SearchServiceGates.setHistoryMatchesQuery(true);
+
         // FEED FIRST-PAINT (mobile-only, round 2): Home's eager row-pad continuations exist to
         // fill short TV shelf rows to MIN_ROW_GROUP_SIZE=5; the phone flattens every row into one
         // grid, so they were ~6 invisible serial /browse continuations (~350KB) racing the first

@@ -92,7 +92,9 @@
     <string name="mobile_search_insert">Refine this search</string>
     <string name="mobile_search_clear">Clear search</string>
     <!-- Zero-result / failed search (the two are indistinguishable at this seam); tap = retry. -->
-    <string name="mobile_search_empty">No results. Tap to retry.</string>
+    <!-- SearchLoadState: an honest empty answer (no retry), and a failed search. -->
+    <string name="mobile_search_no_results">No results for “%1$s”</string>
+    <string name="mobile_search_error">Couldn\'t load results.</string>
     <!-- Fallback tab label for a channel section the API delivered without a title. -->
     <string name="mobile_channel_tab_videos">Videos</string>
 

@@ -109,20 +109,13 @@
             android:indeterminateTintMode="src_in" />
 
         <!-- A search that ends with zero rows used to just... stop (spinner gone, screen
-             blank). Shown by showProgressBar(false) when the grid is empty; tap = retry. -->
-        <TextView
+             blank). Shown by showProgressBar(false) when the grid is empty, worded by
+             SearchLoadState: no connection / couldn't load (both with Try again) / no results. -->
+        <include
             android:id="@+id/mobile_search_message"
+            layout="@layout/mobile_page_load_state"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:background="?attr/selectableItemBackground"
-            android:gravity="center"
-            android:padding="24dp"
-            android:text="@string/mobile_search_empty"
-            android:textColor="@color/mobile_color_on_surface_secondary"
-            android:textSize="15sp"
-            android:visibility="gone"
-            tools:visibility="visible" />
+            android:layout_height="match_parent" />
 
         <!-- Suggestions/history: a full-height vertical list OVER the results while the user
              is editing the query (YouTube-style; was a one-line horizontal chip strip).

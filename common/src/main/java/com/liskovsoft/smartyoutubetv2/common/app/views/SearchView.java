@@ -15,4 +15,13 @@ public interface SearchView {
     String getSearchText();
     void startVoiceRecognition();
     void finishReally();
+
+    /**
+     * NEWTUBE(page-load-errors): the search failed with {@code state}, a
+     * {@link com.liskovsoft.smartyoutubetv2.common.utils.LoadFailure} constant. Delivered just before
+     * {@link #showProgressBar(boolean) showProgressBar(false)}, so a view that renders an empty-result
+     * state there can tell "no connection" and "couldn't load" from "no results".
+     */
+    default void showLoadFailure(int state) {
+    }
 }

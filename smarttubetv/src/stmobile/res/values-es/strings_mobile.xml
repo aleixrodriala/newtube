@@ -152,7 +152,8 @@
     <string name="mobile_search_voice">Búsqueda por voz</string>
     <string name="mobile_search_insert">Afinar esta búsqueda</string>
     <string name="mobile_search_clear">Borrar la búsqueda</string>
-    <string name="mobile_search_empty">Sin resultados. Toca para reintentar.</string>
+    <string name="mobile_search_no_results">No hay resultados para «%1$s»</string>
+    <string name="mobile_search_error">No se pudieron cargar los resultados.</string>
 
     <!-- Navigation, sheets and empty states -->
     <string name="mobile_back">Atrás</string>

@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.liskovsoft.smartyoutubetv2.common.app.models.search.vineyard.Tag;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import com.liskovsoft.youtubeapi.search.v2.SearchServiceGates;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -98,7 +99,11 @@ public class SearchTagAdapter extends RecyclerView.Adapter<SearchTagAdapter.TagV
 
     @Override
     public void onBindViewHolder(@NonNull TagViewHolder holder, int position) {
-        holder.bind(mTags.get(position), mHistoryMode, mClickListener, mLongClickListener, mInsertListener);
+        Tag tag = mTags.get(position);
+        // NEWTUBE(search-history): a typed query's rows can be past searches too (the fallback
+        // when the suggest endpoint has nothing - SearchServiceGates); those keep the clock.
+        boolean history = mHistoryMode || (tag != null && SearchServiceGates.isHistoryTag(tag.tag));
+        holder.bind(tag, history, mClickListener, mLongClickListener, mInsertListener);
     }
 
     @Override
