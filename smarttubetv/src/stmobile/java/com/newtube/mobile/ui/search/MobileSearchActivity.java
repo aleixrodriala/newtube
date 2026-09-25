@@ -152,6 +152,8 @@ public class MobileSearchActivity extends MobileActivity
         mMicButton = findViewById(R.id.mobile_search_mic);
         mSuggestions = findViewById(R.id.mobile_search_suggestions);
         mGrid = findViewById(R.id.mobile_search_grid);
+        // NEWTUBE(mini-inset): the last row can scroll clear of the docked mini-player card.
+        com.newtube.mobile.ui.playback.MiniPlayerListInset.attach(findViewById(R.id.mobile_mini_player), mGrid);
         mProgressBar = findViewById(R.id.mobile_search_progress);
         mSearchMessage = findViewById(R.id.mobile_search_message);
         mLoadState = new SearchLoadState(mSearchMessage, () -> {

@@ -258,6 +258,8 @@ public class MobileBrowseActivity extends MobileActivity
         mMiniPlayPause = findViewById(R.id.mobile_mini_play_pause);
         mMiniProgress = findViewById(R.id.mobile_mini_progress);
         setupMiniPlayerBar();
+        // NEWTUBE(mini-inset): the last card can scroll clear of the docked mini-player.
+        com.newtube.mobile.ui.playback.MiniPlayerListInset.attach(mMiniPlayerBar, mContentGrid);
     }
 
     private void setupSwipeRefresh() {
@@ -430,6 +432,7 @@ public class MobileBrowseActivity extends MobileActivity
             // already-released texture if a new playback session started since. hideMiniPlayer
             // nulls the field, so every show adopts the CURRENT session texture cleanly.
             final TextureView textureView = new TextureView(this);
+            textureView.setOpaque(false); // NEWTUBE(texture-opaque): see MobilePlaybackActivity
             textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
                 @Override
                 public void onSurfaceTextureAvailable(SurfaceTexture texture, int width, int height) {

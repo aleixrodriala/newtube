@@ -3204,6 +3204,10 @@ public class MobilePlaybackActivity extends MobileActivity
         ViewGroup contentFrame = mPlayerView.getContentFrame();
 
         mVideoTexture = new TextureView(this);
+        // NEWTUBE(texture-opaque): a frame with alpha 0 (seen from the emulator's VP9 decoder
+        // after a paused seek) punched through an OPAQUE TextureView and the translucent player
+        // window, showing Home inside the video box. Blended, such a frame shows the black box.
+        mVideoTexture.setOpaque(false);
         mVideoTexture.setSurfaceTextureListener(mVideoTextureListener);
         contentFrame.addView(mVideoTexture, 0, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
