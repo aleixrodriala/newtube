@@ -1374,6 +1374,37 @@ public class MobileBrowseActivity extends MobileActivity
         updateGridSpanCount(com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(newConfig));
     }
 
+    // NEWTUBE(ui-mode): a recreated Browse (any config change the manifest doesn't absorb, or
+    // process restore) got its section back from the presenter, but BottomNavigationView restored
+    // its own "You" highlight over that feed and the You panel itself was lost. Carry the panel
+    // state across; the presenter still owns which section is current.
+    private static final String STATE_YOU_SHOWING = "newtube:you_showing";
+    private static final String STATE_SECTION_FROM_YOU = "newtube:section_from_you";
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putBoolean(STATE_YOU_SHOWING, mYouShowing);
+        outState.putBoolean(STATE_SECTION_FROM_YOU, mSectionFromYou);
+    }
+
+    @Override
+    protected void onRestoreInstanceState(@NonNull Bundle savedInstanceState) {
+        super.onRestoreInstanceState(savedInstanceState); // restores the nav's own highlight
+
+        if (savedInstanceState.getBoolean(STATE_YOU_SHOWING)) {
+            showYouPanel();
+            mSuppressNavCallback = true;
+            mBottomNav.setSelectedItemId(YOU_ITEM_ID);
+            mSuppressNavCallback = false;
+        } else {
+            mSectionFromYou = savedInstanceState.getBoolean(STATE_SECTION_FROM_YOU);
+            // A section with its own tab re-lights that tab; one opened from a You row has none,
+            // so the restored You highlight is the right one to keep.
+            syncNavHighlight(mCurrentSectionId);
+        }
+    }
+
     private void updateGridSpanCount(int spanCount) {
         if (mLayoutManager != null && mLayoutManager.getSpanCount() != spanCount) {
             mLayoutManager.setSpanCount(spanCount);

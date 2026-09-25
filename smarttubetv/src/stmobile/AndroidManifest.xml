@@ -60,6 +60,11 @@
          Instance reuse (what singleInstance used to provide) comes from
          FLAG_ACTIVITY_REORDER_TO_FRONT, added by ViewManager on the touch flavor
          (setReorderToFrontEnabled in MobileMainApplication) and by the notification intent. -->
+    <!-- NEWTUBE(ui-mode): every touch activity also lists uiMode in configChanges. The phone theme is
+         dark whatever the system mode (Theme.NewTube, styles_mobile.xml), so a light/dark switch -
+         which a scheduled dark mode or battery saver does unattended - changes nothing on screen;
+         letting it recreate the activities reloaded the playing video and dropped Browse's You
+         panel and the open Settings screen. -->
     <application
         android:name="com.newtube.mobile.MobileMainApplication"
         android:theme="@style/Theme.NewTube"
@@ -78,7 +83,7 @@
             android:name="com.newtube.mobile.ui.browse.MobileBrowseActivity"
             android:exported="false"
             android:launchMode="singleTop"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden|uiMode"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
 
@@ -95,7 +100,7 @@
             android:exported="false"
             android:launchMode="singleTop"
             android:supportsPictureInPicture="true"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden|uiMode"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube.Player" />
 
@@ -145,7 +150,7 @@
             android:name="com.newtube.mobile.ui.dialog.MobileAppDialogActivity"
             android:exported="false"
             android:launchMode="singleTop"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden|uiMode"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube.Dialog" />
 
@@ -159,7 +164,7 @@
             android:name="com.newtube.mobile.ui.channel.MobileChannelUploadsActivity"
             android:exported="false"
             android:launchMode="singleTop"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden|uiMode"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
 
@@ -167,7 +172,7 @@
             android:name="com.newtube.mobile.ui.channel.MobileChannelActivity"
             android:exported="false"
             android:launchMode="singleTop"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden|uiMode"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
 
@@ -182,7 +187,7 @@
             android:name="com.newtube.mobile.ui.search.MobileSearchActivity"
             android:exported="false"
             android:launchMode="singleTop"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden|uiMode"
             android:screenOrientation="unspecified"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.NewTube" />
@@ -198,7 +203,7 @@
             android:name="com.newtube.mobile.ui.signin.MobileSignInActivity"
             android:exported="false"
             android:launchMode="singleTop"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden|uiMode"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
 
@@ -222,7 +227,7 @@
             android:name="com.newtube.mobile.ui.webbrowser.MobileWebBrowserActivity"
             android:exported="false"
             android:launchMode="singleTop"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden|uiMode"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube.Dialog" />
 
@@ -236,7 +241,7 @@
             android:name="com.newtube.mobile.ui.adddevice.MobileAddDeviceActivity"
             android:exported="false"
             android:launchMode="singleTop"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden|uiMode"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
 

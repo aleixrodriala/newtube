@@ -9,6 +9,7 @@ import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
@@ -72,6 +73,8 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
      * The value is deliberately far outside the small integer ids the common dialogs use (144, 565, ...).
      */
     public static final int ID_FULLSCREEN_SETTINGS = 0x4E540001;
+
+    private static final String STATE_FULL_SCREEN = "newtube:dialog_full_screen";
 
     /** Bottom sheet is capped at this fraction of the screen height, then the list scrolls. */
     private static final float SHEET_MAX_HEIGHT_FRACTION = 0.72f;
@@ -178,6 +181,15 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
         setupRecyclerView();
 
         mBackButton.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
+
+        // NEWTUBE(ui-mode): a recreated Settings screen came back as a bottom sheet over the feed -
+        // the presenter re-shows its last level, whose id is not the full-screen marker. Keep the
+        // presentation the user was looking at.
+        if (savedInstanceState != null && savedInstanceState.getBoolean(STATE_FULL_SCREEN)) {
+            mModeConfigured = true;
+            mFullScreen = true;
+            configureFullScreen();
+        }
 
         mPresenter = AppDialogPresenter.instance(this);
         mPresenter.setView(this);
@@ -378,8 +390,16 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
     }
 
     @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putBoolean(STATE_FULL_SCREEN, mFullScreen);
+    }
+
+    @Override
     protected void onDestroy() {
-        if (mPresenter != null && mPresenter.getView() == this) {
+        // Not while recreating: onViewDestroyed() clears the presenter's copy of the dialog, which
+        // the replacement instance re-shows from its onCreate.
+        if (mPresenter != null && mPresenter.getView() == this && !isChangingConfigurations()) {
             mPresenter.onViewDestroyed();
         }
 
