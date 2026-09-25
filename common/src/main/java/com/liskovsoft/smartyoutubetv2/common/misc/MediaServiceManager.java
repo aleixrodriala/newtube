@@ -547,9 +547,28 @@ public class MediaServiceManager implements OnAccountChange {
                 // NOTE: Crashes RecycleView IndexOutOfBoundsException when doing add immediately after clear
                 Utils.postDelayed(() -> ChannelPresenter.instance(context).updateRows(groups), 100);
             } else {
+                atomicIndex.incrementAndGet();
                 MessageHelpers.showMessage(context, "Unknown type of channel");
             }
-        }, error -> LoadingManager.showLoading(context, false), () -> LoadingManager.showLoading(context, false));
+        }, error -> {
+            LoadingManager.showLoading(context, false);
+            openChannelAfterFailedLookup(context, item, atomicIndex);
+        }, () -> {
+            LoadingManager.showLoading(context, false);
+            openChannelAfterFailedLookup(context, item, atomicIndex);
+        });
+    }
+
+    /**
+     * NEWTUBE(channel-error): a failed or empty channel lookup (offline, bad link) used to open
+     * nothing at all - the tap's spinner just stopped. When the channel id is known, open the
+     * channel screen anyway: its own load then fails visibly, with a Try again button.
+     */
+    private static void openChannelAfterFailedLookup(Context context, Video item, AtomicInteger delivered) {
+        if (item.channelId != null && delivered.compareAndSet(0, 1)) {
+            NetPath.log("channel-open fallback reason=lookup-failed channel=" + item.channelId);
+            ChannelPresenter.instance(context).openChannel(item); // sets the item first: no stale title
+        }
     }
 
     private void setHistoryBroken(boolean isBroken) {

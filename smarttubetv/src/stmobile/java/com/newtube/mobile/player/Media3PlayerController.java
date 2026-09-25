@@ -118,6 +118,10 @@ public class Media3PlayerController implements Player.Listener {
         mContext = context.getApplicationContext();
         mMediaSourceFactory = new Media3SourceFactory(context);
         mEventListener = eventListener;
+        // NEWTUBE(viewport): the small-window cap is process-wide so it survives an engine restart
+        // (release + fresh selector) while pinned. A NEW playback screen starts full size: a cap
+        // left by a previous instance (PiP dismissed, mini card closed) must not carry over.
+        clearSmallWindowViewport("new-session");
         // A dropped build is a legitimate outcome, but a SILENT one is indistinguishable from a
         // player that was never asked to open anything - both leave a spinner at 00:00 and no log.
         // One line per drop is what makes that difference readable in a NetPath trace.
@@ -574,6 +578,36 @@ public class Media3PlayerController implements Player.Listener {
         if (mTrackAdapter != null) {
             mTrackAdapter.setVideoTrackDisabled(disabled);
         }
+    }
+
+    /**
+     * NEWTUBE(viewport): the video is now drawn into a small window (system PiP, the Browse mini
+     * card) of {@code widthPx x heightPx} real pixels - fetch NEW chunks at the rung that window can
+     * show. Not a selector-parameter change (see {@link VideoViewportCap} for why that would drop
+     * the buffer and rebuffer): the track set, the stream and every buffered chunk stay, explicit
+     * quality picks and the background-audio video disable are untouched. Repeated calls with a new
+     * size (PiP resize) just move the cap.
+     */
+    public void setSmallWindowViewport(String mode, int widthPx, int heightPx) {
+        VideoViewportCap.shared().set(mode, widthPx, heightPx);
+    }
+
+    /**
+     * Same, sized from the window's configuration (PiP entry/resize): real pixels from the system's
+     * {@code screen*Dp} and {@code densityDpi}, never the app's swapped DisplayMetrics.
+     */
+    public void setSmallWindowViewport(String mode, @Nullable android.content.res.Configuration windowConfig) {
+        int[] pixels = VideoViewportCap.windowPixels(windowConfig);
+        if (pixels == null) {
+            NetPath.log("viewport " + mode + " ignored reason=no-window-size");
+            return;
+        }
+        setSmallWindowViewport(mode, pixels[0], pixels[1]);
+    }
+
+    /** Full-size player again: lift the cap; ABR up-switches and refetches beyond 25 s natively. */
+    public void clearSmallWindowViewport(String reason) {
+        VideoViewportCap.shared().clear(reason);
     }
 
     public FormatItem getVideoFormat() {

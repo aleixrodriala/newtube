@@ -72,15 +72,28 @@
         android:layout_height="0dp"
         android:layout_weight="1">
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/mobile_channel_grid"
+        <!-- Pull-to-refresh reloads the channel (ChannelPresenter.reload), like Home; the rows on
+             screen stay until fresh ones land. Also the retry gesture over the failure state,
+             which doesn't consume touches. -->
+        <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+            android:id="@+id/mobile_channel_swipe"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:clipToPadding="false"
-            android:paddingHorizontal="@dimen/mobile_card_spacing"
-            android:paddingBottom="@dimen/mobile_card_spacing"
-            android:scrollbars="vertical"
-            tools:listitem="@layout/item_video_card" />
+            android:layout_height="match_parent">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/mobile_channel_grid"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingHorizontal="@dimen/mobile_card_spacing"
+                android:paddingBottom="@dimen/mobile_card_spacing"
+                android:scrollbars="vertical"
+                tools:listitem="@layout/item_video_card" />
+
+        </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+        <!-- First page failed / came back empty: message + Try again (PageLoadState). -->
+        <include layout="@layout/mobile_page_load_state" />
 
         <ProgressBar
             android:id="@+id/mobile_channel_progress"

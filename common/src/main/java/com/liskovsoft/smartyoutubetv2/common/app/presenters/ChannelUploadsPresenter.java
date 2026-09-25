@@ -26,6 +26,7 @@ import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager.OnComplete;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager.OnError;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager.OnMediaGroup;
+import com.liskovsoft.smartyoutubetv2.common.utils.LoadFailure;
 
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.disposables.Disposable;
@@ -42,6 +43,10 @@ public class ChannelUploadsPresenter extends BasePresenter<ChannelUploadsView> i
     private Video mChannel;
     private MediaGroup mPendingGroup;
     private VideoGroup mBaseGroup;
+    /** The running first-page load has delivered its group (empty or not). */
+    private boolean mLoadDelivered;
+    /** Pull-to-refresh over items: the old items stay until the fresh group replaces them. */
+    private boolean mReplaceOnFirstGroup;
 
     public ChannelUploadsPresenter(Context context) {
         super(context);
@@ -178,8 +183,13 @@ public class ChannelUploadsPresenter extends BasePresenter<ChannelUploadsView> i
             return getContentService().getGroupObserve(item.getReloadPageKey());
         }
 
+        // NEWTUBE(page-load-errors): no playlist row is "nothing here", not a crash -
+        // Observable.just(null) threw an NPE into onError.
         return getMediaItemService().getMetadataObserve(item.videoId, item.playlistId, 0, item.playlistParams)
-                .flatMap(mediaItemMetadata -> Observable.just(findPlaylistRow(mediaItemMetadata)));
+                .flatMap(mediaItemMetadata -> {
+                    MediaGroup playlistRow = findPlaylistRow(mediaItemMetadata);
+                    return playlistRow != null ? Observable.just(playlistRow) : Observable.empty();
+                });
     }
 
     public Video getChannel() {
@@ -222,9 +232,14 @@ public class ChannelUploadsPresenter extends BasePresenter<ChannelUploadsView> i
 
         continuation = getContentService().continueGroupObserve(mediaGroup);
 
+        // A failed page leaves the group's MediaGroup (and so its next-page key) untouched, so
+        // retrying is just another onScrollEnd.
         mScrollAction = continuation
                 .subscribe(
                         continueMediaGroup -> {
+                            if (getView() == null) {
+                                return;
+                            }
                             VideoGroup newGroup = VideoGroup.from(group, continueMediaGroup);
                             getView().update(newGroup);
                             mBrowseProcessor.process(newGroup);
@@ -233,37 +248,99 @@ public class ChannelUploadsPresenter extends BasePresenter<ChannelUploadsView> i
                             Log.e(TAG, "continueGroup error: %s", error.getMessage());
                             if (getView() != null) {
                                 getView().showProgressBar(false);
+                                getView().showLoadMoreFailure();
                             }
                         },
-                        () -> getView().showProgressBar(false)
+                        () -> {
+                            if (getView() != null) {
+                                getView().showProgressBar(false);
+                            }
+                        }
                 );
     }
 
     private void update(Video item) {
+        load(item, false);
+    }
+
+    private void load(Video item, boolean keepContentUntilLoaded) {
         // Liked music fix - not all videos displayed. The behavior with other playlists is buggy.
         if (Helpers.equals(item.playlistId, Video.PLAYLIST_LIKED_MUSIC)) {
+            if (keepContentUntilLoaded && getView() != null) {
+                getView().clear(); // a local group: it can't fail, so there is nothing to keep
+            }
             update(item.getGroup());
         } else {
-            update(obtainUploadsObservable(item));
+            load(obtainUploadsObservable(item), keepContentUntilLoaded);
         }
     }
 
-    private void update(Observable<MediaGroup> group) {
+    /**
+     * NEWTUBE(page-load-errors): the first-page load. A failure used to be a log line and a hidden
+     * spinner over a blank grid; it now ends in {@link ChannelUploadsView#showLoadFailure}. Note
+     * that delivering the group ends this subscription early ({@link #update(VideoGroup)} disposes
+     * it), so onComplete only runs for a load that delivered nothing.
+     */
+    private void load(Observable<MediaGroup> group, boolean keepContentUntilLoaded) {
         Log.d(TAG, "update: Start loading a group...");
 
         disposeActions();
+
+        if (getView() == null) {
+            return;
+        }
+
+        mLoadDelivered = false;
+        mReplaceOnFirstGroup = keepContentUntilLoaded;
+
+        if (group == null) {
+            finishLoad(null);
+            return;
+        }
 
         getView().showProgressBar(true);
 
         mUpdateAction = group
                 .subscribe(
-                        this::update,
+                        this::onGroupLoaded,
                         error -> {
                             Log.e(TAG, "update error: %s", error.getMessage());
-                            getView().showProgressBar(false);
+                            finishLoad(error);
                         },
-                        () -> getView().showProgressBar(false)
+                        () -> {
+                            if (!mLoadDelivered) {
+                                finishLoad(null);
+                            } else if (getView() != null) {
+                                getView().showProgressBar(false);
+                            }
+                        }
                 );
+    }
+
+    private void onGroupLoaded(MediaGroup mediaGroup) {
+        mLoadDelivered = true;
+
+        if (mReplaceOnFirstGroup && getView() != null) {
+            // The refresh has an answer: swap the old items out in the same frame the new ones land.
+            mReplaceOnFirstGroup = false;
+            getView().clear();
+            mBaseGroup = null;
+        }
+
+        update(mediaGroup);
+    }
+
+    private void finishLoad(Throwable error) {
+        mReplaceOnFirstGroup = false;
+
+        ChannelUploadsView view = getView();
+
+        if (view == null) {
+            return;
+        }
+
+        view.showProgressBar(false);
+        view.showLoadFailure(LoadFailure.classify(getContext(), error));
     }
 
     public void update(MediaGroup mediaGroup) {
@@ -293,8 +370,13 @@ public class ChannelUploadsPresenter extends BasePresenter<ChannelUploadsView> i
         mBrowseProcessor.process(group);
 
         // Hide loading as long as first group received
-        if (!group.isEmpty()) {
-            getView().showProgressBar(false);
+        getView().showProgressBar(false);
+
+        // NEWTUBE(page-load-errors): an answer with no items. The spinner used to stay up over a
+        // blank grid forever here (disposeActions() above cancels the load before its onComplete),
+        // so say "nothing here" instead. YouTube answered, so this is never an error.
+        if (group.isEmpty()) {
+            getView().showLoadFailure(LoadFailure.EMPTY);
         }
     }
 
@@ -347,6 +429,43 @@ public class ChannelUploadsPresenter extends BasePresenter<ChannelUploadsView> i
         mChannel = null;
         mPendingGroup = null;
         mBaseGroup = null;
+    }
+
+    /**
+     * NEWTUBE(page-load-errors): runs this list's first load again for the same destination - the
+     * failure state's Try again and pull-to-refresh. The previous load and any in-flight next page
+     * are dropped first, and the base group restarts from the fresh first page (with its own
+     * continuation key), so nothing is appended twice.
+     *
+     * @param keepContentUntilLoaded pull-to-refresh over items: they stay until the fresh group
+     *                               replaces them, and stay for good if the reload fails
+     * @return {@code false} when there is nothing to reload (no view, or no destination)
+     */
+    public boolean reload(boolean keepContentUntilLoaded) {
+        if (getView() == null || (mChannel == null && mPendingGroup == null)) {
+            return false;
+        }
+
+        if (mChannel == null) {
+            // Nothing to ask the network for: re-show the group that was handed in (local data,
+            // it can't fail - so there is nothing to keep the old items for).
+            getView().clear();
+            mBaseGroup = null;
+            update(mPendingGroup);
+            return true;
+        }
+
+        if (!keepContentUntilLoaded) {
+            getView().clear();
+            mBaseGroup = null;
+        }
+
+        // A network refetch of the destination. A group handed in from outside (if any) is now
+        // older than what this asks for, so a later refresh() must not re-show it.
+        mPendingGroup = null;
+        load(mChannel, keepContentUntilLoaded);
+
+        return true;
     }
 
     public void refresh() {

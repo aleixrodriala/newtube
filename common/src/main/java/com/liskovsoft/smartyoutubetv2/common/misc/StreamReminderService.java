@@ -21,7 +21,9 @@ import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.disposables.Disposable;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class StreamReminderService implements TickleListener {
     private static final String TAG = StreamReminderService.class.getSimpleName();
@@ -30,6 +32,14 @@ public class StreamReminderService implements TickleListener {
     private final Context mContext;
     private final GeneralData mGeneralData;
     private Disposable mReminderAction;
+    /**
+     * NEWTUBE(reminder-backoff): the service is ticked every minute for as long as the process
+     * lives, and each tick used to cost one /player walk per reminder no matter when the stream
+     * was due. Each reminder is now only checked once its {@link LiveStartPollPolicy#REMINDER}
+     * delay has run out: minutes apart while the scheduled start is far away or unknown for long,
+     * every tick in the last minutes before a known start and for a while after it.
+     */
+    private final ReminderPollSchedule mSchedule = new ReminderPollSchedule(LiveStartPollPolicy.REMINDER);
 
     private StreamReminderService(Context context) {
         ServiceManager service = YouTubeServiceManager.instance();
@@ -75,25 +85,56 @@ public class StreamReminderService implements TickleListener {
 
     @Override
     public void onTickle() {
-        if (mGeneralData.getPendingStreams().isEmpty()) {
+        List<Video> pending = mGeneralData.getPendingStreams();
+        if (pending.isEmpty()) {
             startStop();
             return;
         }
 
-        RxHelper.disposeActions(mReminderAction);
+        // NEWTUBE(reminder-backoff): a slow check is still walking the client ring - let it land
+        // instead of disposing it (the answer would be lost and the reminder asked again at once).
+        if (RxHelper.isAnyActionRunning(mReminderAction)) {
+            NetPath.log("reminder-check skip (previous check in flight)");
+            return;
+        }
 
-        List<Observable<Pair<Video, MediaItemFormatInfo>>> observables = toObservables();
+        long checkAtMs = System.currentTimeMillis();
+        Set<String> pendingIds = new HashSet<>();
+        List<Video> due = new ArrayList<>();
+        for (Video item : pending) {
+            pendingIds.add(item.videoId);
+            if (mSchedule.isDue(item.videoId, checkAtMs)) {
+                due.add(item);
+            }
+        }
+        mSchedule.retainOnly(pendingIds);
+
+        if (due.isEmpty()) {
+            return; // nothing due this minute: no network at all
+        }
+
+        NetPath.log("reminder-check due=" + due.size() + "/" + pending.size());
+
+        List<Observable<Pair<Video, MediaItemFormatInfo>>> observables = toObservables(due);
 
         mReminderAction = Observable.mergeDelayError(observables)
                 .subscribe(
-                        this::processMetadata,
+                        metadata -> processMetadata(metadata, checkAtMs),
                         error -> Log.e(TAG, "loadMetadata error: %s", error.getMessage())
                 );
     }
 
-    private void processMetadata(Pair<Video, MediaItemFormatInfo> metadata) {
+    private void processMetadata(Pair<Video, MediaItemFormatInfo> metadata, long checkAtMs) {
         Video origin = metadata.first;
         MediaItemFormatInfo formatInfo = metadata.second;
+        if (formatInfo == null) {
+            // NEWTUBE(reminder-backoff): this reminder's check failed (no network, ring exhausted).
+            // Says nothing about the stream, but must not be re-asked every minute either.
+            long delayMs = mSchedule.onNotLive(origin.videoId, checkAtMs, 0);
+            NetPath.log("reminder-check failed video=" + origin.videoId + " next-in=" + delayMs);
+            return;
+        }
+
         if (formatInfo.containsMedia() && formatInfo.getVideoId() != null) {
             Video video = new Video();
             video.title = formatInfo.getTitle();
@@ -112,22 +153,38 @@ public class StreamReminderService implements TickleListener {
             }
 
             mGeneralData.removePendingStream(video);
+            mSchedule.remove(origin.videoId);
+            NetPath.log("reminder-check live video=" + origin.videoId);
             startStop();
         } else if (formatInfo.isUnplayable()) {
             mGeneralData.removePendingStream(origin);
+            mSchedule.remove(origin.videoId);
             startStop();
+        } else {
+            // NEWTUBE(reminder-backoff): not live yet - back off according to the schedule.
+            long delayMs = mSchedule.onNotLive(origin.videoId, checkAtMs,
+                    LiveStartPollPolicy.scheduledStartMs(formatInfo));
+            NetPath.log("reminder-check not-live video=" + origin.videoId
+                    + " startIn=" + LiveStartPollPolicy.startInLabel(checkAtMs, mSchedule.getScheduledStartMs(origin.videoId))
+                    + " answers=" + mSchedule.getNotLiveAnswers(origin.videoId) + " next-in=" + delayMs);
         }
     }
 
     /**
      * NOTE: don't use MediaItemMetadata because it has contains isLive and isUpcoming flags
      */
-    private List<Observable<Pair<Video, MediaItemFormatInfo>>> toObservables() {
+    private List<Observable<Pair<Video, MediaItemFormatInfo>>> toObservables(List<Video> items) {
         List<Observable<Pair<Video, MediaItemFormatInfo>>> result = new ArrayList<>();
 
-        for (Video item : mGeneralData.getPendingStreams()) {
+        for (Video item : items) {
+            // NEWTUBE(reminder-backoff): a failed check becomes a (video, null) answer so it can be
+            // backed off per reminder (mergeDelayError alone only reports one error at the end).
             result.add(mMediaItemService.getFormatInfoObserve(item.videoId)
-                    .map(info -> new Pair<>(item, info)));
+                    .map(info -> new Pair<>(item, info))
+                    .onErrorReturn(error -> {
+                        Log.e(TAG, "Reminder check failed for %s: %s", item.videoId, error.getMessage());
+                        return new Pair<>(item, null);
+                    }));
         }
 
         return result;

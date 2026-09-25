@@ -160,6 +160,13 @@
     <string name="mobile_empty_generic">Nothing to show here yet</string>
     <!-- Same empty state, but the device has no working network: say so instead of blaming the feed. -->
     <string name="mobile_empty_no_connection">No connection. Check your network and try again.</string>
+    <!-- Channel / uploads / playlist pages (MobileChannel*Activity): the first page failed with a
+         real error (not the network, not an empty answer); a next page failed (grid footer); a
+         pull-to-refresh failed over rows that stay on screen (snackbar). All retry with
+         mobile_signin_retry_button. -->
+    <string name="mobile_page_load_error">Couldn\'t load this page.</string>
+    <string name="mobile_load_more_error">Couldn\'t load more.</string>
+    <string name="mobile_refresh_error">Couldn\'t refresh.</string>
 
     <!-- In-app mini-player bar (MobileBrowseActivity + MiniPlayerBridge) -->
     <string name="mobile_mini_play_pause">Play or pause</string>

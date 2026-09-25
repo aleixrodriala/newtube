@@ -287,6 +287,15 @@ public class MobileMainApplication extends MainApplication {
         // (ANDROID_VR/TV) for live; VOD keeps the WEB_EMBED-first order above.
         VideoInfoService.setPreferDashManifestForLive(true);
 
+        // LIVE DASH-INFO PROBE (mobile-only): every live open used to fire up to six serial
+        // googlevideo GETs (shared OkHttp, not Cronet) inside the /player transform, before the
+        // result reached the player, to size the GENERATED live MPD. That MPD is only opened when a
+        // live stream has neither a DASH nor an HLS manifest url - with either one the loader opens
+        // the manifest url and media3 reads the live window from it. So skip the probe exactly
+        // then (NetPath: live-dashinfo skipped reason=dash-manifest|hls-manifest); manifest-less
+        // live keeps the synchronous probe. TV never calls this.
+        VideoInfoService.setSkipLiveDashInfoWithManifest(true);
+
         // /player FAN-OUT TRIM (mobile-only): skip the four TV-app fallback clients (TV_LEGACY,
         // TV_DOWNGRADED, TV_EMBED, TV_SIMPLY) on the getVideoInfo failover ring. They only earn
         // their keep on TV boxes; on a phone they just add up to 4 extra /player round-trips when
@@ -297,9 +306,11 @@ public class MobileMainApplication extends MainApplication {
         // DEAD-ROUTE MEMORY (mobile-only): the 403 quarantine that demotes an account-bearing
         // client after its media URLs are refused was process-local, so every cold start paid the
         // same proven-dead probe again -- 5.48s to first frame against 2.80s when the working
-        // client leads (Pixel 9, LTE, 2026-09-07, Fo89b8zAIE4). Persisting it keeps the existing
-        // 10-minute cooldown and network keying, so the route is still re-probed when it expires;
-        // it just is not re-probed once per process launch. TV never calls this.
+        // client leads (Pixel 9, LTE, 2026-09-07, Fo89b8zAIE4). Persisting it keeps the cooldown,
+        // its per-transport keying and its strike count (the cooldown escalates 10 min x 4^n up to
+        // 24 h on each re-quarantine - see AuthRouteQuarantineBook), so the route is still
+        // re-probed when it expires; it just is not re-probed once per process launch, per
+        // reconnect, or every ten minutes. TV never calls this.
         VideoInfoService.setAuthRouteQuarantineStore(new AuthRouteQuarantineStore(this));
 
         // GUEST IDENTITY (mobile-only): a bot challenge on the anonymous partition now starts a

@@ -12,15 +12,18 @@ import com.liskovsoft.youtubeapi.videoinfo.V2.VideoInfoService;
  * Persists the account-route 403 quarantine across process restarts.
  *
  * <p>Without it the quarantine is process-local, so the first open after every cold start re-probes
- * an account route this device has already proven dead on this network. Measured 2026-09-07 on the
- * Pixel 9 over LTE, same video and same minute: the probe costs 5.48 s to first frame against
+ * an account route this device has already proven dead on this transport. Measured 2026-09-07 on
+ * the Pixel 9 over LTE, same video and same minute: the probe costs 5.48 s to first frame against
  * 2.80 s when the working client leads, plus a wasted {@code /player} round trip, two dead media
- * opens and a player reload.
+ * opens and a player reload. The value also carries each client's strike count, which is what lets
+ * the cooldown keep escalating (10 min x 4^n, capped at 24 h) across restarts instead of every
+ * cold start resetting it to ten minutes.
  *
- * <p>Deliberately dumb: one string, written on the service's own thread, read once per process. The
- * meaning of the snapshot (network keying, expiry, which clients may appear) belongs to
- * {@link VideoInfoService} and is validated there, so a stale or hand-edited value can only ever
- * quarantine less than intended, never more.
+ * <p>Deliberately dumb: one string, written from whichever thread quarantined the route (the walk or
+ * the player's 403), read once per process. The meaning of the snapshot (transport keying, expiry,
+ * strikes, which clients may appear, the legacy 1.9.0 format) belongs to MediaServiceCore's
+ * {@code AuthRouteQuarantineSnapshot} and is validated there, so a stale or hand-edited value can
+ * only ever quarantine less than intended, never more.
  */
 public final class AuthRouteQuarantineStore implements VideoInfoService.AuthRouteQuarantineStore {
     private static final String PREFS = "newtube_player_routes";

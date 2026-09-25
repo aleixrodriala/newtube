@@ -1110,6 +1110,10 @@ public class MobilePlaybackActivity extends MobileActivity
         // Re-enable the video track BEFORE any texture reattach below, so the first frame comes
         // back promptly (true background audio-only mode dropped the whole video renderer).
         setBackgroundAudioMode(false);
+        if (!mIsInPip && mExoPlayerController != null) {
+            // Back from the mini card / PiP: full size again, fetch full resolution (VideoViewportCap).
+            mExoPlayerController.clearSmallWindowViewport("resume");
+        }
         updatePipActions(); // re-arm the Android 12+ auto-enter flag cleared by the minimize hand-off
 
         // Back from the mini-player (expand tap, new video, notification, recents): the Browse
@@ -1380,6 +1384,10 @@ public class MobilePlaybackActivity extends MobileActivity
         // watch page into the tiny PiP window. PiP owns its video-only layout; the exit branch of
         // onPictureInPictureModeChanged restores everything below.
         if (mIsInPip) {
+            // The follow-up of PiP entry, or a user resize of the PiP window: re-size the rung cap.
+            if (mExoPlayerController != null) {
+                mExoPlayerController.setSmallWindowViewport("pip", newConfig);
+            }
             return;
         }
 
@@ -1799,6 +1807,10 @@ public class MobilePlaybackActivity extends MobileActivity
             // video. Usually already done (enterPipMode pre-applies it; the auto-enter home
             // gesture is the path that arrives here without it).
             applyPipVideoOnlyLayout();
+            // Fetch NEW chunks at the PiP window's rung; already-buffered chunks keep playing.
+            if (mExoPlayerController != null) {
+                mExoPlayerController.setSmallWindowViewport("pip", newConfig);
+            }
             // The PiP window renders only video: an open chat sheet is invisible, so its poll is
             // pure waste (same rule as background audio in setBackgroundAudioMode).
             if (mLiveChatAction != null) {
@@ -1810,6 +1822,9 @@ public class MobilePlaybackActivity extends MobileActivity
             }
             updatePipActions();
         } else {
+            if (mExoPlayerController != null) {
+                mExoPlayerController.clearSmallWindowViewport("pip-exit");
+            }
             // Dismiss vs expand: an expand always ends with onResume (which clears the flag); a
             // dismiss ends with onStop. On the older PiP shell the dismissal onStop ran BEFORE this
             // callback, so if we're already stopped this exit can only be a dismissal - finish now.
@@ -3806,6 +3821,11 @@ public class MobilePlaybackActivity extends MobileActivity
                     "mini handoff detach t=" + android.os.SystemClock.uptimeMillis());
         }
         MiniPlayerBridge.activate(this);
+        // The card shows this player's live frames at card size: cap NEW chunks to that window.
+        // Card px use the app density on purpose - it is the density the card is laid out with.
+        float cardDensity = getResources().getDisplayMetrics().density;
+        mExoPlayerController.setSmallWindowViewport("mini", Math.round(MINI_CARD_WIDTH_DP * cardDensity),
+                Math.round(MINI_CARD_HEIGHT_DP * cardDensity));
         // A deep-linked open arms ViewManager's player-only mode ("watch, then back to the
         // launcher"). Minimizing into an in-app host means the user is now USING the app, so
         // drop the flag - a stale one makes startParentView "exit to Home" on the next back

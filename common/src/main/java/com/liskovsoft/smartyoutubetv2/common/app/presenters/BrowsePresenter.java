@@ -2,6 +2,7 @@ package com.liskovsoft.smartyoutubetv2.common.app.presenters;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Pair;
 
@@ -24,6 +25,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.errors.CategoryEmptyErro
 import com.liskovsoft.smartyoutubetv2.common.app.models.errors.ErrorFragmentData;
 import com.liskovsoft.smartyoutubetv2.common.app.models.errors.PasswordError;
 import com.liskovsoft.smartyoutubetv2.common.app.models.errors.SignInError;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.controllers.DefaultNetworkRecoveryWatcher;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.service.VideoStateService;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.service.VideoStateService.State;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.base.BasePresenter;
@@ -41,6 +43,7 @@ import com.liskovsoft.smartyoutubetv2.common.misc.VideoDownloads;
 import com.liskovsoft.smartyoutubetv2.common.misc.BrowseProcessorManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager.AccountChangeListener;
+import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.common.prefs.AccountsData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.BlockedChannelData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
@@ -72,7 +75,20 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
     private final AppDataSourceManager mDataSourcePresenter;
     private final BrowseProcessorManager mBrowseProcessor;
     private final List<Disposable> mActions;
-    private final Runnable mRefreshSection = this::refresh;
+    /**
+     * NEWTUBE(feed-retry): a failed section used to re-poll on a fixed 30 s forever - also while
+     * the app sat in the background (onViewPaused left the callback posted and getView() stays
+     * non-null while stopped) - and nothing retried when connectivity came back. Now the delay
+     * escalates ({@link FeedRetryBackoff}), the timer and the network edge only run while the view
+     * is resumed, and a resume retries the failed section promptly. See {@link #scheduleFeedRetry}.
+     */
+    private final Runnable mRefreshSection = () -> retryFailedSection("timer");
+    private static final String FEED_RETRY_LOG = "feed-retry";
+    /** A retry that finds other work of this presenter still loading looks again this much later. */
+    private static final long FEED_RETRY_BUSY_RECHECK_MS = 10_000;
+    private final FeedRetryBackoff mFeedRetry = new FeedRetryBackoff();
+    private final DefaultNetworkRecoveryWatcher mFeedNetworkWatcher = new DefaultNetworkRecoveryWatcher(FEED_RETRY_LOG);
+    private boolean mViewResumed;
     private BrowseSection mCurrentSection;
     private Video mCurrentVideo;
     private long mLastUpdateTimeMs = -1;
@@ -162,13 +178,16 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         super.onViewPaused();
 
         saveSelectedItems();
+        pauseFeedRetry();
     }
 
     @Override
     public void onViewResumed() {
         super.onViewResumed();
 
+        mViewResumed = true;
         refreshIfNeeded();
+        resumeFeedRetry();
     }
 
     private void refreshIfNeeded() {
@@ -441,6 +460,9 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         super.onViewDestroyed();
         disposeActions();
         saveSelectedItems();
+        // NEWTUBE(feed-retry): never leave a network registration behind a dead view.
+        mViewResumed = false;
+        mFeedNetworkWatcher.disarm();
     }
 
     @Override
@@ -533,6 +555,10 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
 
         saveSelectedItems(); // save previous state
         mCurrentSection = findSectionById(sectionId);
+        // NEWTUBE(feed-retry): another section is a new episode; its own load decides.
+        if (mFeedRetry.isInError() && !mFeedRetry.isInError(sectionId)) {
+            clearFeedRetry("section-change");
+        }
         mCurrentVideo = null; // fast scroll through the sections (fix empty selected item)
         updateCurrentSection();
         restoreSelectedItems(); // Don't place anywhere else
@@ -697,6 +723,14 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
 
     private void markSectionFetched(int sectionId) {
         mSectionFetchTimeMs.put(sectionId, System.currentTimeMillis());
+
+        // NEWTUBE(feed-retry): content arrived - the error episode (if any) is over.
+        int failures = mFeedRetry.getFailures();
+        if (mFeedRetry.onSuccess()) {
+            NetPath.log(FEED_RETRY_LOG + " recovered section=" + sectionId + " failures=" + failures);
+            Utils.removeCallbacks(mRefreshSection);
+            mFeedNetworkWatcher.disarm();
+        }
     }
 
     private void updateCurrentSection() {
@@ -1308,8 +1342,103 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
             }
 
             getView().showError(errorFragmentData);
-            Utils.postDelayed(mRefreshSection, 30_000);
+            scheduleFeedRetry(error);
         }
+    }
+
+    /**
+     * NEWTUBE(feed-retry): the failed section re-polls on an escalating delay (30/60/120/300 s,
+     * reset by content arriving), and only while the view is resumed; a failure that lands while
+     * paused waits for {@link #resumeFeedRetry}. Alongside the timer, a default-network callback
+     * retries at once when a validated network appears after an outage - edge-triggered, so an
+     * already-healthy network (the tunnel case, where Android keeps reporting VALIDATED) leaves
+     * the timer in charge.
+     */
+    private void scheduleFeedRetry(Throwable error) {
+        int sectionId = mCurrentSection != null ? mCurrentSection.getId() : FeedRetryBackoff.NO_SECTION;
+        long delayMs = mFeedRetry.onFailure(sectionId, SystemClock.elapsedRealtime());
+        String cause = error != null ? error.getClass().getSimpleName() : "empty";
+
+        if (!mViewResumed) {
+            Utils.removeCallbacks(mRefreshSection);
+            NetPath.log(FEED_RETRY_LOG + " deferred section=" + sectionId + " failures=" + mFeedRetry.getFailures()
+                    + " cause=" + cause + " (view paused)");
+            return;
+        }
+
+        NetPath.log(FEED_RETRY_LOG + " scheduled section=" + sectionId + " in=" + delayMs
+                + " failures=" + mFeedRetry.getFailures() + " cause=" + cause
+                + ' ' + NetPath.networkSnapshot(getContext()));
+        Utils.postDelayed(mRefreshSection, delayMs);
+        armFeedNetworkRetry();
+    }
+
+    private void armFeedNetworkRetry() {
+        mFeedNetworkWatcher.arm(getContext(), network -> {
+            if (!mViewResumed || mCurrentSection == null || !mFeedRetry.isInError(mCurrentSection.getId())) {
+                return;
+            }
+            // A new validated network: failures on the old link say nothing about this one.
+            mFeedRetry.resetEscalation();
+            Utils.removeCallbacks(mRefreshSection);
+            retryFailedSection("network");
+        });
+    }
+
+    /** View paused: no re-poll and no network registration while nobody can see the feed. */
+    private void pauseFeedRetry() {
+        mViewResumed = false;
+        Utils.removeCallbacks(mRefreshSection);
+        mFeedNetworkWatcher.disarm();
+
+        if (mFeedRetry.isInError()) {
+            NetPath.log(FEED_RETRY_LOG + " paused section=" + mFeedRetry.getSectionId()
+                    + " failures=" + mFeedRetry.getFailures());
+        }
+    }
+
+    /** View resumed while its section is still in error: retry it now rather than on the old timer. */
+    private void resumeFeedRetry() {
+        if (getView() == null || mCurrentSection == null || !mFeedRetry.isInError(mCurrentSection.getId())) {
+            return;
+        }
+
+        // If refreshIfNeeded (or a reselect) already started a reload, it removed any posted retry
+        // when it began, and its outcome replaces or clears the one posted here.
+        long delayMs = mFeedRetry.resumeDelayMs(SystemClock.elapsedRealtime());
+        NetPath.log(FEED_RETRY_LOG + " resume section=" + mCurrentSection.getId() + " in=" + delayMs
+                + " failures=" + mFeedRetry.getFailures());
+        Utils.postDelayed(mRefreshSection, delayMs);
+        armFeedNetworkRetry();
+    }
+
+    private void retryFailedSection(String trigger) {
+        if (getView() == null || !mViewResumed || mCurrentSection == null
+                || !mFeedRetry.isInError(mCurrentSection.getId())) {
+            return;
+        }
+
+        // Something is still loading (the section's own reload, or a scroll continuation over a
+        // stale FeedCache grid). Never dispose it; look again shortly - a section reload's outcome
+        // replaces (failure) or clears (success) this recheck anyway.
+        if (RxHelper.isAnyActionRunning(mActions)) {
+            NetPath.log(FEED_RETRY_LOG + " busy trigger=" + trigger + " recheck-in=" + FEED_RETRY_BUSY_RECHECK_MS);
+            Utils.postDelayed(mRefreshSection, FEED_RETRY_BUSY_RECHECK_MS);
+            return;
+        }
+
+        NetPath.log(FEED_RETRY_LOG + " fire trigger=" + trigger + " section=" + mCurrentSection.getId()
+                + " failures=" + mFeedRetry.getFailures() + ' ' + NetPath.networkSnapshot(getContext()));
+        // Same as refresh(false), minus the focus request: this is not the user asking.
+        mForceSectionUpdate = true;
+        updateCurrentSection();
+    }
+
+    private void clearFeedRetry(String reason) {
+        NetPath.log(FEED_RETRY_LOG + " clear reason=" + reason + " section=" + mFeedRetry.getSectionId());
+        mFeedRetry.clear();
+        Utils.removeCallbacks(mRefreshSection);
+        mFeedNetworkWatcher.disarm();
     }
 
     private void appendLocalHistory(VideoGroup videoGroup) {

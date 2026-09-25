@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  NEWTUBE(page-load-errors): the grid's last row when a NEXT page failed on the channel or
+  uploads/playlist page (LoadMoreFailureAdapter). Full-span, quiet: the rows above stay, and
+  Try again re-asks for the same page.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:paddingTop="16dp"
+    android:paddingBottom="8dp">
+
+    <TextView
+        android:id="@+id/mobile_load_more_failure_message"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="@string/mobile_load_more_error"
+        android:textColor="@color/mobile_color_on_surface_secondary"
+        android:textSize="14sp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/mobile_load_more_failure_action"
+        style="@style/Widget.MaterialComponents.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/mobile_signin_retry_button"
+        android:textAllCaps="false"
+        android:textColor="@color/mobile_color_on_surface"
+        android:textSize="15sp"
+        app:rippleColor="@color/mobile_color_pill" />
+
+</LinearLayout>

@@ -19,6 +19,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.interfaces.VideoGrou
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelView;
 import com.liskovsoft.smartyoutubetv2.common.misc.BrowseProcessorManager;
 import com.liskovsoft.sharedutils.rx.RxHelper;
+import com.liskovsoft.smartyoutubetv2.common.utils.LoadFailure;
 import com.liskovsoft.smartyoutubetv2.common.utils.LoadingManager;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.disposables.Disposable;
@@ -37,6 +38,10 @@ public class ChannelPresenter extends BasePresenter<ChannelView> implements Vide
     private Disposable mScrollAction;
     private int mSortIdx;
     private Video mChannel;
+    /** The running first-page load has put at least one item on screen. */
+    private boolean mLoadDelivered;
+    /** Pull-to-refresh over rows: the old rows stay until the first fresh batch replaces them. */
+    private boolean mReplaceOnFirstRows;
 
     private interface OnChannelId {
         void onChannelId(String channelId);
@@ -189,20 +194,128 @@ public class ChannelPresenter extends BasePresenter<ChannelView> implements Vide
     }
 
     private void updateRows(Observable<List<MediaGroup>> group) {
+        loadRows(group, false);
+    }
+
+    /**
+     * NEWTUBE(page-load-errors): the first-page load. It used to handle only onError - and only
+     * with a log line - while the channel observable reports most failures as a plain onComplete
+     * with nothing emitted (a {@code null} answer, see {@link LoadFailure}), which left the
+     * spinner up over a blank page forever. Both ends now reach {@link #finishLoad}.
+     */
+    private void loadRows(Observable<List<MediaGroup>> groups, boolean keepContentUntilLoaded) {
         Log.d(TAG, "updateRows: Start loading...");
 
         disposeActions();
 
+        if (getView() == null) {
+            return;
+        }
+
+        mLoadDelivered = false;
+        mReplaceOnFirstRows = keepContentUntilLoaded;
+
         getView().showProgressBar(true);
 
-        mUpdateAction = group
+        mUpdateAction = groups
                 .subscribe(
-                        this::updateRows,
+                        this::onRowsLoaded,
                         error -> {
                             Log.e(TAG, "updateRows error: %s", error.getMessage());
-                            getView().showProgressBar(false);
-                        }
+                            finishLoad(error);
+                        },
+                        () -> finishLoad(null)
                  );
+    }
+
+    private void onRowsLoaded(List<MediaGroup> mediaGroups) {
+        if (mReplaceOnFirstRows && getView() != null) {
+            // The refresh has an answer: swap the old rows out in the same frame the new ones land.
+            mReplaceOnFirstRows = false;
+            getView().clear();
+        }
+
+        if (containsItems(mediaGroups)) {
+            mLoadDelivered = true;
+        }
+
+        updateRows(mediaGroups);
+    }
+
+    private void finishLoad(Throwable error) {
+        mReplaceOnFirstRows = false;
+
+        ChannelView view = getView();
+
+        if (view == null) {
+            return;
+        }
+
+        view.showProgressBar(false);
+
+        if (!mLoadDelivered) {
+            view.showLoadFailure(LoadFailure.classify(getContext(), error));
+        }
+    }
+
+    private static boolean containsItems(List<MediaGroup> mediaGroups) {
+        if (mediaGroups == null) {
+            return false;
+        }
+
+        for (MediaGroup mediaGroup : mediaGroups) {
+            if (mediaGroup != null && mediaGroup.getMediaItems() != null && !mediaGroup.getMediaItems().isEmpty()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * NEWTUBE(page-load-errors): runs this page's first load again for the same channel - the
+     * failure state's Try again and pull-to-refresh. The previous load and any in-flight next page
+     * are dropped first, and the fresh first page brings its own continuation keys, so nothing is
+     * appended twice.
+     *
+     * @param keepContentUntilLoaded pull-to-refresh over rows: they stay until fresh rows replace
+     *                               them, and stay for good if the reload fails
+     * @return {@code false} when there is nothing to reload (no view, or no channel to ask for)
+     */
+    public boolean reload(boolean keepContentUntilLoaded) {
+        if (getView() == null) {
+            return false;
+        }
+
+        Observable<List<MediaGroup>> source = obtainReloadObservable();
+
+        if (source == null) {
+            return false;
+        }
+
+        if (!keepContentUntilLoaded) {
+            getView().clear();
+        }
+
+        loadRows(source, keepContentUntilLoaded);
+
+        return true;
+    }
+
+    private Observable<List<MediaGroup>> obtainReloadObservable() {
+        if (mChannelId != null) {
+            return obtainChannelObservable(mChannelId);
+        }
+
+        // Rows handed in from outside (MediaServiceManager.chooseChannelPresenter, mChannelId null):
+        // ask the way it did - loadChannelRows() prefers the card's MediaItem (title + params).
+        if (mChannel != null && mChannel.channelId != null) {
+            return mChannel.mediaItem != null
+                    ? getContentService().getChannelObserve(mChannel.mediaItem)
+                    : obtainChannelObservable(mChannel.channelId);
+        }
+
+        return null;
     }
 
     public Observable<List<MediaGroup>> obtainChannelObservable(String channelId) {
@@ -251,15 +364,26 @@ public class ChannelPresenter extends BasePresenter<ChannelView> implements Vide
             return;
         }
 
+        MediaGroup mediaGroup = group.getMediaGroup();
+
+        // Last page: there is nothing to ask for. The service would answer null, which now reads
+        // as a failed page (showLoadMoreFailure) - same guard as ChannelUploadsPresenter.
+        if (mediaGroup == null || mediaGroup.getNextPageKey() == null) {
+            return;
+        }
+
         Log.d(TAG, "continueGroup: start continue group: " + group.getTitle());
 
         getView().showProgressBar(true);
 
-        MediaGroup mediaGroup = group.getMediaGroup();
-
+        // A failed page leaves this group's MediaGroup (and so its next-page key) untouched, so
+        // retrying is just another onScrollEnd for the same section.
         mScrollAction = getContentService().continueGroupObserve(mediaGroup)
                 .subscribe(
                         continueMediaGroup -> {
+                            if (getView() == null) {
+                                return;
+                            }
                             VideoGroup newGroup = VideoGroup.from(group, continueMediaGroup);
                             getView().update(newGroup);
                             mBrowseProcessor.process(newGroup);
@@ -268,9 +392,14 @@ public class ChannelPresenter extends BasePresenter<ChannelView> implements Vide
                             Log.e(TAG, "continueGroup error: %s", error.getMessage());
                             if (getView() != null) {
                                 getView().showProgressBar(false);
+                                getView().showLoadMoreFailure();
                             }
                         },
-                        () -> getView().showProgressBar(false)
+                        () -> {
+                            if (getView() != null) {
+                                getView().showProgressBar(false);
+                            }
+                        }
                 );
     }
 

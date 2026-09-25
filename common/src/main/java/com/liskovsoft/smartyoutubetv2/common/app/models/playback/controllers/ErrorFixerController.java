@@ -98,6 +98,10 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     // The network callback owns a cancellable Runnable per registration. The timer stays separate
     // because Utils.post/postDelayed dedupe per instance; neither trigger may cancel the other.
     private final Runnable mScheduledRetry = () -> requestAutoRetry("timer", false);
+    // NEWTUBE(recovery-probe): pulls the next timer retry forward the moment the server answers
+    // again after failing (see LivenessProbe). Spends the normal retry budget; never refills it.
+    private LivenessProbe mLivenessProbe;
+    private static volatile okhttp3.OkHttpClient sProbeClient;
 
     @Override
     public void onInit() {
@@ -632,6 +636,9 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         if (connectivity) {
             retrying = scheduleAutoRetry();
             armConnectivityRetry();
+            if (retrying) {
+                startLivenessProbe();
+            }
         }
 
         if (getPlayer() != null) {
@@ -918,7 +925,62 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         disarmAutoRetry();
     }
 
+    private void startLivenessProbe() {
+        if (mLivenessProbe == null) {
+            mLivenessProbe = new LivenessProbe(ErrorFixerController::probeYouTube,
+                    LivenessProbe.backgroundScheduler(), Utils::post, SystemClock::elapsedRealtime,
+                    this::onLivenessRecovered);
+        }
+        mLivenessProbe.start();
+        NetPath.log(NetPath.context() + " recovery-probe start attempt=" + mAutoRetryAttempt);
+    }
+
+    /**
+     * The server answered after failing: the link is back. That says nothing certain about media,
+     * so this spends an ordinary automatic retry - it only stops the retry from waiting out the rest
+     * of a 45/120/300 s ladder step.
+     */
+    private void onLivenessRecovered() {
+        if (!mErrorCapped || mTerminalSourceCapped) {
+            return;
+        }
+
+        NetPath.log(NetPath.context() + " recovery-probe answered probes="
+                + (mLivenessProbe != null ? mLivenessProbe.getProbeCount() : -1)
+                + " waitedMs=" + Math.max(0, mNextAutoRetryAtMs - SystemClock.elapsedRealtime()));
+        Utils.removeCallbacks(mScheduledRetry);
+        mNextAutoRetryAtMs = 0;
+        requestAutoRetry("probe", false);
+    }
+
+    /** Any HTTP answer from www.youtube.com means the link delivers again. Runs off the main thread. */
+    private static boolean probeYouTube() {
+        okhttp3.OkHttpClient client = sProbeClient;
+        if (client == null) {
+            // Derived from the shared client: same connection pool, DNS and proxy, short deadlines.
+            client = com.liskovsoft.sharedutils.okhttp.OkHttpManager.instance().getClient().newBuilder()
+                    .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                    .callTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+                    .retryOnConnectionFailure(false)
+                    .build();
+            sProbeClient = client;
+        }
+
+        okhttp3.Request request = new okhttp3.Request.Builder()
+                .url("https://www.youtube.com/generate_204")
+                .build();
+        try (okhttp3.Response response = client.newCall(request).execute()) {
+            return response.code() > 0;
+        } catch (java.io.IOException | RuntimeException e) {
+            return false;
+        }
+    }
+
     private void disarmAutoRetry() {
+        if (mLivenessProbe != null) {
+            mLivenessProbe.stop();
+        }
         DefaultNetworkRecoveryCallback callback = mNetworkCallback;
         mNetworkCallback = null;
         if (callback != null) {

@@ -10,6 +10,97 @@ Phone-only: the TV flavors, vendored ExoPlayer fork and Leanback modules were
 deleted. Playback uses Media3 1.10.1 with embedded Cronet and an OkHttp fallback.
 Toolchain: AGP 9.2.1 / Gradle 9.6.1 / compileSdk 37 / targetSdk 37 / minSdk 24.
 
+## Network efficiency, stability and TTFF round (2026-09-24, emulators)
+
+Asked for: better network efficiency, stability and time to first frame. Three
+read-only audits (open path, API/feed traffic, media byte path) re-verified the
+open backlog against the code, five implementer agents built the fixes on
+disjoint files, and Codex (astra for ideas, sol for two adversarial reviews)
+checked the result. Everything below was measured on two x86_64 API-36 AVDs on
+Wi-Fi (and their emulated metered cellular), signed out, debug builds, with the
+new `-PemulatorAbi` build flag so Cronet/J2V8 run natively instead of through
+ARM translation (which made the JS signature solve take 15 s instead of 1.2 s
+and invalidated every CPU-bound emulator timing before this). A/Bs swap the
+builds between the two AVDs. Small samples on one network: read them as
+direction and size, not as field guarantees. Full detail: HANDOFF §29.
+
+**Faster starts**
+- **Cold share-link opens** (a YouTube link tapped in another app, process
+  dead): VISIONOS `/player` waited ~1.3 s for the BotGuard WebView only to read
+  a visitor id that was already persisted. It now peeks it. `/player` leaves at
+  +0.1 s instead of +1.4-1.8 s; metadata ready median 2287/2703 -> 1675/1652 ms,
+  first frame 3633/4093 -> 3557/2994 ms (per AVD). The new bottleneck is the
+  playback activity's first draw (~1 s of main-thread work on the AVD).
+- **Live opens** no longer run up to six blocking googlevideo probes before
+  `/player` returns when a DASH/HLS manifest URL exists: `player-transform`
+  374-492 -> 11-41 ms, metadata ready median 2622 -> 1658 ms.
+- **Signed-out first launch**: the four topic feeds behind an empty personalised
+  Home load in parallel. Home paints at median 1.89 s instead of 3.71 s (5
+  fresh-data launches each).
+- **Signed-in**: the dead TV account route is re-probed on an escalating
+  schedule (10 min, 40 min, 2 h 40, 10 h 40, then daily) instead of every
+  10 minutes, keyed by transport so a reconnect no longer wipes it, and a
+  single quarantined head sits behind VISIONOS. Unit-tested only (142
+  videoinfo tests); not exercised on a signed-in device this round.
+
+**Fewer bytes**
+- **Metered networks** cap buffer-ahead at 30 s + time actually played (20 s
+  while paused), up to the preset. Videos abandoned after 12 s on cellular cost
+  19-22% fewer bytes (4 videos, both build orders). Unmetered links are
+  untouched. Trade-off: in the first ~45 s of a video on cellular the buffer
+  covers a shorter outage than the full 75 s.
+- **PiP and the mini-player** stop fetching full resolution: ABR's top rung is
+  capped to the window (360p for a 599x336 PiP) without discarding what is
+  already buffered, so entering PiP does not rebuffer.
+- History pings reuse the playback's tracking ids instead of re-walking
+  `/player` for videos watched past 5 minutes; the first signed-in ping of a
+  video still makes its one auth `/player`.
+- Live `/next` refresh and the dislike fetch stop while the watch page is
+  hidden (background audio, PiP); upcoming-premiere and reminder polling scale
+  with the scheduled start; the updater no longer throws away slow downloads
+  after 60 s and never auto-downloads on metered networks; leaving a channel or
+  Home mid-load stops further continuation requests.
+
+**Stability**
+- **A capped player recovers when the link returns, not when the ladder says
+  so.** While capped on a connectivity error, a tiny `generate_204` probe runs;
+  a failed -> answered transition pulls the next retry forward (it spends, never
+  refills, the retry budget). Netshape tunnel with the network still
+  `validated=y`: resumed 24.5 s before the 45 s step; on the 120/300 s steps the
+  saving is minutes.
+- **Home feed errors** back off 30 -> 60 -> 120 -> 300 s, pause while the app is
+  in the background, retry 1 s after returning and when a validated network
+  appears. Before: every 30 s forever, also in the background.
+- **Channel, uploads and playlist pages** show No connection / Try again, pull to
+  refresh and a load-more retry row instead of a blank grid; an offline channel
+  tap opens that page instead of doing nothing. Emulator: offline -> error
+  screen, back online -> Try again loads the channel.
+- **Live chat** no longer spins with zero delay when offline (1 -> 30 s backoff,
+  stops on close). Unit-tested; not exercised on the AVD.
+
+**Two latent bugs found by the measurements**
+- **A live open made the next cold start's first VOD begin on ANDROID_VR.** The
+  live walk routes to ANDROID_VR for its DASH manifest; that was recorded as the
+  winner and persisted as the cold-start hint, so the next launch began VOD
+  there, hit its deep-range 403 and burned recovery reloads. A live result is
+  still the current client (recovery and quarantine blame the right one) but is
+  no longer persisted, and ANDROID_VR is no longer restored as the hint.
+- **The one-shot MEDIUM -> HIGH buffer promotion could be lost for good.** The
+  "done" flag was written at once while PlayerData persists after 10 s, so a
+  process that died in that window stayed on the 50 s MEDIUM buffer forever
+  (both AVDs had). It now persists immediately. Installs already stuck on MEDIUM
+  are not migrated (indistinguishable from a deliberate choice).
+
+**Tests:** 351 smarttubetv, 133 common, 10 updater unit tests pass; focused
+youtubeapi suites pass (the full youtubeapi suite still has its 67 pre-existing
+live-account/network failures: `Token is null`, OAuth `invalid_request`).
+
+**Still open (measured or reviewed, not built):** the playback activity's cold
+first draw; audio adaptation (all audio stays Opus 251 because the MPD has no
+AudioChannelConfiguration - needs a DRC split and a 403 track-fallback guard
+first); chunk cancellation on a collapsing link; codex's direct-DashManifest
+and JSON-mapping ideas (tens of ms each).
+
 ## Downloads: a fifth tab, files that play like any other video (2026-09-11)
 
 NewTube can now keep videos on the phone. The ask was NewPipe-shaped ("an option

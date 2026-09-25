@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  NEWTUBE(page-load-errors): the first-page failure state of the channel and uploads/playlist
+  pages - the Home feed's empty state (activity_mobile_browse.xml, mobile_error_container) with
+  the same icon, type and Try again button. Shown over the grid's area with the grid GONE; it
+  does not consume touches, so pull-to-refresh still reaches the SwipeRefreshLayout beneath.
+  Driven by com.newtube.mobile.ui.channel.PageLoadState.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/mobile_page_load_state"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:visibility="gone">
+
+    <ImageView
+        android:id="@+id/mobile_page_load_state_icon"
+        android:layout_width="96dp"
+        android:layout_height="96dp"
+        android:layout_marginBottom="16dp"
+        android:contentDescription="@null"
+        android:src="@drawable/ic_mobile_empty" />
+
+    <TextView
+        android:id="@+id/mobile_page_load_state_message"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:textColor="@color/mobile_color_on_surface"
+        android:textSize="16sp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/mobile_page_load_state_action"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="@string/mobile_signin_retry_button" />
+
+</LinearLayout>

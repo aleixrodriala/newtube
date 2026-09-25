@@ -1518,3 +1518,80 @@ on as it always did. It repairs a hole the capability itself opened.
 `MediaItemFormatInfoImpl.kt` carries the same `containsSabrFormats()` logic but
 is dead code here (`InnertubeService` is only referenced from a commented-out
 line), so it was deliberately not touched.
+
+## 29. Network efficiency / stability / TTFF round (2026-09-24, two API-36 AVDs)
+
+Results are in STATUS (top section). This is the part a future session needs:
+the method, the traps, and the NetPath lines to grep.
+
+### Rig and method
+- **Build with `-PemulatorAbi` for any emulator timing.** The APK used to ship
+  only ARM libs, so an x86_64 AVD ran Cronet/J2V8 through ARM translation: the
+  signature JS solve took 14.9 s (`v8-run solveMs=`) instead of 1.2 s, the
+  session warmup walked 7 clients because VISIONOS timed out on local CPU, and
+  every CPU-bound emulator number in older rounds carries that inflation. The
+  flag only adds `x86_64` to `abiFilters`; release builds are unchanged.
+- Same-machine parallel gradle builds (five agents) inflated emulator TTFF ~3x.
+  Time only on a quiet host, and swap builds between the two AVDs: they differ
+  by up to ~400 ms in activity bring-up alone.
+- The AVD clock ran ~32 s behind WSL's. When correlating netshape actions with
+  logcat, poll the device log for the trigger line instead of comparing clocks.
+- `NewTube_Network_Test` (emulator-5558) had an unvalidated Wi-Fi where every
+  app request hung; it was shut down. `emulator-5554` (Medium_Phone) and
+  `emulator-5556` (NewTube_Verify) were used. Scratch harnesses (card taps, cold
+  deep links, fresh-data Home paint, per-UID bytes) are session-local; the
+  logic is simple enough to rebuild from the NetPath lines below.
+
+### What was learned
+- **VISIONOS waited for BotGuard.** `getWebVisitorDataForPlayer` minted the web
+  session (WebView + GenerateIT, ~1.3 s cold) only to read its visitor, which
+  is `AppService.visitorData` verbatim unless a rotation is armed.
+  `PoTokenProviderImpl.peekSessionVisitorData` answers without the lock; a
+  `visitorGeneration` bumped by rotation/reset makes a racing peek fall back to
+  the blocking path. Only used while no session exists.
+- **Live answers poisoned the VOD routing memory.** `persistRecentTypeIfNeeded`
+  recorded ANDROID_VR after every live open; the persisted value is restored as
+  the begin client of the first open after each launch. With ANDROID_VR
+  "winning" `/player` it never healed on its own. The live client still becomes
+  `mActualInfoType` (a first cut skipped that too, and Codex caught that a live
+  403 would then blame and quarantine the previous VOD/TV client); only the
+  persist is skipped. Grep `player-ring winner-kept reason=live ... persisted=n`
+  and `restore-skipped client=ANDROID_VR`.
+- **`setViewportSize` mid-playback discards the video buffer** in media3 1.10.1
+  (the track group shrinks -> stream released -> renderer reset). PiP therefore
+  caps inside ABR instead (`ViewportCappedTrackSelection.canSelectFormat`):
+  buffered chunks play out, the cap applies to new chunks.
+- **Debounced prefs lose one-shot writes.** PlayerData persists after 10 s,
+  MediaServiceData after a trailing 5 s that restarts on every write. A
+  "done" flag written with `apply()` next to a debounced value is the MEDIUM
+  buffer bug; use `persistNow()` for one-shot migrations.
+- **The liveness probe only acts on a failed -> answered transition.** A link
+  that answers from the first probe proves nothing about why media died (a
+  slow-but-alive link would otherwise be hammered at the probe rate). So a
+  tunnel that ends within ~3 s of the cap still waits for the ladder - by design.
+  Grep `recovery-probe start|answered probes= waitedMs=` and
+  `recovery-auto-retry trigger=probe`.
+
+### New NetPath lines
+`live-dashinfo skipped reason=`, `player-ring quarantine-auth-route ... strike=
+escalation= cooldownMs=`, `restore-auth-route-quarantine ... format=v2|legacy`,
+`auth-head-demoted`, `history-ping tracking-cache hit`, `buffer-cap policy|network|
+... -> hold`, `viewport pip|mini size= -> cap on`, `viewport full reason=`,
+`feed-retry scheduled|paused|resume|fire trigger=timer|network|recovered`,
+`live-refresh skip hidden`, `ryd fetch`, `upcoming-poll in=`, `reminder-check`,
+`chat-retry in=`, `chat-stop reason=`, `home-anon probe= topics parallel=`,
+`channel-tabs prefetch`, `browse-stop disposed`, `update-download ...`,
+`channel-open fallback`.
+
+### Still open
+- Cold deep-link TTFF is now bound by the playback activity's first draw
+  (`Skipped 58 frames`, ~1 s main thread on the AVD) and by the cached format
+  result waiting behind it (300-440 ms between `open` and `info`). Codex's
+  "minimal playback shell" (ViewStub for the watch page) is the candidate.
+- Audio never adapts (Opus 251 always): the MPD has no AudioChannelConfiguration.
+  Enabling it first needs `251-drc` split into its own AdaptationSet and a
+  `FailFastLoadErrorPolicy.getFallbackSelectionFor` guard for route-wide 403s.
+- Chunk cancellation, direct DashManifest build, JSON mapping cost, remembered
+  googlevideo host warm-up: reviewed, small or risky, not built.
+- The signed-in quarantine escalation is unit-tested only; verify on a signed-in
+  device (`strike=2 escalation=up cooldownMs=2400000` after the second expiry).

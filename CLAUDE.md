@@ -31,6 +31,8 @@ ANDROID_HOME=<sdk> ./gradlew :smarttubetv:assembleStmobileDebug   # verification
 ANDROID_HOME=<sdk> ./gradlew :smarttubetv:assembleStmobileRelease # distribution
 # -> smarttubetv/build/outputs/apk/stmobile/<type>/NewTube_<ver>_<abi>.apk
 ```
+On an x86_64 emulator add `-PemulatorAbi` (native Cronet/J2V8; without it every
+CPU-bound timing runs through ARM translation — see HANDOFF §29).
 Use DEBUG builds for on-device verification — the NetPath per-chunk/cronet/
 request logging is debug-gated. `minifyEnabled` is off (the live-DASH parser
 and pref plumbing rely on reflection over media3 internals — do not enable R8

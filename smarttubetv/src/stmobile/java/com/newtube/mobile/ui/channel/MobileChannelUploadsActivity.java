@@ -13,13 +13,16 @@ import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.ConcatAdapter;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.snackbar.Snackbar;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.QueuePlaybackMode;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.ChannelUploadsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelUploadsView;
+import com.liskovsoft.smartyoutubetv2.common.utils.LoadFailure;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.browse.VideoCardAdapter;
 import com.newtube.mobile.ui.common.MobileActivity;
@@ -78,6 +81,11 @@ public class MobileChannelUploadsActivity extends MobileActivity
 
     /** Playlist header row (absent for plain channel uploads) - see {@link PlaylistHeaderAdapter}. */
     private PlaylistHeaderAdapter mHeaderAdapter;
+    /** "Couldn't load more" row after the cards when a next page failed. */
+    private LoadMoreFailureAdapter mLoadMoreFooter;
+    private SwipeRefreshLayout mSwipe;
+    /** First page failed / came back empty (see {@link #showLoadFailure}). */
+    private PageLoadState mLoadState;
 
     private final List<Video> mVideos = new ArrayList<>();
     private int mLastPaginationTriggerCount = -1;
@@ -93,6 +101,7 @@ public class MobileChannelUploadsActivity extends MobileActivity
         bindViews();
         mMiniPlayer = new MobileMiniPlayerController(this);
         setupGrid();
+        setupSwipeRefresh();
 
         mBackButton.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
         mPlayAllButton.setOnClickListener(v -> playAll());
@@ -155,7 +164,9 @@ public class MobileChannelUploadsActivity extends MobileActivity
      * (channel uploads) keep the title visible at all times.
      */
     private void applyToolbarTitleAlpha() {
-        if (!mHeaderAdapter.hasHeader()) {
+        // No header in view - none at all, or the grid (header included) gave way to the
+        // failure state: the toolbar is the only place the name shows.
+        if (!mHeaderAdapter.hasHeader() || mGrid.getVisibility() != View.VISIBLE) {
             mTitleView.setAlpha(1f);
             return;
         }
@@ -181,6 +192,8 @@ public class MobileChannelUploadsActivity extends MobileActivity
         mTitleView = findViewById(R.id.mobile_channel_uploads_title);
         mBackButton = findViewById(R.id.mobile_channel_uploads_back);
         mPlayAllButton = findViewById(R.id.mobile_channel_uploads_play_all);
+        mSwipe = findViewById(R.id.mobile_channel_uploads_swipe);
+        mLoadState = new PageLoadState(findViewById(R.id.mobile_page_load_state), this::retryFirstPage);
     }
 
     private void setupGrid() {
@@ -199,19 +212,22 @@ public class MobileChannelUploadsActivity extends MobileActivity
             }
         });
 
+        mLoadMoreFooter = new LoadMoreFailureAdapter(this::retryLoadMore);
+
         // The header is one full-width row in front of the cards; in landscape the grid is
-        // multi-column, so it has to claim every span or it would sit in the first cell.
+        // multi-column, so it has to claim every span or it would sit in the first cell. Same for
+        // the "Couldn't load more" row after them.
         mLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
             @Override
             public int getSpanSize(int position) {
-                return isHeaderPosition(position) ? mLayoutManager.getSpanCount() : 1;
+                return isHeaderPosition(position) || isFooterPosition(position) ? mLayoutManager.getSpanCount() : 1;
             }
         });
 
         mGrid.setItemViewCacheSize(8);
         mGrid.setLayoutManager(mLayoutManager);
         // NOT setHasFixedSize: the header row makes the content height change with the data.
-        mGrid.setAdapter(new ConcatAdapter(mHeaderAdapter, mAdapter));
+        mGrid.setAdapter(new ConcatAdapter(mHeaderAdapter, mAdapter, mLoadMoreFooter));
         mGrid.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
@@ -223,6 +239,51 @@ public class MobileChannelUploadsActivity extends MobileActivity
 
     private boolean isHeaderPosition(int position) {
         return position == 0 && mHeaderAdapter.hasHeader();
+    }
+
+    private boolean isFooterPosition(int position) {
+        return mLoadMoreFooter.isFailed()
+                && position == (mHeaderAdapter.hasHeader() ? 1 : 0) + mAdapter.getItemCount();
+    }
+
+    private void setupSwipeRefresh() {
+        mSwipe.setColorSchemeColors(getResources().getColor(R.color.mobile_color_on_surface));
+        mSwipe.setProgressBackgroundColorSchemeColor(getResources().getColor(R.color.mobile_color_surface));
+        mSwipe.setOnRefreshListener(() -> {
+            if (mPresenter == null || !mPresenter.reload(!mVideos.isEmpty())) {
+                mSwipe.setRefreshing(false);
+            }
+        });
+    }
+
+    /** Failure state's Try again: the same first load, from a blank list. */
+    private void retryFirstPage() {
+        if (mPresenter != null) {
+            mPresenter.reload(false);
+        }
+    }
+
+    /** Footer's Try again: re-ask for the page that failed (its continuation key is unchanged). */
+    private void retryLoadMore() {
+        mLoadMoreFooter.setFailed(false);
+
+        if (mVideos.isEmpty() || mPresenter == null) {
+            return;
+        }
+
+        mLastPaginationTriggerCount = mAdapter.getItemCount();
+        mPresenter.onScrollEnd(mVideos.get(mVideos.size() - 1));
+    }
+
+    private void hideLoadState() {
+        if (!mLoadState.isShowing()) {
+            return;
+        }
+
+        mLoadState.hide();
+        mGrid.setVisibility(View.VISIBLE);
+        // The header row is back: re-derive the title fade once it has been laid out.
+        mGrid.post(this::applyToolbarTitleAlpha);
     }
 
     private void onVideoClicked(Video video) {
@@ -350,7 +411,8 @@ public class MobileChannelUploadsActivity extends MobileActivity
     }
 
     private void maybeTriggerPagination() {
-        if (mVideos.isEmpty() || mPresenter == null) {
+        // A failed next page waits for Try again instead of re-firing on every scroll frame.
+        if (mVideos.isEmpty() || mPresenter == null || mLoadMoreFooter.isFailed()) {
             return;
         }
 
@@ -488,6 +550,10 @@ public class MobileChannelUploadsActivity extends MobileActivity
             mLastPaginationTriggerCount = -1; // allow pagination to fire again at the new size
             mAdapter.submitList(new ArrayList<>(mVideos));
             updatePlayAllVisibility();
+
+            if (!mVideos.isEmpty()) {
+                hideLoadState();
+            }
         });
     }
 
@@ -513,13 +579,55 @@ public class MobileChannelUploadsActivity extends MobileActivity
         runOnUiThread(() -> {
             mVideos.clear();
             mLastPaginationTriggerCount = -1;
+            mLoadMoreFooter.setFailed(false);
             mAdapter.submitList(new ArrayList<>());
             updatePlayAllVisibility();
+            hideLoadState();
         });
     }
 
     @Override
     public void showProgressBar(boolean show) {
-        runOnUiThread(() -> mProgressBar.setVisibility(show ? View.VISIBLE : View.GONE));
+        runOnUiThread(() -> {
+            // Pull-to-refresh draws its own spinner; don't stack the centered one over it.
+            mProgressBar.setVisibility(show && !mSwipe.isRefreshing() ? View.VISIBLE : View.GONE);
+            if (!show) {
+                mSwipe.setRefreshing(false);
+            }
+        });
+    }
+
+    /**
+     * NEWTUBE(page-load-errors): the first load put nothing on screen. Items still on screen (a
+     * pull-to-refresh that failed) stay - stale items beat a full-page error, as on Home - with a
+     * snackbar saying the refresh failed. Otherwise the grid, playlist header included, gives way
+     * to the Home-style empty state with Try again; the toolbar keeps the name.
+     */
+    @Override
+    public void showLoadFailure(int state) {
+        runOnUiThread(() -> {
+            mSwipe.setRefreshing(false);
+            mProgressBar.setVisibility(View.GONE);
+
+            if (!mVideos.isEmpty()) {
+                if (state != LoadFailure.EMPTY) {
+                    Snackbar.make(findViewById(android.R.id.content),
+                            state == LoadFailure.NO_CONNECTION
+                                    ? R.string.mobile_empty_no_connection : R.string.mobile_refresh_error,
+                            Snackbar.LENGTH_SHORT).show();
+                }
+                return;
+            }
+
+            mGrid.setVisibility(View.GONE);
+            mLoadState.show(state);
+            applyToolbarTitleAlpha();
+        });
+    }
+
+    /** NEWTUBE(page-load-errors): a next page failed - footer row with Try again, items stay. */
+    @Override
+    public void showLoadMoreFailure() {
+        runOnUiThread(() -> mLoadMoreFooter.setFailed(true));
     }
 }

@@ -9,15 +9,19 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.recyclerview.widget.ConcatAdapter;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
+import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.tabs.TabLayout;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.ChannelPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelView;
+import com.liskovsoft.smartyoutubetv2.common.utils.LoadFailure;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.browse.VideoCardAdapter;
 import com.newtube.mobile.ui.common.MobileActivity;
@@ -73,6 +77,17 @@ public class MobileChannelActivity extends MobileActivity
     private ImageButton mBackButton;
     private MobileMiniPlayerController mMiniPlayer;
     private boolean mAnimateMiniFromPlayer;
+    private SwipeRefreshLayout mSwipe;
+    /** First page failed / came back empty (see {@link #showLoadFailure}). */
+    private PageLoadState mLoadState;
+    /** "Couldn't load more" row under the section whose next page failed. */
+    private LoadMoreFailureAdapter mLoadMoreFooter;
+    /** Section whose next page failed; its scroll-end paging is suspended until Try again. */
+    private int mLoadMoreFailedSectionId = -1;
+    /** Section the last next-page request was made for (a failure is reported without it). */
+    private int mPagingSectionId = -1;
+    /** Pull-to-refresh: re-select this tab when a section with this title comes back. */
+    private String mRestoreSectionTitle;
 
     /** Sections in delivery order; iteration order == tab order. */
     private final Map<Integer, Section> mSections = new LinkedHashMap<>();
@@ -100,6 +115,7 @@ public class MobileChannelActivity extends MobileActivity
         }
         setupGrid();
         setupTabs();
+        setupSwipeRefresh();
 
         mBackButton.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
 
@@ -123,24 +139,30 @@ public class MobileChannelActivity extends MobileActivity
         mProgressBar = findViewById(R.id.mobile_channel_progress);
         mTitleView = findViewById(R.id.mobile_channel_title);
         mBackButton = findViewById(R.id.mobile_channel_back);
+        mSwipe = findViewById(R.id.mobile_channel_swipe);
+        mLoadState = new PageLoadState(findViewById(R.id.mobile_page_load_state), this::retryFirstPage);
     }
 
     private void setupGrid() {
         mLayoutManager = new GridLayoutManager(this, computeSpanCount());
         mAdapter = new VideoCardAdapter(this::onVideoClicked, this::onVideoLongClicked);
+        mLoadMoreFooter = new LoadMoreFailureAdapter(this::retryLoadMore);
 
-        // Channel rows (rare here) span the whole grid width in multi-column layouts.
+        // Channel rows (rare here) span the whole grid width in multi-column layouts, and so does
+        // the "Couldn't load more" row after the cards.
         mLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
             @Override
             public int getSpanSize(int position) {
-                return mAdapter.isFullSpan(position) ? mLayoutManager.getSpanCount() : 1;
+                return position >= mAdapter.getItemCount() || mAdapter.isFullSpan(position)
+                        ? mLayoutManager.getSpanCount() : 1;
             }
         });
 
         mGrid.setHasFixedSize(true);
         mGrid.setItemViewCacheSize(8);
         mGrid.setLayoutManager(mLayoutManager);
-        mGrid.setAdapter(mAdapter);
+        // Cards first, so grid positions below the footer are card positions.
+        mGrid.setAdapter(new ConcatAdapter(mAdapter, mLoadMoreFooter));
         mGrid.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
@@ -157,6 +179,7 @@ public class MobileChannelActivity extends MobileActivity
                     return;
                 }
                 mActiveSectionId = (Integer) tab.getTag();
+                mRestoreSectionTitle = null; // the user picked a tab; a refresh must not undo it
                 showActiveSection(true);
             }
 
@@ -185,9 +208,71 @@ public class MobileChannelActivity extends MobileActivity
         return true;
     }
 
+    private void setupSwipeRefresh() {
+        mSwipe.setColorSchemeColors(getResources().getColor(R.color.mobile_color_on_surface));
+        mSwipe.setProgressBackgroundColorSchemeColor(getResources().getColor(R.color.mobile_color_surface));
+        mSwipe.setOnRefreshListener(() -> {
+            boolean hasContent = hasContent();
+            Section active = mSections.get(mActiveSectionId);
+            // The refresh rebuilds the tabs; land back on the one being read.
+            mRestoreSectionTitle = hasContent && active != null ? active.title : null;
+
+            if (mPresenter == null || !mPresenter.reload(hasContent)) {
+                mSwipe.setRefreshing(false);
+            }
+        });
+    }
+
+    /** Failure state's Try again: the same first load, from a blank page. */
+    private void retryFirstPage() {
+        if (mPresenter != null) {
+            mPresenter.reload(false);
+        }
+    }
+
+    /** Footer's Try again: re-ask for the page that failed (its continuation key is unchanged). */
+    private void retryLoadMore() {
+        mLoadMoreFailedSectionId = -1;
+        syncLoadMoreFooter();
+
+        Section active = mSections.get(mActiveSectionId);
+        if (active == null || active.videos.isEmpty() || mPresenter == null) {
+            return;
+        }
+
+        mPagingSectionId = active.id;
+        mLastPaginationTriggerCount = mAdapter.getItemCount();
+        mPresenter.onScrollEnd(active.videos.get(active.videos.size() - 1));
+    }
+
+    /** The footer belongs to the section whose page failed; other tabs page normally. */
+    private void syncLoadMoreFooter() {
+        mLoadMoreFooter.setFailed(mLoadMoreFailedSectionId != -1 && mLoadMoreFailedSectionId == mActiveSectionId);
+    }
+
+    private boolean hasContent() {
+        for (Section section : mSections.values()) {
+            if (!section.videos.isEmpty()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void hideLoadState() {
+        mLoadState.hide();
+        mGrid.setVisibility(View.VISIBLE);
+    }
+
     private void maybeTriggerPagination() {
         Section active = mSections.get(mActiveSectionId);
         if (active == null || active.videos.isEmpty() || mPresenter == null) {
+            return;
+        }
+
+        // Its next page failed: wait for Try again instead of re-firing on every scroll frame.
+        if (mLoadMoreFailedSectionId == active.id) {
             return;
         }
 
@@ -200,6 +285,7 @@ public class MobileChannelActivity extends MobileActivity
 
         if (lastVisible >= itemCount - SCROLL_END_THRESHOLD_ITEMS && itemCount != mLastPaginationTriggerCount) {
             mLastPaginationTriggerCount = itemCount;
+            mPagingSectionId = active.id;
             // Continues the ACTIVE section; the continuation arrives as an ACTION_APPEND
             // VideoGroup with the same id and merges back into it.
             mPresenter.onScrollEnd(active.videos.get(active.videos.size() - 1));
@@ -251,6 +337,7 @@ public class MobileChannelActivity extends MobileActivity
     private void showActiveSection(boolean scrollToTop) {
         Section active = mSections.get(mActiveSectionId);
         mLastPaginationTriggerCount = -1;
+        syncLoadMoreFooter();
         mAdapter.submitList(active != null ? new ArrayList<>(active.videos) : new ArrayList<>());
         if (scrollToTop) {
             mGrid.scrollToPosition(0);
@@ -353,6 +440,7 @@ public class MobileChannelActivity extends MobileActivity
         runOnUiThread(() -> {
             int id = group.getId();
             Section section = mSections.get(id);
+            boolean isNewSection = section == null;
 
             switch (group.getAction()) {
                 case VideoGroup.ACTION_REPLACE:
@@ -396,9 +484,20 @@ public class MobileChannelActivity extends MobileActivity
                 return;
             }
 
+            // Pull-to-refresh rebuilt the sections: the tab that was being read wins again.
+            if (isNewSection && mRestoreSectionTitle != null && mSections.containsKey(id)
+                    && mRestoreSectionTitle.equals(mSections.get(id).title)) {
+                mActiveSectionId = id;
+                mRestoreSectionTitle = null;
+            }
+
             // First section to arrive becomes the visible one.
             if (mActiveSectionId == -1 || !mSections.containsKey(mActiveSectionId)) {
                 mActiveSectionId = mSections.keySet().iterator().next();
+            }
+
+            if (hasContent()) {
+                hideLoadState();
             }
 
             rebuildTabs();
@@ -444,16 +543,66 @@ public class MobileChannelActivity extends MobileActivity
             mSections.clear();
             mActiveSectionId = -1;
             mLastPaginationTriggerCount = -1;
+            mLoadMoreFailedSectionId = -1;
+            mPagingSectionId = -1;
+            if (!mSwipe.isRefreshing()) {
+                mRestoreSectionTitle = null; // only a refresh's own clear carries the tab over
+            }
             mSuppressTabCallback = true;
             mTabs.removeAllTabs();
             mTabs.setVisibility(View.GONE);
             mSuppressTabCallback = false;
+            syncLoadMoreFooter();
             mAdapter.submitList(new ArrayList<>());
+            hideLoadState();
         });
     }
 
     @Override
     public void showProgressBar(boolean show) {
-        runOnUiThread(() -> mProgressBar.setVisibility(show ? View.VISIBLE : View.GONE));
+        runOnUiThread(() -> {
+            // Pull-to-refresh draws its own spinner; don't stack the centered one over it.
+            mProgressBar.setVisibility(show && !mSwipe.isRefreshing() ? View.VISIBLE : View.GONE);
+            if (!show) {
+                mSwipe.setRefreshing(false);
+            }
+        });
+    }
+
+    /**
+     * NEWTUBE(page-load-errors): the first load put nothing on screen. Rows still on screen (a
+     * pull-to-refresh that failed) stay - stale rows beat a full-page error, as on Home - with a
+     * snackbar saying the refresh failed. Otherwise the grid gives way to the Home-style empty
+     * state with Try again.
+     */
+    @Override
+    public void showLoadFailure(int state) {
+        runOnUiThread(() -> {
+            mSwipe.setRefreshing(false);
+            mProgressBar.setVisibility(View.GONE);
+            mRestoreSectionTitle = null;
+
+            if (hasContent()) {
+                if (state != LoadFailure.EMPTY) {
+                    Snackbar.make(findViewById(android.R.id.content),
+                            state == LoadFailure.NO_CONNECTION
+                                    ? R.string.mobile_empty_no_connection : R.string.mobile_refresh_error,
+                            Snackbar.LENGTH_SHORT).show();
+                }
+                return;
+            }
+
+            mGrid.setVisibility(View.GONE);
+            mLoadState.show(state);
+        });
+    }
+
+    /** NEWTUBE(page-load-errors): a next page failed - footer row with Try again, rows stay. */
+    @Override
+    public void showLoadMoreFailure() {
+        runOnUiThread(() -> {
+            mLoadMoreFailedSectionId = mPagingSectionId != -1 ? mPagingSectionId : mActiveSectionId;
+            syncLoadMoreFooter();
+        });
     }
 }

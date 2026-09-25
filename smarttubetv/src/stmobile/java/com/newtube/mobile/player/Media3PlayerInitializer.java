@@ -9,6 +9,7 @@ import androidx.media3.common.C;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.LoadControl;
 import androidx.media3.exoplayer.analytics.PlayerId;
 import androidx.media3.exoplayer.source.preload.DefaultPreloadManager;
 import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection;
@@ -32,7 +33,10 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
  *   <li>back-buffer 120s from keyframe with a RAM-clamped byte budget (backward-seek fix),</li>
  *   <li>ABR up-switch after 5s of stable buffer (the mobile tuning from the legacy round), paired
  *       with a down-switch window scaled to the chosen buffer preset (see
- *       {@link #createTrackSelector()}).</li>
+ *       {@link #createTrackSelector()}),</li>
+ *   <li>on a metered network only, a forward-buffer ceiling that grows with watch time
+ *       ({@link MeteredBufferLoadControl}), and a small-window rung cap for PiP / the mini card
+ *       ({@link VideoViewportCap}).</li>
  * </ul>
  */
 public class Media3PlayerInitializer {
@@ -103,8 +107,17 @@ public class Media3PlayerInitializer {
             PlayerData playerData = PlayerData.instance(mContext);
             if (playerData.getVideoBufferType() == PlayerData.BUFFER_MEDIUM) {
                 playerData.setVideoBufferType(PlayerData.BUFFER_HIGH);
+                // PlayerData persists on a 10 s debounce while this flag was written at once, so a
+                // process that died inside that window (a quick first share-link open, a crash) kept
+                // MEDIUM forever with the alignment marked done - seen on both test AVDs. persistNow()
+                // posts the write to this (main) looper; queue the flag behind it so the flag can
+                // never be saved without the value it vouches for. A lost pair just retries.
+                playerData.persistNow();
+                com.liskovsoft.smartyoutubetv2.common.utils.Utils.post(() ->
+                        prefs.edit().putBoolean(KEY_BUFFER_DEFAULT_ALIGNED, true).apply());
+            } else {
+                prefs.edit().putBoolean(KEY_BUFFER_DEFAULT_ALIGNED, true).apply();
             }
-            prefs.edit().putBoolean(KEY_BUFFER_DEFAULT_ALIGNED, true).apply();
         }
     }
 
@@ -133,13 +146,17 @@ public class Media3PlayerInitializer {
         //   HIGHEST 50/120s -> 85s.
         BufferPreset preset = resolveBufferPreset();
 
+        // NEWTUBE(viewport): same stock AdaptiveTrackSelection knobs; the subclass only adds the
+        // PiP/mini-card rung cap (VideoViewportCap - a no-op while the video is full size). The
+        // cap is process-wide so it survives this engine restart's fresh selector.
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(
                 mContext,
-                new AdaptiveTrackSelection.Factory(
+                new ViewportCappedTrackSelection.Factory(
                         ABR_UP_SWITCH_MS,
                         preset.abrDownSwitchWindowMs(),
                         AdaptiveTrackSelection.DEFAULT_MIN_DURATION_TO_RETAIN_AFTER_DISCARD_MS,
-                        AdaptiveTrackSelection.DEFAULT_BANDWIDTH_FRACTION));
+                        AdaptiveTrackSelection.DEFAULT_BANDWIDTH_FRACTION,
+                        VideoViewportCap.shared()));
 
         // 1080p Auto ceiling, mobile default; an explicit user pick overrides it (the track
         // adapter lifts the constraints when pinning a track).
@@ -198,7 +215,28 @@ public class Media3PlayerInitializer {
 
     /** Build the actual policy separately so readiness/loading boundaries can be tested without a decoder. */
     DefaultLoadControl createLoadControl() {
+        return createLoadControl(resolveBufferPreset());
+    }
+
+    /**
+     * What the player actually runs: the preset's {@link DefaultLoadControl} behind the
+     * metered-network forward-buffer ceiling (see {@link MeteredBufferLoadControl} - start gate,
+     * rebuffer gate, back buffer and byte budget are pure delegation; unmetered links see the
+     * preset unchanged). Both halves are built from ONE preset read.
+     */
+    LoadControl createPlayerLoadControl() {
         BufferPreset preset = resolveBufferPreset();
+        DefaultLoadControl presetControl = createLoadControl(preset);
+        MeteredNetworkMonitor.start(mContext);
+        NetPath.log("buffer-cap policy metered=" + MeteredNetworkMonitor.describe()
+                + " floor=" + (MeteredBufferLoadControl.PLAYING_FLOOR_US / 1_000_000) + "s+played"
+                + " paused=" + (MeteredBufferLoadControl.PAUSED_TARGET_US / 1_000_000) + "s"
+                + " preset-max=" + (preset.maxBufferMs / 1000) + "s");
+        return new MeteredBufferLoadControl(presetControl, preset.maxBufferMs * 1000L,
+                MeteredNetworkMonitor::isMetered, android.os.SystemClock::elapsedRealtime);
+    }
+
+    private DefaultLoadControl createLoadControl(BufferPreset preset) {
         int minBufferMs = preset.minBufferMs;
         int maxBufferMs = preset.maxBufferMs;
         int targetBufferBytes = preset.targetBufferBytes;
@@ -256,7 +294,7 @@ public class Media3PlayerInitializer {
     /** The debug-only offline fixture opts in explicitly without altering any global property. */
     ExoPlayer createPlayer(DefaultTrackSelector trackSelector, BandwidthMeter bandwidthMeter,
             boolean enablePreloading) {
-        DefaultLoadControl loadControl = createLoadControl();
+        LoadControl loadControl = createPlayerLoadControl();
         mPreloadManagerBuilder = null;
         mPreloadTrackSelector = null;
 

@@ -1,6 +1,7 @@
 package com.liskovsoft.smartyoutubetv2.common.app.models.playback.controllers;
 
 import android.os.Build.VERSION;
+import android.os.SystemClock;
 import android.text.TextUtils;
 
 import com.liskovsoft.mediaserviceinterfaces.MediaItemService;
@@ -23,6 +24,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.VideoActionPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
+import com.liskovsoft.smartyoutubetv2.common.misc.LiveStartPollPolicy;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.VideoDownloads;
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
@@ -44,12 +46,35 @@ public class VideoLoaderController extends BasePlayerController {
     private Disposable mFormatInfoAction;
     private long mPlaybackGeneration;
     private final PreMediaRetryGate mPreMediaRetry = new PreMediaRetryGate();
+    /**
+     * NEWTUBE(upcoming-poll): a scheduled live stream / premiere is re-opened until /player answers
+     * with media. That used to happen every 30 s regardless of the schedule, visibility or how long
+     * it had been waiting, and every poll also re-fetched /next. The delay now comes from
+     * {@link LiveStartPollPolicy#PLAYER} (scheduled start when known, else the not-live streak),
+     * doubled while the slate is hidden, and suggestions are fetched once per video.
+     */
+    private String mUpcomingVideoId;
+    private int mUpcomingNotLiveAnswers;
+    private long mUpcomingStartMs;
+    /** elapsedRealtime of the last not-live answer, and the foreground delay chosen at that time. */
+    private long mUpcomingAnsweredAtMs;
+    private long mUpcomingForegroundDelayMs;
+    /** elapsedRealtime the pending poll fires at; 0 = no upcoming poll is pending. */
+    private long mUpcomingPollDueAtMs;
+    private boolean mViewResumed = true;
+    /** True while our own delayed reload re-enters onNewVideo (not a user open). */
+    private boolean mReloadDispatching;
     private final Runnable mReloadVideo = () -> {
         Video video = getVideo();
         NetPath.log(NetPath.context() + " reload-dispatch video="
                 + (video != null ? video.videoId : "?")
                 + " pos=" + (getPlayer() != null ? getPlayer().getPositionMs() : -1));
-        getMainController().onNewVideo(video);
+        mReloadDispatching = true;
+        try {
+            getMainController().onNewVideo(video);
+        } finally {
+            mReloadDispatching = false;
+        }
     };
     private final Runnable mLoadNext = this::loadNext;
     private final Runnable mMetadataSync = () -> {
@@ -87,6 +112,9 @@ public class VideoLoaderController extends BasePlayerController {
     @Override
     public void onNewVideo(Video item) {
         mPreMediaRetry.clear();
+        if (!mReloadDispatching) {
+            mUpcomingVideoId = null; // NEWTUBE(upcoming-poll): a user open starts a fresh streak
+        }
         if (item == null) {
             return;
         }
@@ -156,6 +184,17 @@ public class VideoLoaderController extends BasePlayerController {
         NetPath.log(NetPath.context() + " pre-media-retry user=y cache-policy=unchanged");
         player.setPlayWhenReady(true);
         loadVideo(video);
+    }
+
+    @Override
+    public void onViewResumed() {
+        mViewResumed = true;
+        hastenUpcomingPollIfNeeded();
+    }
+
+    @Override
+    public void onViewPaused() {
+        mViewResumed = false;
     }
 
     @Override
@@ -484,16 +523,21 @@ public class VideoLoaderController extends BasePlayerController {
             Log.d(TAG, "Empty format info received. Seems future live translation. No video data to pass to the player.");
             player.setTitle(formatInfo.getPlayabilityReason());
             player.showProgressBar(false);
-            mSuggestionsController.loadSuggestions(getVideo());
+            // NEWTUBE(upcoming-poll): every poll re-runs the whole open; the watch page already
+            // shows this video's /next from the first one (or its eager fetch is in flight).
+            mSuggestionsController.loadSuggestionsOnce(getVideo());
             bgImageUrl = getVideo().getBackgroundUrl();
             player.showOverlay(true);
-            reloadVideo(30 * 1_000);
+            scheduleUpcomingPoll(formatInfo);
         }
 
         player.showBackground(bgImageUrl); // remove bg (if video playing) or set another bg
     }
 
     private void reloadVideo(int delayMs) {
+        // NEWTUBE(upcoming-poll): any reload replaces a pending upcoming poll (same Runnable).
+        mUpcomingPollDueAtMs = 0;
+
         if (getPlayer() == null) {
             return;
         }
@@ -504,6 +548,78 @@ public class VideoLoaderController extends BasePlayerController {
                     + " pos=" + getPlayer().getPositionMs());
             Utils.postDelayed(mReloadVideo, delayMs);
         }
+    }
+
+    /**
+     * NEWTUBE(upcoming-poll): schedules the next "has it started yet?" reload. See the field docs.
+     */
+    private void scheduleUpcomingPoll(MediaItemFormatInfo formatInfo) {
+        Video video = getVideo();
+        PlaybackView player = getPlayer();
+        if (video == null || player == null) {
+            return;
+        }
+
+        if (!Helpers.equals(video.videoId, mUpcomingVideoId)) {
+            mUpcomingVideoId = video.videoId;
+            mUpcomingNotLiveAnswers = 0;
+            mUpcomingStartMs = 0;
+        }
+
+        long startMs = LiveStartPollPolicy.scheduledStartMs(formatInfo);
+        if (startMs > 0) {
+            mUpcomingStartMs = startMs; // a later client may omit it: keep the last known schedule
+        }
+
+        long nowMs = System.currentTimeMillis();
+        long foregroundDelayMs = LiveStartPollPolicy.PLAYER.delayMs(nowMs, mUpcomingStartMs, mUpcomingNotLiveAnswers);
+        boolean hidden = !isUpcomingSlateVisible();
+        long delayMs = hidden ? LiveStartPollPolicy.backgroundDelayMs(foregroundDelayMs) : foregroundDelayMs;
+        mUpcomingNotLiveAnswers++;
+
+        NetPath.log(NetPath.context() + " upcoming-poll in=" + delayMs
+                + " startIn=" + LiveStartPollPolicy.startInLabel(nowMs, mUpcomingStartMs)
+                + " answers=" + mUpcomingNotLiveAnswers + " hidden=" + (hidden ? "y" : "n"));
+        reloadVideo((int) delayMs);
+
+        if (player.isEngineInitialized()) {
+            mUpcomingAnsweredAtMs = SystemClock.elapsedRealtime();
+            mUpcomingForegroundDelayMs = foregroundDelayMs;
+            mUpcomingPollDueAtMs = mUpcomingAnsweredAtMs + delayMs;
+        }
+    }
+
+    /**
+     * The countdown slate is on screen: the watch page itself, or its PiP window (someone waiting
+     * in PiP is watching for the start). Background audio, screen off, the Browse mini-player and
+     * anything on top of the player count as hidden.
+     */
+    private boolean isUpcomingSlateVisible() {
+        PlaybackView player = getPlayer();
+        return player != null && (mViewResumed || player.isInPIPMode());
+    }
+
+    /**
+     * NEWTUBE(upcoming-poll): back on screen while a poll scheduled at the hidden (slowed) cadence
+     * is still pending - bring it in to where the foreground cadence would have put it.
+     */
+    private void hastenUpcomingPollIfNeeded() {
+        PlaybackView player = getPlayer();
+        if (mUpcomingPollDueAtMs <= 0 || player == null || !player.isEngineInitialized()) {
+            return;
+        }
+
+        long foregroundDueAtMs = mUpcomingAnsweredAtMs + mUpcomingForegroundDelayMs;
+        if (foregroundDueAtMs >= mUpcomingPollDueAtMs) {
+            return; // not slowed down
+        }
+
+        long nowMs = SystemClock.elapsedRealtime();
+        long delayMs = Math.max(1_000, foregroundDueAtMs - nowMs);
+        NetPath.log(NetPath.context() + " upcoming-poll hasten in=" + delayMs
+                + " (was " + (mUpcomingPollDueAtMs - nowMs) + ")");
+        reloadVideo((int) delayMs);
+        mUpcomingPollDueAtMs = nowMs + delayMs;
     }
 
     private void loadNextVideo(int delayMs) {
@@ -567,6 +683,7 @@ public class VideoLoaderController extends BasePlayerController {
         MediaServiceManager.instance().disposeActions();
         RxHelper.disposeActions(mFormatInfoAction);
         Utils.removeCallbacks(mReloadVideo, mLoadNext, mRestartEngine, mMetadataSync);
+        mUpcomingPollDueAtMs = 0; // NEWTUBE(upcoming-poll): its reload was just removed above
     }
 
     public void restartEngine() {

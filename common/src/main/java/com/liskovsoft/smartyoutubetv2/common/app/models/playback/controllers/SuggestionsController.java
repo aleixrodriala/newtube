@@ -26,6 +26,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.SeekBarSegme
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
+import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.misc.BrowseProcessorManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
@@ -92,6 +93,30 @@ public class SuggestionsController extends BasePlayerController {
      * isPlayerAlive() INSIDE the lock so the answer cannot go stale between test and act.
      */
     private final Object mPendingViewLock = new Object();
+    /**
+     * NEWTUBE(live-refresh): the live watch page re-fetches /next once a minute (onTickle) to keep
+     * the view count and title current. That is only worth ~65 KB a minute while somebody can read
+     * it: it used to keep running in background audio, PiP and with the screen off. The playback
+     * view's own pause/resume is the signal (PiP pauses it too; isInPIPMode covers a resumed PiP
+     * window); a tick skipped while hidden is caught up once on return.
+     */
+    private boolean mWatchPageResumed = true;
+    private boolean mLiveRefreshSkipped;
+    /**
+     * NEWTUBE(ryd-cache): Return YouTube Dislike counts for the current video. syncCurrentVideo
+     * runs on every open AND on every live refresh; each run used to ask the third-party host
+     * again for the same video. Two attempts per video, then give up until the next video.
+     */
+    private static final int MAX_DISLIKE_FETCHES_PER_VIDEO = 2;
+    private final PerVideoResultCache<DislikeData> mDislikeCache = new PerVideoResultCache<>(MAX_DISLIKE_FETCHES_PER_VIDEO);
+    /**
+     * NEWTUBE(upcoming-poll): the video whose /next document already reached the CURRENT watch
+     * page (or was parked for it; forgotten with that view), and the video of the /next in
+     * flight. Lets the upcoming-stream poll ask for suggestions once per video instead of once
+     * per poll - see {@link #loadSuggestionsOnce}.
+     */
+    private String mSuggestionsDeliveredVideoId;
+    private String mMetadataFetchVideoId;
 
     public static void setRowContinuationsDisabled(boolean disabled) {
         sRowContinuationsDisabled = disabled;
@@ -181,6 +206,7 @@ public class SuggestionsController extends BasePlayerController {
         mPendingListenerMetadata = null;
         mLoadedVideoId = null;
         mEagerDelivered = false;
+        mLiveRefreshSkipped = false; // a hidden stint of the previous video owes this one nothing
         boolean canFetch = mMediaItemService != null || sEagerColdOpenEnabled;
         if (sEagerSuggestionsEnabled && video != null && video.hasVideo() && canFetch) {
             mEagerVideoId = video.videoId;
@@ -234,6 +260,13 @@ public class SuggestionsController extends BasePlayerController {
     @Override
     public void onFinish() {
         disposeActions();
+        mSuggestionsDeliveredVideoId = null; // NEWTUBE(upcoming-poll): that watch page is going away
+    }
+
+    @Override
+    public void onViewDestroyed() {
+        // NEWTUBE(upcoming-poll): the document lived on this view; a new one must fetch its own.
+        mSuggestionsDeliveredVideoId = null;
     }
 
     @Override
@@ -287,6 +320,30 @@ public class SuggestionsController extends BasePlayerController {
         updateLiveDescription();
     }
 
+    @Override
+    public void onViewResumed() {
+        mWatchPageResumed = true;
+
+        // NEWTUBE(live-refresh): at least one minute tick was skipped while the page was hidden -
+        // refresh once now instead of showing stale counts until the next tick.
+        if (mLiveRefreshSkipped) {
+            mLiveRefreshSkipped = false;
+            NetPath.log(NetPath.context() + " live-refresh catch-up (watch page visible)");
+            updateLiveDescription();
+        }
+    }
+
+    @Override
+    public void onViewPaused() {
+        mWatchPageResumed = false;
+    }
+
+    /** NEWTUBE(live-refresh): can anybody read the watch page (title, counts) right now? */
+    private boolean isWatchPageVisible() {
+        PlaybackView player = getPlayer();
+        return mWatchPageResumed && player != null && !player.isInPIPMode();
+    }
+
     private void updateLiveDescription() {
         if (getPlayer() == null) {
             return;
@@ -298,6 +355,17 @@ public class SuggestionsController extends BasePlayerController {
             return;
         }
 
+        // NEWTUBE(live-refresh): background audio / PiP / screen off - nobody can see the result.
+        if (!isWatchPageVisible()) {
+            if (!mLiveRefreshSkipped) { // one line per hidden stint, not one per minute
+                NetPath.log(NetPath.context() + " live-refresh skip hidden pip="
+                        + (getPlayer().isInPIPMode() ? "y" : "n"));
+            }
+            mLiveRefreshSkipped = true;
+            return;
+        }
+
+        NetPath.log(NetPath.context() + " live-refresh fetch");
         loadMetadata(video, metadata -> syncCurrentVideo(metadata, video));
     }
 
@@ -362,11 +430,17 @@ public class SuggestionsController extends BasePlayerController {
         }
 
         video.sync(mediaItemMetadata);
+        // NEWTUBE(ryd-cache): sync(metadata) just replaced the counts with /next's estimate; put
+        // this video's cached RYD counts back BEFORE painting, so a live refresh neither flickers
+        // nor re-asks the third-party host.
+        boolean dislikesCached = applyCachedDislikes(video);
         getPlayer().setVideo(video);
 
         getPlayer().setNextTitle(getNext());
 
-        appendDislikes(video);
+        if (!dislikesCached) {
+            appendDislikes(video);
+        }
     }
 
     public void loadSuggestions(Video video) {
@@ -384,6 +458,26 @@ public class SuggestionsController extends BasePlayerController {
     }
 
     /**
+     * NEWTUBE(upcoming-poll): {@link #loadSuggestions} unless this video's /next document is
+     * already on the watch page (or parked for it) or in flight. The upcoming-stream poll re-runs
+     * the whole open every poll; it used to add one /next per /player to it, for a document that
+     * was already showing (and, on the first poll, raced the eager fetch of the same video).
+     */
+    public void loadSuggestionsOnce(Video video) {
+        String videoId = video != null ? video.videoId : null;
+        if (videoId != null) {
+            boolean delivered = videoId.equals(mSuggestionsDeliveredVideoId);
+            boolean inFlight = videoId.equals(mMetadataFetchVideoId) && RxHelper.isAnyActionRunning(mActions);
+            if (delivered || inFlight) {
+                NetPath.log(NetPath.context() + " suggest skip " + (delivered ? "delivered" : "in-flight"));
+                return;
+            }
+        }
+
+        loadSuggestions(video);
+    }
+
+    /**
      * Stop speculative metadata work for a video that cannot be played and remove any result that
      * won the race with the player verdict. Mobile starts {@code /next} in parallel with
      * {@code /player}; without this explicit cancellation, a bot-check response can leave an
@@ -394,6 +488,7 @@ public class SuggestionsController extends BasePlayerController {
         mEagerVideoId = null;
         mEagerDelivered = false;
         mLoadedVideoId = null;
+        mSuggestionsDeliveredVideoId = null;
 
         if (getPlayer() != null) {
             getPlayer().clearSuggestions();
@@ -412,6 +507,7 @@ public class SuggestionsController extends BasePlayerController {
 
         // NOTE: Load suggestions from mediaItem isn't robust. Because playlistId may be initialized from RemoteControlManager.
         // Video might be loaded from Channels section (has playlistParams)
+        mMetadataFetchVideoId = video.videoId;
         observable = mediaItemService().getMetadataObserve(video.videoId, video.getPlaylistId(), video.playlistIndex, video.playlistParams);
 
         Disposable metadataAction = observable
@@ -524,6 +620,7 @@ public class SuggestionsController extends BasePlayerController {
                     if (Helpers.equals(video.videoId, mEagerVideoId)) {
                         mEagerDelivered = true; // the document is in hand: don't refetch it
                     }
+                    mSuggestionsDeliveredVideoId = video.videoId;
                     NetPath.log(NetPath.context() + " suggest parked +" + NetPath.elapsedMs());
                     return;
                 }
@@ -531,6 +628,9 @@ public class SuggestionsController extends BasePlayerController {
         }
 
         syncCurrentVideo(mediaItemMetadata, video);
+        if (mediaItemMetadata != null && video != null && getPlayer() != null) {
+            mSuggestionsDeliveredVideoId = video.videoId;
+        }
 
         appendSuggestions(video, mediaItemMetadata);
 
@@ -1107,16 +1207,45 @@ public class SuggestionsController extends BasePlayerController {
             return;
         }
 
-        Observable<DislikeData> dislikeDataObserve = mediaItemService().getDislikeDataObserve(video.videoId);
+        // NEWTUBE(ryd-cache): at most MAX_DISLIKE_FETCHES_PER_VIDEO asks per video.
+        String videoId = video.videoId;
+        if (!mDislikeCache.tryBeginFetch(videoId)) {
+            return;
+        }
+
+        NetPath.log(NetPath.context() + " ryd fetch");
+        Observable<DislikeData> dislikeDataObserve = mediaItemService().getDislikeDataObserve(videoId);
 
         Disposable dislikeAction = dislikeDataObserve.subscribe(
                 dislikeData -> {
+                    mDislikeCache.put(videoId, dislikeData);
                     video.sync(dislikeData);
-                    getPlayer().setVideo(video);
+                    if (getPlayer() != null) {
+                        getPlayer().setVideo(video);
+                    }
                 },
                 error -> Log.e(TAG, "Dislike not working...")
         );
 
         mActions.add(dislikeAction);
+    }
+
+    /**
+     * NEWTUBE(ryd-cache): folds this video's cached RYD counts back in.
+     *
+     * @return true if the counts came from the cache (nothing to fetch)
+     */
+    private boolean applyCachedDislikes(Video video) {
+        if (video == null || !getPlayerTweaksData().isLikesCounterEnabled()) {
+            return false;
+        }
+
+        DislikeData cached = mDislikeCache.get(video.videoId);
+        if (cached == null) {
+            return false;
+        }
+
+        video.sync(cached);
+        return true;
     }
 }
