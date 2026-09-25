@@ -1,6 +1,10 @@
 package com.newtube.mobile.ui.dialog;
 
+import android.content.res.Configuration;
+import android.graphics.Rect;
+import android.os.Build;
 import android.os.Bundle;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -246,8 +250,22 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
             mContent.setPadding(mSystemInsets.left, mSystemInsets.top,
                     mSystemInsets.right, mSystemInsets.bottom);
         } else {
-            mContent.setPadding(mSystemInsets.left, 0, mSystemInsets.right, mSystemInsets.bottom);
-            mRecyclerView.setMaxHeight(sheetMaxHeight());
+            Rect window = liveWindowBounds();
+            // NEWTUBE(sheet-landscape): a Material sheet stops at 640dp and centres on a wide
+            // window; full-width rows 914dp long read as a page, not a menu.
+            int maxWidth = getResources().getDimensionPixelSize(R.dimen.mobile_sheet_max_width);
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) mContent.getLayoutParams();
+            int width = window.width() > maxWidth ? maxWidth : ViewGroup.LayoutParams.MATCH_PARENT;
+            if (lp.width != width) {
+                lp.width = width;
+                lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                mContent.setLayoutParams(lp);
+            }
+            // A capped sheet no longer reaches the side bars; only a full-width one pads for them.
+            boolean capped = width != ViewGroup.LayoutParams.MATCH_PARENT;
+            mContent.setPadding(capped ? 0 : mSystemInsets.left, 0,
+                    capped ? 0 : mSystemInsets.right, mSystemInsets.bottom);
+            mRecyclerView.setMaxHeight(sheetMaxHeight(window.height()));
         }
     }
 
@@ -255,11 +273,32 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
      * The cap is a fraction of the space the sheet can actually occupy, not of the raw display:
      * under edge-to-edge the display height includes the bars, so measuring against it would let a
      * long sheet grow into the status bar.
+     *
+     * <p>NEWTUBE(sheet-landscape): measured against the LIVE window, not
+     * {@code getResources().getDisplayMetrics()} - that is MotherActivity's process-wide copy
+     * frozen at the first activity's orientation (CLAUDE.md), so a landscape sheet was capped at
+     * 72% of the PORTRAIT height (1650px in a 1080px window) and its last rows were unreachable.
      */
-    private int sheetMaxHeight() {
-        int usable = getResources().getDisplayMetrics().heightPixels
-                - mSystemInsets.top - mSystemInsets.bottom;
+    private int sheetMaxHeight(int windowHeight) {
+        int usable = windowHeight - mSystemInsets.top - mSystemInsets.bottom;
         return Math.round(usable * SHEET_MAX_HEIGHT_FRACTION);
+    }
+
+    private Rect liveWindowBounds() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            return getWindowManager().getCurrentWindowMetrics().getBounds();
+        }
+        DisplayMetrics metrics = new DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
+        return new Rect(0, 0, metrics.widthPixels, metrics.heightPixels);
+    }
+
+    @Override
+    public void onConfigurationChanged(@NonNull Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // Rotation with the sheet open: re-cap width/height for the new window (the insets
+        // callback also re-runs this, but not when the insets happen to be unchanged).
+        applyDialogInsets();
     }
 
     private void setupRecyclerView() {
@@ -278,7 +317,14 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
         mTitleView.setText(level.title);
         // Show the back arrow when it can pop a level; in full-screen mode also at the root (it
         // closes Settings). A root-level bottom sheet has no back arrow - the scrim/back dismiss it.
-        mBackButton.setVisibility(canGoBack() || mFullScreen ? View.VISIBLE : View.GONE);
+        boolean showBack = canGoBack() || mFullScreen;
+        mBackButton.setVisibility(showBack ? View.VISIBLE : View.GONE);
+        // NEWTUBE(sheet-title): without the arrow the title sat 4dp from the edge while every row
+        // starts at 16dp; line it up with the rows. Beside the arrow, 4dp keeps the usual gap.
+        mTitleView.setPaddingRelative(
+                getResources().getDimensionPixelSize(showBack
+                        ? R.dimen.mobile_dialog_title_inset_with_back : R.dimen.mobile_dialog_title_inset),
+                mTitleView.getPaddingTop(), mTitleView.getPaddingEnd(), mTitleView.getPaddingBottom());
         mAdapter.submit(level.categories, mRadioOverrides);
         mRecyclerView.scrollToPosition(0);
     }

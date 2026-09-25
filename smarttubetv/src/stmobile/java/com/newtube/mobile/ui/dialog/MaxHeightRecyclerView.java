@@ -42,9 +42,21 @@ public class MaxHeightRecyclerView extends RecyclerView {
 
     @Override
     protected void onMeasure(int widthSpec, int heightSpec) {
-        if (mMaxHeight > 0) {
-            heightSpec = MeasureSpec.makeMeasureSpec(mMaxHeight, MeasureSpec.AT_MOST);
+        super.onMeasure(widthSpec, capHeightSpec(heightSpec, mMaxHeight));
+    }
+
+    /**
+     * The tighter of the cap and the parent's own limit. Replacing the parent's spec outright (the
+     * old behaviour) let the list measure taller than the window it sits in whenever the cap was
+     * computed from stale metrics - the landscape sheet whose last rows could not be scrolled to.
+     */
+    static int capHeightSpec(int heightSpec, int maxHeight) {
+        if (maxHeight <= 0) {
+            return heightSpec;
         }
-        super.onMeasure(widthSpec, heightSpec);
+        int mode = MeasureSpec.getMode(heightSpec);
+        int size = MeasureSpec.getSize(heightSpec);
+        int limit = mode == MeasureSpec.UNSPECIFIED ? maxHeight : Math.min(size, maxHeight);
+        return MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST);
     }
 }

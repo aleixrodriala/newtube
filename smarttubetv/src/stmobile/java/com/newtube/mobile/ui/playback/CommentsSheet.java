@@ -40,12 +40,10 @@ import io.reactivex.rxjava3.disposables.Disposable;
 public class CommentsSheet extends BottomSheetDialogFragment implements CommentsAdapter.Listener {
 
     private static final String ARG_COMMENTS_KEY = "comments_key";
-    private static final String ARG_TITLE = "title";
     private static final String TAG_SHEET = "mobile_comments_sheet";
     private static final int PAGE_PREFETCH_DISTANCE = 4;
 
     private String mCommentsKey;
-    private CharSequence mTitle;
 
     private CommentsService mCommentsService;
     private CommentsAdapter mAdapter;
@@ -61,6 +59,7 @@ public class CommentsSheet extends BottomSheetDialogFragment implements Comments
     private boolean mLoading;
     private boolean mFirstPageLoaded;
 
+    /** {@code title} is no longer shown (see onViewCreated); kept so callers need not change. */
     public static void show(@NonNull androidx.fragment.app.FragmentManager fm, String commentsKey, CharSequence title) {
         if (commentsKey == null) {
             return;
@@ -68,7 +67,6 @@ public class CommentsSheet extends BottomSheetDialogFragment implements Comments
         CommentsSheet sheet = new CommentsSheet();
         Bundle args = new Bundle();
         args.putString(ARG_COMMENTS_KEY, commentsKey);
-        args.putCharSequence(ARG_TITLE, title);
         sheet.setArguments(args);
         sheet.show(fm, TAG_SHEET);
     }
@@ -78,7 +76,6 @@ public class CommentsSheet extends BottomSheetDialogFragment implements Comments
         super.onCreate(savedInstanceState);
         if (getArguments() != null) {
             mCommentsKey = getArguments().getString(ARG_COMMENTS_KEY);
-            mTitle = getArguments().getCharSequence(ARG_TITLE);
         }
         mCommentsService = YouTubeServiceManager.instance().getCommentsService();
     }
@@ -94,10 +91,8 @@ public class CommentsSheet extends BottomSheetDialogFragment implements Comments
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
-        TextView title = view.findViewById(R.id.comments_sheet_title);
-        if (mTitle != null && mTitle.length() > 0) {
-            title.setText(mTitle);
-        }
+        // NEWTUBE(comments-title): the sheet is titled "Comments" (layout default), like YouTube's -
+        // repeating the video title the watch page already shows right above it told nothing.
         view.findViewById(R.id.comments_sheet_close).setOnClickListener(v -> dismissAllowingStateLoss());
 
         mProgress = view.findViewById(R.id.comments_sheet_progress);

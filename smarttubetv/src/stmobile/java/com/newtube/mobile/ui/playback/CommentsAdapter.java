@@ -232,8 +232,11 @@ public class CommentsAdapter extends RecyclerView.Adapter<CommentsAdapter.VH> {
                 mLikeCount.setVisibility(View.VISIBLE);
                 mLikeCount.setText(entry.likeCount);
             }
+            // NEWTUBE(icons): filled = active, outline = passive count (no red tint - standing rule).
+            mLikeIcon.setImageResource(entry.liked
+                    ? R.drawable.ic_watch_thumb_up : R.drawable.ic_watch_thumb_up_outline);
             mLikeIcon.setColorFilter(ContextCompat.getColor(context,
-                    entry.liked ? R.color.mobile_color_primary : R.color.mobile_color_on_surface_secondary));
+                    entry.liked ? R.color.mobile_color_on_surface : R.color.mobile_color_on_surface_secondary));
 
             bindRepliesToggle(context, entry);
 
