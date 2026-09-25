@@ -149,6 +149,7 @@ public class MobileBrowseActivity extends MobileActivity
     private boolean mYouShowing;
     /** True when the current grid section was opened from a You-panel row (back returns to You). */
     private boolean mSectionFromYou;
+    private BrowseTopBar mTopBar;
     private View mErrorContainer;
     private ImageView mErrorIcon;
     private TextView mErrorMessage;
@@ -249,6 +250,7 @@ public class MobileBrowseActivity extends MobileActivity
         mErrorAction = findViewById(R.id.mobile_error_action);
         mSearchButton = findViewById(R.id.mobile_search_button);
         mCastButton = findViewById(R.id.mobile_cast_button);
+        mTopBar = new BrowseTopBar(this, () -> getOnBackPressedDispatcher().onBackPressed());
 
         mMiniPlayerBar = findViewById(R.id.mobile_mini_player);
         mMiniPlayerFrame = findViewById(R.id.mobile_mini_player_frame);
@@ -738,11 +740,32 @@ public class MobileBrowseActivity extends MobileActivity
         updateAccountRow();
         mContentSwipe.setRefreshing(false);
         mYouPanel.setVisibility(View.VISIBLE);
+        onYouPanelToggled();
     }
 
     private void hideYouPanel() {
         mYouShowing = false;
         mYouPanel.setVisibility(View.GONE);
+        onYouPanelToggled();
+    }
+
+    /**
+     * NEWTUBE(you-subscreen): state that follows the You panel and the section-from-You flag.
+     * (1) The feed stays laid out under the opaque panel, so TalkBack kept walking its cards; hide
+     * it (and its skeleton/error overlays) from accessibility while the panel covers it. (2) The
+     * top bar: a section opened from a You row - one without a bottom-nav tab of its own - is a
+     * You sub-screen with a back arrow and its name.
+     */
+    private void onYouPanelToggled() {
+        int a11y = mYouShowing
+                ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO;
+        mContentSwipe.setImportantForAccessibility(a11y);
+        mFeedSkeleton.setImportantForAccessibility(a11y);
+        mErrorContainer.setImportantForAccessibility(a11y);
+
+        boolean subScreen = mSectionFromYou && !mYouShowing
+                && mBottomNav.getMenu().findItem(toMenuItemId(mCurrentSectionId)) == null;
+        mTopBar.show(subScreen ? getCurrentSectionTitle() : null);
     }
 
     /**
@@ -809,6 +832,7 @@ public class MobileBrowseActivity extends MobileActivity
             mSectionFromYou = true;
             hideYouPanel();
             onSectionChosen(sectionId);
+            onYouPanelToggled(); // now that the chosen section is current: its name in the top bar
         });
         row.setOnLongClickListener(v -> {
             if (mPresenter != null) {
@@ -1402,6 +1426,7 @@ public class MobileBrowseActivity extends MobileActivity
             // A section with its own tab re-lights that tab; one opened from a You row has none,
             // so the restored You highlight is the right one to keep.
             syncNavHighlight(mCurrentSectionId);
+            onYouPanelToggled();
         }
     }
 
@@ -1420,7 +1445,10 @@ public class MobileBrowseActivity extends MobileActivity
         }
 
         // On the You tab itself, back goes Home (YouTube behavior) instead of exiting.
-        if (mYouShowing) {
+        // NEWTUBE(back-home): so does back on any other tab (Subscriptions, History, Downloads) -
+        // it used to exit the app from there, dropping the mini-player and the Home scroll. Only
+        // Home itself exits.
+        if (mYouShowing || mCurrentSectionId != MediaGroup.TYPE_HOME) {
             int homeItemId = toMenuItemId(MediaGroup.TYPE_HOME);
             if (mBottomNav.getMenu().findItem(homeItemId) != null) {
                 mBottomNav.setSelectedItemId(homeItemId); // listener hides the panel + loads Home

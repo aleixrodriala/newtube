@@ -15,19 +15,37 @@
     the system windows (solid app-colored status/nav bars), so this layout never renders
     under the bars regardless of what the player did to the display in between. -->
 
+    <!-- NEWTUBE(you-subscreen): back arrow shown (with the section's name in the title bar) only
+         while a section opened from a You row is on screen - BrowseTopBar. GONE otherwise, and a
+         GONE view collapses to a point at the start, so the wordmark keeps its 16dp inset. -->
+    <ImageButton
+        android:id="@+id/mobile_title_back"
+        android:layout_width="48dp"
+        android:layout_height="@dimen/mobile_title_bar_height"
+        android:layout_marginStart="4dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/mobile_dialog_back"
+        android:padding="12dp"
+        android:src="@drawable/ic_mobile_back_arrow"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
     <TextView
         android:id="@+id/mobile_title_bar"
         android:layout_width="0dp"
         android:layout_height="@dimen/mobile_title_bar_height"
         android:background="@color/mobile_color_background"
+        android:ellipsize="end"
         android:gravity="center_vertical|start"
+        android:maxLines="1"
         android:paddingStart="16dp"
         android:text="@string/app_name"
         android:textColor="@color/mobile_color_on_surface"
         android:textSize="22sp"
         android:textStyle="bold"
         app:layout_constraintEnd_toStartOf="@id/mobile_cast_button"
-        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintStart_toEndOf="@id/mobile_title_back"
         app:layout_constraintTop_toTopOf="parent" />
 
     <!-- Cast picker entry on the home feed, like the official app's top bar. Tinted with the
