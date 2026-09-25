@@ -1701,10 +1701,7 @@ public class MobileBrowseActivity extends MobileActivity
             mErrorIcon.setVisibility(View.VISIBLE);
 
             if (hasSignInAction) {
-                String sectionTitle = getCurrentSectionTitle();
-                mErrorMessage.setText(sectionTitle != null
-                        ? getString(R.string.mobile_empty_signin_section, sectionTitle)
-                        : getString(R.string.mobile_empty_signin_generic));
+                mErrorMessage.setText(SignInCopy.forSection(this, mCurrentSectionId, getCurrentSectionTitle()));
                 mErrorAction.setText(actionText);
                 mErrorAction.setVisibility(View.VISIBLE);
             } else if (!hasValidatedNetwork()) {

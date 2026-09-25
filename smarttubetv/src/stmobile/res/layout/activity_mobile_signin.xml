@@ -116,16 +116,13 @@
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/mobile_signin_retry_button"
+                    style="@style/Widget.NewTube.Button.Pill"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
                     android:paddingStart="24dp"
                     android:paddingEnd="24dp"
-                    android:text="@string/mobile_signin_retry_button"
-                    android:textColor="@color/mobile_color_on_surface"
-                    android:textSize="16sp"
-                    app:backgroundTint="@color/mobile_color_primary"
-                    app:cornerRadius="24dp" />
+                    android:text="@string/mobile_signin_retry_button" />
 
             </LinearLayout>
 
@@ -335,18 +332,19 @@
                     android:textColor="@color/mobile_color_on_surface_secondary"
                     android:textSize="11sp" />
 
+                <!-- NEWTUBE(buttons): the app's main-action pill (Widget.NewTube.Button.Pill),
+                     full width and a step taller here as the screen's one action. Was a red
+                     all-caps box, the only red button in the app. -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/mobile_signin_open_button"
+                    style="@style/Widget.NewTube.Button.Pill"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="28dp"
-                    android:paddingTop="12dp"
-                    android:paddingBottom="12dp"
+                    android:minHeight="56dp"
                     android:text="@string/mobile_signin_open_button"
-                    android:textColor="@color/mobile_color_on_surface"
                     android:textSize="16sp"
-                    app:backgroundTint="@color/mobile_color_primary"
-                    app:cornerRadius="26dp" />
+                    app:cornerRadius="24dp" />
 
                 <TextView
                     android:id="@+id/mobile_signin_manual_hint"

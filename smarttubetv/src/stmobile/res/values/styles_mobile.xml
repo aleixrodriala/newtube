@@ -12,8 +12,18 @@
       already proven to resolve cleanly against this project's pinned
       appcompat/fragment/leanback versions before this change - no fallback to
       AppCompat + cardview was needed.
+
+      NEWTUBE(theme-dark-only): the parent is the DARK Material theme, not DayNight. NewTube has
+      one palette (#0F0F0F surfaces, white text) and never shipped a light one, but with a DayNight
+      parent a phone in system LIGHT mode resolved every attribute this theme does not override to
+      its light value: unchecked radio rings and checkbox outlines came out #060606 on #0F0F0F
+      (invisible on every settings screen), and ripples/scrollbars/switch tracks were light-theme
+      greys. In Material 1.14 DayNight.NoActionBar under values-night IS Theme.MaterialComponents
+      .NoActionBar, so dark-mode users see exactly what they saw before; light-mode users now see
+      the same thing. (Forcing AppCompat night mode instead was rejected: it recreates every open
+      screen whenever the delegate's mode is applied, and fixes nothing this parent doesn't.)
     -->
-    <style name="Theme.NewTube" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <style name="Theme.NewTube" parent="Theme.MaterialComponents.NoActionBar">
         <item name="colorPrimary">@color/mobile_color_primary</item>
         <item name="colorPrimaryDark">@color/mobile_color_primary_dark</item>
         <!-- Selection controls (checkbox, radio, switch, text caret) and any untinted
@@ -59,6 +69,42 @@
              background assigned in code never sticks. -->
         <item name="bottomSheetDialogTheme">@style/ThemeOverlay.NewTube.BottomSheetDialog</item>
         <item name="android:windowAnimationStyle">@style/BrowseWindowAnimation</item>
+        <!-- NEWTUBE(buttons): sentence case everywhere. Material's default button text is
+             ALL CAPS with 0.09em tracking ("SIGN IN", "TRY AGAIN", "CONTINUE WITH GOOGLE") and
+             TabLayout reads the same attribute (channel tabs "NEW HERE? TRY THESE!"), next to
+             the app's own sentence-case pills ("Play all", "Subscribe"). Changing the text
+             appearance - not materialButtonStyle - keeps every button's own shape/colour. -->
+        <item name="textAppearanceButton">@style/TextAppearance.NewTube.Button</item>
+    </style>
+
+    <style name="TextAppearance.NewTube.Button" parent="TextAppearance.MaterialComponents.Button">
+        <item name="android:textAllCaps">false</item>
+        <item name="android:letterSpacing">0</item>
+    </style>
+
+    <!--
+      NEWTUBE(buttons): the app's one main-action button - a white pill with black sentence-case
+      text, the look "Play all", "Subscribe" and the cast sheet's "Link TV" already had inline.
+      Used for the plain buttons that used to fall back to Material's default (red box, all caps):
+      the feed/page error actions ("Sign in", "Try again"), sign-in and add-device. The visible
+      pill is 40dp tall; the 4dp insets keep the touch target at 48dp.
+    -->
+    <style name="Widget.NewTube.Button.Pill" parent="Widget.MaterialComponents.Button">
+        <item name="android:textColor">@android:color/black</item>
+        <item name="backgroundTint">@android:color/white</item>
+        <item name="rippleColor">#33000000</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="android:insetTop">4dp</item>
+        <item name="android:insetBottom">4dp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingStart">20dp</item>
+        <item name="android:paddingEnd">20dp</item>
+        <item name="android:elevation">0dp</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="cornerRadius">20dp</item>
     </style>
 
     <style name="ThemeOverlay.NewTube.BottomSheetDialog" parent="ThemeOverlay.MaterialComponents.BottomSheetDialog">

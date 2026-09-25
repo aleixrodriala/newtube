@@ -157,6 +157,15 @@
     <!-- Empty / sign-in-gated / errored browse section placeholders (MobileBrowseActivity) -->
     <string name="mobile_empty_signin_section">Sign in to see your %1$s</string>
     <string name="mobile_empty_signin_generic">Sign in to see this content</string>
+    <!-- Per-section wording (SignInCopy) - "Sign in to see your %1$s" read "your My videos". -->
+    <string name="mobile_empty_signin_subscriptions">Sign in to see your subscriptions</string>
+    <string name="mobile_empty_signin_channels">Sign in to see the channels you follow</string>
+    <string name="mobile_empty_signin_playlists">Sign in to see your playlists</string>
+    <string name="mobile_empty_signin_my_videos">Sign in to see your videos</string>
+    <string name="mobile_empty_signin_history">Sign in to see your watch history</string>
+    <string name="mobile_empty_signin_notifications">Sign in to see your notifications</string>
+    <!-- Overrides common's all-caps TV label ("SIGN IN") on the sign-in-gated empty state. -->
+    <string name="action_signin">Sign in</string>
     <string name="mobile_empty_generic">Nothing to show here yet</string>
     <!-- Same empty state, but the device has no working network: say so instead of blaming the feed. -->
     <string name="mobile_empty_no_connection">No connection. Check your network and try again.</string>

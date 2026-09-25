@@ -8,7 +8,7 @@
 
     <!-- Upstream es translation says "REGISTRARSE" (= create an account) on every sign-in
          button - wrong action. App-module resources override the library's, so fix it here
-         (es-only on purpose: the library's en default is fine - hence the lint ignore). -->
+         (the en default "SIGN IN" is overridden in values/strings_mobile.xml too). -->
     <string name="action_signin" tools:ignore="ExtraTranslation">Iniciar sesión</string>
     <string name="subscriptions_signin_button_text" tools:ignore="ExtraTranslation">Iniciar sesión</string>
 
@@ -20,6 +20,12 @@
     <!-- Signed-out empty states -->
     <string name="mobile_empty_signin_section">Inicia sesión para ver %1$s</string>
     <string name="mobile_empty_signin_generic">Inicia sesión para ver este contenido</string>
+    <string name="mobile_empty_signin_subscriptions">Inicia sesión para ver tus suscripciones</string>
+    <string name="mobile_empty_signin_channels">Inicia sesión para ver los canales que sigues</string>
+    <string name="mobile_empty_signin_playlists">Inicia sesión para ver tus listas</string>
+    <string name="mobile_empty_signin_my_videos">Inicia sesión para ver tus vídeos</string>
+    <string name="mobile_empty_signin_history">Inicia sesión para ver tu historial</string>
+    <string name="mobile_empty_signin_notifications">Inicia sesión para ver tus notificaciones</string>
 
     <!-- Sign-in screen -->
     <string name="mobile_signin_title">Iniciar sesión</string>
