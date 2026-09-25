@@ -150,7 +150,10 @@ public class MediaHttpClientTest {
         byte[] expected = Arrays.copyOfRange(original, 17, 23);
         AtomicInteger apiActivity = new AtomicInteger();
         OkHttpClient media = MediaHttpClient.create(apiClient(apiActivity));
-        assertTrue(media.interceptors().isEmpty());
+        // No API interceptor is inherited; the only one is the media client's own IPv4-preference
+        // retry (MediaAddressPreference.RetryInterceptor), which never touches headers.
+        assertEquals(1, media.interceptors().size());
+        assertTrue(media.interceptors().get(0) instanceof MediaAddressPreference.RetryInterceptor);
         assertTrue(media.networkInterceptors().isEmpty());
         assertSame(CookieJar.NO_COOKIES, media.cookieJar());
         assertSame(Authenticator.NONE, media.authenticator());

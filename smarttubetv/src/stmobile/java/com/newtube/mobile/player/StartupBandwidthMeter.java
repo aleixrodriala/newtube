@@ -106,6 +106,17 @@ final class StartupBandwidthMeter implements BandwidthMeter, TransferListener {
         return earlyEstimate > 0 ? earlyEstimate : seed.applyAsLong(networkType);
     }
 
+    /**
+     * The estimate only when real transfers on the current network back it (0 = no sample yet,
+     * or the sample went idle): the startup budget must not mistake a seed for evidence.
+     */
+    synchronized long measuredBitrate() {
+        if (lastSampleMs < 0 || clock.elapsedRealtime() - lastSampleMs > SAMPLE_MAX_IDLE_MS) {
+            return 0;
+        }
+        return stockReady ? delegate.getBitrateEstimate() : earlyEstimate;
+    }
+
     private void clearSample() {
         totalBytes = totalElapsedMs = earlyEstimate = 0;
         lastSampleMs = -1;

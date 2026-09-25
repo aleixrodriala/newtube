@@ -1,19 +1,32 @@
 package com.newtube.mobile.player;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 
 /**
- * NEWTUBE(metered): process-wide "is the default network metered" flag for the player's
- * discretionary byte policies (see {@link MeteredBufferLoadControl}). The load control asks on
- * every loading decision - every ~10 ms while it is holding - so the answer must be a field read,
- * never a binder call: one {@code registerDefaultNetworkCallback} keeps a volatile flag current.
+ * NEWTUBE(metered): process-wide "should the player save data" gate for its discretionary byte
+ * policies - the forward-buffer ceiling ({@link MeteredBufferLoadControl}) and the inline-box rung
+ * cap ({@link VideoViewportCap}). The load control asks on every loading decision - every ~10 ms
+ * while it is holding - so the answer must be a field read, never a binder call: one
+ * {@code registerDefaultNetworkCallback} and one {@code ACTION_RESTRICT_BACKGROUND_CHANGED}
+ * receiver keep two volatile flags current.
+ *
+ * <p><b>Gate = metered AND Data Saver</b> ({@link #shouldSaveData}). Android reports cellular as
+ * metered even on unlimited plans, and the owner's LTE is one: there, stability and quality beat
+ * megabytes. So "metered" alone no longer saves anything; the user must also have Android's Data
+ * Saver restricting this app ({@code getRestrictBackgroundStatus() == ENABLED}; WHITELISTED -
+ * "unrestricted data" for this app - and DISABLED do not save). Toggling Data Saver mid-playback
+ * flips both policies for NEW chunks / loading decisions; nothing buffered is discarded.</p>
  *
  * <p>Registration (and its one seeding read) runs on a one-shot background thread, NOT inside
  * {@code createPlayer()} on main: that is the TTFF path, and the answer is not needed there - the
@@ -39,10 +52,16 @@ final class MeteredNetworkMonitor {
     private static final int NET_CAPABILITY_TEMPORARILY_NOT_METERED = 25;
 
     private static volatile boolean sMetered;
+    /** Data Saver is on and restricts this app (RESTRICT_BACKGROUND_STATUS_ENABLED). */
+    private static volatile boolean sDataSaver;
     private static volatile boolean sKnown;
     /** Test seam: when set, wins over the live value (the live thread may still write under it). */
     @Nullable private static volatile Boolean sTestOverride;
+    /** Test seam for the Data Saver half, same contract. */
+    @Nullable private static volatile Boolean sDataSaverTestOverride;
     private static boolean sStarted;
+    /** Last published gate, so only a real flip reaches the viewport log. Guarded by the class. */
+    private static boolean sPublishedSaving;
 
     private MeteredNetworkMonitor() {
     }
@@ -53,9 +72,27 @@ final class MeteredNetworkMonitor {
         return override != null ? override : sMetered;
     }
 
-    /** For the creation log only: "pending" until the background registration has reported. */
+    /** Cheap: a volatile read. False until the registration has read the status, and on failure. */
+    static boolean isDataSaverOn() {
+        Boolean override = sDataSaverTestOverride;
+        return override != null ? override : sDataSaver;
+    }
+
+    /** The gate both byte policies hang off: metered AND Data Saver restricting this app. */
+    static boolean shouldSaveData() {
+        return isMetered() && isDataSaverOn();
+    }
+
+    /** For logs: "metered=y dataSaver=n"; "pending" until the background registration reported. */
     static String describe() {
-        return sTestOverride != null || sKnown ? (isMetered() ? "y" : "n") : "pending";
+        boolean metered = sKnown || sTestOverride != null;
+        boolean dataSaver = sKnown || sDataSaverTestOverride != null;
+        return "metered=" + (metered ? yn(isMetered()) : "pending")
+                + " dataSaver=" + (dataSaver ? yn(isDataSaverOn()) : "pending");
+    }
+
+    private static String yn(boolean value) {
+        return value ? "y" : "n";
     }
 
     /** Idempotent and non-blocking. Safe from any thread; the first player creation calls it. */
@@ -85,6 +122,7 @@ final class MeteredNetworkMonitor {
         }
 
         final ConnectivityManager cm = manager;
+        registerDataSaverReceiver(context, cm);
         try {
             update(isMetered(cm.getNetworkCapabilities(cm.getActiveNetwork())), "start");
             cm.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
@@ -132,6 +170,35 @@ final class MeteredNetworkMonitor {
         }
     }
 
+    /**
+     * Data Saver toggles (and per-app "unrestricted data" changes) arrive only as this broadcast,
+     * and only to runtime-registered receivers. The seeding read happens here too, silently: the
+     * "start" network report right after publishes the pair.
+     */
+    private static void registerDataSaverReceiver(Context context, final ConnectivityManager cm) {
+        try {
+            sDataSaver = isDataSaverOn(cm.getRestrictBackgroundStatus());
+            BroadcastReceiver receiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context c, Intent intent) {
+                    updateDataSaver(isDataSaverOn(cm.getRestrictBackgroundStatus()));
+                }
+            };
+            // System broadcast; RECEIVER_NOT_EXPORTED still receives it (API 34+ wants a flag).
+            ContextCompat.registerReceiver(context, receiver,
+                    new IntentFilter(ConnectivityManager.ACTION_RESTRICT_BACKGROUND_CHANGED),
+                    ContextCompat.RECEIVER_NOT_EXPORTED);
+        } catch (RuntimeException e) {
+            // Unknown reads as "not saving": the byte policies stay off, never the reverse.
+            NetPath.log("buffer-cap data-saver monitor failed error=" + e.getClass().getSimpleName());
+        }
+    }
+
+    /** Pure: only ENABLED restricts this app; WHITELISTED ("unrestricted data") and DISABLED do not. */
+    static boolean isDataSaverOn(int restrictBackgroundStatus) {
+        return restrictBackgroundStatus == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED;
+    }
+
     /** Pure: metered exactly when Android does not report the link as (temporarily) unmetered. */
     static boolean isMetered(@Nullable NetworkCapabilities capabilities) {
         if (capabilities == null) {
@@ -141,18 +208,42 @@ final class MeteredNetworkMonitor {
                 && !capabilities.hasCapability(NET_CAPABILITY_TEMPORARILY_NOT_METERED);
     }
 
-    private static void update(boolean metered, String event) {
+    private static synchronized void update(boolean metered, String event) {
         boolean previous = sMetered;
         boolean first = !sKnown;
         sMetered = metered;
         sKnown = true;
         if (previous != metered || first) {
-            NetPath.log("buffer-cap network metered=" + (metered ? "y" : "n") + " event=" + event);
+            publish(event);
+        }
+    }
+
+    private static synchronized void updateDataSaver(boolean dataSaver) {
+        if (sDataSaver != dataSaver) {
+            sDataSaver = dataSaver;
+            publish("data-saver");
+        }
+    }
+
+    /** One line per change of either half, saying what the policies do about it. */
+    private static void publish(String event) {
+        boolean saving = sMetered && sDataSaver;
+        NetPath.log("buffer-cap network metered=" + yn(sMetered) + " dataSaver=" + yn(sDataSaver)
+                + " event=" + event + " -> " + (saving ? "on" : "off"));
+        if (saving != sPublishedSaving) {
+            sPublishedSaving = saving;
+            // The inline rung cap reads shouldSaveData() per selection by itself; this only logs it.
+            VideoViewportCap.shared().onSavingChanged(saving, event);
         }
     }
 
     /** Test seam: pin the answer (null = live value again) without a ConnectivityManager. */
     static void setMeteredForTest(@Nullable Boolean metered) {
         sTestOverride = metered;
+    }
+
+    /** Test seam: pin the Data Saver half (null = live value again). */
+    static void setDataSaverForTest(@Nullable Boolean dataSaver) {
+        sDataSaverTestOverride = dataSaver;
     }
 }

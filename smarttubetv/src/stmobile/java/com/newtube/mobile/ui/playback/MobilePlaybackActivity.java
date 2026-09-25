@@ -324,6 +324,7 @@ public class MobilePlaybackActivity extends MobileActivity
                         && getResources().getConfiguration().orientation
                         == Configuration.ORIENTATION_PORTRAIT) {
                     applyPortraitVideoHeight(width);
+                    updateInlineViewport(width);
                 }
             };
 
@@ -800,6 +801,11 @@ public class MobilePlaybackActivity extends MobileActivity
             lp.height = LinearLayout.LayoutParams.MATCH_PARENT;
             lp.weight = 0;
             mVideoArea.setLayoutParams(lp);
+            // Fullscreen: the data-saving inline-box cap no longer applies to NEW chunks
+            // (buffered ones play out). The watch root's next portrait layout re-arms it.
+            if (mExoPlayerController != null) {
+                mExoPlayerController.clearInlineViewport("fullscreen");
+            }
             if (mWatchScroll != null) {
                 mWatchScroll.setVisibility(View.GONE);
             }
@@ -1562,6 +1568,25 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private boolean isLandscape() {
         return getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+    }
+
+    /**
+     * NEWTUBE(viewport): report the portrait video box - {@code boxWidth} x its 16:9 height, the
+     * exact size {@link #applyPortraitVideoHeight} lays it out with (1080x608 on a Pixel 9) - as
+     * the inline window. The player caps NEW chunks to it only while saving data - metered network
+     * AND Data Saver on (VideoViewportCap). Called on every watch-root layout; an unchanged box is
+     * a no-op there.
+     * PiP (and a PiP entry already accepted) owns the cap and its layout is not the inline box, so
+     * it is never recorded then. A zoom/fill resize mode crops the video to the box, which needs a
+     * larger rung for non-16:9 videos (the cap handles that as "fill").
+     */
+    private void updateInlineViewport(int boxWidth) {
+        if (mExoPlayerController == null || boxWidth <= 0 || mIsInPip || mPipEnterPending
+                || isLandscape()) {
+            return;
+        }
+        mExoPlayerController.setInlineViewport(boxWidth, Math.round(boxWidth * 9f / 16f),
+                getResizeMode() != RESIZE_MODE_DEFAULT);
     }
 
     // ---------------------------------------------------------------------------------
@@ -5755,6 +5780,10 @@ public class MobilePlaybackActivity extends MobileActivity
     public void setResizeMode(int mode) {
         if (mPlayerView != null) {
             mPlayerView.setResizeMode(mode);
+        }
+        // Fit vs fill changes the pixels a non-16:9 video needs in the inline box.
+        if (mWatchRoot != null) {
+            updateInlineViewport(mWatchRoot.getWidth());
         }
     }
 

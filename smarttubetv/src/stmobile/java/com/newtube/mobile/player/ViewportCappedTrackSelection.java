@@ -22,7 +22,10 @@ import java.util.List;
  * non-excluded rung when nothing qualifies - so a cap can never leave the selection empty. All
  * of media3's own switching rules still apply on top: a down-switch is refused while the buffer
  * is above the preset's down-switch window, so entering PiP keeps playing the already-buffered
- * full-resolution chunks and only NEW chunks are fetched at the window's rung.</p>
+ * full-resolution chunks and only NEW chunks are fetched at the window's rung. The same holds for
+ * the data-saving inline-box cap, whose window comes and goes with the network / Data Saver:
+ * nothing here caches that answer beyond the window snapshot {@link VideoViewportCap#current()}
+ * returns.</p>
  *
  * <p>Explicit quality picks are untouched by construction: a {@code TrackSelectionOverride} of
  * one track becomes a {@code FixedTrackSelection}, never this class. Audio formats (no
@@ -69,7 +72,7 @@ final class ViewportCappedTrackSelection extends AdaptiveTrackSelection {
             }
             mResolvedFor = viewport;
             mResolvedMaxPixels = VideoViewportCap.maxPixelsToRetain(formats, viewport.width,
-                    viewport.height);
+                    viewport.height, viewport.cover);
             logResolved(viewport, formats, mResolvedMaxPixels);
         }
         return mResolvedMaxPixels;
@@ -96,6 +99,7 @@ final class ViewportCappedTrackSelection extends AdaptiveTrackSelection {
             return; // an audio selection: nothing to report
         }
         NetPath.log("viewport " + viewport.mode + " window=" + viewport.width + "x" + viewport.height
+                + (viewport.cover ? " fill=y" : "")
                 + " top-rung=" + (top != null ? top.width + "x" + top.height : "none")
                 + " eligible=" + eligible + "/" + video);
     }

@@ -19,6 +19,7 @@ import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.MediaTrack;
 import com.liskovsoft.smartyoutubetv2.common.misc.BufferingDetector;
 import com.liskovsoft.smartyoutubetv2.common.misc.BufferingDetector.OnLongBuffering;
+import com.liskovsoft.smartyoutubetv2.common.misc.MediaStartupTimeoutException;
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
@@ -400,10 +401,21 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
 
             boolean isGeneralError = Helpers.startsWithAny(errorContent, "Response code: 429", "Response code: 500");
             boolean gvsForbidden = hasHttpStatus(error, 403);
+            // NEWTUBE(startup-failover): the media host of a fresh source never answered on any
+            // transport the source layer tried (zero bytes, no HTTP status). That is a verdict on
+            // the edge host/route, not on the /player client whose answer was fine: its
+            // circuit-break (switchNextFormat) would also reset the PO-token cache and begin the
+            // recovery walk on a slower web client. The FIRST such failure therefore only mints
+            // fresh URLs from the same client; a repeat escalates through the normal ring below.
+            boolean transportOnly = !gvsForbidden && mConsecutiveAutoFixCount <= 1
+                    && MediaStartupTimeoutException.isInChain(error);
             if (isGeneralError && isSubtitlesEnabled()) {
                 disableSubtitles(); // Response code: 429
             } else if (isGeneralError && getPlayerTweaksData().isHighBitrateFormatsEnabled()) {
                 getPlayerTweaksData().setHighBitrateFormatsEnabled(false); // Response code: 429
+            } else if (transportOnly) {
+                com.liskovsoft.youtubeapi.service.YouTubeMediaItemService.instance().invalidateCache();
+                freshUrlsRequested = true;
             } else {
                 // A proven GVS 403 from an authenticated TV route is remembered against this
                 // default network. Recovery still remints immediately; later opens avoid selecting
@@ -417,7 +429,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             NetPath.log(NetPath.context() + " recovery-source http403="
                     + (gvsForbidden ? "y" : "n")
                     + " freshUrls=" + (freshUrlsRequested ? "y" : "n")
-                    + " subtitles=" + (isSubtitlesEnabled() ? "on" : "off"));
+                    + " subtitles=" + (isSubtitlesEnabled() ? "on" : "off")
+                    + (transportOnly ? " blame=transport client=kept" : ""));
 
             restartEngine = false;
             showMessage = false;
@@ -849,7 +862,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
                     NetPath.log(NetPath.context() + " recovery-network-restored "
                             + NetPath.networkSnapshot(context, network));
                     requestAutoRetry("network", true);
-                });
+                }, () -> DefaultNetworkRecoveryCallback.isDefaultNetworkUsable(cm));
         // Publish the registration before callbacks can arrive. Its posted retry runs on the main
         // thread, so cancellation and player state changes cannot race with retry delivery.
         mConnectivityManager = cm;

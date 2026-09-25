@@ -336,7 +336,8 @@ public class AppDialogUtil {
         return UiOptionItem.from(
                 context.getString(titleResId),
                 optionItem -> {
-                    playerData.setVideoBufferType(type);
+                    // NEWTUBE(buffer-knob): a user pick - remembered so no default alignment overrides it.
+                    playerData.setVideoBufferTypeByUser(context, type);
                     onBufferSelected.run();
                 },
                 playerData.getVideoBufferType() == type);

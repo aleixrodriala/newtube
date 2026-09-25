@@ -81,7 +81,7 @@ public final class DefaultNetworkRecoveryWatcher {
                     }
                     NetPath.log(mLogTag + " network-restored " + NetPath.networkSnapshot(appContext, network));
                     listener.onNetworkRecovered(network);
-                });
+                }, () -> DefaultNetworkRecoveryCallback.isDefaultNetworkUsable(cm));
         self[0] = callback;
 
         // Publish before callbacks can arrive (see ErrorFixerController.armConnectivityRetry).

@@ -176,6 +176,125 @@ public class DefaultNetworkRecoveryCallbackTest {
         assertTrue(mMainQueue.isEmpty());
     }
 
+    @Test
+    public void blockedReplayOfAValidatedNetworkWaitsForUnblock() {
+        // Pixel 2026-09-25: the app's network blocked (OEM_DENY chain). getActiveNetwork() is null,
+        // so the controller arms "disconnected", yet the replay hands over the validated default
+        // network - its blocked status only arrives after the capabilities.
+        boolean[] usable = {false};
+        DefaultNetworkRecoveryCallback callback = new DefaultNetworkRecoveryCallback(
+                null, false, mMainQueue::add, mRecoveries::add, () -> usable[0]);
+        callback.onAvailable(mCellular);
+        callback.onCapabilitiesChanged(mCellular, capabilities(true));
+        callback.onBlockedStatusChanged(mCellular, true);
+        drainMainQueue();
+        assertTrue("a blocked network is not a restored one", mRecoveries.isEmpty());
+
+        // Bandwidth-estimate updates keep re-sending validated caps while blocked.
+        callback.onCapabilitiesChanged(mCellular, capabilities(true));
+        callback.onCapabilitiesChanged(mCellular, capabilities(true));
+        assertTrue(mMainQueue.isEmpty());
+
+        usable[0] = true;
+        callback.onBlockedStatusChanged(mCellular, false);
+        drainMainQueue();
+        assertEquals(List.of(mCellular), mRecoveries);
+    }
+
+    @Test
+    public void unusableAtDeliveryStaysArmedForTheNextEdge() {
+        // API < 29 never reports blocked status: the delivery check alone must hold the retry.
+        boolean[] usable = {false};
+        DefaultNetworkRecoveryCallback callback = new DefaultNetworkRecoveryCallback(
+                null, false, mMainQueue::add, mRecoveries::add, () -> usable[0]);
+        callback.onAvailable(mWifi);
+        callback.onCapabilitiesChanged(mWifi, capabilities(true));
+        drainMainQueue();
+        assertTrue(mRecoveries.isEmpty());
+
+        usable[0] = true;
+        callback.onCapabilitiesChanged(mWifi, capabilities(true));
+        drainMainQueue();
+        assertEquals(List.of(mWifi), mRecoveries);
+    }
+
+    @Test
+    public void rejectedDeliveryRechecksUntilTheAppCanUseTheNetwork() {
+        // API 24-28: no blocked-status callback, and the restriction lifts without any event.
+        boolean[] usable = {false};
+        List<Runnable> delayed = new ArrayList<>();
+        DefaultNetworkRecoveryCallback callback = new DefaultNetworkRecoveryCallback(
+                null, false, mMainQueue::add, mRecoveries::add, () -> usable[0],
+                (task, delayMs) -> delayed.add(task));
+        callback.onAvailable(mCellular);
+        callback.onCapabilitiesChanged(mCellular, capabilities(true));
+        drainMainQueue();
+        assertEquals(1, delayed.size());
+
+        delayed.remove(0).run(); // still blocked: one more re-check, nothing fired
+        assertTrue(mRecoveries.isEmpty());
+        assertEquals(1, delayed.size());
+
+        usable[0] = true;
+        delayed.remove(0).run();
+        assertEquals(List.of(mCellular), mRecoveries);
+        assertTrue("fired once: no further re-checks", delayed.isEmpty());
+    }
+
+    @Test
+    public void pollSlowsDownButNeverStopsWhileArmedAndStopsOnCancel() {
+        List<Runnable> delayed = new ArrayList<>();
+        List<Long> delays = new ArrayList<>();
+        DefaultNetworkRecoveryCallback callback = new DefaultNetworkRecoveryCallback(
+                null, false, mMainQueue::add, mRecoveries::add, () -> false,
+                (task, delayMs) -> {
+                    delayed.clear(); // the real poster replaces a pending identical runnable
+                    delayed.add(task);
+                    delays.add(delayMs);
+                });
+        callback.onAvailable(mWifi);
+        callback.onCapabilitiesChanged(mWifi, capabilities(true));
+        drainMainQueue();
+
+        // API 24-28 re-send validated caps on every bandwidth update: those rejected edge
+        // deliveries must not use up the fast phase.
+        for (int i = 0; i < 200; i++) {
+            callback.run();
+        }
+        assertEquals(Long.valueOf(DefaultNetworkRecoveryCallback.RECHECK_MS), delays.get(delays.size() - 1));
+
+        for (int i = 0; i < 300; i++) {
+            delayed.remove(0).run();
+        }
+        assertEquals("still armed and polling", 1, delayed.size());
+        assertEquals(Long.valueOf(DefaultNetworkRecoveryCallback.SLOW_RECHECK_MS), delays.get(delays.size() - 1));
+        assertTrue(mRecoveries.isEmpty());
+
+        callback.cancel();
+        delayed.remove(0).run();
+        assertTrue("a cancelled registration's last poll does not reschedule", delayed.isEmpty());
+    }
+
+    @Test
+    public void blockingTheHealthyNetworkThenUnblockingRecovers() {
+        DefaultNetworkRecoveryCallback callback = callback(mWifi, true);
+        callback.onBlockedStatusChanged(mWifi, true);
+        callback.onCapabilitiesChanged(mWifi, capabilities(true));
+        assertTrue(mMainQueue.isEmpty());
+        callback.onBlockedStatusChanged(mWifi, false);
+        drainMainQueue();
+        assertEquals(List.of(mWifi), mRecoveries);
+    }
+
+    @Test
+    public void healthyUnblockedReplayStaysQuiet() {
+        DefaultNetworkRecoveryCallback callback = callback(mWifi, true);
+        callback.onAvailable(mWifi);
+        callback.onCapabilitiesChanged(mWifi, capabilities(true));
+        callback.onBlockedStatusChanged(mWifi, false);
+        assertTrue(mMainQueue.isEmpty());
+    }
+
     private DefaultNetworkRecoveryCallback callback(Network initial, boolean validated) {
         return new DefaultNetworkRecoveryCallback(initial, validated, mMainQueue::add, mRecoveries::add);
     }

@@ -1595,3 +1595,84 @@ escalation= cooldownMs=`, `restore-auth-route-quarantine ... format=v2|legacy`,
   googlevideo host warm-up: reviewed, small or risky, not built.
 - The signed-in quarantine escalation is unit-tested only; verify on a signed-in
   device (`strike=2 escalation=up cooldownMs=2400000` after the second expiry).
+
+## 30. Pixel verification and follow-up round (2026-09-25, Pixel 9, Wi-Fi + LTE)
+
+Results are in STATUS (top section). This is the method, the traps and the lines to grep.
+
+### Rig and method
+- **Time only release builds, compiled.** Install in place (`keystore.properties` signs every
+  build type with the release key, so debug/release replace each other without wiping the
+  signed-in data), then `cmd package compile -m speed-profile -f io.github.aleixrodriala.arc`.
+  A debug build runs with `compilation-filter=run-from-apk`: pure-Java Brotli + JsonPath made
+  the cold VISIONOS parse 1.3 s instead of 25-60 ms, and V8 warm-up 2.4 s instead of
+  0.15-0.26 s. Debug builds are for the extra NetPath lines (track selection, chunk loads,
+  Cronet timings), never for TTFF.
+- **Profiling without root:** `debuggerd -j` needs root. Use
+  `am start ... --start-profiler /data/local/tmp/x.trace --sampling 1000`, stop with
+  `am profile stop <pkg>`, pull, and parse the ART trace (text header up to `*end`, then
+  `SLOW` v3 records: u2 thread, u4 method|action, u4 thread-time delta, u4 wall delta). The
+  trace clock is not epoch; anchor it on a known thread (V8WarmUp start/end vs its NetPath
+  lines). Thread-time vs wall-time per window tells CPU from contention.
+- **Per-app outage with the network still validated:** `cmd connectivity set-chain3-enabled
+  true` + `cmd connectivity set-package-networking-enabled false <pkg>` (undo both). The app
+  then sees `net=none` (blocked UID), unlike the netshape tunnel. Other apps and adb keep
+  working.
+- **LTE needs USB adb** (`svc wifi disable` drops wireless adb). Data Saver:
+  `cmd netpolicy set restrict-background true|false`.
+- **Dead googlevideo host (debug/benchmark builds only):** `setprop debug.arc.blackhole_via
+  cronet|all`, `setprop debug.arc.blackhole_host any|<substring>` (a new value re-arms;
+  `debug.arc.blackhole_scope always` keeps it on); clear all with `''`.
+- **A/B between builds that write different snapshot formats contaminates the quarantine
+  book.** An older build does not read v3 and rewrites v2 without streaks and arming videos,
+  so strike counts restart. Give each build a warm-up open and never read escalation from an
+  alternated run.
+- Traps repeated from earlier rounds: `pkill -f <pattern>` matched the shell that ran it
+  (exit 144) — kill by PID from `ps` with a `[a]db`-style pattern. Phone calls can arrive
+  mid-run: check `dumpsys telephony.registry | grep mCallState` before any `input tap`.
+
+### What was learned
+- **Blocked UID ≠ offline.** `getActiveNetwork()` is null, but `registerDefaultNetworkCallback`
+  replays the validated default network (`onAvailable`, `onCapabilitiesChanged`) BEFORE
+  `onBlockedStatusChanged(true)`. Any "seeded disconnected -> validated = restored" detector
+  fires instantly. `DefaultNetworkRecoveryCallback` now tracks blocked status and re-checks
+  `isDefaultNetworkUsable` at delivery, polling (5 s for 2 min, then 30 s) while armed.
+- **Movistar LTE edge stalls are IPv6.** Cronet stuck in `cronetStatus=11(tls)`; its warm
+  preconnect times out at 8 s; OkHttp answers after exactly its 4 s read timeout (IPv6 wins
+  the fastFallback race, TLS stalls, IPv4 route then works). From the phone: `nc -4` to the
+  edge ok, `nc -6` fails, IPv6 ping 100% loss. OkHttp 5.4 with fastFallback re-sorts IPv6
+  first, so the IPv4 preference has to return A records only while marked. It is kept only
+  while IPv4 keeps connecting on that network (proof window 20 min, cap 60 min), is never
+  carried across a handover, and a call whose IPv4 routes all fail is retried once unfiltered.
+- **Do not hammer the carrier IP.** After ~2 h of repeated LTE A/B runs the Movistar IP was
+  bot-walled for anonymous clients (`LOGIN_REQUIRED ... no eres un bot` on VISIONOS/WEB/
+  WEB_SAFARI/MWEB even after visitor rotation). Keep LTE runs short and spaced, and check a
+  `player-result` line before reading timings from a run.
+- **Signed-in Home:** first `/browse` ~1 s server time, then 6 chained continuations at launch
+  (also 1.9.0). Not changed.
+
+### New NetPath lines
+`network-restored rejected reason=unusable-for-app poll=`, `player-ring auth-route no-media
+client= hits= network= persisted=y`, `... probation=y priorStrikes=`, `no-media-cleared
+reason=account-change`, `restore-auth-route-quarantine ... format=v3 ... probation=[] streaks=`,
+`player-ring definitive-unplayable video= clients= reason-hash= attempts= skipped=`,
+`buffer-default aligned from=MEDIUM to=HIGH pass=v2` (logged by the process Android starts
+right after an install, often before a capture begins), `buffer-cap network metered= dataSaver=
+event= -> on|off`, `viewport inline size= metered= dataSaver= -> cap on|off reason=`,
+`startup-init-timeout adaptive budgetMs= early= reason=`, `... action=transport-failover from=cronet
+to=okhttp ... cronetStatus=`, `startup-failover okhttp answered|no-response|failed ... bypass=
+reason=`, `media-transport cronet-bypass ... evidence=okhttp-answered`, `okhttp-fallback active
+... remainingMs=`, `recovery-source ... blame=transport client=kept`, `media-dns prefer-v4
+on reason=v6-handshake-stall ... proofWindowMs= maxMs=`, `media-dns prefer-v4 off
+reason=expired|network-change|v4-failed`, `media-dns prefer-v4 retry=unfiltered`,
+`... mark=n reason=network-changed stalledOn= answeredOn=`, `player-ring auth-route no-media ...
+counted=n reason=account-changed`, `debug-blackhole host= leg=`.
+
+### Still open
+- Update day: a fresh release install opens cold share links ~60% slower until background
+  dexopt. Check what the baseline profile covers on the open path.
+- The IPv4 preference and the account-change streak clearing are unit-tested only.
+- Under an IP-level bot wall a signed-in open costs ~20 `/player` calls (TV SABR-only,
+  TV_DOWNGRADED 403, all anonymous clients challenged) and never plays: SABR fallback, and
+  not re-walking the ring on each recovery once the wall is established.
+- Buffer v2 alignment flags are global while the buffer value is per profile.

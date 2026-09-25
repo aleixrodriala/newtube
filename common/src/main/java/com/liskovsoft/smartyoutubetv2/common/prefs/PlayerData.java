@@ -2,6 +2,7 @@ package com.liskovsoft.smartyoutubetv2.common.prefs;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Build.VERSION;
 
@@ -29,6 +30,10 @@ import java.util.Map;
 
 public class PlayerData extends DataChangeBase implements PlayerConstants, ProfileChangeListener {
     private static final String VIDEO_PLAYER_DATA = "video_player_data";
+    /** NEWTUBE(buffer-knob): the mobile player's own small prefs file (Media3PlayerInitializer). */
+    public static final String NEWTUBE_PLAYER_PREFS = "newtube_player";
+    /** NEWTUBE(buffer-knob): set once the user picks a "Video buffer" value; see {@link #setVideoBufferTypeByUser}. */
+    public static final String KEY_BUFFER_USER_CHOSEN = "buffer_user_chosen";
     public static final int OK_ONLY_UI = 0;
     public static final int OK_UI_AND_PAUSE = 1;
     public static final int OK_ONLY_PAUSE = 2;
@@ -483,6 +488,22 @@ public class PlayerData extends DataChangeBase implements PlayerConstants, Profi
     public void setVideoBufferType(int type) {
         mVideoBufferType = type;
         persistState();
+    }
+
+    /**
+     * NEWTUBE(buffer-knob): an explicit pick on the "Video buffer" radio (Settings and the in-player
+     * sheet). Also records {@link #KEY_BUFFER_USER_CHOSEN}, so the mobile player's one-time
+     * MEDIUM->HIGH default alignment never overrides a deliberate MEDIUM. The value is persisted
+     * now and the marker queued behind it on the same (main) looper - the marker can never be
+     * saved without the value it vouches for (the 10 s debounce is what broke the first alignment).
+     * Programmatic changes (the OOM fallbacks) keep using {@link #setVideoBufferType}.
+     */
+    public void setVideoBufferTypeByUser(Context context, int type) {
+        setVideoBufferType(type);
+        persistNow();
+        SharedPreferences prefs = context.getApplicationContext()
+                .getSharedPreferences(NEWTUBE_PLAYER_PREFS, Context.MODE_PRIVATE);
+        Utils.post(() -> prefs.edit().putBoolean(KEY_BUFFER_USER_CHOSEN, true).apply());
     }
 
     public int getVideoBufferType() {

@@ -34,9 +34,10 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
  *   <li>ABR up-switch after 5s of stable buffer (the mobile tuning from the legacy round), paired
  *       with a down-switch window scaled to the chosen buffer preset (see
  *       {@link #createTrackSelector()}),</li>
- *   <li>on a metered network only, a forward-buffer ceiling that grows with watch time
- *       ({@link MeteredBufferLoadControl}), and a small-window rung cap for PiP / the mini card
- *       ({@link VideoViewportCap}).</li>
+ *   <li>only while saving data (a metered network AND Android Data Saver on for this app, see
+ *       {@link MeteredNetworkMonitor}), a forward-buffer ceiling that grows with watch time
+ *       ({@link MeteredBufferLoadControl}) and a rung cap to the portrait inline box; on any
+ *       network, a small-window rung cap for PiP / the mini card ({@link VideoViewportCap}).</li>
  * </ul>
  */
 public class Media3PlayerInitializer {
@@ -80,11 +81,20 @@ public class Media3PlayerInitializer {
     // NEWTUBE(buffer-knob): one-time default alignment. Every pre-knob mobile build ran the baked
     // BUFFER_HIGH preset no matter what the stored pref said, and PlayerData's parse default is
     // MEDIUM - so an untouched install carries MEDIUM while having always experienced HIGH.
-    // Promote that untouched/dead MEDIUM to HIGH exactly once, so wiring the knob changes nothing
-    // for existing installs and the Settings radio finally reflects reality. Explicit picks made
-    // after this build are never touched (the flag is already set).
-    private static final String PLAYER_PREFS_NAME = "newtube_player";
+    // Promote that untouched/dead MEDIUM to HIGH, so wiring the knob changes nothing for existing
+    // installs and the Settings radio finally reflects reality.
+    //   v1 (buffer_default_aligned): the first pass. Until 2026-09 it wrote its flag at once while
+    //      PlayerData persisted HIGH on a 10 s debounce, so a process that died inside that window
+    //      kept MEDIUM with v1 marked done - the owner's Pixel 9 (flag written at first install,
+    //      PlayerData index 12 = 0, "buffer=MEDIUM max=50s") and both test AVDs.
+    //   v2 (buffer_default_aligned_v2): one more pass for everyone still on MEDIUM, since such
+    //      installs cannot be told apart from a deliberate MEDIUM made before the marker below.
+    // From this build on, the Settings / in-player "Video buffer" radio records
+    // PlayerData.KEY_BUFFER_USER_CHOSEN (PlayerData.setVideoBufferTypeByUser): an explicit pick -
+    // including MEDIUM made before the first playback of this build - is never overridden.
+    private static final String PLAYER_PREFS_NAME = PlayerData.NEWTUBE_PLAYER_PREFS;
     private static final String KEY_BUFFER_DEFAULT_ALIGNED = "buffer_default_aligned";
+    private static final String KEY_BUFFER_DEFAULT_ALIGNED_V2 = "buffer_default_aligned_v2";
 
     private final Context mContext;
     private final int mMaxBufferBytes;
@@ -103,22 +113,38 @@ public class Media3PlayerInitializer {
 
     private void alignBufferDefaultOnce() {
         SharedPreferences prefs = mContext.getSharedPreferences(PLAYER_PREFS_NAME, Context.MODE_PRIVATE);
-        if (!prefs.getBoolean(KEY_BUFFER_DEFAULT_ALIGNED, false)) {
-            PlayerData playerData = PlayerData.instance(mContext);
-            if (playerData.getVideoBufferType() == PlayerData.BUFFER_MEDIUM) {
-                playerData.setVideoBufferType(PlayerData.BUFFER_HIGH);
-                // PlayerData persists on a 10 s debounce while this flag was written at once, so a
-                // process that died inside that window (a quick first share-link open, a crash) kept
-                // MEDIUM forever with the alignment marked done - seen on both test AVDs. persistNow()
-                // posts the write to this (main) looper; queue the flag behind it so the flag can
-                // never be saved without the value it vouches for. A lost pair just retries.
-                playerData.persistNow();
-                com.liskovsoft.smartyoutubetv2.common.utils.Utils.post(() ->
-                        prefs.edit().putBoolean(KEY_BUFFER_DEFAULT_ALIGNED, true).apply());
-            } else {
-                prefs.edit().putBoolean(KEY_BUFFER_DEFAULT_ALIGNED, true).apply();
-            }
+        boolean v1Done = prefs.getBoolean(KEY_BUFFER_DEFAULT_ALIGNED, false);
+        if (v1Done && prefs.getBoolean(KEY_BUFFER_DEFAULT_ALIGNED_V2, false)) {
+            return;
         }
+        String pass = v1Done ? "v2" : "v1";
+        PlayerData playerData = PlayerData.instance(mContext);
+        if (playerData.getVideoBufferType() != PlayerData.BUFFER_MEDIUM) {
+            markBufferDefaultAligned(prefs);
+            return;
+        }
+        if (prefs.getBoolean(PlayerData.KEY_BUFFER_USER_CHOSEN, false)) {
+            NetPath.log("buffer-default kept=MEDIUM pass=" + pass + " reason=user-chosen");
+            markBufferDefaultAligned(prefs);
+            return;
+        }
+        playerData.setVideoBufferType(PlayerData.BUFFER_HIGH);
+        NetPath.log("buffer-default aligned from=MEDIUM to=HIGH pass=" + pass);
+        // PlayerData persists on a 10 s debounce, so a flag written at once outlives a process that
+        // dies inside that window (a quick first share-link open, a crash) and leaves MEDIUM marked
+        // done - the v1 bug. persistNow() posts the write to this (main) looper; queue the flags
+        // behind it so they can never be saved without the value they vouch for. A lost pair
+        // just retries on the next creation.
+        playerData.persistNow();
+        com.liskovsoft.smartyoutubetv2.common.utils.Utils.post(() -> markBufferDefaultAligned(prefs));
+    }
+
+    /** Both passes at once: a fresh install aligned by v1 has nothing left for v2 to fix. */
+    private static void markBufferDefaultAligned(SharedPreferences prefs) {
+        prefs.edit()
+                .putBoolean(KEY_BUFFER_DEFAULT_ALIGNED, true)
+                .putBoolean(KEY_BUFFER_DEFAULT_ALIGNED_V2, true)
+                .apply();
     }
 
     public DefaultTrackSelector createTrackSelector() {
@@ -147,8 +173,9 @@ public class Media3PlayerInitializer {
         BufferPreset preset = resolveBufferPreset();
 
         // NEWTUBE(viewport): same stock AdaptiveTrackSelection knobs; the subclass only adds the
-        // PiP/mini-card rung cap (VideoViewportCap - a no-op while the video is full size). The
-        // cap is process-wide so it survives this engine restart's fresh selector.
+        // PiP/mini-card rung cap and the data-saving inline-box cap (VideoViewportCap - a no-op
+        // in fullscreen, or unless metered + Data Saver). The cap is process-wide so it survives
+        // this engine restart's fresh selector.
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(
                 mContext,
                 new ViewportCappedTrackSelection.Factory(
@@ -220,20 +247,21 @@ public class Media3PlayerInitializer {
 
     /**
      * What the player actually runs: the preset's {@link DefaultLoadControl} behind the
-     * metered-network forward-buffer ceiling (see {@link MeteredBufferLoadControl} - start gate,
-     * rebuffer gate, back buffer and byte budget are pure delegation; unmetered links see the
-     * preset unchanged). Both halves are built from ONE preset read.
+     * data-saving forward-buffer ceiling (see {@link MeteredBufferLoadControl} - start gate,
+     * rebuffer gate, back buffer and byte budget are pure delegation; unless the network is
+     * metered AND Data Saver is on, the preset runs unchanged). Both halves are built from ONE
+     * preset read.
      */
     LoadControl createPlayerLoadControl() {
         BufferPreset preset = resolveBufferPreset();
         DefaultLoadControl presetControl = createLoadControl(preset);
         MeteredNetworkMonitor.start(mContext);
-        NetPath.log("buffer-cap policy metered=" + MeteredNetworkMonitor.describe()
+        NetPath.log("buffer-cap policy " + MeteredNetworkMonitor.describe()
                 + " floor=" + (MeteredBufferLoadControl.PLAYING_FLOOR_US / 1_000_000) + "s+played"
                 + " paused=" + (MeteredBufferLoadControl.PAUSED_TARGET_US / 1_000_000) + "s"
                 + " preset-max=" + (preset.maxBufferMs / 1000) + "s");
         return new MeteredBufferLoadControl(presetControl, preset.maxBufferMs * 1000L,
-                MeteredNetworkMonitor::isMetered, android.os.SystemClock::elapsedRealtime);
+                MeteredNetworkMonitor::shouldSaveData, android.os.SystemClock::elapsedRealtime);
     }
 
     private DefaultLoadControl createLoadControl(BufferPreset preset) {

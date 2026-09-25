@@ -18,6 +18,7 @@ import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.HttpDataSource;
 import androidx.media3.datasource.ResolvingDataSource;
+import androidx.media3.datasource.TransferListener;
 import androidx.media3.datasource.cache.Cache;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cronet.CronetDataSource;
@@ -40,6 +41,7 @@ import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.sharedutils.cronet.CronetManager;
 import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.sharedutils.okhttp.OkHttpManager;
+import com.liskovsoft.smartyoutubetv2.common.misc.MediaStartupTimeoutException;
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.tv.BuildConfig;
 
@@ -54,7 +56,12 @@ import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicLong;
+
+import okhttp3.Call;
+import okhttp3.OkHttpClient;
 
 /**
  * Media3 counterpart of {@code ExoMediaSourceFactory}, reduced to the branches the touch player
@@ -74,6 +81,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>Networking: the media path rides H2/QUIC via the embedded Cronet engine when available
  * (matching what the legacy engine had), with media3 {@link OkHttpDataSource} as the
  * fallback when Cronet is unavailable or a zero-progress startup timeout triggers recovery.
+ * The first request of every source is bounded by {@link StartupDeadlinePolicy} (short on a link
+ * with evidence of being fast, the old 8 s otherwise) and fails over to OkHttp inside the same
+ * open - see {@link StartupFailoverDataSource}.
  * The shared singleton
  * {@link DefaultBandwidthMeter} is attached as transfer listener to the chosen leaf transport -
  * same "one meter feeds both the estimator and the track selector" wiring the legacy round added -
@@ -121,6 +131,28 @@ public class Media3SourceFactory {
      * recovery and temporarily build the replacement source on the OkHttp transport.
      */
     private static final long CRONET_STARTUP_TIMEOUT_BYPASS_MS = 2 * 60_000L;
+
+    /**
+     * NEWTUBE(startup-failover): process-wide, so first-byte evidence and the one-early-failover-
+     * per-open bound survive player/factory re-creation. See {@link StartupDeadlinePolicy}.
+     */
+    private static final StartupDeadlinePolicy STARTUP_POLICY = new StartupDeadlinePolicy();
+    /** Debug/benchmark override: {@code off} (always the long wait) or a budget in ms. */
+    private static final String PROP_STARTUP_BUDGET = "debug.arc.startup_budget_ms";
+    /** Fires the fallback leg's deadline (an OkHttp call cancel); never runs media I/O. */
+    private static final ScheduledExecutorService STARTUP_DEADLINES = newStartupDeadlineScheduler();
+    @Nullable
+    private static String sLastStartupDecisionLog;
+
+    private static ScheduledExecutorService newStartupDeadlineScheduler() {
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, r -> {
+            Thread thread = new Thread(r, "Media3StartupDeadline");
+            thread.setDaemon(true);
+            return thread;
+        });
+        executor.setRemoveOnCancelPolicy(true);
+        return executor;
+    }
 
     /**
      * DISABLED after on-device verification (v1.2.1 round): googlevideo PRIORITIZES the
@@ -333,10 +365,16 @@ public class Media3SourceFactory {
     private final DataSource.Factory mCachedDataSourceFactory;
     @Nullable private DataSource.Factory mSabrDataSourceFactory;
     private final boolean mCronetAvailable;
-    private long mCronetBypassUntilMs;
+    private final OkHttpClient mMediaOkHttpClient;
+    private final StartupFailoverDataSource.Callbacks mStartupCallbacks = new StartupCallbacks();
+    // The Cronet bypass is PROCESS-wide (keyed by network), not per factory: a factory lives
+    // with one player instance, and a new open can get a new player - measured on the Pixel, a
+    // bypass set by one open was simply gone 20 s later on the next one.
+    private static long sCronetBypassUntilMs;
     @Nullable
-    private String mCronetBypassNetwork;
-    private boolean mCronetBypassUseLogged;
+    private static String sCronetBypassNetwork;
+    @Nullable
+    private static String sCronetBypassLoggedEpisode;
 
     Media3SourceFactory(Context context) {
         mContext = context.getApplicationContext();
@@ -354,37 +392,68 @@ public class Media3SourceFactory {
         // http<->https redirects natively (no setAllowCrossProtocolRedirects equivalent needed).
         CronetEngine cronetEngine = CronetManager.getEngine(mContext);
         mCronetAvailable = cronetEngine != null;
-        OkHttpDataSource.Factory okHttp = new OkHttpDataSource.Factory(
-                MediaHttpClient.create(OkHttpManager.instance().getClient()))
+        MediaAddressPreference.attach(mContext); // network identity for the media-dns preference
+        mMediaOkHttpClient = MediaHttpClient.create(OkHttpManager.instance().getClient());
+        OkHttpDataSource.Factory okHttp = new OkHttpDataSource.Factory(mMediaOkHttpClient)
                 .setUserAgent(USER_AGENT)
                 .setTransferListener(mBandwidthMeter);
+
+        // Without Cronet (or while it is bypassed) OkHttp is the only path: no early failover,
+        // the startup request keeps OkHttp's own timeouts, only the no-response verdict is marked.
+        StartupFailoverDataSource.Transports okHttpOnly = new StartupFailoverDataSource.Transports() {
+            @Override
+            public DataSource primary(int headersBudgetMs) {
+                return debugLeg(okHttp.createDataSource(), /* cronetLeg= */ false);
+            }
+
+            @Override
+            public boolean canFailOver() {
+                return false;
+            }
+
+            @Nullable
+            @Override
+            public StartupFailoverDataSource.AbortableLeg fallback() {
+                return null;
+            }
+        };
 
         DataSource.Factory leafFactory;
         if (mCronetAvailable) {
             Log.d(TAG, "media transport: cronet");
-            DataSource.Factory cronetHttp = new CronetDataSource.Factory(cronetEngine, CRONET_EXECUTOR)
-                    .setUserAgent(USER_AGENT)
-                    // NEWTUBE(net): media segments are the ONLY request whose lateness the user
-                    // sees as a stall, so they must outrank everything else queued on the shared
-                    // Cronet engine (the InnerTube preconnect, /player warmups, image fetches).
-                    // media3 1.10.1's CronetDataSource.Factory defaults requestPriority to
-                    // REQUEST_PRIORITY_MEDIUM (=3, verified in its ctor bytecode); Cronet applies
-                    // it as UrlRequest.Builder#setPriority, which drives both socket-pool
-                    // ordering and H2/H3 stream priority on a congested link.
-                    .setRequestPriority(UrlRequest.Builder.REQUEST_PRIORITY_HIGHEST)
-                    .setTransferListener(mBandwidthMeter)
-                    .setConnectionTimeoutMs(DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS)
-                    .setReadTimeoutMs(READ_TIMEOUT_MS)
-                    .setKeepPostFor302Redirects(true)
-                    .setFallbackFactory(okHttp);
-            // Factory selection happens for each newly-created chunk/source. A startup timeout
-            // marks Cronet unhealthy before ErrorFixerController remints the source, so the
-            // replacement uses OkHttp. Factory fallback alone only handles a missing engine;
-            // it does not retry a failed request on another transport.
-            leafFactory = () -> createTransportDataSource(cronetHttp, okHttp, defaultHttp);
+            DataSource.Factory cronetHttp = newCronetFactory(cronetEngine, okHttp,
+                    DefaultHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS);
+            StartupFailoverDataSource.Transports cronetFirst = new StartupFailoverDataSource.Transports() {
+                @Override
+                public DataSource primary(int headersBudgetMs) {
+                    // CronetDataSource's connection timeout is exactly "no response headers
+                    // within N ms" (DNS+connect+TLS/QUIC+request+headers). A shorter budget needs
+                    // its own factory; the factory is a few fields, the engine is shared.
+                    DataSource source = headersBudgetMs >= StartupDeadlinePolicy.LONG_BUDGET_MS
+                            ? cronetHttp.createDataSource()
+                            : newCronetFactory(cronetEngine, okHttp, headersBudgetMs).createDataSource();
+                    return debugLeg(source, /* cronetLeg= */ true);
+                }
+
+                @Override
+                public boolean canFailOver() {
+                    return true;
+                }
+
+                @Override
+                public StartupFailoverDataSource.AbortableLeg fallback() {
+                    return new OkHttpLeg(mMediaOkHttpClient, mBandwidthMeter);
+                }
+            };
+            // Transport selection happens for each newly-created chunk source (one per track per
+            // source build). Inside it, the startup request fails over from Cronet to OkHttp on
+            // its own budget (StartupFailoverDataSource); a startup timeout also marks Cronet
+            // unhealthy on this network, so the next sources start on OkHttp. Cronet's factory
+            // fallback alone only handles a missing engine.
+            leafFactory = () -> createTransportDataSource(cronetFirst, okHttpOnly, okHttp, defaultHttp);
         } else {
             Log.d(TAG, "media transport: okhttp (cronet unavailable)");
-            leafFactory = () -> createTransportDataSource(null, okHttp, defaultHttp);
+            leafFactory = () -> createTransportDataSource(null, okHttpOnly, okHttp, defaultHttp);
         }
 
         // NEWTUBE(debug-shaper): runtime bandwidth/fault shaping for on-device experiments
@@ -420,8 +489,9 @@ public class Media3SourceFactory {
     }
 
     private synchronized DataSource createTransportDataSource(
-            @Nullable DataSource.Factory cronetFactory, DataSource.Factory fallbackFactory,
-            DataSource.Factory legacyHttpFactory) {
+            @Nullable StartupFailoverDataSource.Transports cronetFirst,
+            StartupFailoverDataSource.Transports okHttpOnly,
+            DataSource.Factory fallbackFactory, DataSource.Factory legacyHttpFactory) {
         // Compare the same requests, ranges and player response through the existing transports.
         // This override is inert in release builds and does not touch persisted preferences.
         if (BuildConfig.DEBUG && "http".equals(DebugMediaShaper.prop("debug.arc.media_transport"))) {
@@ -432,62 +502,325 @@ public class Media3SourceFactory {
             NetPath.log(NetPath.context() + " media-transport okhttp reason=debug-comparison");
             return fallbackFactory.createDataSource();
         }
-        if (cronetFactory != null && !shouldBypassCronet()) {
-            return cronetFactory.createDataSource();
+        StartupFailoverDataSource.Transports transports = okHttpOnly;
+        if (cronetFirst != null && !shouldBypassCronet(mContext)) {
+            transports = cronetFirst;
+        } else if (cronetFirst != null) {
+            logBypassedSource();
         }
-        if (cronetFactory != null && !mCronetBypassUseLogged) {
-            mCronetBypassUseLogged = true;
-            NetPath.log(NetPath.context() + " media-transport okhttp-fallback active reason="
-                    + "startup-init-timeout net=" + mCronetBypassNetwork);
-        }
-        return fallbackFactory.createDataSource();
+        // Link evidence comes only from the device's normal transport: Cronet, or OkHttp when
+        // there is no Cronet at all - never from OkHttp standing in for a bypassed Cronet.
+        boolean normalTransport = transports == cronetFirst || cronetFirst == null;
+        return new StartupFailoverDataSource(transports, mStartupCallbacks, STARTUP_DEADLINES,
+                android.os.SystemClock::elapsedRealtime, StartupDeadlinePolicy.LONG_BUDGET_MS,
+                normalTransport);
     }
 
-    private synchronized void markCronetStartupTimeout() {
-        if (!mCronetAvailable) {
+    /** Once per open: its sources start on OkHttp because Cronet is bypassed on this network. */
+    private static synchronized void logBypassedSource() {
+        String episode = NetPath.context();
+        if (episode.equals(sCronetBypassLoggedEpisode)) {
             return;
         }
+        sCronetBypassLoggedEpisode = episode;
+        NetPath.log(episode + " media-transport okhttp-fallback active reason="
+                + "startup-init-timeout net=" + sCronetBypassNetwork + " remainingMs="
+                + Math.max(0, sCronetBypassUntilMs - android.os.SystemClock.elapsedRealtime()));
+    }
+
+    private DataSource.Factory newCronetFactory(CronetEngine cronetEngine,
+            OkHttpDataSource.Factory okHttp, int connectionTimeoutMs) {
+        return new CronetDataSource.Factory(cronetEngine, CRONET_EXECUTOR)
+                .setUserAgent(USER_AGENT)
+                // NEWTUBE(net): media segments are the ONLY request whose lateness the user
+                // sees as a stall, so they must outrank everything else queued on the shared
+                // Cronet engine (the InnerTube preconnect, /player warmups, image fetches).
+                // media3 1.10.1's CronetDataSource.Factory defaults requestPriority to
+                // REQUEST_PRIORITY_MEDIUM (=3, verified in its ctor bytecode); Cronet applies
+                // it as UrlRequest.Builder#setPriority, which drives both socket-pool
+                // ordering and H2/H3 stream priority on a congested link.
+                .setRequestPriority(UrlRequest.Builder.REQUEST_PRIORITY_HIGHEST)
+                .setTransferListener(mBandwidthMeter)
+                .setConnectionTimeoutMs(connectionTimeoutMs)
+                .setReadTimeoutMs(READ_TIMEOUT_MS)
+                .setKeepPostFor302Redirects(true)
+                .setFallbackFactory(okHttp);
+    }
+
+    /** DEBUG/BENCHMARK builds: route the leg through the dead-host simulation (inert unset). */
+    private static DataSource debugLeg(DataSource source, boolean cronetLeg) {
+        return BuildConfig.DEBUG || BuildConfig.BENCHMARK
+                ? DebugHostBlackhole.wrap(source, cronetLeg) : source;
+    }
+
+    private void markCronetStartupTimeout(String trigger, String evidence) {
+        if (mCronetAvailable) {
+            markCronetBypass(NetPath.networkId(mContext), trigger, evidence);
+        }
+    }
+
+    /** Bypasses Cronet on {@code network} - the network the evidence was gathered on. */
+    static synchronized void markCronetBypass(String network, String trigger, String evidence) {
         long now = android.os.SystemClock.elapsedRealtime();
-        String network = NetPath.networkId(mContext);
-        if (now < mCronetBypassUntilMs && network.equals(mCronetBypassNetwork)) {
+        if (now < sCronetBypassUntilMs && network.equals(sCronetBypassNetwork)) {
             return;
         }
-        mCronetBypassUntilMs = now + CRONET_STARTUP_TIMEOUT_BYPASS_MS;
-        mCronetBypassNetwork = network;
-        mCronetBypassUseLogged = false;
+        sCronetBypassUntilMs = now + CRONET_STARTUP_TIMEOUT_BYPASS_MS;
+        sCronetBypassNetwork = network;
+        sCronetBypassLoggedEpisode = null;
         NetPath.log(NetPath.context() + " media-transport cronet-bypass reason="
-                + "startup-init-timeout net=" + network
+                + "startup-init-timeout trigger=" + trigger + " evidence=" + evidence
+                + " net=" + network
                 + " cooldownMs=" + CRONET_STARTUP_TIMEOUT_BYPASS_MS);
     }
 
-    private synchronized boolean shouldBypassCronet() {
-        if (mCronetBypassUntilMs == 0) {
+    static synchronized boolean shouldBypassCronet(Context context) {
+        if (sCronetBypassUntilMs == 0) {
             return false;
         }
         long now = android.os.SystemClock.elapsedRealtime();
-        if (now >= mCronetBypassUntilMs) {
+        if (now >= sCronetBypassUntilMs) {
+            NetPath.log(NetPath.context() + " media-transport cronet-bypass cleared reason=expired"
+                    + " net=" + sCronetBypassNetwork);
             clearCronetBypass();
             return false;
         }
-        String currentNetwork = NetPath.networkId(mContext);
-        if (!currentNetwork.equals(mCronetBypassNetwork)) {
+        String currentNetwork = NetPath.networkId(context);
+        if (!currentNetwork.equals(sCronetBypassNetwork)) {
             NetPath.log(NetPath.context() + " media-transport cronet-bypass cleared reason="
-                    + "network-change old=" + mCronetBypassNetwork + " new=" + currentNetwork);
+                    + "network-change old=" + sCronetBypassNetwork + " new=" + currentNetwork);
             clearCronetBypass();
             return false;
         }
         return true;
     }
 
-    private void clearCronetBypass() {
-        mCronetBypassUntilMs = 0;
-        mCronetBypassNetwork = null;
-        mCronetBypassUseLogged = false;
+    static synchronized void clearCronetBypass() {
+        sCronetBypassUntilMs = 0;
+        sCronetBypassNetwork = null;
+        sCronetBypassLoggedEpisode = null;
     }
 
     private LoadErrorHandlingPolicy newLoadErrorPolicy() {
         return new FailFastLoadErrorPolicy(
-                mCronetAvailable ? this::markCronetStartupTimeout : null);
+                // Pre-existing path (long budget, or no failover leg): only Cronet was tried, and
+                // the replacement source's one different path IS the bypass, so it stays. A
+                // verdict that already tried OkHttp too never reaches it (see the policy).
+                mCronetAvailable
+                        ? () -> markCronetStartupTimeout("load-error", "cronet-timeout-only")
+                        : null);
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // NEWTUBE(startup-failover): evidence, bookkeeping and NetPath lines for
+    // StartupFailoverDataSource. Signed URLs never reach the log: host and itag only.
+    // ------------------------------------------------------------------------------------------
+
+    private final class StartupCallbacks implements StartupFailoverDataSource.Callbacks {
+        @Override
+        public StartupDeadlinePolicy.Decision decide(DataSpec dataSpec) {
+            String episode = NetPath.context();
+            StartupDeadlinePolicy.Evidence evidence = readStartupEvidence();
+            String forced = BuildConfig.DEBUG || BuildConfig.BENCHMARK
+                    ? DebugMediaShaper.prop(PROP_STARTUP_BUDGET) : "";
+            StartupDeadlinePolicy.Decision decision;
+            if ("off".equalsIgnoreCase(forced)) {
+                decision = StartupDeadlinePolicy.longBudget("debug-off", -1, 0, episode,
+                        evidence.networkKey);
+            } else if (parsePositiveInt(forced) > 0) {
+                decision = STARTUP_POLICY.isSpent(episode)
+                        ? StartupDeadlinePolicy.longBudget("spent", -1, 0, episode,
+                                evidence.networkKey)
+                        : new StartupDeadlinePolicy.Decision(parsePositiveInt(forced), true,
+                                "debug-forced", -1, 0, episode, evidence.networkKey);
+            } else {
+                decision = STARTUP_POLICY.decide(evidence, episode,
+                        android.os.SystemClock.elapsedRealtime());
+            }
+            logStartupDecision(episode, decision, evidence);
+            return decision;
+        }
+
+        @Override
+        public void onFirstByte(long firstByteMs) {
+            STARTUP_POLICY.recordFirstByte(NetPath.networkId(mContext), firstByteMs,
+                    android.os.SystemClock.elapsedRealtime());
+        }
+
+        @Override
+        public void onEarlyTimeout(DataSpec dataSpec, StartupDeadlinePolicy.Decision decision,
+                long waitedMs, IOException cause) {
+            STARTUP_POLICY.markEarlyFailover(decision.episodeKey);
+            // No transport-wide bypass yet: one silent URL says nothing about Cronet until the
+            // OkHttp leg shows the same URL answers there (see onFallbackResult).
+            NetPath.log(NetPath.context() + " startup-init-timeout adaptive action=transport-failover"
+                    + " from=cronet to=okhttp budgetMs=" + decision.budgetMs
+                    + " reason=" + decision.reason + " waitedMs=" + waitedMs + " bytes=0"
+                    + " cronetStatus=" + cronetStatus(cause) + mediaTag(dataSpec));
+        }
+
+        @Override
+        public void onFallbackResult(DataSpec dataSpec, StartupDeadlinePolicy.Decision decision,
+                boolean answered, boolean deadlineHit, long legMs, long totalMs,
+                @Nullable IOException cause) {
+            boolean noResponse = !answered && (deadlineHit || cause == null
+                    || StartupFailoverDataSource.isNoResponseTimeout(cause));
+            String outcome = answered ? "answered" : noResponse ? "no-response" : "failed";
+            // Only an answer on the other transport for the SAME request, on the SAME network the
+            // primary stalled on, is evidence against Cronet/QUIC. Silence on both is a dead edge
+            // host; an answer after a handover says nothing about the network that stalled.
+            String answeredOn = NetPath.networkId(mContext);
+            String bypass = !answered
+                    ? (noResponse ? "bypass=n reason=host-dead" : "bypass=n reason=okhttp-error")
+                    : StartupDeadlinePolicy.sameKnownNetwork(decision.networkKey, answeredOn)
+                    ? "bypass=y reason=okhttp-answered"
+                    : "bypass=n reason=network-changed stalledOn=" + decision.networkKey
+                            + " answeredOn=" + answeredOn;
+            NetPath.log(NetPath.context() + " startup-failover okhttp " + outcome
+                    + " legMs=" + legMs + " totalMs=" + totalMs
+                    + (answered ? "" : " deadline=" + (deadlineHit ? "y" : "n")
+                            + " causes=" + (cause != null ? NetPath.throwableSummary(cause) : "none"))
+                    + ' ' + bypass + mediaTag(dataSpec));
+        }
+
+        @Override
+        public void onPrimaryTransportFault(DataSpec dataSpec, StartupDeadlinePolicy.Decision decision) {
+            if (!mCronetAvailable) {
+                return;
+            }
+            String answeredOn = NetPath.networkId(mContext);
+            if (StartupDeadlinePolicy.sameKnownNetwork(decision.networkKey, answeredOn)) {
+                markCronetBypass(decision.networkKey, "adaptive", "okhttp-answered");
+            } else {
+                NetPath.log(NetPath.context() + " media-transport cronet-bypass mark=n"
+                        + " reason=network-changed stalledOn=" + decision.networkKey
+                        + " answeredOn=" + answeredOn);
+            }
+        }
+    }
+
+    private StartupDeadlinePolicy.Evidence readStartupEvidence() {
+        String networkKey = NetPath.networkId(mContext);
+        try {
+            ConnectivityManager manager = (ConnectivityManager)
+                    mContext.getSystemService(Context.CONNECTIVITY_SERVICE);
+            Network network = manager != null ? manager.getActiveNetwork() : null;
+            NetworkCapabilities caps = network != null
+                    ? manager.getNetworkCapabilities(network) : null;
+            if (caps == null) {
+                return new StartupDeadlinePolicy.Evidence(networkKey, false, false, 0, 0);
+            }
+            return new StartupDeadlinePolicy.Evidence(networkKey,
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL),
+                    Math.max(0, caps.getLinkDownstreamBandwidthKbps()),
+                    mBandwidthMeter.measuredBitrate());
+        } catch (RuntimeException e) {
+            return new StartupDeadlinePolicy.Evidence(networkKey, false, false, 0, 0);
+        }
+    }
+
+    /** One line per open and outcome: the audio and video init requests decide identically. */
+    private static synchronized void logStartupDecision(String episode,
+            StartupDeadlinePolicy.Decision decision, StartupDeadlinePolicy.Evidence evidence) {
+        String key = episode + '|' + decision.budgetMs + '|' + decision.reason;
+        if (key.equals(sLastStartupDecisionLog)) {
+            return;
+        }
+        sLastStartupDecisionLog = key;
+        NetPath.log(episode + " startup-init-timeout adaptive budgetMs=" + decision.budgetMs
+                + " early=" + (decision.early ? "y" : "n") + " reason=" + decision.reason
+                + " samples=" + decision.samples + " worstFirstByteMs=" + decision.worstFirstByteMs
+                + " downKbps=" + evidence.downKbps
+                + " measuredKbps=" + evidence.measuredBps / 1000
+                + " validated=" + (evidence.validated ? "y" : "n")
+                + " captive=" + (evidence.captive ? "y" : "n")
+                + " net=" + evidence.networkKey);
+    }
+
+    private static int parsePositiveInt(String value) {
+        try {
+            return Math.max(0, Integer.parseInt(value));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private static String mediaTag(DataSpec dataSpec) {
+        String itag = null;
+        try {
+            itag = dataSpec.uri.getQueryParameter("itag");
+        } catch (UnsupportedOperationException ignored) {
+            // opaque uri
+        }
+        return " host=" + dataSpec.uri.getHost() + " itag=" + itag;
+    }
+
+    /** Where Cronet was stuck when the budget expired (resolving/connecting/tls/waiting...). */
+    private static String cronetStatus(Throwable error) {
+        for (Throwable e = error; e != null; e = e.getCause()) {
+            if (e instanceof CronetDataSource.OpenException) {
+                int status = ((CronetDataSource.OpenException) e).cronetConnectionStatus;
+                switch (status) {
+                    case UrlRequest.Status.RESOLVING_HOST:
+                        return status + "(resolving)";
+                    case UrlRequest.Status.CONNECTING:
+                        return status + "(connecting)";
+                    case UrlRequest.Status.SSL_HANDSHAKE:
+                        return status + "(tls)";
+                    case UrlRequest.Status.SENDING_REQUEST:
+                        return status + "(sending)";
+                    case UrlRequest.Status.WAITING_FOR_RESPONSE:
+                        return status + "(waiting)";
+                    case UrlRequest.Status.WAITING_FOR_AVAILABLE_SOCKET:
+                    case UrlRequest.Status.WAITING_FOR_STALLED_SOCKET_POOL:
+                        return status + "(socket-pool)";
+                    default:
+                        return String.valueOf(status);
+                }
+            }
+        }
+        return "n/a";
+    }
+
+    /**
+     * The failover leg: OkHttp over TCP (a different path from Cronet's QUIC/H2 session and
+     * resolver) for the same DataSpec. Its pending open is aborted by cancelling the OkHttp call,
+     * which OkHttpDataSource turns into an open IOException; an aborted leg is never reused.
+     */
+    static final class OkHttpLeg implements StartupFailoverDataSource.AbortableLeg {
+        private final DataSource mSource;
+        private volatile Call mCall;
+        private volatile boolean mAborted;
+
+        OkHttpLeg(OkHttpClient client, @Nullable TransferListener meter) {
+            Call.Factory calls = request -> {
+                Call call = client.newCall(request);
+                mCall = call;
+                if (mAborted) {
+                    call.cancel();
+                }
+                return call;
+            };
+            mSource = debugLeg(new OkHttpDataSource.Factory(calls)
+                    .setUserAgent(USER_AGENT)
+                    .setTransferListener(meter)
+                    .createDataSource(), /* cronetLeg= */ false);
+        }
+
+        @Override
+        public DataSource source() {
+            return mSource;
+        }
+
+        @Override
+        public void abort() {
+            mAborted = true;
+            Call call = mCall;
+            if (call != null) {
+                call.cancel();
+            }
+        }
     }
 
     public BandwidthMeter getBandwidthMeter() {
@@ -819,14 +1152,19 @@ public class Media3SourceFactory {
                     loadErrorInfo.mediaLoadData.dataType,
                     loadErrorInfo.loadEventInfo.bytesLoaded,
                     loadErrorInfo.exception)) {
-                if (mStartupTimeoutCallback != null) {
+                // A verdict that already failed over to OkHttp and got silence there too is a
+                // dead host, not a Cronet fault: no transport-wide bypass for it.
+                boolean hostDead = MediaStartupTimeoutException.isHostDeadInChain(
+                        loadErrorInfo.exception);
+                if (mStartupTimeoutCallback != null && !hostDead) {
                     mStartupTimeoutCallback.run();
                 }
                 NetPath.log(NetPath.context() + " startup-init-timeout action=source-failover"
                         + " track=" + loadErrorInfo.mediaLoadData.trackType
                         + " retry=" + loadErrorInfo.errorCount
                         + " bytes=" + loadErrorInfo.loadEventInfo.bytesLoaded
-                        + " loadMs=" + loadErrorInfo.loadEventInfo.loadDurationMs);
+                        + " loadMs=" + loadErrorInfo.loadEventInfo.loadDurationMs
+                        + (hostDead ? " bypass=n reason=host-dead" : ""));
                 return C.TIME_UNSET;
             }
             return Math.min(super.getRetryDelayMsFor(loadErrorInfo), 1000);

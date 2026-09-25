@@ -120,7 +120,9 @@ public class Media3PlayerController implements Player.Listener {
         mEventListener = eventListener;
         // NEWTUBE(viewport): the small-window cap is process-wide so it survives an engine restart
         // (release + fresh selector) while pinned. A NEW playback screen starts full size: a cap
-        // left by a previous instance (PiP dismissed, mini card closed) must not carry over.
+        // left by a previous instance (PiP dismissed, mini card closed) must not carry over. The
+        // inline box is re-reported by the new screen's first portrait layout.
+        clearInlineViewport("new-session");
         clearSmallWindowViewport("new-session");
         // A dropped build is a legitimate outcome, but a SILENT one is indistinguishable from a
         // player that was never asked to open anything - both leave a spinner at 00:00 and no log.
@@ -608,6 +610,24 @@ public class Media3PlayerController implements Player.Listener {
     /** Full-size player again: lift the cap; ABR up-switches and refetches beyond 25 s natively. */
     public void clearSmallWindowViewport(String reason) {
         VideoViewportCap.shared().clear(reason);
+    }
+
+    /**
+     * NEWTUBE(viewport): the portrait watch-page video box is {@code widthPx x heightPx} real
+     * pixels ({@code fill}: a zoom/fill resize mode crops the video to it). While saving data - a
+     * metered network AND Android Data Saver on for this app ({@link MeteredNetworkMonitor}) -
+     * NEW chunks are capped to the rung that box can show: the same in-ABR cap as PiP (buffer
+     * kept, explicit quality picks untouched), re-checked on every selection so Wi-Fi or Data
+     * Saver off lifts it for the next chunk. A PiP/mini window wins while set. Cheap to repeat:
+     * an unchanged box is a no-op.
+     */
+    public void setInlineViewport(int widthPx, int heightPx, boolean fill) {
+        VideoViewportCap.shared().setInline(widthPx, heightPx, fill);
+    }
+
+    /** Fullscreen (landscape): no inline box, so no data-saving inline cap for NEW chunks. */
+    public void clearInlineViewport(String reason) {
+        VideoViewportCap.shared().clearInline(reason);
     }
 
     public FormatItem getVideoFormat() {

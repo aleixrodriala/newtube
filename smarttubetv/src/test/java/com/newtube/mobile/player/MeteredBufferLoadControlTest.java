@@ -6,6 +6,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
+import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
 
 import androidx.media3.common.C;
@@ -42,9 +43,10 @@ import java.util.List;
 import static org.robolectric.Shadows.shadowOf;
 
 /**
- * The metered forward-buffer ceiling: the pure policy, and the wrapper around the REAL preset
- * DefaultLoadControl (no player, no network) - it may only turn "continue" into "hold" on a
- * metered link, and everything else must be the preset's own decision.
+ * The data-saving forward-buffer ceiling: the pure policy, and the wrapper around the REAL preset
+ * DefaultLoadControl (no player, no network) - it may only turn "continue" into "hold" while the
+ * monitor's gate (metered AND Data Saver) is on, and everything else must be the preset's own
+ * decision.
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 28, manifest = Config.NONE, application = Application.class)
@@ -54,6 +56,7 @@ public class MeteredBufferLoadControlTest {
     private static final long HIGH_MAX_US = 75 * S;
     private static final PlayerId PLAYER = new PlayerId("metered-test");
 
+    /** The gate the monitor supplies in production: metered AND Data Saver restricting the app. */
     private final boolean[] metered = {true};
     private final long[] nowMs = {1_000_000L};
     private Media3PlayerInitializer initializer;
@@ -75,6 +78,7 @@ public class MeteredBufferLoadControlTest {
     @After
     public void tearDown() {
         MeteredNetworkMonitor.setMeteredForTest(null);
+        MeteredNetworkMonitor.setDataSaverForTest(null);
     }
 
     // ---------------------------------------------------------------------------------
@@ -162,6 +166,29 @@ public class MeteredBufferLoadControlTest {
         shadowOf(unmetered5g).clearCapabilities();
         shadowOf(unmetered5g).addCapability(NetworkCapabilities.NET_CAPABILITY_TEMPORARILY_NOT_METERED);
         assertFalse(MeteredNetworkMonitor.isMetered(unmetered5g));
+    }
+
+    @Test
+    public void onlyDataSaverRestrictingThisAppCountsAsSaving() {
+        assertTrue(MeteredNetworkMonitor.isDataSaverOn(
+                ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED));
+        // "Unrestricted data" for this app while Data Saver is on, and Data Saver off.
+        assertFalse(MeteredNetworkMonitor.isDataSaverOn(
+                ConnectivityManager.RESTRICT_BACKGROUND_STATUS_WHITELISTED));
+        assertFalse(MeteredNetworkMonitor.isDataSaverOn(
+                ConnectivityManager.RESTRICT_BACKGROUND_STATUS_DISABLED));
+    }
+
+    @Test
+    public void theGateNeedsBothAMeteredNetworkAndDataSaver() {
+        boolean[][] cases = {{false, false, false}, {true, false, false}, {false, true, false},
+                {true, true, true}};
+        for (boolean[] c : cases) {
+            MeteredNetworkMonitor.setMeteredForTest(c[0]);
+            MeteredNetworkMonitor.setDataSaverForTest(c[1]);
+            assertEquals("metered=" + c[0] + " dataSaver=" + c[1], c[2],
+                    MeteredNetworkMonitor.shouldSaveData());
+        }
     }
 
     // ---------------------------------------------------------------------------------
@@ -350,18 +377,26 @@ public class MeteredBufferLoadControlTest {
     }
 
     @Test
-    public void thePlayersLoadControlIsTheMeteredWrapperOverTheSamePreset() {
+    public void thePlayersLoadControlIsTheDataSavingWrapperOverTheSamePreset() {
         LoadControl control = initializer.createPlayerLoadControl();
         assertTrue(control instanceof MeteredBufferLoadControl);
         control.onPrepared(PLAYER);
         try {
             MeteredNetworkMonitor.setMeteredForTest(false);
+            MeteredNetworkMonitor.setDataSaverForTest(false);
             assertTrue(control.shouldContinueLoading(params(PLAYER, 49 * S, true, false)));
             assertTrue(control.shouldContinueLoading(params(PLAYER, 74 * S, true, false)));
             assertFalse(control.shouldContinueLoading(params(PLAYER, 75 * S, true, false)));
             assertTrue(control.shouldContinueLoading(params(PLAYER, 49 * S, true, false)));
+            // Cellular without Data Saver (unlimited plans report metered): the full preset.
             MeteredNetworkMonitor.setMeteredForTest(true);
+            assertTrue(control.shouldContinueLoading(params(PLAYER, 30 * S, true, false)));
+            // Data Saver switched on mid-playback: the very next decision holds at the ceiling.
+            MeteredNetworkMonitor.setDataSaverForTest(true);
             assertFalse(control.shouldContinueLoading(params(PLAYER, 30 * S, true, false)));
+            // ...and off again: loading resumes toward the preset.
+            MeteredNetworkMonitor.setDataSaverForTest(false);
+            assertTrue(control.shouldContinueLoading(params(PLAYER, 30 * S, true, false)));
         } finally {
             control.onReleased(PLAYER);
         }

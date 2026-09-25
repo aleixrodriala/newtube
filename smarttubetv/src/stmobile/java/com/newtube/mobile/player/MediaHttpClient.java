@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 
 import okhttp3.Call;
 import okhttp3.Connection;
+import okhttp3.Dns;
 import okhttp3.EventListener;
 import okhttp3.Handshake;
 import okhttp3.OkHttpClient;
@@ -41,14 +42,47 @@ public final class MediaHttpClient {
                 .readTimeout(4, TimeUnit.SECONDS)
                 .writeTimeout(4, TimeUnit.SECONDS)
                 .callTimeout(0, TimeUnit.MILLISECONDS);
-        if (BuildConfig.DEBUG) {
-            builder.eventListenerFactory(call -> new TimingListener());
+        // NEWTUBE(media-dns): an IPv6 handshake stall on a googlevideo edge followed by a fast
+        // IPv4 connect marks "prefer IPv4 for googlevideo on this network" (MediaAddressPreference).
+        return withAddressPreference(builder, MediaAddressPreference.shared(), Dns.SYSTEM).build();
+    }
+
+    /** Package-private seam: the preference and upstream Dns are injectable in tests. */
+    static OkHttpClient.Builder withAddressPreference(OkHttpClient.Builder builder,
+            MediaAddressPreference preference, Dns upstream) {
+        // The only interceptor on the media client: it re-sends a call once when the IPv4-only
+        // answer it got failed on every route (see MediaAddressPreference.RetryInterceptor).
+        return builder.dns(preference.dns(upstream))
+                .addInterceptor(new MediaAddressPreference.RetryInterceptor(preference))
+                .eventListenerFactory(call -> BuildConfig.DEBUG
+                        ? new TimingListener(preference.newCallWatch(call))
+                        : new RouteListener(preference.newCallWatch(call)));
+    }
+
+    /** Feeds per-route connect outcomes (address family only) to the IPv4 preference. */
+    static class RouteListener extends EventListener {
+        private final MediaAddressPreference.CallWatch mWatch;
+
+        RouteListener(MediaAddressPreference.CallWatch watch) {
+            mWatch = watch;
         }
-        return builder.build();
+
+        @Override public void connectStart(Call call, InetSocketAddress address, Proxy proxy) {
+            mWatch.connectStart(call.request().url().host(), address.getAddress());
+        }
+
+        @Override public void connectEnd(Call call, InetSocketAddress address, Proxy proxy, Protocol protocol) {
+            mWatch.connectEnd(call.request().url().host(), address.getAddress());
+        }
+
+        @Override public void connectFailed(Call call, InetSocketAddress address, Proxy proxy,
+                Protocol protocol, IOException failure) {
+            mWatch.connectFailed(call.request().url().host(), address.getAddress(), failure);
+        }
     }
 
     /** Diagnostic events never include addresses, headers, signed queries or exception messages. */
-    private static final class TimingListener extends EventListener {
+    private static final class TimingListener extends RouteListener {
         private final Map<InetSocketAddress, Long> connects = new HashMap<>();
         private long startMs;
         private long dnsStartMs;
@@ -59,6 +93,10 @@ public final class MediaHttpClient {
         private int status = -1;
         private int attempts;
         private String protocol = "?";
+
+        TimingListener(MediaAddressPreference.CallWatch watch) {
+            super(watch);
+        }
 
         @Override public void callStart(Call call) {
             startMs = SystemClock.elapsedRealtime();
@@ -73,16 +111,19 @@ public final class MediaHttpClient {
         }
 
         @Override public synchronized void connectStart(Call call, InetSocketAddress address, Proxy proxy) {
+            super.connectStart(call, address, proxy);
             connects.put(address, SystemClock.elapsedRealtime());
             attempts++;
         }
 
         @Override public void connectEnd(Call call, InetSocketAddress address, Proxy proxy, Protocol protocol) {
+            super.connectEnd(call, address, proxy, protocol);
             finishConnect(call, address, "ok");
         }
 
         @Override public void connectFailed(Call call, InetSocketAddress address, Proxy proxy,
                 Protocol protocol, IOException failure) {
+            super.connectFailed(call, address, proxy, protocol, failure);
             finishConnect(call, address, failure.getClass().getSimpleName());
         }
 

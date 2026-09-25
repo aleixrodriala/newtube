@@ -17,7 +17,9 @@ import com.liskovsoft.youtubeapi.videoinfo.V2.VideoInfoService;
  * 2.80 s when the working client leads, plus a wasted {@code /player} round trip, two dead media
  * opens and a player reload. The value also carries each client's strike count, which is what lets
  * the cooldown keep escalating (10 min x 4^n, capped at 24 h) across restarts instead of every
- * cold start resetting it to ten minutes.
+ * cold start resetting it to ten minutes, and (since the v3 format) the partial "no media for a
+ * video another client served" streak, so that two cold opens - one video each - add up to a
+ * quarantine instead of each re-probing a SABR-only head (Pixel 9, 2026-09-25).
  *
  * <p>Deliberately dumb: one string, written from whichever thread quarantined the route (the walk or
  * the player's 403), read once per process. The meaning of the snapshot (transport keying, expiry,

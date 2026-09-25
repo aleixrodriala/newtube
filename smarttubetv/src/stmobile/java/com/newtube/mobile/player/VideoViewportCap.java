@@ -8,6 +8,7 @@ import androidx.media3.common.Format;
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 /**
  * NEWTUBE(viewport): "the video is currently shown in a small window" - system PiP or the in-app
@@ -36,17 +37,45 @@ import java.util.List;
  * keep up to the smallest rung that still covers 98% of the window in both dimensions. A ~600x340
  * PiP window keeps 360p; an enlarged ~1000 px one keeps 720p.</p>
  *
+ * <p><b>Inline box while saving data.</b> The portrait watch page shows the video in a 16:9 box as
+ * wide as the screen - 1080x608 on a Pixel 9 - where ABR otherwise climbs to 1080p (~2.4 Mbps vs
+ * ~1.76 for the 720p that already covers it). That box is recorded as a second, lower-priority
+ * window ({@link #setInline}) which caps selection ONLY while
+ * {@link MeteredNetworkMonitor#shouldSaveData} holds - a metered network AND Android Data Saver
+ * restricting this app (metered alone is not enough: unlimited LTE reports metered too, and there
+ * quality wins). The check is made on every selection, so a handover to Wi-Fi or Data Saver being
+ * switched off lifts it for the very next chunk without anybody having to tell the selector.
+ * Fullscreen (landscape) removes the box ({@link #clearInline}). A PiP/mini window, while set,
+ * always wins over it and caps on any network. Same rung rule, same "buffered chunks play out"
+ * switch semantics as above; a zoom/fill resize mode ({@link Viewport#cover}) crops the video to
+ * the box, so the rung must cover the CROPPED size instead of the letterboxed one.</p>
+ *
  * <p>Process-wide single instance: there is one foreground player, and the state must survive an
  * engine restart (fresh track selector and factory) while the window is small. Written on main,
- * read on the playback thread - one volatile immutable snapshot.</p>
+ * read on the playback thread - one volatile immutable snapshot per window.</p>
  */
 final class VideoViewportCap {
     /** media3's {@code DefaultTrackSelector.FRACTION_TO_CONSIDER_FULLSCREEN}. */
     private static final float FRACTION_TO_CONSIDER_FULLSCREEN = 0.98f;
 
+    static final String MODE_INLINE = "inline";
+
     private static final VideoViewportCap SHARED = new VideoViewportCap();
 
+    /** PiP / mini card: capped whatever the network. */
     @Nullable private volatile Viewport mViewport;
+    /** The portrait watch-page box: capped only while {@link #mSaveData} says so. */
+    @Nullable private volatile Viewport mInline;
+    private final BooleanSupplier mSaveData;
+
+    VideoViewportCap() {
+        this(MeteredNetworkMonitor::shouldSaveData);
+    }
+
+    /** Test seam: the data-saving gate (production: the process-wide monitor's volatile flags). */
+    VideoViewportCap(BooleanSupplier saveData) {
+        mSaveData = saveData;
+    }
 
     static VideoViewportCap shared() {
         return SHARED;
@@ -57,11 +86,18 @@ final class VideoViewportCap {
         final String mode;
         final int width;
         final int height;
+        /** The video COVERS the window and is cropped (zoom/fill resize modes), not letterboxed. */
+        final boolean cover;
 
         Viewport(String mode, int width, int height) {
+            this(mode, width, height, false);
+        }
+
+        Viewport(String mode, int width, int height, boolean cover) {
             this.mode = mode;
             this.width = width;
             this.height = height;
+            this.cover = cover;
         }
     }
 
@@ -80,18 +116,90 @@ final class VideoViewportCap {
         NetPath.log("viewport " + mode + " size=" + width + "x" + height + " -> cap on");
     }
 
-    /** Back to the full-screen player: no cap (the selector's own physical-display rule applies). */
+    /**
+     * Back to the full-size player: no small-window cap (the selector's own physical-display rule
+     * applies) - unless the player came back to the portrait inline box while saving data, in
+     * which case that box's cap takes over (and the log says so instead of "cap off").
+     */
     void clear(String reason) {
         if (mViewport == null) {
             return;
         }
         mViewport = null;
-        NetPath.log("viewport full reason=" + reason + " -> cap off");
+        Viewport inline = mInline;
+        if (inline != null) {
+            logInline(inline, mSaveData.getAsBoolean(), reason);
+        } else {
+            NetPath.log("viewport full reason=" + reason + " -> cap off");
+        }
     }
 
+    /**
+     * The portrait watch-page video box is {@code width x height} px ({@code cover}: a zoom/fill
+     * resize mode crops the video to it). Caps NEW chunks only while saving data (metered + Data
+     * Saver).
+     * Repeats of the same box (every layout pass reports it) are free and silent.
+     */
+    void setInline(int width, int height, boolean cover) {
+        if (width <= 0 || height <= 0) {
+            NetPath.log("viewport " + MODE_INLINE + " ignored size=" + width + "x" + height);
+            return;
+        }
+        Viewport current = mInline;
+        if (current != null && current.width == width && current.height == height
+                && current.cover == cover) {
+            return;
+        }
+        Viewport inline = new Viewport(MODE_INLINE, width, height, cover);
+        mInline = inline;
+        logInline(inline, mSaveData.getAsBoolean(), null);
+    }
+
+    /** Fullscreen (landscape) or a new playback screen: the inline box no longer exists. */
+    void clearInline(String reason) {
+        Viewport inline = mInline;
+        if (inline == null) {
+            return;
+        }
+        mInline = null;
+        NetPath.log("viewport " + MODE_INLINE + " size=" + inline.width + "x" + inline.height
+                + " -> cap off reason=" + reason);
+    }
+
+    /**
+     * {@link MeteredNetworkMonitor}: the data-saving gate flipped (network or Data Saver). Logging
+     * only - {@link #current()} reads the gate itself on every selection, so the cap follows it
+     * even without this call.
+     */
+    void onSavingChanged(boolean saving, String event) {
+        Viewport inline = mInline;
+        if (inline != null) {
+            logInline(inline, saving, event);
+        }
+    }
+
+    /**
+     * The window that caps selection right now, or null: a PiP/mini window always; otherwise the
+     * inline box while saving data. Called per rung check on the playback thread - two volatile
+     * reads and the monitor's volatile flags.
+     */
     @Nullable
     Viewport current() {
-        return mViewport;
+        Viewport small = mViewport;
+        if (small != null) {
+            return small;
+        }
+        Viewport inline = mInline;
+        return inline != null && mSaveData.getAsBoolean() ? inline : null;
+    }
+
+    private void logInline(Viewport inline, boolean saving, @Nullable String from) {
+        Viewport small = mViewport;
+        String outcome = small != null ? "deferred behind=" + small.mode
+                : saving ? "cap on" : "cap off reason=not-saving";
+        NetPath.log("viewport " + MODE_INLINE + " size=" + inline.width + "x" + inline.height
+                + (inline.cover ? " fill=y" : "") + " " + MeteredNetworkMonitor.describe()
+                + (from != null ? " from=" + from : "") + " -> " + outcome);
     }
 
     /**
@@ -116,13 +224,24 @@ final class VideoViewportCap {
      * large enough to fill it (nothing to cap). Formats without dimensions are ignored.
      */
     static int maxPixelsToRetain(List<Format> formats, int viewportWidth, int viewportHeight) {
+        return maxPixelsToRetain(formats, viewportWidth, viewportHeight, false);
+    }
+
+    /**
+     * Same, and {@code cover}: the video is scaled to COVER the window and cropped (zoom/fill
+     * resize modes), so the rung must match the covering size - for a 16:9 video in a 16:9 box
+     * that is the same answer, for a vertical video in the 16:9 inline box it is the full width.
+     * Never smaller than the letterboxed answer, so a crop mode can only make the cap looser.
+     */
+    static int maxPixelsToRetain(List<Format> formats, int viewportWidth, int viewportHeight,
+            boolean cover) {
         int maxPixels = Integer.MAX_VALUE;
         for (Format format : formats) {
             if (format.width <= 0 || format.height <= 0) {
                 continue;
             }
             int[] fitted = maxVideoSizeInViewport(viewportWidth, viewportHeight,
-                    format.width, format.height);
+                    format.width, format.height, cover);
             int pixels = format.width * format.height;
             if (format.width >= (int) (fitted[0] * FRACTION_TO_CONSIDER_FULLSCREEN)
                     && format.height >= (int) (fitted[1] * FRACTION_TO_CONSIDER_FULLSCREEN)
@@ -133,14 +252,21 @@ final class VideoViewportCap {
         return maxPixels;
     }
 
-    /** media3 {@code TrackSelectionUtil.getMaxVideoSizeInViewport} with orientationMayChange=false. */
+    /**
+     * media3 {@code TrackSelectionUtil.getMaxVideoSizeInViewport} with orientationMayChange=false;
+     * {@code cover} flips which dimension binds (the video fills the window and overflows the other).
+     */
     private static int[] maxVideoSizeInViewport(int viewportWidth, int viewportHeight,
-            int videoWidth, int videoHeight) {
-        if ((long) videoWidth * viewportHeight >= (long) videoHeight * viewportWidth) {
-            // Horizontal letterboxing along the bottom and top.
+            int videoWidth, int videoHeight, boolean cover) {
+        boolean widerThanViewport =
+                (long) videoWidth * viewportHeight >= (long) videoHeight * viewportWidth;
+        if (widerThanViewport != cover) {
+            // Fit: horizontal letterboxing along the bottom and top. Cover: a taller video fills
+            // the width and is cropped top and bottom.
             return new int[] {viewportWidth, ceilDivide((long) viewportWidth * videoHeight, videoWidth)};
         }
-        // Vertical letterboxing along the edges.
+        // Fit: vertical letterboxing along the edges. Cover: a wider video fills the height and
+        // is cropped at the edges.
         return new int[] {ceilDivide((long) viewportHeight * videoWidth, videoHeight), viewportHeight};
     }
 

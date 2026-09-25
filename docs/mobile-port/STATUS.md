@@ -10,6 +10,99 @@ Phone-only: the TV flavors, vendored ExoPlayer fork and Leanback modules were
 deleted. Playback uses Media3 1.10.1 with embedded Cronet and an OkHttp fallback.
 Toolchain: AGP 9.2.1 / Gradle 9.6.1 / compileSdk 37 / targetSdk 37 / minSdk 24.
 
+## Pixel verification and follow-up round (2026-09-25, Pixel 9, Wi-Fi + LTE)
+
+Asked for: test the 2026-09-24 round on the owner's Pixel 9 (signed in) over Wi-Fi and
+LTE, and keep improving. Owner's priority, stated mid-round: **stability and speed over
+megabytes** (their LTE is unlimited). Method and traps: HANDOFF §30.
+
+**How to read the numbers.** Timings are release builds, installed in place and compiled
+with `cmd package compile -m speed-profile -f` (what the phone does overnight). A debug build
+on the device runs uncompiled (`compilation-filter=run-from-apk`): the VISIONOS response
+parse took 1.3 s there vs 25-60 ms compiled, so debug-build TTFF on a device is not a
+measurement. A release build straight after install (before background dexopt) opened cold
+share links at median 926 ms vs 582 ms compiled: update day is ~60% slower until the phone
+compiles the app. Small samples (6-9 opens per cell), one phone, one carrier (Movistar LTE).
+
+**Cold share-link opens (process dead, VIEW intent), median time to first frame:**
+
+| network | 1.9.0 | 2026-09-24 round (`7ac6036`) | this round |
+|---|---|---|---|
+| Wi-Fi (morning) | 1291 ms, 9/9 opens hit a 403 + reload | 582 ms, 0 errors | - |
+| Wi-Fi (afternoon, slower link) | - | 936 ms | 744 ms |
+| LTE | 1716 ms, 6/6 opens hit a 403 + reload | 931-1110 ms | 851-868 ms, 0 errors |
+
+In-app card taps were 0.4-0.9 s on every build when the network behaved.
+
+**Verified on the Pixel (the 2026-09-24 features):** persisted auth-route quarantine
+(`authenticated-web-first` on cold opens), the escalation left open last round
+(`strike=2 escalation=up cooldownMs=2400000`), live `live-dashinfo skipped`, live results no
+longer persisted as the VOD hint (`winner-kept reason=live ... persisted=n`, next cold VOD
+begins at TV/VISIONOS), PiP cap (`viewport pip size=599x336 -> cap on`, lifted on
+`pip-exit`), history ping `tracking-cache hit`, live chat backoff 1->2->4->8->16->30 s,
+channel page "Sin conexión / Reintentar" and retry. Not exercised: the updater (1.9.0 is the
+newest release, so no download happens).
+
+**Found on the device and fixed:**
+- **Retry storm while the app's network is blocked** (app mobile data off, Data Saver
+  background, VPN lockdown): Android answers `getActiveNetwork()=null` but replays the
+  validated default network before its blocked status, and the recovery watcher took the
+  replay for "network restored". The Home feed retry (added 2026-09-24) fired ~2,900
+  `/browse` requests in 45 s; the player did 4 reloads every ~4 s, indefinitely. Now: blocked
+  status is tracked, delivery re-checks that the app can use the network, and a slow poll
+  covers API < 29. On the Pixel: 3 failed requests in 40 s, recovery 140 ms after unblock.
+- **Signed-in cold opens paid ~0.3-0.65 s for a SABR-only TV answer** every time: the
+  no-media streak lived in memory and a one-video process never reached 2 hits. The streak
+  is now persisted (v3 snapshot, v2/1.9.0 still restore), with probation after expiry and a
+  48 h memory of the video that armed it; streaks are cleared on account change.
+- **The owner's phone was still on the MEDIUM buffer (50 s)** from the one-shot-flag bug
+  fixed last round. A one-time v2 alignment moves MEDIUM to HIGH (75 s) unless the user
+  explicitly picked a buffer size (now recorded). The flags are global while the buffer is
+  per profile, so only the active profile is aligned.
+- **Live opens asked TV_DOWNGRADED for a DASH manifest it never has** (~0.5-0.9 s): only
+  ANDROID_VR is tried for the live DASH upgrade now.
+- **Dead links walked all 11 clients** (4-5 s): the walk stops when three clients, including
+  a server-confirmed signed-in one and an anonymous one, return the same allowlisted terminal
+  reason (whole-sentence match: live recording unavailable, removed by uploader, account
+  terminated, ToS/policy removal; six languages, only the Spanish live-recording sentence was
+  captured on a device - a wrong guess just never triggers). Generic "unavailable" never
+  stops it; neither do copyright takedowns (the sentence names the claimant).
+- **Some googlevideo edges stall on Movistar LTE.** Cronet hangs in TLS (`cronetStatus=11`)
+  until the startup timeout; OkHttp gets through after exactly its 4 s read timeout because
+  IPv6 wins the connect race and stalls, then IPv4 works (IPv6 ping to the edge: 100% loss).
+  1.9.0 took 14 s to recover such an open. Now: on a validated fast link the first media
+  request gets 2.5-3.5 s (8 s otherwise), then the same request fails over to OkHttp; Cronet
+  is bypassed for 2 min only when OkHttp answered (a host dead on both paths does not blame
+  Cronet); the recovery keeps the /player client (`blame=transport client=kept`); after an
+  IPv6-stall-then-IPv4 success on one network, OkHttp resolves googlevideo to IPv4 there while
+  IPv4 keeps working (at most 60 min; any IPv4 failure clears it, and a request whose IPv4
+  routes all fail retries once with both families). Handovers never carry the verdict over.
+  Simulated on the Pixel with the debug-only `debug.arc.blackhole_*` props; the IPv4
+  preference is unit-tested only (the real stall had cleared by then).
+
+**Changed per the owner's priority:** the cellular buffer cap (30 s + played) and a new
+portrait-player resolution cap (720p for a 1080x608 surface) apply only when the network is
+metered **and** Android Data Saver restricts the app. Default cellular gets the full buffer
+and uncapped ABR again; PiP/mini caps are unchanged. Verified by toggling Data Saver
+mid-playback on LTE.
+
+**Tests:** 408 smarttubetv, 143+ common, 182 focused youtubeapi unit tests pass. Two Codex
+(gpt-6-sol) adversarial reviews; their findings were fixed except the throughput-feeds-budget
+one (intended) and per-profile buffer alignment (low; one profile in use).
+
+**Bot wall at the end of the session.** After ~2 h of A/B runs from the Pixel's LTE IP, every
+anonymous client answered `LOGIN_REQUIRED "Inicia sesión para confirmar que no eres un bot"`
+(visitor rotation did not help), the signed-in heads were TV (SABR-only) and TV_DOWNGRADED
+(playable, media 403): nothing played on LTE, ~20 `/player` calls per open until the retry
+budget capped it. Wi-Fi (another IP) was unaffected (median 654 ms). Only a SABR fallback
+(HANDOFF §27-28) can play through that state; the app should also stop re-walking the ring on
+every recovery once it is established.
+
+**Still open:** update-day slowness before background dexopt (baseline profile coverage of
+the open path is unverified); signed-in Home fetches its first page plus 6 continuations at
+launch (same in 1.9.0); audio adaptation and the playback activity's first draw (see the
+2026-09-24 section).
+
 ## Network efficiency, stability and TTFF round (2026-09-24, emulators)
 
 Asked for: better network efficiency, stability and time to first frame. Three

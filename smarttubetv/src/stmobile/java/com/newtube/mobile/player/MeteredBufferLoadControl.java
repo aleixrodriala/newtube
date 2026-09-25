@@ -19,11 +19,14 @@ import java.util.function.LongSupplier;
 
 /**
  * NEWTUBE(metered): the preset's {@code DefaultLoadControl} behind one extra "stop loading" rule
- * that only exists on a metered default network. Unmetered links see the delegate bit-for-bit.
+ * that only exists while the user is saving data: a metered default network AND Android Data Saver
+ * restricting this app ({@link MeteredNetworkMonitor#shouldSaveData}). Anything else - Wi-Fi, and
+ * cellular without Data Saver (unlimited plans report metered too; there stability wins over
+ * megabytes) - sees the delegate bit-for-bit.
  *
- * <p>Why: the HIGH preset keeps 50-75 s loaded ahead (~25 MB of 1080p). On cellular that is paid
- * for even when the video is abandoned after 10 s, and it keeps filling while paused. On a metered
- * link the forward target becomes
+ * <p>Why: the HIGH preset keeps 50-75 s loaded ahead (~25 MB of 1080p). On a capped plan that is
+ * paid for even when the video is abandoned after 10 s, and it keeps filling while paused. While
+ * saving data the forward target becomes
  * <pre>
  *   playing:  min(presetMax, 30 s x max(1, speed) + time actually played in this playback)
  *   paused:   min(presetMax, 20 s)
@@ -58,16 +61,16 @@ final class MeteredBufferLoadControl implements LoadControl {
 
     private final LoadControl mDelegate;
     private final long mPresetMaxUs;
-    private final BooleanSupplier mMetered;
+    private final BooleanSupplier mSaveData;
     private final LongSupplier mRealtimeMs;
     /** Per foreground player (PlayerId has identity equality). Touched only on its playback thread. */
     private final Map<PlayerId, PlaybackTally> mTallies = new ConcurrentHashMap<>();
 
-    MeteredBufferLoadControl(LoadControl delegate, long presetMaxUs, BooleanSupplier metered,
+    MeteredBufferLoadControl(LoadControl delegate, long presetMaxUs, BooleanSupplier saveData,
             LongSupplier realtimeMs) {
         mDelegate = delegate;
         mPresetMaxUs = presetMaxUs;
-        mMetered = metered;
+        mSaveData = saveData;
         mRealtimeMs = realtimeMs;
     }
 
@@ -77,11 +80,12 @@ final class MeteredBufferLoadControl implements LoadControl {
 
     /**
      * The forward-buffer ceiling this policy imposes, in media microseconds, or
-     * {@link C#TIME_UNSET} for "no ceiling beyond the preset" (unmetered, or rebuffering).
+     * {@link C#TIME_UNSET} for "no ceiling beyond the preset" (not saving data, or rebuffering).
+     * {@code saveData} is the whole gate (metered AND Data Saver) as the monitor reports it.
      */
-    static long targetBufferUs(boolean metered, boolean playWhenReady, boolean rebuffering,
+    static long targetBufferUs(boolean saveData, boolean playWhenReady, boolean rebuffering,
             long playedUs, float speed, long presetMaxUs) {
-        if (!metered || rebuffering) {
+        if (!saveData || rebuffering) {
             return C.TIME_UNSET;
         }
         long target;
@@ -96,9 +100,9 @@ final class MeteredBufferLoadControl implements LoadControl {
     }
 
     /** True when the policy stops loading that the preset alone would have continued. */
-    static boolean shouldHold(boolean metered, boolean playWhenReady, boolean rebuffering,
+    static boolean shouldHold(boolean saveData, boolean playWhenReady, boolean rebuffering,
             long playedUs, float speed, long presetMaxUs, long bufferedUs) {
-        long target = targetBufferUs(metered, playWhenReady, rebuffering, playedUs, speed, presetMaxUs);
+        long target = targetBufferUs(saveData, playWhenReady, rebuffering, playedUs, speed, presetMaxUs);
         return target != C.TIME_UNSET && bufferedUs >= target;
     }
 
@@ -120,8 +124,8 @@ final class MeteredBufferLoadControl implements LoadControl {
             return false; // the preset already stops here; the wrapper never overrides a stop
         }
 
-        boolean metered = mMetered.getAsBoolean();
-        long target = targetBufferUs(metered, parameters.playWhenReady, parameters.rebuffering,
+        boolean saveData = mSaveData.getAsBoolean();
+        long target = targetBufferUs(saveData, parameters.playWhenReady, parameters.rebuffering,
                 tally.playedUs, parameters.playbackSpeed, mPresetMaxUs);
         boolean hold = target != C.TIME_UNSET && parameters.bufferedDurationUs >= target;
         if (hold) {
@@ -147,7 +151,8 @@ final class MeteredBufferLoadControl implements LoadControl {
         }
         tally.loggedPlayWhenReady = parameters.playWhenReady;
         tally.loggedTargetUs = target;
-        NetPath.log("buffer-cap metered=y mode=" + (parameters.playWhenReady ? "playing" : "paused")
+        NetPath.log("buffer-cap metered=y dataSaver=y mode="
+                + (parameters.playWhenReady ? "playing" : "paused")
                 + " target=" + seconds(target) + "s buffered=" + seconds(parameters.bufferedDurationUs)
                 + "s played=" + seconds(tally.playedUs) + "s preset-max=" + seconds(mPresetMaxUs)
                 + "s speed=" + parameters.playbackSpeed + " -> hold");
@@ -208,7 +213,7 @@ final class MeteredBufferLoadControl implements LoadControl {
     // NOTE: while this wrapper holds, the delegate still believes it is loading, and
     // DefaultLoadControl.shouldContinuePreloading refuses while any player is loading - so
     // ExoPlayer's own playlist preloading (setPreloadConfiguration, unused in this app) would stay
-    // off on a metered link. The PreloadMediaSource path is unaffected (PRELOAD is exempt above).
+    // off while saving data. The PreloadMediaSource path is unaffected (PRELOAD is exempt above).
     // ---------------------------------------------------------------------------------
 
     @Override

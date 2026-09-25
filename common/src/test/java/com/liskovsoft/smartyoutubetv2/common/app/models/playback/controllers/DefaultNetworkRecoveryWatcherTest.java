@@ -91,6 +91,8 @@ public class DefaultNetworkRecoveryWatcherTest {
         mWatcher.arm(mContext, mRecoveries::add);
         NetworkCallback callback = registered();
         callback.onAvailable(mActive);
+        // The device's own view validates together with the callback (the delivery re-reads it).
+        mShadow.setNetworkCapabilities(mActive, capabilities(true));
         callback.onCapabilitiesChanged(mActive, capabilities(true));
         idleMain();
 
