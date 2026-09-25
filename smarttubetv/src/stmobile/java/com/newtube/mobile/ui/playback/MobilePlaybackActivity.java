@@ -4177,13 +4177,15 @@ public class MobilePlaybackActivity extends MobileActivity
                 mWatchRelatedLabel.setVisibility(View.GONE);
             }
         }
+        // Nothing came for this page at all: drop what was held for it (online too - a failed
+        // /next leaves no comments key either; a late metadata bind re-shows the row).
+        if (mCommentsKey == null && mWatchCommentsEntry != null) {
+            mWatchCommentsEntry.setVisibility(View.GONE);
+        }
+        if (TextUtils.isEmpty(mWatchSubs.getText())) {
+            mWatchSubs.setVisibility(View.GONE);
+        }
         if (offline) {
-            if (mCommentsKey == null && mWatchCommentsEntry != null) {
-                mWatchCommentsEntry.setVisibility(View.GONE);
-            }
-            if (TextUtils.isEmpty(mWatchSubs.getText())) {
-                mWatchSubs.setVisibility(View.GONE);
-            }
             if (isCountUnset(mWatchLikeCount)) {
                 mWatchLikeCount.setVisibility(View.GONE);
             }
@@ -5134,6 +5136,8 @@ public class MobilePlaybackActivity extends MobileActivity
             if (!TextUtils.isEmpty(metadata.getSubscriberCount())) {
                 mWatchSubs.setText(metadata.getSubscriberCount());
                 mWatchSubs.setVisibility(View.VISIBLE);
+            } else if (TextUtils.isEmpty(mWatchSubs.getText())) {
+                mWatchSubs.setVisibility(View.GONE); // hidden count: release the held line
             }
 
             setChannelIcon(metadata.getAuthorImageUrl());

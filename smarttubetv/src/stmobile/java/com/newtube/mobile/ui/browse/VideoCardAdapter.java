@@ -218,7 +218,9 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
                     }
                 });
                 // NEWTUBE(a11y): one of 40 identical "More options" otherwise.
-                mOverflow.setContentDescription(context.getString(R.string.mobile_more_options_for, video.getTitle()));
+                mOverflow.setContentDescription(video.getTitle() != null
+                        ? context.getString(R.string.mobile_more_options_for, video.getTitle())
+                        : context.getString(R.string.mobile_player_more));
             }
 
             mTitle.setText(video.getTitle());
