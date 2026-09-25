@@ -54,6 +54,8 @@
     <string name="mobile_watch_subscribe">Subscribe</string>
     <string name="mobile_watch_subscribed">Subscribed</string>
     <string name="mobile_watch_related">Up next</string>
+    <!-- In place of "Up next" when nothing loaded because there is no network (e.g. a download). -->
+    <string name="mobile_watch_offline">You\'re offline</string>
     <!-- Queue card. "%1$s" is the playlist/queue name; the position line is "3 / 48". -->
     <string name="mobile_watch_queue_from">Playing from %1$s</string>
     <string name="mobile_watch_queue_position">%1$d / %2$d</string>
@@ -115,6 +117,10 @@
     <string name="mobile_audio_title">Audio</string>
     <string name="mobile_quality_auto">Auto (recommended)</string>
     <string name="mobile_audio_default">Default</string>
+    <!-- Audio track roles after the language name (AudioTrackLabel): "English (original)". -->
+    <string name="mobile_audio_role_original">original</string>
+    <string name="mobile_audio_role_dubbed">dubbed</string>
+    <string name="mobile_audio_role_descriptive">audio description</string>
 
     <!-- Captions sheet (sheet_mobile_captions / showCaptionsSheet) + CC toggle snackbar -->
     <string name="mobile_captions_off">Turn off subtitles</string>

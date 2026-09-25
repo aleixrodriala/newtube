@@ -4139,7 +4139,9 @@ public class MobilePlaybackActivity extends MobileActivity
                 mQueueAdapter.submitList(new ArrayList<>());
             }
             if (mWatchRelatedLabel != null) {
-                mWatchRelatedLabel.setVisibility(View.GONE);
+                // NEWTUBE(watch-jump): held over the skeleton instead of inserted above it later.
+                mWatchRelatedLabel.setText(R.string.mobile_watch_related);
+                mWatchRelatedLabel.setVisibility(View.VISIBLE);
             }
             // A new video is loading: the video itself starts first (by design), so show the
             // pulsing "up next" skeleton until the related feed lands.
@@ -4154,7 +4156,42 @@ public class MobilePlaybackActivity extends MobileActivity
      * moment real rows land ({@link #rebuildRelatedList}) or after a safety timeout (no related).
      */
     private static final long SKELETON_TIMEOUT_MS = 10_000;
-    private final Runnable mHideSkeletonTimeout = this::hideRelatedSkeleton;
+    private final Runnable mHideSkeletonTimeout = this::onRelatedSkeletonTimeout;
+
+    /**
+     * The related feed never came. Collapse what was held for it; and with no network (typically a
+     * download played offline) say so once instead of an empty "Up next" and "–" like counts that
+     * look like a broken page (NEWTUBE(watch-offline)).
+     */
+    private void onRelatedSkeletonTimeout() {
+        hideRelatedSkeleton();
+        if (!mRelatedVideos.isEmpty()) {
+            return;
+        }
+        boolean offline = !com.liskovsoft.smartyoutubetv2.common.utils.LoadFailure.hasValidatedNetwork(this);
+        if (mWatchRelatedLabel != null) {
+            if (offline) {
+                mWatchRelatedLabel.setText(R.string.mobile_watch_offline);
+                mWatchRelatedLabel.setVisibility(View.VISIBLE);
+            } else {
+                mWatchRelatedLabel.setVisibility(View.GONE);
+            }
+        }
+        if (offline) {
+            if (mCommentsKey == null && mWatchCommentsEntry != null) {
+                mWatchCommentsEntry.setVisibility(View.GONE);
+            }
+            if (TextUtils.isEmpty(mWatchSubs.getText())) {
+                mWatchSubs.setVisibility(View.GONE);
+            }
+            if (isCountUnset(mWatchLikeCount)) {
+                mWatchLikeCount.setVisibility(View.GONE);
+            }
+            if (isCountUnset(mWatchDislikeCount)) {
+                mWatchDislikeCount.setVisibility(View.GONE);
+            }
+        }
+    }
 
     private void showRelatedSkeleton() {
         if (mRelatedSkeleton == null) {
@@ -4532,7 +4569,9 @@ public class MobilePlaybackActivity extends MobileActivity
         if (languages.size() > 1) {
             for (java.util.Map.Entry<String, FormatItem> language : languages.entrySet()) {
                 FormatItem item = language.getValue();
-                addQualityRow(audioList, language.getKey(), language.getKey().equals(selectedLanguage), () -> {
+                // Display only: the row reads "English (original)", the key stays the raw tag.
+                addQualityRow(audioList, AudioTrackLabel.format(this, language.getKey()),
+                        language.getKey().equals(selectedLanguage), () -> {
                     setFormat(item);
                     playerData.setFormat(item);
                     dialog.dismiss();
@@ -4967,7 +5006,7 @@ public class MobilePlaybackActivity extends MobileActivity
                     line = stripped;
                 }
             }
-            mWatchMeta.setText(line);
+            mWatchMeta.setText(line.replaceFirst("(?i)(published|premiered|streamed live) on ", ""));
         }
 
         if (!TextUtils.isEmpty(item.likeCount)) {
@@ -4994,14 +5033,20 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchLikeCount.setText(R.string.mobile_watch_count_placeholder);
         mWatchDislikeCount.setText(R.string.mobile_watch_count_placeholder);
         mWatchSubs.setText(null);
-        mWatchSubs.setVisibility(View.GONE);
+        // NEWTUBE(watch-jump): INVISIBLE, not GONE - the subscriber line, the Comments row and the
+        // "Up next" label used to pop in as metadata/related landed, pushing the page down ~180dp
+        // under the person's thumb. Their space is held from the start; only the rare video that
+        // turns out to have none of them collapses (bindWatchMetadata / onRelatedSkeletonTimeout).
+        mWatchSubs.setVisibility(View.INVISIBLE);
         mWatchAvatar.setImageResource(R.drawable.ic_watch_channel_placeholder);
+        mWatchLikeCount.setVisibility(View.VISIBLE);
+        mWatchDislikeCount.setVisibility(View.VISIBLE);
 
         // New video: clear comments/chat availability and any buffered chat until metadata returns.
         mCommentsKey = null;
         mLiveChatKey = null;
         if (mWatchCommentsEntry != null) {
-            mWatchCommentsEntry.setVisibility(View.GONE);
+            mWatchCommentsEntry.setVisibility(View.VISIBLE); // reserved; see above
         }
         if (mWatchChatEntry != null) {
             mWatchChatEntry.setVisibility(View.GONE);
@@ -5071,7 +5116,9 @@ public class MobilePlaybackActivity extends MobileActivity
             } else {
                 meta = date;
             }
-            if (!TextUtils.isEmpty(meta)) {
+            // NEWTUBE(watch-jump): only when the card gave no line. Replacing it swapped the card's
+            // "4 days ago" for "Sep 20, 2026" (and the separator spacing) a second after opening.
+            if (!TextUtils.isEmpty(meta) && mWatchMeta.length() == 0) {
                 mWatchMeta.setText(meta);
             }
 
@@ -5420,8 +5467,9 @@ public class MobilePlaybackActivity extends MobileActivity
             int end = Math.min(mRelatedWindow, mRelatedVideos.size());
             mRelatedAdapter.submitList(new ArrayList<>(mRelatedVideos.subList(0, end)));
         }
-        if (mWatchRelatedLabel != null) {
-            mWatchRelatedLabel.setVisibility(mRelatedVideos.isEmpty() ? View.GONE : View.VISIBLE);
+        if (mWatchRelatedLabel != null && !mRelatedVideos.isEmpty()) {
+            mWatchRelatedLabel.setText(R.string.mobile_watch_related);
+            mWatchRelatedLabel.setVisibility(View.VISIBLE);
         }
     }
 
