@@ -27,6 +27,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.provide
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.providers.ContextMenuProvider;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelUploadsView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
+import com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.VideoDownloads;
 import com.liskovsoft.smartyoutubetv2.common.misc.StreamReminderService;
@@ -580,8 +581,8 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
             return;
         }
 
-        // NEWTUBE(share): a card's Share links the video, not the resume point in it.
-        AppDialogUtil.appendShareLinkDialogItem(getContext(), mDialogPresenter, mVideo, 0);
+        // NEWTUBE(share): on the phone a card's Share links the video, not the resume point in it.
+        AppDialogUtil.appendShareLinkDialogItem(getContext(), mDialogPresenter, mVideo, PhoneUi.isEnabled() ? 0 : -1);
     }
 
     private void appendShareQRLinkButton() {
@@ -947,6 +948,11 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
         // Until synced we won't really know weather we subscribed to a channel.
         // Exclusion: channel item (can't be synced)
         // Note, regular items (from subscribed section etc) aren't contain channel id
+        if (PhoneUi.isEnabled()) {
+            toggleSubscribePhone();
+            return;
+        }
+
         if (mVideo.isSynced || mVideo.isSubscribed || mVideo.isChannel() || (!getSignInService().isSigned() && mVideo.channelId != null)) {
             toggleSubscribe(mVideo);
         } else {
@@ -957,6 +963,65 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
                 toggleSubscribe(mVideo);
             });
         }
+    }
+
+    /**
+     * NEWTUBE(menu): the phone's Subscribe row. The menu closes on the tap, like every other menu
+     * action (the TV leaves it open); an unknown channel is looked up quietly (no "Please wait"
+     * Toast); and the Snackbar reports what actually happened once the request finished - the
+     * channel's name and Undo on success, "Couldn't ..." when there was no channel to act on or
+     * the request failed - instead of announcing "Subscribed" the moment the row is tapped.
+     */
+    private void toggleSubscribePhone() {
+        Video video = mVideo; // closeDialog() below may reset the presenter's state
+        VideoMenuCallback callback = mCallback;
+        closeDialog();
+
+        if (video.isSynced || video.isSubscribed || video.isChannel() || (!getSignInService().isSigned() && video.channelId != null)) {
+            toggleSubscribePhone(video, callback, null);
+        } else {
+            mServiceManager.loadMetadata(video, metadata -> {
+                video.sync(metadata);
+                toggleSubscribePhone(video, callback, null);
+            });
+        }
+    }
+
+    private void toggleSubscribePhone(Video video, VideoMenuCallback callback, Runnable onDone) {
+        boolean subscribe = !video.isSubscribed;
+        String channel = video.getAuthor();
+
+        if (video.channelId == null) {
+            confirm(getContext().getString(subscribe ? R.string.subscribe_failed : R.string.unsubscribe_failed));
+            return;
+        }
+
+        RxHelper.disposeActions(mSubscribeAction);
+
+        Observable<Void> observable = subscribe ?
+                mMediaItemService.subscribeObserve(video.channelId) : mMediaItemService.unsubscribeObserve(video.channelId);
+
+        mSubscribeAction = RxHelper.execute(observable,
+                error -> confirm(getContext().getString(subscribe ? R.string.subscribe_failed : R.string.unsubscribe_failed)),
+                () -> {
+                    video.isSubscribed = subscribe;
+                    if (!subscribe && callback != null) {
+                        callback.onItemAction(video, VideoMenuCallback.ACTION_UNSUBSCRIBE);
+                    }
+                    if (onDone != null) {
+                        onDone.run();
+                        return;
+                    }
+                    String message = channel == null
+                            ? getContext().getString(subscribe ? R.string.subscribed_to_channel : R.string.unsubscribed_from_channel)
+                            : getContext().getString(subscribe ? R.string.subscribed_to_channel_name : R.string.unsubscribed_from_channel_name, channel);
+                    // Undo re-toggles. Undoing an unsubscribe made from the Subscriptions feed also
+                    // reloads it, since the feed already dropped that channel's videos.
+                    boolean reloadFeed = !subscribe && video.belongsToSubscriptions();
+                    confirm(message, getContext().getString(R.string.action_undo),
+                            () -> toggleSubscribePhone(video, null, reloadFeed
+                                    ? () -> BrowsePresenter.instance(getContext()).refresh(false) : () -> { }));
+                });
     }
 
     private void toggleSubscribe(Video video) {
@@ -977,7 +1042,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
             mCallback.onItemAction(video, VideoMenuCallback.ACTION_UNSUBSCRIBE);
         }
 
-        confirm(getContext().getString(!video.isSubscribed ? R.string.unsubscribed_from_channel : R.string.subscribed_to_channel));
+        MessageHelpers.showMessage(getContext(), getContext().getString(!video.isSubscribed ? R.string.unsubscribed_from_channel : R.string.subscribed_to_channel));
     }
 
     @Override

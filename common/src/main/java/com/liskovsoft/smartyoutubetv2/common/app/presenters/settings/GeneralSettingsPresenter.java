@@ -20,6 +20,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.provide
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.providers.ContextMenuProvider;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.service.SidebarService;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
+import com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi;
 import com.liskovsoft.smartyoutubetv2.common.prefs.AppPrefs;
 import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
@@ -78,10 +79,17 @@ public class GeneralSettingsPresenter extends BasePresenter<Void> {
         appendEnabledSections(settingsPresenter);
         appendContextMenuItemsCategory(settingsPresenter);
         appendHideContent(settingsPresenter);
-        appendAppExitCategory(settingsPresenter);
+        // NEWTUBE(settings): not on the phone (stored values untouched). The app-exit shortcut has
+        // no reader outside GeneralData (phone Back is MobileActivity's); screen dimming belongs to
+        // the screensaver the phone build does not create; key remapping is D-pad/remote handling.
+        if (!PhoneUi.isEnabled()) {
+            appendAppExitCategory(settingsPresenter);
+        }
         appendBackgroundPlaybackCategory(settingsPresenter);
-        appendScreenDimmingCategory(settingsPresenter);
-        appendKeyRemappingCategory(settingsPresenter);
+        if (!PhoneUi.isEnabled()) {
+            appendScreenDimmingCategory(settingsPresenter);
+            appendKeyRemappingCategory(settingsPresenter);
+        }
         appendInternetCensorship(settingsPresenter);
         appendHistoryCategory(settingsPresenter);
         appendMiscCategory(settingsPresenter);
@@ -102,12 +110,20 @@ public class GeneralSettingsPresenter extends BasePresenter<Void> {
                 continue;
             }
 
-            options.add(UiOptionItem.from(getContext().getString(sectionResId), optionItem -> {
+            options.add(UiOptionItem.from(getContext().getString(sectionTitleRes(sectionResId)), optionItem -> {
                 BrowsePresenter.instance(getContext()).enableSection(sectionId, optionItem.isSelected());
             }, mSidebarService.isSectionPinned(sectionId)));
         }
 
         settingsPresenter.appendCheckedCategory(getContext().getString(R.string.side_panel_sections), options);
+    }
+
+    /**
+     * NEWTUBE(settings): the section list keys Live by badge_live, the upper-case "LIVE" painted on
+     * live thumbnails; the phone's You tab and nav say "Live" (header_live), so its settings do too.
+     */
+    private static int sectionTitleRes(int resId) {
+        return PhoneUi.isEnabled() && resId == R.string.badge_live ? R.string.header_live : resId;
     }
 
     private void appendHideContent(AppDialogPresenter settingsPresenter) {
@@ -275,18 +291,18 @@ public class GeneralSettingsPresenter extends BasePresenter<Void> {
         Map<Integer, Integer> sections = mSidebarService.getDefaultSections();
 
         for (Entry<Integer, Integer> section : sections.entrySet()) {
-            // NEWTUBE(settings): only sections the phone can actually open at boot - the enabled
-            // ones, never Shorts (retired on the phone) or Settings (not a feed). The current pick
-            // stays listed even if hidden since, so the radio group never loses its checked row.
+            // NEWTUBE(settings): on the phone, only sections it can actually open at boot - the
+            // enabled ones, never Shorts (retired on the phone) or Settings (not a feed). The current
+            // pick stays listed even if hidden since, so the radio group never loses its checked row.
             int sectionId = section.getValue();
             boolean current = section.getValue().equals(mSidebarService.getBootSectionId());
-            if (!current && (sectionId == MediaGroup.TYPE_SHORTS || sectionId == MediaGroup.TYPE_SETTINGS
-                    || !mSidebarService.isSectionPinned(sectionId))) {
+            if (PhoneUi.isEnabled() && !current && (sectionId == MediaGroup.TYPE_SHORTS
+                    || sectionId == MediaGroup.TYPE_SETTINGS || !mSidebarService.isSectionPinned(sectionId))) {
                 continue;
             }
             options.add(
                     UiOptionItem.from(
-                            getContext().getString(section.getKey()),
+                            getContext().getString(sectionTitleRes(section.getKey())),
                             optionItem -> mSidebarService.setBootSectionId(section.getValue()),
                             section.getValue().equals(mSidebarService.getBootSectionId())
                     )
@@ -615,13 +631,17 @@ public class GeneralSettingsPresenter extends BasePresenter<Void> {
                 option -> mGeneralData.setOkButtonLongPressDisabled(option.isSelected()),
                 mGeneralData.isOkButtonLongPressDisabled()));
 
-        options.add(UiOptionItem.from( getContext().getString(R.string.player_exit_shortcut) + ": " + getContext().getString(R.string.app_double_back_exit),
-                option -> mGeneralData.setPlayerExitShortcut(option.isSelected() ? GeneralData.EXIT_DOUBLE_BACK : GeneralData.EXIT_SINGLE_BACK),
-                mGeneralData.getPlayerExitShortcut() == GeneralData.EXIT_DOUBLE_BACK));
+        // NEWTUBE(settings): the player/search double-back exits are read by nothing but the settings
+        // screens (phone Back is MobileActivity's), so the phone doesn't offer them.
+        if (!PhoneUi.isEnabled()) {
+            options.add(UiOptionItem.from( getContext().getString(R.string.player_exit_shortcut) + ": " + getContext().getString(R.string.app_double_back_exit),
+                    option -> mGeneralData.setPlayerExitShortcut(option.isSelected() ? GeneralData.EXIT_DOUBLE_BACK : GeneralData.EXIT_SINGLE_BACK),
+                    mGeneralData.getPlayerExitShortcut() == GeneralData.EXIT_DOUBLE_BACK));
 
-        options.add(UiOptionItem.from(getContext().getString(R.string.search_exit_shortcut) + ": " + getContext().getString(R.string.app_double_back_exit),
-                option -> mGeneralData.setSearchExitShortcut(option.isSelected() ? GeneralData.EXIT_DOUBLE_BACK : GeneralData.EXIT_SINGLE_BACK),
-                mGeneralData.getSearchExitShortcut() == GeneralData.EXIT_DOUBLE_BACK));
+            options.add(UiOptionItem.from(getContext().getString(R.string.search_exit_shortcut) + ": " + getContext().getString(R.string.app_double_back_exit),
+                    option -> mGeneralData.setSearchExitShortcut(option.isSelected() ? GeneralData.EXIT_DOUBLE_BACK : GeneralData.EXIT_SINGLE_BACK),
+                    mGeneralData.getSearchExitShortcut() == GeneralData.EXIT_DOUBLE_BACK));
+        }
 
         options.add(UiOptionItem.from(getContext().getString(R.string.return_to_launcher),
                 option -> mGeneralData.setReturnToLauncherEnabled(option.isSelected()),
@@ -785,7 +805,9 @@ public class GeneralSettingsPresenter extends BasePresenter<Void> {
         menuNames.put(MainUIData.MENU_ITEM_ADD_TO_QUEUE, R.string.add_remove_from_playback_queue);
         menuNames.put(MainUIData.MENU_ITEM_SHOW_QUEUE, R.string.action_playback_queue);
         menuNames.put(MainUIData.MENU_ITEM_STREAM_REMINDER, R.string.set_stream_reminder);
-        menuNames.put(MainUIData.MENU_ITEM_SUBSCRIBE, R.string.subscribe_unsubscribe_from_channel);
+        // NEWTUBE(settings): the phone names the menu row plainly (its label flips with the state).
+        menuNames.put(MainUIData.MENU_ITEM_SUBSCRIBE, PhoneUi.isEnabled()
+                ? R.string.subscribe_to_channel : R.string.subscribe_unsubscribe_from_channel);
         menuNames.put(MainUIData.MENU_ITEM_SAVE_REMOVE_PLAYLIST, R.string.save_remove_playlist);
         menuNames.put(MainUIData.MENU_ITEM_CREATE_PLAYLIST, R.string.create_playlist);
         menuNames.put(MainUIData.MENU_ITEM_RENAME_PLAYLIST, R.string.rename_playlist);

@@ -37,6 +37,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.SubtitleStyle;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem.VideoPreset;
+import com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi;
 import com.liskovsoft.smartyoutubetv2.common.misc.AppDataSourceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MotherActivity;
@@ -106,8 +107,10 @@ public class AppDialogUtil {
 
         dialogPresenter.appendSingleButton(
                 UiOptionItem.from(context.getString(R.string.share_link), optionItem -> {
-                    // NEWTUBE(share): the menu has done its job once the share sheet opens.
-                    dialogPresenter.closeDialog();
+                    // NEWTUBE(share): on the phone the menu has done its job once the share sheet opens.
+                    if (PhoneUi.isEnabled()) {
+                        dialogPresenter.closeDialog();
+                    }
                     if (video.videoId != null) {
                         Utils.displayShareVideoDialog(context, video.videoId, positionSec == -1 ? Utils.toSec(video.getPositionMs()) : positionSec);
                     } else if (video.playlistId != null) {

@@ -161,24 +161,12 @@ public class MobileMainApplication extends MainApplication {
             migrations.edit().putBoolean("tv_receiver_roles_off", true).apply();
         }
 
-        // CARD MENU (mobile-only, one-shot): Share on every card menu, next to Download, like
-        // YouTube's; and "Block the channel" moved below "Play next" so the everyday actions lead.
-        // Later changes in Settings > card menu stick (the flag prevents re-applying).
-        if (!migrations.getBoolean("card_menu_share_block_order", false)) {
-            com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData ui =
-                    com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.instance(this);
-            ui.setMenuItemEnabled(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.MENU_ITEM_SHARE_LINK);
-            int download = ui.getMenuItemIndex(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.MENU_ITEM_DOWNLOAD);
-            if (download >= 0) {
-                ui.setMenuItemIndex(download + 1, com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.MENU_ITEM_SHARE_LINK);
-            }
-            int block = ui.getMenuItemIndex(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.MENU_ITEM_BLOCK_CHANNEL);
-            int playNext = ui.getMenuItemIndex(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.MENU_ITEM_PLAY_NEXT);
-            if (block >= 0 && playNext > block) {
-                // Removing Block first shifts Play next up one, so this index lands right after it.
-                ui.setMenuItemIndex(playNext, com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.MENU_ITEM_BLOCK_CHANNEL);
-            }
-            migrations.edit().putBoolean("card_menu_share_block_order", true).apply();
+        // CARD MENU (mobile-only, one-shot): Share on every card menu next to Download, like
+        // YouTube's, and "Block the channel" below "Play next" - but only for a menu nobody has
+        // customised (CardMenuMigration); a user's own order or a Share they turned off stays.
+        if (!migrations.getBoolean("card_menu_share_block_order_v2", false)) {
+            CardMenuMigration.applyIfDefault(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.instance(this));
+            migrations.edit().putBoolean("card_menu_share_block_order_v2", true).apply();
         }
 
         // NOTE(buffering): the back-buffer / start-gate / forward-buffer tuning that used to be
@@ -375,6 +363,11 @@ public class MobileMainApplication extends MainApplication {
         // list the user's WHOLE search history as its suggestions; now only the past searches that
         // match it. The empty field still shows the full history. TV never calls this.
         com.liskovsoft.youtubeapi.search.v2.SearchServiceGates.setHistoryMatchesQuery(true);
+
+        // PHONE UI (mobile-only): shared settings screens, card menus and sharing take their phone
+        // form - TV-only settings rows hidden, menus that close and confirm with a Snackbar, share
+        // sheets instead of the TV "open with" chooser. TV never calls this (PhoneUi).
+        com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi.setEnabled(true);
 
         // FEED FIRST-PAINT (mobile-only, round 2): Home's eager row-pad continuations exist to
         // fill short TV shelf rows to MIN_ROW_GROUP_SIZE=5; the phone flattens every row into one

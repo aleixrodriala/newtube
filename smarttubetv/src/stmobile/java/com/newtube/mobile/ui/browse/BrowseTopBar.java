@@ -31,11 +31,14 @@ final class BrowseTopBar {
                 .getDimensionPixelSize(R.dimen.mobile_dialog_title_inset_with_back);
     }
 
-    /** {@code subScreenTitle} null = the wordmark (a tab); otherwise back arrow + that title. */
-    void show(CharSequence subScreenTitle) {
-        boolean subScreen = subScreenTitle != null;
+    /**
+     * A tab shows the wordmark; a sub-screen shows the back arrow and {@code title} (the wordmark
+     * text if the section came without one - the arrow is what matters).
+     */
+    void show(boolean subScreen, CharSequence title) {
         mBack.setVisibility(subScreen ? View.VISIBLE : View.GONE);
-        mTitle.setText(subScreen ? subScreenTitle : mTitle.getContext().getString(R.string.app_name));
+        mTitle.setText(subScreen && title != null && title.length() > 0
+                ? title : mTitle.getContext().getString(R.string.app_name));
         mTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, subScreen ? SUBSCREEN_TITLE_SP : WORDMARK_SP);
         mTitle.setPaddingRelative(subScreen ? mBesideBackInset : mWordmarkInset,
                 mTitle.getPaddingTop(), mTitle.getPaddingEnd(), mTitle.getPaddingBottom());

@@ -175,6 +175,7 @@
     <!-- Overrides common's all-caps TV label ("SIGN IN") on the sign-in-gated empty state. -->
     <string name="action_signin">Sign in</string>
     <string name="mobile_empty_generic">Nothing to show here yet</string>
+    <string name="mobile_empty_subscriptions">Videos from channels you subscribe to show up here</string>
     <!-- Same empty state, but the device has no working network: say so instead of blaming the feed. -->
     <string name="mobile_empty_no_connection">No connection. Check your network and try again.</string>
     <!-- Channel / uploads / playlist pages (MobileChannel*Activity): the first page failed with a
@@ -202,6 +203,8 @@
     <string name="subscribe_unsubscribe_from_channel">Subscribe or unsubscribe</string>
     <string name="share_link">Share</string>
     <string name="mobile_you_pinned">Pinned</string>
+    <string name="pin_unpin_from_sidebar">Pin to You</string>
+    <string name="mobile_settings_experimental">Experimental</string>
     <string name="mobile_player_settings">Settings</string>
     <string name="mobile_more_options_for">More options for %1$s</string>
     <string name="mobile_comment_likes">%1$s likes</string>
@@ -309,7 +312,10 @@
     <string name="mobile_unsubscribed">Unsubscribed</string>
     <string name="mobile_undo">Undo</string>
     <string name="mobile_download_started">Download started</string>
-    <string name="mobile_download_started_size">Download started · %1$s</string>
+    <string name="mobile_download_started_size">Download started • %1$s</string>
+    <string name="mobile_download_done">Downloaded</string>
+    <string name="mobile_download_done_size">Downloaded • %1$s</string>
+    <string name="mobile_download_already_here">Already downloaded</string>
     <string name="mobile_download_view">View</string>
     <string name="mobile_download_preparing">Preparing download…</string>
     <string name="mobile_download_unavailable">This video can\'t be downloaded</string>

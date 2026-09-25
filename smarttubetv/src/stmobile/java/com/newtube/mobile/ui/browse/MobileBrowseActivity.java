@@ -693,11 +693,14 @@ public class MobileBrowseActivity extends MobileActivity
         // ~60 s by the server's attestation demand, so a switch for it would promise a playback
         // that cannot finish. See SabrSourcePreference and HANDOFF section 28.
         // NEWTUBE(settings): it sits at the end of Player now, not as a raw row on the Settings root.
+        // A one-row checked category, so it lines up with the checkbox column above it.
         com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.PlayerSettingsPresenter.setPhoneExtraRows(
-                (context, presenter) -> presenter.appendSingleSwitch(UiOptionItem.from(
-                        context.getString(R.string.sabr_vod_option),
-                        option -> com.newtube.mobile.player.SabrSourcePreference.setPreferred(context, option.isSelected()),
-                        com.newtube.mobile.player.SabrSourcePreference.isPreferred(context))));
+                (context, presenter) -> presenter.appendCheckedCategory(
+                        context.getString(R.string.mobile_settings_experimental),
+                        java.util.Collections.singletonList(UiOptionItem.from(
+                                context.getString(R.string.sabr_vod_option),
+                                option -> com.newtube.mobile.player.SabrSourcePreference.setPreferred(context, option.isSelected()),
+                                com.newtube.mobile.player.SabrSourcePreference.isPreferred(context)))));
 
         // Tag this as the full-screen Settings tree so MobileAppDialogActivity renders it full-screen
         // (nested category screens push onto the same activity and inherit that). Context menus and the
@@ -771,7 +774,7 @@ public class MobileBrowseActivity extends MobileActivity
 
         boolean subScreen = mSectionFromYou && !mYouShowing
                 && mBottomNav.getMenu().findItem(toMenuItemId(mCurrentSectionId)) == null;
-        mTopBar.show(subScreen ? getCurrentSectionTitle() : null);
+        mTopBar.show(subScreen, getCurrentSectionTitle());
     }
 
     /**
@@ -1146,6 +1149,18 @@ public class MobileBrowseActivity extends MobileActivity
     }
 
     /** The Downloads tab with nothing in it: say what the tab is for instead of a blank grid. */
+    private void showEmptyAfterRemoval() {
+        setSkeletonVisible(false);
+        mContentSwipe.setRefreshing(false);
+        mContentGrid.setVisibility(View.GONE);
+        mErrorContainer.setVisibility(View.VISIBLE);
+        mErrorIcon.setVisibility(View.VISIBLE);
+        mErrorMessage.setText(mCurrentSectionId == MediaGroup.TYPE_SUBSCRIPTIONS
+                ? R.string.mobile_empty_subscriptions : R.string.mobile_empty_generic);
+        mErrorAction.setVisibility(View.GONE);
+        mErrorAction.setTag(null);
+    }
+
     private void showDownloadsEmptyState() {
         setSkeletonVisible(false);
         mContentSwipe.setRefreshing(false);
@@ -1424,12 +1439,14 @@ public class MobileBrowseActivity extends MobileActivity
     // state across; the presenter still owns which section is current.
     private static final String STATE_YOU_SHOWING = "newtube:you_showing";
     private static final String STATE_SECTION_FROM_YOU = "newtube:section_from_you";
+    private static final String STATE_SECTION_ID = "newtube:section_id";
 
     @Override
     protected void onSaveInstanceState(@NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
         outState.putBoolean(STATE_YOU_SHOWING, mYouShowing);
         outState.putBoolean(STATE_SECTION_FROM_YOU, mSectionFromYou);
+        outState.putInt(STATE_SECTION_ID, mCurrentSectionId);
     }
 
     @Override
@@ -1442,10 +1459,19 @@ public class MobileBrowseActivity extends MobileActivity
             mBottomNav.setSelectedItemId(YOU_ITEM_ID);
             mSuppressNavCallback = false;
         } else {
-            mSectionFromYou = savedInstanceState.getBoolean(STATE_SECTION_FROM_YOU);
+            // "Opened from You" belongs to the section it was saved with. After a process restore
+            // the presenter reselects the boot section (usually Home): with the flag carried over,
+            // Back on Home would open You instead of leaving.
+            mSectionFromYou = savedInstanceState.getBoolean(STATE_SECTION_FROM_YOU)
+                    && savedInstanceState.getInt(STATE_SECTION_ID, -1) == mCurrentSectionId;
             // A section with its own tab re-lights that tab; one opened from a You row has none,
             // so the restored You highlight is the right one to keep.
             syncNavHighlight(mCurrentSectionId);
+            if (!mSectionFromYou && mBottomNav.getMenu().findItem(toMenuItemId(mCurrentSectionId)) == null) {
+                // A section without a tab that is no longer a You sub-screen: nothing may stay lit
+                // on You over it; fall back to Home's tab like a fresh start.
+                syncNavHighlight(MediaGroup.TYPE_HOME);
+            }
             onYouPanelToggled();
         }
     }
@@ -1627,6 +1653,14 @@ public class MobileBrowseActivity extends MobileActivity
                 } else {
                     setSkeletonVisible(false);
                 }
+                return;
+            }
+
+            if (mCurrentVideos.isEmpty() && (group.getAction() == VideoGroup.ACTION_REMOVE
+                    || group.getAction() == VideoGroup.ACTION_REMOVE_AUTHOR)) {
+                // NEWTUBE(feed): the last rows were removed (e.g. unsubscribing from the only
+                // channel on Subscriptions) - say so instead of leaving a blank tab.
+                showEmptyAfterRemoval();
                 return;
             }
 

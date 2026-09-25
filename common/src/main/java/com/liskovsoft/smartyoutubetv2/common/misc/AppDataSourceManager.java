@@ -7,6 +7,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.data.SettingsItem;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.AboutSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.AboutSimpleSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.AccountSettingsPresenter;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.AutoFrameRateSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.BackupSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.SponsorBlockSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.DeArrowSettingsPresenter;
@@ -14,6 +15,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.GeneralSett
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.LanguageSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.MainUISettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.PlayerSettingsPresenter;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.RemoteControlSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.SearchSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.SubtitleSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem.VideoPreset;
@@ -44,6 +46,10 @@ public class AppDataSourceManager {
         // NEWTUBE(settings): no "Remote control" on the phone - it turns THIS device into a receiver
         // other phones control (a foreground service listening in the background), a TV role. The
         // phone's own remote role is the cast button. MobileMainApplication turns it off once.
+        if (!PhoneUi.isEnabled()) {
+            settingItems.add(new SettingsItem(
+                    context.getString(R.string.settings_remote_control), () -> RemoteControlSettingsPresenter.instance(context).show(), R.drawable.settings_cast));
+        }
         settingItems.add(new SettingsItem(
                 context.getString(R.string.settings_language_country), () -> LanguageSettingsPresenter.instance(context).show(), R.drawable.settings_language));
         settingItems.add(new SettingsItem(
@@ -55,6 +61,12 @@ public class AppDataSourceManager {
         // NEWTUBE(settings): no "Auto Frame Rate" on the phone. It is live code - it switches the
         // DISPLAY's refresh mode per video - built for TVs; a phone's panel already adapts, and a
         // row that can reprogram it is a trap. MobileMainApplication turns it off once.
+        if (!PhoneUi.isEnabled()) {
+            // Don't add afr support check here.
+            // Users want even fake afr settings.
+            settingItems.add(new SettingsItem(
+                    context.getString(R.string.auto_frame_rate), () -> AutoFrameRateSettingsPresenter.instance(context).show(), R.drawable.settings_afr));
+        }
         settingItems.add(new SettingsItem(
                 context.getString(R.string.subtitle_category_title), () -> SubtitleSettingsPresenter.instance(context).show(), R.drawable.settings_subtitles));
         settingItems.add(new SettingsItem(

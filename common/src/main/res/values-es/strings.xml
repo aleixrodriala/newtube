@@ -124,6 +124,11 @@
   <string name="repeat_mode_none">Parar después de un vídeo</string>
   <string name="subscribed_to_channel">Suscrito al canal</string>
   <string name="unsubscribed_from_channel">No estás Suscrito al canal</string>
+  <string name="subscribed_to_channel_name">Te has suscrito a %1$s</string>
+  <string name="unsubscribed_from_channel_name">Has cancelado la suscripción a %1$s</string>
+  <string name="subscribe_failed">No se pudo suscribir. Vuelve a intentarlo.</string>
+  <string name="unsubscribe_failed">No se pudo cancelar la suscripción. Vuelve a intentarlo.</string>
+  <string name="action_undo">Deshacer</string>
   <string name="subtitle_yellow_transparent">Amarillo sobre fondo transparente</string>
   <string name="subtitle_white_transparent">Blanco sobre fondo transparente</string>
   <string name="subtitle_white_black">Blanco sobre fondo negro</string>

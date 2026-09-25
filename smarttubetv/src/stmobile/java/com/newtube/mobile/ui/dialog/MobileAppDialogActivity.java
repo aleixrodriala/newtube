@@ -80,6 +80,26 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
 
     private static final String STATE_FULL_SCREEN = "newtube:dialog_full_screen";
 
+    /**
+     * NEWTUBE(ui-mode): the level stack handed from an instance being recreated for a configuration
+     * change to its replacement (same process; the OptionCategory callbacks can't be parcelled).
+     * Without it a recreated Settings screen kept only the level on top, and Back closed Settings
+     * instead of returning to the parent category.
+     */
+    private static RecreationState sRecreation;
+
+    private static final class RecreationState {
+        final List<DialogLevel> levels;
+        final Map<OptionCategory, OptionItem> radioOverrides;
+        final boolean transparent;
+
+        RecreationState(List<DialogLevel> levels, Map<OptionCategory, OptionItem> radioOverrides, boolean transparent) {
+            this.levels = levels;
+            this.radioOverrides = radioOverrides;
+            this.transparent = transparent;
+        }
+    }
+
     /** Bottom sheet is capped at this fraction of the screen height, then the list scrolls. */
     private static final float SHEET_MAX_HEIGHT_FRACTION = 0.72f;
 
@@ -188,11 +208,22 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
 
         // NEWTUBE(ui-mode): a recreated Settings screen came back as a bottom sheet over the feed -
         // the presenter re-shows its last level, whose id is not the full-screen marker. Keep the
-        // presentation the user was looking at.
-        if (savedInstanceState != null && savedInstanceState.getBoolean(STATE_FULL_SCREEN)) {
+        // presentation the user was looking at, and the levels below the top one (see sRecreation).
+        RecreationState recreation = sRecreation;
+        sRecreation = null;
+        if (savedInstanceState != null && recreation != null) {
+            mLevels.addAll(recreation.levels);
+            mRadioOverrides.putAll(recreation.radioOverrides);
+            mIsTransparent = recreation.transparent;
+        }
+        if (savedInstanceState != null && (savedInstanceState.getBoolean(STATE_FULL_SCREEN) || !mLevels.isEmpty())) {
             mModeConfigured = true;
-            mFullScreen = true;
-            configureFullScreen();
+            mFullScreen = savedInstanceState.getBoolean(STATE_FULL_SCREEN);
+            if (mFullScreen) {
+                configureFullScreen();
+            } else {
+                configureSheet();
+            }
         }
 
         mPresenter = AppDialogPresenter.instance(this);
@@ -448,6 +479,9 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
         if (mPresenter != null && mPresenter.getView() == this && !isChangingConfigurations()) {
             mPresenter.onViewDestroyed();
         }
+        if (isChangingConfigurations() && !mLevels.isEmpty()) {
+            sRecreation = new RecreationState(new ArrayList<>(mLevels), new HashMap<>(mRadioOverrides), mIsTransparent);
+        }
 
         super.onDestroy();
     }
@@ -480,6 +514,13 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
             // Lock in sheet-vs-full-screen on the root level (nested levels inherit it).
             if (stackWasEmpty) {
                 configurePresentation(id);
+            }
+
+            // A recreated instance already holds its stack (onCreate); the presenter's re-show of
+            // the top level after recreation is that same level, not a new one.
+            if (!stackWasEmpty && mLevels.get(mLevels.size() - 1).categories == categories) {
+                renderTopLevel();
+                return;
             }
 
             mLevels.add(new DialogLevel(categories, title));

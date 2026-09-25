@@ -30,6 +30,8 @@ import io.reactivex.rxjava3.disposables.Disposable;
  */
 public final class DownloadPicker {
     private static final long SLOW_FETCH_NOTICE_MS = 700;
+    /** A little over the action Snackbar's 4 s on screen. */
+    private static final long REWORD_WINDOW_MS = 6_000;
 
     @Nullable private static Disposable sFetch;
 
@@ -94,27 +96,59 @@ public final class DownloadPicker {
             String description = size.isEmpty() ? format : format + MetaSeparator.DOT + size;
 
             DownloadItem existing = registry.findDone(video.videoId, option.kind);
-            if (existing != null && !option.isAudioOnly() && existing.qualityLabel != null
-                    && existing.qualityLabel.equals(option.qualityLabel)) {
-                description += MetaSeparator.DOT + context.getString(R.string.mobile_download_already);
-            } else if (existing != null && option.isAudioOnly()) {
+            boolean alreadyHere = existing != null && (option.isAudioOnly()
+                    || (existing.qualityLabel != null && existing.qualityLabel.equals(option.qualityLabel)));
+            if (alreadyHere) {
                 description += MetaSeparator.DOT + context.getString(R.string.mobile_download_already);
             }
 
             dialog.appendSingleButton(UiOptionItem.from(label, description, optionItem -> {
                 dialog.closeDialog();
+                if (alreadyHere) {
+                    // NEWTUBE(snackbar): the same file is already on the device - say so rather
+                    // than queue a second copy under a "Download started".
+                    MobileSnackbar.show(context, context.getString(R.string.mobile_download_already_here),
+                            context.getString(R.string.mobile_download_view), () -> openDownloads(context));
+                    return;
+                }
                 DownloadItem item = DownloadItem.create(video.videoId, title != null ? title : video.videoId,
                         author, thumb, option);
                 MobileDownloadService.enqueue(context, item);
                 // NEWTUBE(snackbar): confirm with the size, and a way to the Downloads tab.
-                MobileSnackbar.show(context, size.isEmpty()
-                                ? context.getString(R.string.mobile_download_started)
-                                : context.getString(R.string.mobile_download_started_size, size),
+                String started = size.isEmpty()
+                        ? context.getString(R.string.mobile_download_started)
+                        : context.getString(R.string.mobile_download_started_size, size);
+                MobileSnackbar.show(context, started,
                         context.getString(R.string.mobile_download_view), () -> openDownloads(context));
+                rewordWhenDone(context, item, started, size);
             }));
         }
 
         dialog.showDialog(context.getString(R.string.dialog_download));
+    }
+
+    /**
+     * A small file can finish while its "Download started" message is still up (next to a pill that
+     * already says "Downloaded"); reword the message when that happens. The listener lets go after
+     * the item ends or after a few seconds, whichever comes first.
+     */
+    private static void rewordWhenDone(Context context, DownloadItem item, String started, String size) {
+        DownloadRegistry registry = DownloadRegistry.instance(context);
+        Handler main = new Handler(Looper.getMainLooper());
+        DownloadRegistry.Listener[] holder = new DownloadRegistry.Listener[1];
+        Runnable release = () -> registry.removeListener(holder[0]);
+        holder[0] = () -> {
+            if (item.isDone()) {
+                MobileSnackbar.replaceText(started, size.isEmpty()
+                        ? context.getString(R.string.mobile_download_done)
+                        : context.getString(R.string.mobile_download_done_size, size));
+                release.run();
+            } else if (item.isFailed()) {
+                release.run();
+            }
+        };
+        registry.addListener(holder[0]);
+        main.postDelayed(release, REWORD_WINDOW_MS);
     }
 
     /** The Downloads tab, as the download notification opens it. */

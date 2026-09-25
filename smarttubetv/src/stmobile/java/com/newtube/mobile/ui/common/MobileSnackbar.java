@@ -7,6 +7,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.text.TextUtils;
 import android.view.View;
 
 import androidx.annotation.NonNull;
@@ -41,6 +42,9 @@ public final class MobileSnackbar {
     private static boolean sInstalled;
     @Nullable private static WeakReference<Activity> sResumed;
     @Nullable private static Pending sPending;
+    /** The Snackbar last shown, and its text - see {@link #replaceText}. */
+    @Nullable private static WeakReference<Snackbar> sLast;
+    @Nullable private static CharSequence sLastText;
 
     private MobileSnackbar() {
     }
@@ -53,7 +57,7 @@ public final class MobileSnackbar {
         sInstalled = true;
         // Card/section menu confirmations (pin to You, subscribe) come from the shared menu presenters.
         com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.BaseMenuPresenter.setConfirmationSink(
-                (context, message) -> show(context, message, null, null));
+                MobileSnackbar::show);
         application.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
             @Override
             public void onActivityResumed(@NonNull Activity activity) {
@@ -62,7 +66,15 @@ public final class MobileSnackbar {
                 if (pending != null && canHost(activity)) {
                     sPending = null;
                     if (SystemClock.uptimeMillis() - pending.createdAtMs <= PENDING_MAX_AGE_MS) {
-                        make(activity, pending.text, pending.action, pending.onAction);
+                        // Next frame, not now: this callback runs inside super.onResume(), before
+                        // the screen's own onResume has re-shown what the Snackbar anchors above
+                        // (Browse re-attaches its mini-player card there).
+                        View root = activity.getWindow().getDecorView();
+                        root.post(() -> {
+                            if (canHost(activity)) {
+                                make(activity, pending.text, pending.action, pending.onAction);
+                            }
+                        });
                     }
                 }
             }
@@ -121,6 +133,24 @@ public final class MobileSnackbar {
         }, FALLBACK_TOAST_MS);
     }
 
+    /**
+     * Rewords a message still on screen (or still waiting for its screen) that reads {@code from} -
+     * e.g. "Download started" once a small file is already done before the Snackbar has gone.
+     * Does nothing once the message is gone or another one replaced it.
+     */
+    public static void replaceText(CharSequence from, CharSequence to) {
+        Pending pending = sPending;
+        if (pending != null && TextUtils.equals(pending.text, from)) {
+            sPending = new Pending(to, pending.action, pending.onAction);
+            return;
+        }
+        Snackbar last = sLast != null ? sLast.get() : null;
+        if (last != null && last.isShownOrQueued() && TextUtils.equals(sLastText, from)) {
+            last.setText(to);
+            sLastText = to;
+        }
+    }
+
     private static boolean canHost(@Nullable Activity activity) {
         return activity != null && !activity.isFinishing() && !activity.isDestroyed()
                 && !(activity instanceof MobileAppDialogActivity);
@@ -136,9 +166,15 @@ public final class MobileSnackbar {
         if (action != null && onAction != null) {
             snackbar.setAction(action, v -> onAction.run());
         }
-        // Above Browse's bottom nav rather than over it.
+        sLast = new WeakReference<>(snackbar);
+        sLastText = text;
+        // Above what sits at the bottom rather than over it: the docked mini-player card (its
+        // pause button was covered for the whole message), else Browse's bottom nav.
+        View mini = activity.findViewById(R.id.mobile_mini_player);
         View nav = activity.findViewById(R.id.mobile_bottom_nav);
-        if (nav != null && nav.getVisibility() == View.VISIBLE) {
+        if (mini != null && mini.getVisibility() == View.VISIBLE) {
+            snackbar.setAnchorView(mini);
+        } else if (nav != null && nav.getVisibility() == View.VISIBLE) {
             snackbar.setAnchorView(nav);
         }
         snackbar.show();

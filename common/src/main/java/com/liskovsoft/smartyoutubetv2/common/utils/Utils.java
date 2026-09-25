@@ -81,6 +81,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem.VideoPreset;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.TrackSelectorUtil;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.MediaTrack;
+import com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi;
 import com.liskovsoft.smartyoutubetv2.common.misc.MotherActivity;
 import com.liskovsoft.smartyoutubetv2.common.misc.RemoteControlService;
 import com.liskovsoft.smartyoutubetv2.common.misc.RemoteControlWorker;
@@ -185,9 +186,32 @@ public class Utils {
     }
 
     public static void showMultiChooser(Context context, Uri url) {
-        // NEWTUBE(share): on a phone "Share" sends the link (the share sheet), like the watch
-        // page's Share pill. The TV chooser led with ACTION_VIEW - "open this link with..." -
-        // and tucked sending behind it.
+        if (PhoneUi.isEnabled()) {
+            showShareSheet(context, url);
+            return;
+        }
+
+        Intent primaryIntent = new Intent(Intent.ACTION_VIEW);
+        Intent secondaryIntent = new Intent(Intent.ACTION_SEND);
+        primaryIntent.setData(url);
+        secondaryIntent.putExtra(Intent.EXTRA_TEXT, url.toString());
+        secondaryIntent.setType("text/plain");
+        Intent chooserIntent = Intent.createChooser(primaryIntent, context.getResources().getText(R.string.share_link));
+        chooserIntent.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[] { secondaryIntent });
+        chooserIntent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+        try {
+            context.startActivity(chooserIntent);
+        } catch (ActivityNotFoundException e) {
+            Log.e(TAG, "Chooser intent not found", e);
+        }
+    }
+
+    /**
+     * NEWTUBE(share): on the phone "Share" sends the link through the system share sheet, like the
+     * watch page's Share pill. The TV chooser leads with ACTION_VIEW ("open this link with...") and
+     * tucks sending behind it.
+     */
+    private static void showShareSheet(Context context, Uri url) {
         Intent send = new Intent(Intent.ACTION_SEND);
         send.setType("text/plain");
         send.putExtra(Intent.EXTRA_TEXT, url.toString());
@@ -207,10 +231,10 @@ public class Utils {
      * https://www.youtube.com/watch?v=nragduYePsQ&t=193
      */
     public static Uri convertToFullVideoUrl(String videoId, int posSec) {
-        // NEWTUBE(share): no "?t=0" on a link to the start.
-        String url = posSec > 0
-                ? String.format("https://youtu.be/%s?t=%s", videoId, posSec)
-                : String.format("https://youtu.be/%s", videoId);
+        // NEWTUBE(share): phone links to the start carry no "?t=0".
+        String url = PhoneUi.isEnabled() && posSec <= 0
+                ? String.format("https://youtu.be/%s", videoId)
+                : String.format("https://youtu.be/%s?t=%s", videoId, posSec);
         return Uri.parse(url);
     }
 

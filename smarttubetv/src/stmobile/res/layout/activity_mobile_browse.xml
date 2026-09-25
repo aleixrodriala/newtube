@@ -310,13 +310,13 @@
                 android:padding="9dp"
                 android:src="@drawable/ic_player_pause" />
 
-            <!-- 48dp touch target around the same 40dp circle (was 28dp, then 40dp - NEWTUBE(touch)). -->
+            <!-- 48dp touch target, wholly inside the card (a child outside its parent gets no touches), around the same 40dp circle (was 28dp, then 40dp - NEWTUBE(touch)). -->
             <ImageButton
                 android:id="@+id/mobile_mini_close"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:layout_gravity="top|end"
-                android:layout_margin="-2dp"
+                android:layout_margin="0dp"
                 android:background="@drawable/bg_mini_scrim_circle_touch"
                 android:contentDescription="@string/mobile_mini_close"
                 android:padding="15dp"

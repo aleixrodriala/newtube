@@ -313,6 +313,20 @@ public class MainUIData extends DataChangeBase implements ProfileChangeListener 
         return Collections.unmodifiableList(mMenuItemsOrdered);
     }
 
+    /**
+     * NEWTUBE(menu): true while the card menu is exactly as shipped - no item enabled, disabled or
+     * moved by the user - so a one-shot app migration may reshape it without overriding a choice.
+     */
+    public boolean isMenuConfigDefault() {
+        if (mMenuItems != MENU_ITEM_DEFAULT) {
+            return false;
+        }
+        List<Long> stock = java.util.Arrays.asList(MENU_ITEM_DEFAULT_ORDER);
+        // Context-menu providers are appended after the stock items; only the stock part is ours.
+        return mMenuItemsOrdered.size() >= stock.size()
+                && mMenuItemsOrdered.subList(0, stock.size()).equals(stock);
+    }
+
     public int getMenuItemIndex(long menuItem) {
         return mMenuItemsOrdered.indexOf(menuItem);
     }
