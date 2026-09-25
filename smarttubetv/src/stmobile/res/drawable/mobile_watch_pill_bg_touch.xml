@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- NEWTUBE(touch): the watch-page pill drawn 36dp tall inside a 48dp touch target. The chips
+     were exactly as tall as they looked (34-36dp); the extra 6dp above and below is touchable
+     but invisible. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/mobile_watch_pill_bg"
+    android:insetTop="6dp"
+    android:insetBottom="6dp" />

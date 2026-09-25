@@ -107,6 +107,22 @@
     <string name="mobile_player_zoom_original">Original</string>
     <string name="mobile_player_more">Más opciones</string>
     <string name="mobile_mini_play_pause">Reproducir o pausar</string>
+    <string name="mobile_mini_expand">Ampliar reproductor</string>
+    <string name="pin_playlist">Fijar lista en Tú</string>
+    <string name="pin_channel">Fijar canal en Tú</string>
+    <string name="pinned_to_sidebar">Fijado en Tú</string>
+    <string name="unpin_from_sidebar">Quitar de Tú</string>
+    <string name="unpinned_from_sidebar">Quitado de Tú</string>
+    <string name="subscribe_to_channel">Suscribirse</string>
+    <string name="unsubscribe_from_channel">Cancelar suscripción</string>
+    <string name="subscribe_unsubscribe_from_channel">Suscribirse o cancelar suscripción</string>
+    <string name="share_link">Compartir</string>
+    <string name="mobile_you_pinned">Fijados</string>
+    <string name="subscribed_to_channel">Suscripción añadida</string>
+    <string name="unsubscribed_from_channel">Suscripción cancelada</string>
+    <string name="mobile_player_settings">Ajustes</string>
+    <string name="mobile_more_options_for">Más opciones para %1$s</string>
+    <string name="mobile_comment_likes">%1$s me gusta</string>
     <string name="mobile_mini_close">Cerrar el reproductor</string>
 
     <!-- Player menu -->

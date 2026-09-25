@@ -101,13 +101,39 @@ public abstract class BaseMenuPresenter extends BasePresenter<Void> {
         // Toggle between pin/unpin while dialog is opened
         boolean isItemPinned = presenter.isItemPinned(section);
 
+        // NEWTUBE(menu): the phone closes the menu and confirms, like every other menu action -
+        // the TV kept it open as an in-place pin/unpin toggle, which on a phone read as "nothing
+        // happened" behind a Toast.
+        closeDialog();
         if (isItemPinned && section.getGroup() == null) { // allow deletion only from the Sidebar
             presenter.unpinItem(section);
-            MessageHelpers.showMessage(getContext(), getContext().getString(R.string.unpinned_from_sidebar));
+            confirm(getContext().getString(R.string.unpinned_from_sidebar));
         } else {
             presenter.pinItem(section);
             section.setGroup(null);
-            MessageHelpers.showMessage(getContext(), getContext().getString(R.string.pinned_to_sidebar));
+            confirm(getContext().getString(R.string.pinned_to_sidebar));
+        }
+    }
+
+    /**
+     * NEWTUBE(snackbar): where a menu action's one-line confirmation goes. The phone app points it
+     * at its bottom Snackbar (on the screen under the closing menu); unset, it is the old Toast.
+     */
+    public interface ConfirmationSink {
+        void show(Context context, String message);
+    }
+
+    private static ConfirmationSink sConfirmationSink;
+
+    public static void setConfirmationSink(ConfirmationSink sink) {
+        sConfirmationSink = sink;
+    }
+
+    protected void confirm(String message) {
+        if (sConfirmationSink != null) {
+            sConfirmationSink.show(getContext(), message);
+        } else {
+            MessageHelpers.showMessage(getContext(), message);
         }
     }
 

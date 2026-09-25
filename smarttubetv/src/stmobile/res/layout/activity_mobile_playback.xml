@@ -93,16 +93,16 @@
                     android:layout_width="@dimen/mobile_player_icon_button"
                     android:layout_height="@dimen/mobile_player_icon_button"
                     android:layout_gravity="top|start"
-                    android:layout_marginStart="8dp"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginTop="4dp"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="@string/mobile_player_back"
-                    android:padding="8dp"
+                    android:padding="12dp"
                     android:scaleType="fitCenter"
                     android:src="@drawable/ic_mobile_back_arrow" />
 
                 <!-- paddingEnd must clear the full top-right options row (mobile_player_options):
-                     3 icon buttons * 40dp + 4dp end margin = 124dp. Otherwise the wrapped
+                     3 icon buttons * 48dp (no end margin) = 144dp. Otherwise the wrapped
                      title runs under the leftmost option (cast) icon. -->
                 <TextView
                     android:id="@+id/mobile_player_title"
@@ -113,7 +113,7 @@
                     android:maxLines="2"
                     android:paddingStart="56dp"
                     android:paddingTop="12dp"
-                    android:paddingEnd="128dp"
+                    android:paddingEnd="148dp"
                     android:paddingBottom="12dp"
                     android:shadowColor="#80000000"
                     android:shadowDx="0"
@@ -132,8 +132,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="top|end"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginEnd="4dp"
+                    android:layout_marginTop="4dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
@@ -145,7 +144,7 @@
                         android:layout_height="@dimen/mobile_player_icon_button"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="@string/mobile_cast_button"
-                        android:padding="8dp"
+                        android:padding="12dp"
                         android:scaleType="fitCenter"
                         android:src="@drawable/ic_mobile_cast" />
 
@@ -155,7 +154,7 @@
                         android:layout_height="@dimen/mobile_player_icon_button"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="@string/mobile_player_subtitles"
-                        android:padding="8dp"
+                        android:padding="12dp"
                         android:scaleType="fitCenter"
                         android:src="@drawable/ic_player_cc_off" />
 
@@ -168,8 +167,8 @@
                         android:layout_width="@dimen/mobile_player_icon_button"
                         android:layout_height="@dimen/mobile_player_icon_button"
                         android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="@string/mobile_player_more"
-                        android:padding="8dp"
+                        android:contentDescription="@string/mobile_player_settings"
+                        android:padding="12dp"
                         android:scaleType="fitCenter"
                         android:src="@drawable/ic_mobile_settings" />
 
@@ -189,10 +188,10 @@
                         android:id="@+id/mobile_player_previous"
                         android:layout_width="@dimen/mobile_player_icon_button"
                         android:layout_height="@dimen/mobile_player_icon_button"
-                        android:layout_marginEnd="24dp"
+                        android:layout_marginEnd="20dp"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="@string/mobile_player_previous"
-                        android:padding="8dp"
+                        android:padding="12dp"
                         android:scaleType="fitCenter"
                         android:src="@drawable/ic_player_previous" />
 
@@ -210,10 +209,10 @@
                         android:id="@+id/mobile_player_next"
                         android:layout_width="@dimen/mobile_player_icon_button"
                         android:layout_height="@dimen/mobile_player_icon_button"
-                        android:layout_marginStart="24dp"
+                        android:layout_marginStart="20dp"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="@string/mobile_player_next"
-                        android:padding="8dp"
+                        android:padding="12dp"
                         android:scaleType="fitCenter"
                         android:src="@drawable/ic_player_next" />
 
@@ -252,7 +251,7 @@
                     android:orientation="horizontal"
                     android:paddingStart="12dp"
                     android:paddingEnd="4dp"
-                    android:paddingBottom="6dp">
+                    android:paddingBottom="2dp">
 
                     <TextView
                         android:id="@+id/mobile_player_position"
@@ -325,7 +324,7 @@
                         android:layout_height="@dimen/mobile_player_icon_button"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="@string/mobile_player_fullscreen"
-                        android:padding="8dp"
+                        android:padding="12dp"
                         android:scaleType="fitCenter"
                         android:src="@drawable/ic_player_fullscreen" />
 
@@ -453,7 +452,7 @@
                         android:layout_height="@dimen/mobile_player_icon_button"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="@string/mobile_player_play"
-                        android:padding="8dp"
+                        android:padding="12dp"
                         android:scaleType="fitCenter"
                         android:src="@drawable/ic_player_pause" />
 
@@ -595,12 +594,12 @@
                     android:id="@+id/mobile_watch_meta_row"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="0dp"
                     android:background="?attr/selectableItemBackground"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingHorizontal="@dimen/mobile_watch_content_padding"
-                    android:paddingVertical="4dp">
+                    android:paddingVertical="12dp">
 
                     <TextView
                         android:id="@+id/mobile_watch_meta"
@@ -640,10 +639,12 @@
                 <!-- Actions row: segmented Like|Dislike pill (YouTube-style) + Share + Save.
                      Scrolls horizontally like YouTube's, so a fourth pill (or a wide count) can't
                      push an action off a narrow screen. -->
+                <!-- NEWTUBE(touch): no top margin - the meta row above (48dp tall now) and the pills'
+                     own 6dp inset hold the old spacing. -->
                 <HorizontalScrollView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="0dp"
                     android:overScrollMode="never"
                     android:scrollbars="none">
 
@@ -654,25 +655,27 @@
                     android:orientation="horizontal"
                     android:paddingHorizontal="@dimen/mobile_watch_content_padding">
 
+                    <!-- padding 0: an inset background otherwise becomes the view's padding. -->
                     <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:background="@drawable/mobile_watch_pill_bg"
+                        android:background="@drawable/mobile_watch_pill_bg_touch"
                         android:gravity="center_vertical"
-                        android:orientation="horizontal">
+                        android:orientation="horizontal"
+                        android:padding="0dp">
 
                         <LinearLayout
                             android:id="@+id/mobile_watch_like"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
+                            android:background="@drawable/mobile_watch_segment_ripple"
                             android:clickable="true"
                             android:focusable="true"
                             android:gravity="center_vertical"
                             android:orientation="horizontal"
                             android:paddingStart="14dp"
                             android:paddingEnd="12dp"
-                            android:paddingVertical="8dp">
+                            android:paddingVertical="14dp">
 
                             <ImageView
                                 android:id="@+id/mobile_watch_like_icon"
@@ -702,14 +705,14 @@
                             android:id="@+id/mobile_watch_dislike"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:background="?attr/selectableItemBackground"
+                            android:background="@drawable/mobile_watch_segment_ripple"
                             android:clickable="true"
                             android:focusable="true"
                             android:gravity="center_vertical"
                             android:orientation="horizontal"
                             android:paddingStart="12dp"
                             android:paddingEnd="14dp"
-                            android:paddingVertical="8dp">
+                            android:paddingVertical="14dp">
 
                             <ImageView
                                 android:id="@+id/mobile_watch_dislike_icon"
@@ -737,13 +740,13 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:background="@drawable/mobile_watch_pill_bg"
+                        android:background="@drawable/mobile_watch_pill_bg_touch"
                         android:clickable="true"
                         android:focusable="true"
                         android:gravity="center_vertical"
                         android:orientation="horizontal"
                         android:paddingHorizontal="12dp"
-                        android:paddingVertical="8dp">
+                        android:paddingVertical="14dp">
 
                         <ImageView
                             android:layout_width="20dp"
@@ -768,13 +771,13 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:background="@drawable/mobile_watch_pill_bg"
+                        android:background="@drawable/mobile_watch_pill_bg_touch"
                         android:clickable="true"
                         android:focusable="true"
                         android:gravity="center_vertical"
                         android:orientation="horizontal"
                         android:paddingHorizontal="12dp"
-                        android:paddingVertical="8dp">
+                        android:paddingVertical="14dp">
 
                         <ImageView
                             android:id="@+id/mobile_watch_download_icon"
@@ -801,13 +804,13 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:background="@drawable/mobile_watch_pill_bg"
+                        android:background="@drawable/mobile_watch_pill_bg_touch"
                         android:clickable="true"
                         android:focusable="true"
                         android:gravity="center_vertical"
                         android:orientation="horizontal"
                         android:paddingHorizontal="12dp"
-                        android:paddingVertical="8dp">
+                        android:paddingVertical="14dp">
 
                         <ImageView
                             android:id="@+id/mobile_watch_save_icon"
@@ -838,12 +841,12 @@
                     android:id="@+id/mobile_watch_channel_row"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
+                    android:layout_marginTop="0dp"
                     android:background="?attr/selectableItemBackground"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingHorizontal="@dimen/mobile_watch_content_padding"
-                    android:paddingVertical="12dp">
+                    android:paddingVertical="8dp">
 
                     <ImageView
                         android:id="@+id/mobile_watch_avatar"
@@ -892,10 +895,10 @@
                         android:layout_marginStart="8dp"
                         android:backgroundTint="@android:color/white"
                         android:fontFamily="sans-serif-medium"
-                        android:insetTop="0dp"
-                        android:insetBottom="0dp"
+                        android:insetTop="4dp"
+                        android:insetBottom="4dp"
                         android:letterSpacing="0"
-                        android:minHeight="40dp"
+                        android:minHeight="48dp"
                         android:paddingHorizontal="16dp"
                         android:paddingVertical="0dp"
                         android:text="@string/mobile_watch_subscribe"

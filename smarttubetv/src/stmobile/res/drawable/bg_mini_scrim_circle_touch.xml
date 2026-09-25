@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- NEWTUBE(touch): the mini-player close button's 40dp scrim circle inside a 48dp target. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/bg_mini_scrim_circle"
+    android:inset="4dp" />

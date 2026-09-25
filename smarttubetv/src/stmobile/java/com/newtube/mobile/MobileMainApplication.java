@@ -161,6 +161,26 @@ public class MobileMainApplication extends MainApplication {
             migrations.edit().putBoolean("tv_receiver_roles_off", true).apply();
         }
 
+        // CARD MENU (mobile-only, one-shot): Share on every card menu, next to Download, like
+        // YouTube's; and "Block the channel" moved below "Play next" so the everyday actions lead.
+        // Later changes in Settings > card menu stick (the flag prevents re-applying).
+        if (!migrations.getBoolean("card_menu_share_block_order", false)) {
+            com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData ui =
+                    com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.instance(this);
+            ui.setMenuItemEnabled(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.MENU_ITEM_SHARE_LINK);
+            int download = ui.getMenuItemIndex(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.MENU_ITEM_DOWNLOAD);
+            if (download >= 0) {
+                ui.setMenuItemIndex(download + 1, com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.MENU_ITEM_SHARE_LINK);
+            }
+            int block = ui.getMenuItemIndex(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.MENU_ITEM_BLOCK_CHANNEL);
+            int playNext = ui.getMenuItemIndex(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.MENU_ITEM_PLAY_NEXT);
+            if (block >= 0 && playNext > block) {
+                // Removing Block first shifts Play next up one, so this index lands right after it.
+                ui.setMenuItemIndex(playNext, com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.MENU_ITEM_BLOCK_CHANNEL);
+            }
+            migrations.edit().putBoolean("card_menu_share_block_order", true).apply();
+        }
+
         // NOTE(buffering): the back-buffer / start-gate / forward-buffer tuning that used to be
         // pushed into the legacy engine here (ExoPlayerInitializer.set*Override) moved into the
         // media3 engine itself - see Media3PlayerInitializer (back 120s, start gate 1000/2500ms).

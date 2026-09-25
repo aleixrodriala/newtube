@@ -185,18 +185,20 @@ public class Utils {
     }
 
     public static void showMultiChooser(Context context, Uri url) {
-        Intent primaryIntent = new Intent(Intent.ACTION_VIEW);
-        Intent secondaryIntent = new Intent(Intent.ACTION_SEND);
-        primaryIntent.setData(url);
-        secondaryIntent.putExtra(Intent.EXTRA_TEXT, url.toString());
-        secondaryIntent.setType("text/plain");
-        Intent chooserIntent = Intent.createChooser(primaryIntent, context.getResources().getText(R.string.share_link));
-        chooserIntent.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[] { secondaryIntent });
-        chooserIntent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+        // NEWTUBE(share): on a phone "Share" sends the link (the share sheet), like the watch
+        // page's Share pill. The TV chooser led with ACTION_VIEW - "open this link with..." -
+        // and tucked sending behind it.
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_TEXT, url.toString());
+        Intent chooser = Intent.createChooser(send, context.getResources().getText(R.string.share_link));
+        if (!(context instanceof android.app.Activity)) {
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        }
         try {
-            context.startActivity(chooserIntent);
+            context.startActivity(chooser);
         } catch (ActivityNotFoundException e) {
-            Log.e(TAG, "Chooser intent not found", e);
+            Log.e(TAG, "Share chooser not found", e);
         }
     }
 
@@ -205,7 +207,10 @@ public class Utils {
      * https://www.youtube.com/watch?v=nragduYePsQ&t=193
      */
     public static Uri convertToFullVideoUrl(String videoId, int posSec) {
-        String url = String.format("https://youtu.be/%s?t=%s", videoId, posSec);
+        // NEWTUBE(share): no "?t=0" on a link to the start.
+        String url = posSec > 0
+                ? String.format("https://youtu.be/%s?t=%s", videoId, posSec)
+                : String.format("https://youtu.be/%s", videoId);
         return Uri.parse(url);
     }
 

@@ -580,7 +580,8 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
             return;
         }
 
-        AppDialogUtil.appendShareLinkDialogItem(getContext(), mDialogPresenter, mVideo);
+        // NEWTUBE(share): a card's Share links the video, not the resume point in it.
+        AppDialogUtil.appendShareLinkDialogItem(getContext(), mDialogPresenter, mVideo, 0);
     }
 
     private void appendShareQRLinkButton() {
@@ -976,7 +977,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
             mCallback.onItemAction(video, VideoMenuCallback.ACTION_UNSUBSCRIBE);
         }
 
-        MessageHelpers.showMessage(getContext(), getContext().getString(!video.isSubscribed ? R.string.unsubscribed_from_channel : R.string.subscribed_to_channel));
+        confirm(getContext().getString(!video.isSubscribed ? R.string.unsubscribed_from_channel : R.string.subscribed_to_channel));
     }
 
     @Override

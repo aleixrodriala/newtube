@@ -97,12 +97,11 @@
              Open channel, playlists, ...). Low-contrast so full-width cards stay calm. -->
         <ImageButton
             android:id="@+id/video_overflow"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginTop="2dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/mobile_player_more"
-            android:padding="8dp"
+            android:padding="12dp"
             android:src="@drawable/ic_mobile_more_vert"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toBottomOf="@id/video_thumbnail_frame" />

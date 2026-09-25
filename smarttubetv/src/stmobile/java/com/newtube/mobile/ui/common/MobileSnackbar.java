@@ -51,6 +51,9 @@ public final class MobileSnackbar {
             return;
         }
         sInstalled = true;
+        // Card/section menu confirmations (pin to You, subscribe) come from the shared menu presenters.
+        com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.BaseMenuPresenter.setConfirmationSink(
+                (context, message) -> show(context, message, null, null));
         application.registerActivityLifecycleCallbacks(new Application.ActivityLifecycleCallbacks() {
             @Override
             public void onActivityResumed(@NonNull Activity activity) {

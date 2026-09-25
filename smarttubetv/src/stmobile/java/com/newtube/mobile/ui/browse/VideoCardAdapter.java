@@ -217,6 +217,8 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
                         longClickListener.onVideoLongClick(mVideo);
                     }
                 });
+                // NEWTUBE(a11y): one of 40 identical "More options" otherwise.
+                mOverflow.setContentDescription(context.getString(R.string.mobile_more_options_for, video.getTitle()));
             }
 
             mTitle.setText(video.getTitle());
@@ -402,7 +404,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             }
             if (videosCount != null && !videosCount.isEmpty()) {
                 if (meta.length() > 0) {
-                    meta.append(" · ");
+                    meta.append(com.newtube.mobile.ui.common.MetaSeparator.DOT);
                 }
                 meta.append(videosCount);
             }

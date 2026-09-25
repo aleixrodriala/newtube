@@ -106,6 +106,8 @@ public class AppDialogUtil {
 
         dialogPresenter.appendSingleButton(
                 UiOptionItem.from(context.getString(R.string.share_link), optionItem -> {
+                    // NEWTUBE(share): the menu has done its job once the share sheet opens.
+                    dialogPresenter.closeDialog();
                     if (video.videoId != null) {
                         Utils.displayShareVideoDialog(context, video.videoId, positionSec == -1 ? Utils.toSec(video.getPositionMs()) : positionSec);
                     } else if (video.playlistId != null) {

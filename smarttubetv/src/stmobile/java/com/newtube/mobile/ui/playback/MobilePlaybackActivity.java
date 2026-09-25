@@ -5110,7 +5110,7 @@ public class MobilePlaybackActivity extends MobileActivity
             }
             String meta;
             if (!TextUtils.isEmpty(views) && !TextUtils.isEmpty(date)) {
-                meta = views + "  •  " + date;
+                meta = views + com.newtube.mobile.ui.common.MetaSeparator.DOT + date;
             } else if (!TextUtils.isEmpty(views)) {
                 meta = views;
             } else {

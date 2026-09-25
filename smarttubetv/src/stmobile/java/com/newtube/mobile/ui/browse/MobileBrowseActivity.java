@@ -804,6 +804,7 @@ public class MobileBrowseActivity extends MobileActivity
 
         List<BrowseSection> navSections = selectNavSections();
         List<BrowseSection> personal = new ArrayList<>();
+        List<BrowseSection> pinned = new ArrayList<>();
         List<BrowseSection> explore = new ArrayList<>();
 
         for (BrowseSection section : mSections) {
@@ -813,11 +814,24 @@ public class MobileBrowseActivity extends MobileActivity
                     || section.getId() == MediaGroup.TYPE_SHORTS) {
                 continue;
             }
+            // NEWTUBE(menu): channels/playlists pinned from a card menu ("Pin to You") carry the
+            // pinned Video as their data; they get their own group instead of mixing into Explore.
+            if (section.getData() instanceof Video) {
+                pinned.add(section);
+                continue;
+            }
             (isPersonalSection(section.getId()) ? personal : explore).add(section);
         }
 
         for (BrowseSection section : personal) {
             addYouSectionRow(section);
+        }
+
+        if (!pinned.isEmpty()) {
+            addYouGroupLabel(getString(R.string.mobile_you_pinned));
+            for (BrowseSection section : pinned) {
+                addYouSectionRow(section);
+            }
         }
 
         if (!explore.isEmpty()) {

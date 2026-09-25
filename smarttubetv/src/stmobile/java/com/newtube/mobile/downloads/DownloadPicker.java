@@ -15,6 +15,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.youtubeapi.service.YouTubeMediaItemService;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.browse.MobileBrowseActivity;
+import com.newtube.mobile.ui.common.MetaSeparator;
 import com.newtube.mobile.ui.common.MobileSnackbar;
 
 import java.util.List;
@@ -90,14 +91,14 @@ public final class DownloadPicker {
                     : option.qualityLabel;
             String format = option.isAudioOnly() ? "M4A" : "MP4";
             String size = DownloadOptions.formatBytes(option.totalBytes);
-            String description = size.isEmpty() ? format : format + " · " + size;
+            String description = size.isEmpty() ? format : format + MetaSeparator.DOT + size;
 
             DownloadItem existing = registry.findDone(video.videoId, option.kind);
             if (existing != null && !option.isAudioOnly() && existing.qualityLabel != null
                     && existing.qualityLabel.equals(option.qualityLabel)) {
-                description += " · " + context.getString(R.string.mobile_download_already);
+                description += MetaSeparator.DOT + context.getString(R.string.mobile_download_already);
             } else if (existing != null && option.isAudioOnly()) {
-                description += " · " + context.getString(R.string.mobile_download_already);
+                description += MetaSeparator.DOT + context.getString(R.string.mobile_download_already);
             }
 
             dialog.appendSingleButton(UiOptionItem.from(label, description, optionItem -> {
