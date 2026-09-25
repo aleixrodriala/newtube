@@ -277,7 +277,16 @@
     <string name="mobile_cast_tv_volume_label">TV volume</string>
 
     <!-- Downloads -->
+    <!-- Watch-page confirmations (WatchActionFeedback) -->
+    <string name="mobile_sign_in_to_rate">Sign in to like or dislike videos</string>
+    <string name="mobile_subscribed_to">Subscribed to %1$s</string>
+    <string name="mobile_unsubscribed_from">Unsubscribed from %1$s</string>
+    <string name="mobile_subscribed">Subscribed</string>
+    <string name="mobile_unsubscribed">Unsubscribed</string>
+    <string name="mobile_undo">Undo</string>
     <string name="mobile_download_started">Download started</string>
+    <string name="mobile_download_started_size">Download started · %1$s</string>
+    <string name="mobile_download_view">View</string>
     <string name="mobile_download_preparing">Preparing download…</string>
     <string name="mobile_download_unavailable">This video can\'t be downloaded</string>
     <string name="mobile_download_unavailable_live">Live streams can\'t be downloaded</string>

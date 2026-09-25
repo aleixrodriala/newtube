@@ -737,12 +737,26 @@ public class MobilePlaybackActivity extends MobileActivity
         // Actions row. Like/Dislike/Subscribe go through the presenter's onButtonClicked vocabulary
         // (R.id.action_*); the controller flips the visual state back via setButtonState. Share fires
         // a plain ACTION_SEND of the video url (per brief), independent of the presenter.
-        mWatchLike.setOnClickListener(v -> onActionButtonClicked(R.id.action_thumbs_up));
-        mWatchDislike.setOnClickListener(v -> onActionButtonClicked(R.id.action_thumbs_down));
-        mWatchSubscribe.setOnClickListener(v -> onActionButtonClicked(R.id.action_subscribe));
+        // NEWTUBE(snackbar): signed out, Like/Dislike/Save explain themselves with a Sign in action
+        // (WatchActionFeedback); Subscribe confirms with the channel's name and Undo.
+        mWatchLike.setOnClickListener(v -> {
+            if (!WatchActionFeedback.blockIfSignedOut(this, R.string.mobile_sign_in_to_rate)) {
+                onActionButtonClicked(R.id.action_thumbs_up);
+            }
+        });
+        mWatchDislike.setOnClickListener(v -> {
+            if (!WatchActionFeedback.blockIfSignedOut(this, R.string.mobile_sign_in_to_rate)) {
+                onActionButtonClicked(R.id.action_thumbs_down);
+            }
+        });
+        mWatchSubscribe.setOnClickListener(v -> onSubscribeTapped());
         mWatchShare.setOnClickListener(v -> shareCurrentVideo());
         // Save opens the same add/remove-from-playlist sheet as gear -> More -> Save to playlist.
-        mWatchSave.setOnClickListener(v -> openPlayerOption(R.id.action_playlist_add, false));
+        mWatchSave.setOnClickListener(v -> {
+            if (!WatchActionFeedback.blockIfSignedOut(this, R.string.msg_sign_in_to_save)) {
+                openPlayerOption(R.id.action_playlist_add, false);
+            }
+        });
         // Download: the quality picker, or the download's own menu once it is on the device.
         mWatchDownload.setOnClickListener(v -> onDownloadTapped());
         DownloadRegistry.instance(this).addListener(mDownloadsListener);
@@ -5143,6 +5157,19 @@ public class MobilePlaybackActivity extends MobileActivity
 
         // The controller performs the toggle and calls setButtonState() back with the new state.
         mPresenter.onButtonClicked(actionId, currentState);
+    }
+
+    /** Subscribe/Unsubscribe, confirmed only when the controller actually flipped the state. */
+    private void onSubscribeTapped() {
+        int before = getButtonState(R.id.action_subscribe);
+        onActionButtonClicked(R.id.action_subscribe);
+        int after = getButtonState(R.id.action_subscribe); // set synchronously by the controller
+        if (after != before) {
+            Video video = getVideo();
+            WatchActionFeedback.confirmSubscription(this, after == BUTTON_ON,
+                    video != null ? video.getAuthor() : null,
+                    () -> onActionButtonClicked(R.id.action_subscribe));
+        }
     }
 
     private void updateButtonVisual(int buttonId, int buttonState) {

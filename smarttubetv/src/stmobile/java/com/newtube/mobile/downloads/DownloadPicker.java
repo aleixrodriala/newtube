@@ -1,19 +1,21 @@
 package com.newtube.mobile.downloads;
 
 import android.content.Context;
+import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
 
 import androidx.annotation.Nullable;
 
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
-import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.sharedutils.rx.RxHelper;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.youtubeapi.service.YouTubeMediaItemService;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import com.newtube.mobile.ui.browse.MobileBrowseActivity;
+import com.newtube.mobile.ui.common.MobileSnackbar;
 
 import java.util.List;
 
@@ -38,14 +40,14 @@ public final class DownloadPicker {
             return;
         }
         if (video.isLive || video.isUpcoming) {
-            MessageHelpers.showMessage(context, R.string.mobile_download_unavailable_live);
+            MobileSnackbar.show(context, R.string.mobile_download_unavailable_live);
             return;
         }
 
         RxHelper.disposeActions(sFetch);
 
         Handler main = new Handler(Looper.getMainLooper());
-        Runnable slowNotice = () -> MessageHelpers.showMessage(context, R.string.mobile_download_preparing);
+        Runnable slowNotice = () -> MobileSnackbar.show(context, R.string.mobile_download_preparing);
         main.postDelayed(slowNotice, SLOW_FETCH_NOTICE_MS);
 
         sFetch = YouTubeMediaItemService.instance()
@@ -56,20 +58,20 @@ public final class DownloadPicker {
                     present(context, video, info);
                 }, error -> {
                     main.removeCallbacks(slowNotice);
-                    MessageHelpers.showMessage(context, R.string.mobile_download_unavailable);
+                    MobileSnackbar.show(context, R.string.mobile_download_unavailable);
                 });
     }
 
     private static void present(Context context, Video video, @Nullable MediaItemFormatInfo info) {
         if (info == null || info.isUnplayable()) {
             String reason = info != null ? info.getPlayabilityReason() : null;
-            MessageHelpers.showMessage(context, reason != null ? reason : context.getString(R.string.mobile_download_unavailable));
+            MobileSnackbar.show(context, reason != null ? reason : context.getString(R.string.mobile_download_unavailable), null, null);
             return;
         }
 
         List<DownloadOption> options = DownloadOptions.build(info.getAdaptiveFormats(), info.getUrlFormats());
         if (options.isEmpty()) {
-            MessageHelpers.showMessage(context, R.string.mobile_download_unavailable);
+            MobileSnackbar.show(context, R.string.mobile_download_unavailable);
             return;
         }
 
@@ -103,10 +105,22 @@ public final class DownloadPicker {
                 DownloadItem item = DownloadItem.create(video.videoId, title != null ? title : video.videoId,
                         author, thumb, option);
                 MobileDownloadService.enqueue(context, item);
-                MessageHelpers.showMessage(context, R.string.mobile_download_started);
+                // NEWTUBE(snackbar): confirm with the size, and a way to the Downloads tab.
+                MobileSnackbar.show(context, size.isEmpty()
+                                ? context.getString(R.string.mobile_download_started)
+                                : context.getString(R.string.mobile_download_started_size, size),
+                        context.getString(R.string.mobile_download_view), () -> openDownloads(context));
             }));
         }
 
         dialog.showDialog(context.getString(R.string.dialog_download));
+    }
+
+    /** The Downloads tab, as the download notification opens it. */
+    private static void openDownloads(Context context) {
+        context.startActivity(new Intent(context, MobileBrowseActivity.class)
+                .setAction(MobileBrowseActivity.ACTION_OPEN_DOWNLOADS)
+                .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
     }
 }

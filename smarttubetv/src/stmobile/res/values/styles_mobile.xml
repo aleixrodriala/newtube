@@ -75,6 +75,14 @@
              the app's own sentence-case pills ("Play all", "Subscribe"). Changing the text
              appearance - not materialButtonStyle - keeps every button's own shape/colour. -->
         <item name="textAppearanceButton">@style/TextAppearance.NewTube.Button</item>
+        <!-- NEWTUBE(snackbar): the action on the (light) Snackbar in the app's ink, not red -
+             "Sign in" / "Undo" / "View" are choices, not alarms. -->
+        <item name="snackbarButtonStyle">@style/Widget.NewTube.Snackbar.Action</item>
+    </style>
+
+    <style name="Widget.NewTube.Snackbar.Action" parent="Widget.MaterialComponents.Button.TextButton.Snackbar">
+        <item name="android:textColor">@color/mobile_color_background</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
     </style>
 
     <style name="TextAppearance.NewTube.Button" parent="TextAppearance.MaterialComponents.Button">
