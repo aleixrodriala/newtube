@@ -146,6 +146,21 @@ public class MobileMainApplication extends MainApplication {
             migrations.edit().putBoolean("downloads_section", true).apply();
         }
 
+        // TV RECEIVER ROLES OFF (mobile-only, one-shot): Auto Frame Rate reprograms the display's
+        // refresh mode per video, and "Remote control" keeps a foreground service listening so
+        // other devices can drive this one - both TV roles. Their Settings rows are gone on the
+        // phone (AppDataSourceManager), so an install that had either on could never turn it off.
+        if (!migrations.getBoolean("tv_receiver_roles_off", false)) {
+            PlayerData.instance(this).setAfrEnabled(false);
+            com.liskovsoft.smartyoutubetv2.common.prefs.RemoteControlData remote =
+                    com.liskovsoft.smartyoutubetv2.common.prefs.RemoteControlData.instance(this);
+            if (remote.isDeviceLinkEnabled()) {
+                remote.enableDeviceLink(false);
+                com.liskovsoft.smartyoutubetv2.common.utils.Utils.updateRemoteControlService(this);
+            }
+            migrations.edit().putBoolean("tv_receiver_roles_off", true).apply();
+        }
+
         // NOTE(buffering): the back-buffer / start-gate / forward-buffer tuning that used to be
         // pushed into the legacy engine here (ExoPlayerInitializer.set*Override) moved into the
         // media3 engine itself - see Media3PlayerInitializer (back 120s, start gate 1000/2500ms).

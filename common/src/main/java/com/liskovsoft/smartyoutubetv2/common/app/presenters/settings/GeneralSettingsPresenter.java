@@ -275,6 +275,15 @@ public class GeneralSettingsPresenter extends BasePresenter<Void> {
         Map<Integer, Integer> sections = mSidebarService.getDefaultSections();
 
         for (Entry<Integer, Integer> section : sections.entrySet()) {
+            // NEWTUBE(settings): only sections the phone can actually open at boot - the enabled
+            // ones, never Shorts (retired on the phone) or Settings (not a feed). The current pick
+            // stays listed even if hidden since, so the radio group never loses its checked row.
+            int sectionId = section.getValue();
+            boolean current = section.getValue().equals(mSidebarService.getBootSectionId());
+            if (!current && (sectionId == MediaGroup.TYPE_SHORTS || sectionId == MediaGroup.TYPE_SETTINGS
+                    || !mSidebarService.isSectionPinned(sectionId))) {
+                continue;
+            }
             options.add(
                     UiOptionItem.from(
                             getContext().getString(section.getKey()),

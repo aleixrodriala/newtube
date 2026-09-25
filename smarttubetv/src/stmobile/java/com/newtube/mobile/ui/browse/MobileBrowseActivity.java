@@ -692,9 +692,12 @@ public class MobileBrowseActivity extends MobileActivity
         // Only the experiment is offered. The link-less "fallback" is debug-only: it is capped at
         // ~60 s by the server's attestation demand, so a switch for it would promise a playback
         // that cannot finish. See SabrSourcePreference and HANDOFF section 28.
-        dialogPresenter.appendSingleSwitch(UiOptionItem.from(getString(R.string.sabr_vod_option),
-                option -> com.newtube.mobile.player.SabrSourcePreference.setPreferred(this, option.isSelected()),
-                com.newtube.mobile.player.SabrSourcePreference.isPreferred(this)));
+        // NEWTUBE(settings): it sits at the end of Player now, not as a raw row on the Settings root.
+        com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.PlayerSettingsPresenter.setPhoneExtraRows(
+                (context, presenter) -> presenter.appendSingleSwitch(UiOptionItem.from(
+                        context.getString(R.string.sabr_vod_option),
+                        option -> com.newtube.mobile.player.SabrSourcePreference.setPreferred(context, option.isSelected()),
+                        com.newtube.mobile.player.SabrSourcePreference.isPreferred(context))));
 
         // Tag this as the full-screen Settings tree so MobileAppDialogActivity renders it full-screen
         // (nested category screens push onto the same activity and inherit that). Context menus and the

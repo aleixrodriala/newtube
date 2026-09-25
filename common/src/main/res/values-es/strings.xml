@@ -56,6 +56,9 @@
   <string name="settings_language">Idioma</string>
   <string name="settings_linked_devices">Dispositivos vinculados</string>
   <string name="settings_about">Acerca de</string>
+  <string name="about_app">Acerca de %1$s</string>
+  <string name="about_source_code">Código fuente</string>
+  <string name="about_license">Licencia</string>
   <string name="dialog_account_list">Seleccionar cuenta</string>
   <string name="dialog_account_none">Ninguna</string>
   <string name="dialog_remove_account">Eliminar cuenta</string>

@@ -79,8 +79,22 @@ public class PlayerSettingsPresenter extends BasePresenter<Void> {
         appendSleepTimerCategory(settingsPresenter);
         appendMiscCategory(settingsPresenter);
         appendDeveloperCategory(settingsPresenter);
+        if (sPhoneExtraRows != null) {
+            sPhoneExtraRows.append(getContext(), settingsPresenter);
+        }
 
         settingsPresenter.showDialog(getContext().getString(R.string.settings_player), mOnFinish);
+    }
+
+    /** NEWTUBE(settings): rows the phone app adds at the end of Player (its SABR experiment switch). */
+    public interface ExtraRows {
+        void append(Context context, AppDialogPresenter settingsPresenter);
+    }
+
+    private static ExtraRows sPhoneExtraRows;
+
+    public static void setPhoneExtraRows(ExtraRows rows) {
+        sPhoneExtraRows = rows;
     }
 
     private void appendOKButtonCategory(AppDialogPresenter settingsPresenter) {

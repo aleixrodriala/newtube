@@ -33,7 +33,8 @@ public class DeArrowSettingsPresenter extends BasePresenter<Void> {
         AppDialogPresenter settingsPresenter = AppDialogPresenter.instance(getContext());
         
         appendSwitches(settingsPresenter);
-        appendThumbQuality(settingsPresenter);
+        // NEWTUBE(settings): the thumbnail-source picker is the same MainUIData setting as User
+        // interface > "Where to grab card thumbnails"; one place for one setting.
         appendLinks(settingsPresenter);
 
         settingsPresenter.showDialog(getContext().getString(R.string.dearrow_provider), onFinish);
