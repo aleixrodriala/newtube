@@ -719,6 +719,10 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchRelated.setLayoutManager(new LinearLayoutManager(this));
         mWatchRelated.setNestedScrollingEnabled(false);
         mWatchRelated.setHasFixedSize(false);
+        // NEWTUBE(watch-jump): no add/remove fade. The rows' first frame was an alpha-0 fade-in
+        // start drawn in the same pass that hid the skeleton, and on a busy main thread (binding a
+        // dozen rows while the video starts) that empty frame stayed up ~1 s.
+        mWatchRelated.setItemAnimator(null);
         mWatchRelated.setAdapter(mRelatedAdapter);
 
         // Queue list: same row layout and same click routing as Up next, but it scrolls INSIDE the
@@ -5099,7 +5103,10 @@ public class MobilePlaybackActivity extends MobileActivity
             }
 
             String views = metadata.getViewCount();
-            String date = metadata.getPublishedDate();
+            // NEWTUBE(watch-meta): prefer the relative date ("4 days ago") - the shape the card's own
+            // line has, so the swap below doesn't jump. The absolute date is the fallback.
+            String relativeDate = metadata.getRelativePublishedDate();
+            String date = !TextUtils.isEmpty(relativeDate) ? relativeDate : metadata.getPublishedDate();
             if (date != null) {
                 date = date.replaceFirst("(?i)^(published|premiered|streamed live) on ", "");
                 // Non-English locales label the date "Data de publicació: 29 de des. 2019" /
@@ -5118,9 +5125,13 @@ public class MobilePlaybackActivity extends MobileActivity
             } else {
                 meta = date;
             }
-            // NEWTUBE(watch-jump): only when the card gave no line. Replacing it swapped the card's
-            // "4 days ago" for "Sep 20, 2026" (and the separator spacing) a second after opening.
-            if (!TextUtils.isEmpty(meta) && mWatchMeta.length() == 0) {
+            // NEWTUBE(watch-meta): a relative line replaces whatever the card put there - it reads like
+            // a feed card's line anyway, and the card's line isn't always views + date (a download
+            // shows "144p • 8.8 MB", a signed-out Subscriptions card "1.6M • Thu Sep 3 2026"). An
+            // absolute-only answer fills just an empty line: swapping a card's "4 days ago" for
+            // "Sep 20, 2026" a second after opening was the jump UX-14 removed.
+            if (!TextUtils.isEmpty(meta)
+                    && (!TextUtils.isEmpty(relativeDate) || mWatchMeta.length() == 0)) {
                 mWatchMeta.setText(meta);
             }
 
@@ -5446,13 +5457,15 @@ public class MobilePlaybackActivity extends MobileActivity
         String currentId = current != null ? current.videoId : null;
         bindQueueCard(current, currentId, findQueueGroupId(current));
 
-        submitRelatedWindow();
-
         // Queue rows count as "content landed" too: a playlist whose suggestions are ALL queue
         // would otherwise leave the Up-next skeleton pulsing until its safety timeout.
-        if (!mRelatedVideos.isEmpty() || !mQueueVideos.isEmpty()) {
-            hideRelatedSkeleton(); // real rows are in; stop pulsing
-        }
+        // NEWTUBE(watch-jump): hide it once the rows are actually in the list - submitList diffs
+        // off the main thread, and hiding before its commit left "Up next" blank for ~1 s.
+        submitRelatedWindow(() -> {
+            if (!mRelatedVideos.isEmpty() || !mQueueVideos.isEmpty()) {
+                hideRelatedSkeleton(); // real rows are in; stop pulsing
+            }
+        });
     }
 
     /**
@@ -5467,9 +5480,16 @@ public class MobilePlaybackActivity extends MobileActivity
 
     /** Push the currently revealed slice of {@link #mRelatedVideos} into the Up-next adapter. */
     private void submitRelatedWindow() {
+        submitRelatedWindow(null);
+    }
+
+    /** As {@link #submitRelatedWindow()}; {@code onCommitted} runs once the list shows the slice. */
+    private void submitRelatedWindow(Runnable onCommitted) {
         if (mRelatedAdapter != null) {
             int end = Math.min(mRelatedWindow, mRelatedVideos.size());
-            mRelatedAdapter.submitList(new ArrayList<>(mRelatedVideos.subList(0, end)));
+            mRelatedAdapter.submitList(new ArrayList<>(mRelatedVideos.subList(0, end)), onCommitted);
+        } else if (onCommitted != null) {
+            onCommitted.run();
         }
         if (mWatchRelatedLabel != null && !mRelatedVideos.isEmpty()) {
             mWatchRelatedLabel.setText(R.string.mobile_watch_related);
