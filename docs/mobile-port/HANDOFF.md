@@ -2046,4 +2046,15 @@ python3 psum.py runs/base runs/candA
   `nextVisitorCookie` finding is fixed: only `VISITOR_INFO1_LIVE` is carried over when a response
   omits it; the server's other cookies always replace the stored ones.)
 - SABR fallback under a real wall. Owner 09-26: TV_TIZEN stays the account route only (not the
-  signed-in head); WEB_EMBED leaves the phone walk (follow-up commit).
+  signed-in head).
+- **WEB_EMBED left the phone walk (09-26, owner's call).** `VideoInfoService.setSkipWebEmbed(true)`
+  from `MobileMainApplication` feeds `isSkippedClient()` (skipped before an attempt is counted;
+  `VIDEO_INFO_TYPE_LIST` untouched; TV unchanged). It answered error 152-18 on every network, yt-dlp's
+  `web_embedded` too (even on its own age-gate test video `HtVdAasjOgU`). Forcing it with
+  `debug.arc.player_client` or pointing `debug.arc.web_auth` at it still reaches it. Age-gated videos
+  go to TV_TIZEN with the account; signed out they end unplayable with YouTube's reason. Recovery
+  after an off-ring winner starts at element 0 (WEB_EMBED), skips it and asks WEB. Pixel (debug):
+  `HtVdAasjOgU` -> VISIONOS `LOGIN_REQUIRED` -> `account-route next reason=login-required` ->
+  TV_TIZEN `playable=y auth=y` (ff +1661 ms); injected VISIONOS wall -> TV_TIZEN (ff +1087 ms);
+  plain opens one VISIONOS call (ff 365-428 ms); no `client=WEB_EMBED`/`client=56` in 1,622 lines.
+  `VideoInfoSkipWebEmbedTest` (9); the signed-out walled first walk is 7 requests (was 8).

@@ -225,7 +225,8 @@ live-account failures); release and debug assemble. The integrated UX build: 651
   until the 10 min); no resume after 10 min; ordinary paused background sessions can still freeze.
 - SABR fallback still not wired. Owner 09-26: TV_TIZEN stays the account route only (used when
   anonymous clients are challenged or asked to sign in), and WEB_EMBED (error 152-18 on every
-  network) leaves the phone walk. Touch-down prefetch and next-video media preload stay off until
+  network) left the phone walk: one wasted request less whenever VISIONOS can't serve (Pixel:
+  an age-restricted video plays through TV_TIZEN, no WEB_EMBED request in any capture). Touch-down prefetch and next-video media preload stay off until
   their waste is measured.
 
 ## Pixel verification and follow-up round (2026-09-25, Pixel 9, Wi-Fi + LTE)
