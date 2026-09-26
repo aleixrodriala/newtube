@@ -29,8 +29,9 @@ import java.lang.ref.WeakReference;
  *
  * <p>{@link #show(Context, CharSequence, CharSequence, Runnable)} works from any context: it posts
  * on the activity in front, and when that is a menu sheet that is closing (the tap that started a
- * download also dismissed the sheet) it waits for the screen underneath to resume. With no screen
- * in front at all (backgrounded) it falls back to the old Toast.</p>
+ * download also dismissed the sheet) it waits for the screen underneath to resume - or, when that
+ * screen was never paused behind the sheet, shows there once the sheet is gone. With no screen in
+ * front at all (backgrounded) it falls back to the old Toast; a message is never dropped.</p>
  */
 public final class MobileSnackbar {
     private static final long PENDING_MAX_AGE_MS = 3_000;
@@ -41,7 +42,15 @@ public final class MobileSnackbar {
 
     private static boolean sInstalled;
     @Nullable private static WeakReference<Activity> sResumed;
+    /**
+     * The last screen that could host a Snackbar and is still started (visible) - the one under a
+     * menu sheet. Unlike {@link #sResumed} it survives the screen being paused behind the sheet.
+     */
+    @Nullable private static WeakReference<Activity> sHost;
+    /** {@link #sHost} was paused (it will resume, and take the message then). */
+    private static boolean sHostPaused;
     @Nullable private static Pending sPending;
+    private static final long HOST_FALLBACK_MS = 250;
     /** The Snackbar last shown, and its text - see {@link #replaceText}. */
     @Nullable private static WeakReference<Snackbar> sLast;
     @Nullable private static CharSequence sLastText;
@@ -62,20 +71,10 @@ public final class MobileSnackbar {
             @Override
             public void onActivityResumed(@NonNull Activity activity) {
                 sResumed = new WeakReference<>(activity);
-                Pending pending = sPending;
-                if (pending != null && canHost(activity)) {
-                    sPending = null;
-                    if (SystemClock.uptimeMillis() - pending.createdAtMs <= PENDING_MAX_AGE_MS) {
-                        // Next frame, not now: this callback runs inside super.onResume(), before
-                        // the screen's own onResume has re-shown what the Snackbar anchors above
-                        // (Browse re-attaches its mini-player card there).
-                        View root = activity.getWindow().getDecorView();
-                        root.post(() -> {
-                            if (canHost(activity)) {
-                                make(activity, pending.text, pending.action, pending.onAction);
-                            }
-                        });
-                    }
+                if (canHost(activity)) {
+                    sHost = new WeakReference<>(activity);
+                    sHostPaused = false;
+                    deliverPending(activity);
                 }
             }
 
@@ -83,6 +82,12 @@ public final class MobileSnackbar {
             public void onActivityPaused(@NonNull Activity activity) {
                 if (sResumed != null && sResumed.get() == activity) {
                     sResumed = null;
+                }
+                if (sHost != null && sHost.get() == activity) {
+                    sHostPaused = true;
+                }
+                if (activity instanceof MobileAppDialogActivity && sPending != null) {
+                    deliverToUnpausedHostLater(sPending);
                 }
             }
 
@@ -96,6 +101,9 @@ public final class MobileSnackbar {
 
             @Override
             public void onActivityStopped(@NonNull Activity activity) {
+                if (sHost != null && sHost.get() == activity) {
+                    sHost = null;
+                }
             }
 
             @Override
@@ -104,6 +112,52 @@ public final class MobileSnackbar {
 
             @Override
             public void onActivityDestroyed(@NonNull Activity activity) {
+            }
+        });
+    }
+
+    /**
+     * A menu sheet going away normally resumes the screen under it, which then takes the waiting
+     * message (onActivityResumed). But a screen can stay RESUMED behind a translucent sheet - on
+     * the Pixel (Android 17) the watch page did - and then gets no such callback: the message waited
+     * for nothing and ended as the fallback Toast (the watch page's "Download started" with its
+     * View). So shortly after, if the screen under the sheet was never paused and the sheet is
+     * gone (or going), show it there.
+     */
+    private static void deliverToUnpausedHostLater(Pending pending) {
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (sPending != pending || sHostPaused) {
+                return;
+            }
+            Activity host = sHost != null ? sHost.get() : null;
+            Activity front = sResumed != null ? sResumed.get() : null;
+            boolean sheetStillOpen = front instanceof MobileAppDialogActivity && !front.isFinishing();
+            if (host != null && canHost(host) && !sheetStillOpen) {
+                deliverPending(host);
+            }
+        }, HOST_FALLBACK_MS);
+    }
+
+    /** Show the waiting message (if any, and still fresh) on {@code host}, from its next frame. */
+    private static void deliverPending(Activity host) {
+        Pending pending = sPending;
+        if (pending == null) {
+            return;
+        }
+        if (SystemClock.uptimeMillis() - pending.createdAtMs > PENDING_MAX_AGE_MS) {
+            // Too late for this screen. Leave it waiting: while it is still sPending, its fallback
+            // Toast has not run yet (that clears it), so the Toast still comes and nothing is lost.
+            // Reached when the main thread was busy for seconds - a resume queued before the
+            // Toast's time but run after this age used to drop the message silently.
+            return;
+        }
+        sPending = null;
+        // Next frame, not now: onActivityResumed runs inside super.onResume(), before the screen's
+        // own onResume has re-shown what the Snackbar anchors above (Browse re-attaches its
+        // mini-player card there).
+        host.getWindow().getDecorView().post(() -> {
+            if (canHost(host)) {
+                make(host, pending.text, pending.action, pending.onAction);
             }
         });
     }
@@ -124,6 +178,7 @@ public final class MobileSnackbar {
         // the old Toast, so the message is never lost.
         Pending pending = new Pending(text, action, onAction);
         sPending = pending;
+        deliverToUnpausedHostLater(pending);
         Context app = context.getApplicationContext();
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (sPending == pending) {
