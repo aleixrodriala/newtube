@@ -682,7 +682,7 @@
                                 android:layout_width="20dp"
                                 android:layout_height="20dp"
                                 android:contentDescription="@string/mobile_watch_like"
-                                android:src="@drawable/ic_watch_thumb_up" />
+                                android:src="@drawable/ic_watch_thumb_up_outline" />
 
                             <TextView
                                 android:id="@+id/mobile_watch_like_count"
@@ -719,7 +719,7 @@
                                 android:layout_width="20dp"
                                 android:layout_height="20dp"
                                 android:contentDescription="@string/mobile_watch_dislike"
-                                android:src="@drawable/ic_watch_thumb_down" />
+                                android:src="@drawable/ic_watch_thumb_down_outline" />
 
                             <TextView
                                 android:id="@+id/mobile_watch_dislike_count"

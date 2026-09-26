@@ -314,6 +314,11 @@
     <string name="mobile_subscribed">Subscribed</string>
     <string name="mobile_unsubscribed">Unsubscribed</string>
     <string name="mobile_undo">Undo</string>
+    <string name="mobile_liked">Added to Liked videos</string>
+    <string name="mobile_like_removed">Removed from Liked videos</string>
+    <string name="mobile_disliked">You disliked this video</string>
+    <string name="mobile_dislike_removed">Dislike removed</string>
+    <string name="mobile_rate_not_ready">Still loading this video. Try again in a moment.</string>
     <string name="mobile_download_started">Download started</string>
     <string name="mobile_download_started_size">Download started • %1$s</string>
     <string name="mobile_download_done">Downloaded</string>

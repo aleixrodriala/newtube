@@ -745,12 +745,12 @@ public class MobilePlaybackActivity extends MobileActivity
         // (WatchActionFeedback); Subscribe confirms with the channel's name and Undo.
         mWatchLike.setOnClickListener(v -> {
             if (!WatchActionFeedback.blockIfSignedOut(this, R.string.mobile_sign_in_to_rate)) {
-                onActionButtonClicked(R.id.action_thumbs_up);
+                onRateTapped(R.id.action_thumbs_up);
             }
         });
         mWatchDislike.setOnClickListener(v -> {
             if (!WatchActionFeedback.blockIfSignedOut(this, R.string.mobile_sign_in_to_rate)) {
-                onActionButtonClicked(R.id.action_thumbs_down);
+                onRateTapped(R.id.action_thumbs_down);
             }
         });
         mWatchSubscribe.setOnClickListener(v -> onSubscribeTapped());
@@ -2174,7 +2174,7 @@ public class MobilePlaybackActivity extends MobileActivity
      * stock white otherwise (matches the official app's colored connected icon). This is the
      * ONE coloured icon state left in the app - everything else states itself with a filled vs
      * outlined glyph - so it gets its own colour name rather than riding on the theme accent,
-     * which is monochrome. Distinct from the playback-red used by like/progress states.
+     * which is monochrome. Distinct from the playback red of the progress bar.
      */
     private void updateCastIconTint() {
         if (mCastButton == null) {
@@ -5221,6 +5221,38 @@ public class MobilePlaybackActivity extends MobileActivity
         mPresenter.onButtonClicked(actionId, currentState);
     }
 
+    /**
+     * Like/Dislike (signed in), confirmed like every other watch-page action. The controller flips
+     * the state synchronously when it sends the rating; an unchanged state means it didn't (the
+     * video's data isn't in yet), which the phone says instead of a silent tap.
+     */
+    private void onRateTapped(int actionId) {
+        int before = getButtonState(actionId);
+        onActionButtonClicked(actionId);
+        int after = getButtonState(actionId);
+        if (after == before) {
+            WatchActionFeedback.rateNotReady(this);
+            return;
+        }
+        WatchActionFeedback.confirmRating(this, actionId == R.id.action_thumbs_up, after == BUTTON_ON,
+                undoOnThisVideo(actionId));
+    }
+
+    /**
+     * Undo re-taps the same action, but only on the video it confirmed: the Snackbar outlives a
+     * switch to an Up next video (same screen), and there it would rate or unsubscribe the wrong one.
+     */
+    private Runnable undoOnThisVideo(int actionId) {
+        Video tapped = getVideo();
+        String videoId = tapped != null ? tapped.videoId : null;
+        return () -> {
+            Video now = getVideo();
+            if (videoId != null && now != null && videoId.equals(now.videoId)) {
+                onActionButtonClicked(actionId);
+            }
+        };
+    }
+
     /** Subscribe/Unsubscribe, confirmed only when the controller actually flipped the state. */
     private void onSubscribeTapped() {
         int before = getButtonState(R.id.action_subscribe);
@@ -5230,7 +5262,7 @@ public class MobilePlaybackActivity extends MobileActivity
             Video video = getVideo();
             WatchActionFeedback.confirmSubscription(this, after == BUTTON_ON,
                     video != null ? video.getAuthor() : null,
-                    () -> onActionButtonClicked(R.id.action_subscribe));
+                    undoOnThisVideo(R.id.action_subscribe));
         }
     }
 
@@ -5238,11 +5270,17 @@ public class MobilePlaybackActivity extends MobileActivity
         boolean on = buttonState == BUTTON_ON;
 
         if (buttonId == R.id.action_thumbs_up && mWatchLikeIcon != null) {
-            mWatchLikeIcon.setColorFilter(getColorInt(on
-                    ? R.color.mobile_color_primary : R.color.mobile_color_on_surface));
+            // NEWTUBE(icons): filled while on, outlined while off, both in the text colour - the
+            // CC button's language. A red tint on the active thumb broke the no-tints rule.
+            mWatchLikeIcon.setImageResource(on ? R.drawable.ic_watch_thumb_up : R.drawable.ic_watch_thumb_up_outline);
+            if (mWatchLike != null) {
+                mWatchLike.setSelected(on);
+            }
         } else if (buttonId == R.id.action_thumbs_down && mWatchDislikeIcon != null) {
-            mWatchDislikeIcon.setColorFilter(getColorInt(on
-                    ? R.color.mobile_color_primary : R.color.mobile_color_on_surface));
+            mWatchDislikeIcon.setImageResource(on ? R.drawable.ic_watch_thumb_down : R.drawable.ic_watch_thumb_down_outline);
+            if (mWatchDislike != null) {
+                mWatchDislike.setSelected(on);
+            }
         } else if (buttonId == R.id.lb_control_closed_captioning && mSubtitlesButton != null) {
             // YouTube-style: filled CC glyph while captions are on, outlined while off.
             mSubtitlesButton.setImageResource(on ? R.drawable.ic_player_cc : R.drawable.ic_player_cc_off);

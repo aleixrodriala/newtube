@@ -33,6 +33,19 @@ final class WatchActionFeedback {
         return true;
     }
 
+    /** "Added to Liked videos" / "Removed from Liked videos" / "You disliked..." / "Dislike removed", with Undo. */
+    static void confirmRating(Activity activity, boolean like, boolean on, Runnable undo) {
+        int text = like
+                ? (on ? R.string.mobile_liked : R.string.mobile_like_removed)
+                : (on ? R.string.mobile_disliked : R.string.mobile_dislike_removed);
+        MobileSnackbar.show(activity, activity.getString(text), activity.getString(R.string.mobile_undo), undo);
+    }
+
+    /** A rating tapped before the video's data arrived (nothing was sent). */
+    static void rateNotReady(Activity activity) {
+        MobileSnackbar.show(activity, R.string.mobile_rate_not_ready);
+    }
+
     static void confirmSubscription(Activity activity, boolean subscribed, String channel, Runnable undo) {
         String text;
         if (TextUtils.isEmpty(channel)) {

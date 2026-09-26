@@ -34,6 +34,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.VideoMe
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.AutoFrameRateSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.SubtitleTrack;
+import com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.ScreensaverManager;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
@@ -429,6 +430,12 @@ public class PlayerUIController extends BasePlayerController {
         getPlayer().setButtonState(R.id.action_thumbs_down, !dislike ? PlayerUI.BUTTON_ON : PlayerUI.BUTTON_OFF);
 
         if (!mIsMetadataLoaded) {
+            if (PhoneUi.isEnabled()) {
+                // NEWTUBE(phone): nothing is sent yet, so don't leave the icon flipped; the phone's
+                // watch page says "still loading" itself (no TV Toast).
+                getPlayer().setButtonState(R.id.action_thumbs_down, buttonState);
+                return;
+            }
             MessageHelpers.showMessage(getContext(), R.string.wait_data_loading);
             return;
         }
@@ -440,6 +447,10 @@ public class PlayerUIController extends BasePlayerController {
         }
 
         if (!dislike) {
+            // NEWTUBE(phone): a dislike replaces a like on YouTube; show that instead of two filled thumbs.
+            if (PhoneUi.isEnabled()) {
+                getPlayer().setButtonState(R.id.action_thumbs_up, PlayerUI.BUTTON_OFF);
+            }
             callMediaItemObservable(mMediaItemService::setDislikeObserve);
         } else {
             callMediaItemObservable(mMediaItemService::removeDislikeObserve);
@@ -456,6 +467,11 @@ public class PlayerUIController extends BasePlayerController {
         getPlayer().setButtonState(R.id.action_thumbs_up, !like ? PlayerUI.BUTTON_ON : PlayerUI.BUTTON_OFF);
 
         if (!mIsMetadataLoaded) {
+            if (PhoneUi.isEnabled()) {
+                // NEWTUBE(phone): see onDislikeClicked.
+                getPlayer().setButtonState(R.id.action_thumbs_up, buttonState);
+                return;
+            }
             MessageHelpers.showMessage(getContext(), R.string.wait_data_loading);
             return;
         }
@@ -467,6 +483,10 @@ public class PlayerUIController extends BasePlayerController {
         }
 
         if (!like) {
+            // NEWTUBE(phone): a like replaces a dislike on YouTube.
+            if (PhoneUi.isEnabled()) {
+                getPlayer().setButtonState(R.id.action_thumbs_down, PlayerUI.BUTTON_OFF);
+            }
             callMediaItemObservable(mMediaItemService::setLikeObserve);
         } else {
             callMediaItemObservable(mMediaItemService::removeLikeObserve);
