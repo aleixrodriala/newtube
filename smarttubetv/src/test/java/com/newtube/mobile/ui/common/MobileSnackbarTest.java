@@ -41,6 +41,7 @@ import java.time.Duration;
 @LooperMode(LooperMode.Mode.PAUSED)
 public class MobileSnackbarTest {
     private static final String TEXT = "Download started • 44.7 MB";
+    private static final String DONE = "Downloaded • 44.7 MB";
 
     /** MobileSnackbar installs once per process; keep the callbacks it registered. */
     private static Application.ActivityLifecycleCallbacks sCallbacks;
@@ -147,6 +148,48 @@ public class MobileSnackbarTest {
         idle(0);
 
         assertEquals(TEXT, ShadowToast.getTextOfLatestToast());
+    }
+
+    @Test
+    public void aMessageRewordedWhileWaitingStillReachesTheUnpausedScreen() {
+        sCallbacks.onActivityResumed(host);
+        sCallbacks.onActivityResumed(sheet);
+        MobileSnackbar.show(host, TEXT, "View", () -> { });
+        sCallbacks.onActivityPaused(sheet);
+        idle(100);
+        MobileSnackbar.replaceText(TEXT, DONE); // a small file finished inside the 250 ms
+        idle(400);
+
+        assertEquals(1, countShown(DONE));
+        assertEquals(0, countShown(TEXT));
+    }
+
+    @Test
+    public void aMessageRewordedWhileWaitingStillEndsInItsToast() {
+        sCallbacks.onActivityResumed(host);
+        sCallbacks.onActivityResumed(sheet);
+        MobileSnackbar.show(host, TEXT, "View", () -> { });
+        MobileSnackbar.replaceText(TEXT, DONE);
+        sCallbacks.onActivityPaused(sheet);
+        sCallbacks.onActivityPaused(host);
+        sCallbacks.onActivityStopped(host);
+        idle(2_000);
+
+        assertEquals(DONE, ShadowToast.getTextOfLatestToast());
+    }
+
+    @Test
+    public void aMessageRewordedBeforeItsFrameShowsTheNewWords() {
+        sCallbacks.onActivityResumed(host);
+        sCallbacks.onActivityPaused(host);
+        sCallbacks.onActivityResumed(sheet);
+        MobileSnackbar.show(host, TEXT, "View", () -> { });
+        sCallbacks.onActivityPaused(sheet);
+        sCallbacks.onActivityResumed(host); // handed over; drawn on the next frame
+        MobileSnackbar.replaceText(TEXT, DONE);
+        idle(400);
+
+        assertEquals(1, countShown(DONE));
     }
 
     private void idle(long ms) {

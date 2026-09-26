@@ -50,6 +50,8 @@ public final class MobileSnackbar {
     /** {@link #sHost} was paused (it will resume, and take the message then). */
     private static boolean sHostPaused;
     @Nullable private static Pending sPending;
+    /** Handed to a screen and drawn on its next frame; {@link #replaceText} can still reword it. */
+    @Nullable private static Pending sPosted;
     private static final long HOST_FALLBACK_MS = 250;
     /** The Snackbar last shown, and its text - see {@link #replaceText}. */
     @Nullable private static WeakReference<Snackbar> sLast;
@@ -152,10 +154,14 @@ public final class MobileSnackbar {
             return;
         }
         sPending = null;
+        sPosted = pending;
         // Next frame, not now: onActivityResumed runs inside super.onResume(), before the screen's
         // own onResume has re-shown what the Snackbar anchors above (Browse re-attaches its
         // mini-player card there).
         host.getWindow().getDecorView().post(() -> {
+            if (sPosted == pending) {
+                sPosted = null;
+            }
             if (canHost(host)) {
                 make(host, pending.text, pending.action, pending.onAction);
             }
@@ -183,7 +189,7 @@ public final class MobileSnackbar {
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             if (sPending == pending) {
                 sPending = null;
-                MessageHelpers.showMessage(app, text.toString());
+                MessageHelpers.showMessage(app, pending.text.toString());
             }
         }, FALLBACK_TOAST_MS);
     }
@@ -194,9 +200,11 @@ public final class MobileSnackbar {
      * Does nothing once the message is gone or another one replaced it.
      */
     public static void replaceText(CharSequence from, CharSequence to) {
-        Pending pending = sPending;
+        Pending pending = sPending != null ? sPending : sPosted;
         if (pending != null && TextUtils.equals(pending.text, from)) {
-            sPending = new Pending(to, pending.action, pending.onAction);
+            // In place: the scheduled deliveries and the fallback Toast know it by identity. A new
+            // object here left all of them waiting for one that was gone - message lost.
+            pending.text = to;
             return;
         }
         Snackbar last = sLast != null ? sLast.get() : null;
@@ -236,7 +244,8 @@ public final class MobileSnackbar {
     }
 
     private static final class Pending {
-        final CharSequence text;
+        /** Reworded in place by {@link #replaceText}. */
+        CharSequence text;
         @Nullable final CharSequence action;
         @Nullable final Runnable onAction;
         final long createdAtMs = SystemClock.uptimeMillis();
