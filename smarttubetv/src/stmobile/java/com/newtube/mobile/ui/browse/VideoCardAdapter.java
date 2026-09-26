@@ -192,7 +192,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             itemView.setOnClickListener(v -> {
                 if (mVideo != null && clickListener != null) {
                     if (mVideo.videoId != null) {
-                        PlayerTransitionBridge.prepare(mThumbnailFrame);
+                        PlayerTransitionBridge.prepare(mThumbnailFrame, mBadge, mWatchProgress);
                     } else {
                         PlayerTransitionBridge.clear();
                     }
@@ -217,6 +217,10 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
                         longClickListener.onVideoLongClick(mVideo);
                     }
                 });
+                // NEWTUBE(a11y): one of 40 identical "More options" otherwise.
+                mOverflow.setContentDescription(video.getTitle() != null
+                        ? context.getString(R.string.mobile_more_options_for, video.getTitle())
+                        : context.getString(R.string.mobile_player_more));
             }
 
             mTitle.setText(video.getTitle());
@@ -338,6 +342,9 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
         }
 
         public static String thumbnailUrl(Context context, Video video) {
+            // NEWTUBE(ux): entries saved without an image (local history, link opens) get the
+            // i.ytimg.com fallback here, so the preloader and the bind ask for the same URL.
+            com.newtube.mobile.ui.common.LocalThumbnails.fill(video);
             return ClickbaitRemover.updateThumbnail(video, MainUIData.instance(context).getThumbQuality());
         }
 
@@ -441,7 +448,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             }
             if (videosCount != null && !videosCount.isEmpty()) {
                 if (meta.length() > 0) {
-                    meta.append(" · ");
+                    meta.append(com.newtube.mobile.ui.common.MetaSeparator.DOT);
                 }
                 meta.append(videosCount);
             }

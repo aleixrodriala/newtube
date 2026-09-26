@@ -19,6 +19,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.base.BasePresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.AccountSelectionPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.AppUpdatePresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.VideoMenuPresenter.VideoMenuCallback;
+import com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
@@ -79,7 +80,11 @@ public abstract class BaseMenuPresenter extends BasePresenter<Void> {
                             if (original.hasPlaylist()) {
                                 togglePinToSidebar(createPinnedPlaylist(original));
                             } else if (original.hasVideo()) {
-                                MessageHelpers.showMessage(getContext(), R.string.wait_data_loading);
+                                // NEWTUBE(menu): the phone looks the channel up quietly; the result
+                                // arrives as its Snackbar (no TV "Please wait" Toast).
+                                if (!PhoneUi.isEnabled()) {
+                                    MessageHelpers.showMessage(getContext(), R.string.wait_data_loading);
+                                }
 
                                 mServiceManager.loadMetadata(
                                         original,
@@ -101,13 +106,46 @@ public abstract class BaseMenuPresenter extends BasePresenter<Void> {
         // Toggle between pin/unpin while dialog is opened
         boolean isItemPinned = presenter.isItemPinned(section);
 
+        // NEWTUBE(menu): the phone closes the menu and confirms, like every other menu action -
+        // the TV keeps it open as an in-place pin/unpin toggle, which on a phone read as "nothing
+        // happened" behind a Toast.
+        if (PhoneUi.isEnabled()) {
+            closeDialog();
+        }
         if (isItemPinned && section.getGroup() == null) { // allow deletion only from the Sidebar
             presenter.unpinItem(section);
-            MessageHelpers.showMessage(getContext(), getContext().getString(R.string.unpinned_from_sidebar));
+            confirm(getContext().getString(R.string.unpinned_from_sidebar));
         } else {
             presenter.pinItem(section);
             section.setGroup(null);
-            MessageHelpers.showMessage(getContext(), getContext().getString(R.string.pinned_to_sidebar));
+            confirm(getContext().getString(R.string.pinned_to_sidebar));
+        }
+    }
+
+    /**
+     * NEWTUBE(snackbar): where a menu action's one-line confirmation goes. The phone app points it
+     * at its bottom Snackbar (on the screen under the closing menu, with an optional action such
+     * as Undo); unset - the TV - it is the old Toast.
+     */
+    public interface ConfirmationSink {
+        void show(Context context, String message, String action, Runnable onAction);
+    }
+
+    private static ConfirmationSink sConfirmationSink;
+
+    public static void setConfirmationSink(ConfirmationSink sink) {
+        sConfirmationSink = sink;
+    }
+
+    protected void confirm(String message) {
+        confirm(message, null, null);
+    }
+
+    protected void confirm(String message, String action, Runnable onAction) {
+        if (sConfirmationSink != null) {
+            sConfirmationSink.show(getContext(), message, action, onAction);
+        } else {
+            MessageHelpers.showMessage(getContext(), message);
         }
     }
 

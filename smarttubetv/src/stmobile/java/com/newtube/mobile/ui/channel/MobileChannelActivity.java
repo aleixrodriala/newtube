@@ -135,6 +135,8 @@ public class MobileChannelActivity extends MobileActivity
 
     private void bindViews() {
         mGrid = findViewById(R.id.mobile_channel_grid);
+        // NEWTUBE(mini-inset): the last row can scroll clear of the docked mini-player card.
+        com.newtube.mobile.ui.playback.MiniPlayerListInset.attach(findViewById(R.id.mobile_mini_player), mGrid);
         mTabs = findViewById(R.id.mobile_channel_tabs);
         mProgressBar = findViewById(R.id.mobile_channel_progress);
         mTitleView = findViewById(R.id.mobile_channel_title);

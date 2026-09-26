@@ -156,6 +156,7 @@ public class MobileBrowseActivity extends MobileActivity
     private boolean mYouShowing;
     /** True when the current grid section was opened from a You-panel row (back returns to You). */
     private boolean mSectionFromYou;
+    private BrowseTopBar mTopBar;
     private View mErrorContainer;
     private ImageView mErrorIcon;
     private TextView mErrorMessage;
@@ -270,6 +271,7 @@ public class MobileBrowseActivity extends MobileActivity
         mErrorAction = findViewById(R.id.mobile_error_action);
         mSearchButton = findViewById(R.id.mobile_search_button);
         mCastButton = findViewById(R.id.mobile_cast_button);
+        mTopBar = new BrowseTopBar(this, () -> getOnBackPressedDispatcher().onBackPressed());
 
         mMiniPlayerBar = findViewById(R.id.mobile_mini_player);
         mMiniPlayerFrame = findViewById(R.id.mobile_mini_player_frame);
@@ -277,6 +279,8 @@ public class MobileBrowseActivity extends MobileActivity
         mMiniPlayPause = findViewById(R.id.mobile_mini_play_pause);
         mMiniProgress = findViewById(R.id.mobile_mini_progress);
         setupMiniPlayerBar();
+        // NEWTUBE(mini-inset): the last card can scroll clear of the docked mini-player.
+        com.newtube.mobile.ui.playback.MiniPlayerListInset.attach(mMiniPlayerBar, mContentGrid);
     }
 
     private void setupSwipeRefresh() {
@@ -452,6 +456,7 @@ public class MobileBrowseActivity extends MobileActivity
             // already-released texture if a new playback session started since. hideMiniPlayer
             // nulls the field, so every show adopts the CURRENT session texture cleanly.
             final TextureView textureView = new TextureView(this);
+            textureView.setOpaque(false); // NEWTUBE(texture-opaque): see MobilePlaybackActivity
             textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
                 @Override
                 public void onSurfaceTextureAvailable(SurfaceTexture texture, int width, int height) {
@@ -713,9 +718,15 @@ public class MobileBrowseActivity extends MobileActivity
         // Only the experiment is offered. The link-less "fallback" is debug-only: it is capped at
         // ~60 s by the server's attestation demand, so a switch for it would promise a playback
         // that cannot finish. See SabrSourcePreference and HANDOFF section 28.
-        dialogPresenter.appendSingleSwitch(UiOptionItem.from(getString(R.string.sabr_vod_option),
-                option -> com.newtube.mobile.player.SabrSourcePreference.setPreferred(this, option.isSelected()),
-                com.newtube.mobile.player.SabrSourcePreference.isPreferred(this)));
+        // NEWTUBE(settings): it sits at the end of Player now, not as a raw row on the Settings root.
+        // A one-row checked category, so it lines up with the checkbox column above it.
+        com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.PlayerSettingsPresenter.setPhoneExtraRows(
+                (context, presenter) -> presenter.appendCheckedCategory(
+                        context.getString(R.string.mobile_settings_experimental),
+                        java.util.Collections.singletonList(UiOptionItem.from(
+                                context.getString(R.string.sabr_vod_option),
+                                option -> com.newtube.mobile.player.SabrSourcePreference.setPreferred(context, option.isSelected()),
+                                com.newtube.mobile.player.SabrSourcePreference.isPreferred(context)))));
 
         // Tag this as the full-screen Settings tree so MobileAppDialogActivity renders it full-screen
         // (nested category screens push onto the same activity and inherit that). Context menus and the
@@ -764,11 +775,32 @@ public class MobileBrowseActivity extends MobileActivity
         updateAccountRow();
         mContentSwipe.setRefreshing(false);
         mYouPanel.setVisibility(View.VISIBLE);
+        onYouPanelToggled();
     }
 
     private void hideYouPanel() {
         mYouShowing = false;
         mYouPanel.setVisibility(View.GONE);
+        onYouPanelToggled();
+    }
+
+    /**
+     * NEWTUBE(you-subscreen): state that follows the You panel and the section-from-You flag.
+     * (1) The feed stays laid out under the opaque panel, so TalkBack kept walking its cards; hide
+     * it (and its skeleton/error overlays) from accessibility while the panel covers it. (2) The
+     * top bar: a section opened from a You row - one without a bottom-nav tab of its own - is a
+     * You sub-screen with a back arrow and its name.
+     */
+    private void onYouPanelToggled() {
+        int a11y = mYouShowing
+                ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO;
+        mContentSwipe.setImportantForAccessibility(a11y);
+        mFeedSkeleton.setImportantForAccessibility(a11y);
+        mErrorContainer.setImportantForAccessibility(a11y);
+
+        boolean subScreen = mSectionFromYou && !mYouShowing
+                && mBottomNav.getMenu().findItem(toMenuItemId(mCurrentSectionId)) == null;
+        mTopBar.show(subScreen, getCurrentSectionTitle());
     }
 
     /**
@@ -801,6 +833,7 @@ public class MobileBrowseActivity extends MobileActivity
 
         List<BrowseSection> navSections = selectNavSections();
         List<BrowseSection> personal = new ArrayList<>();
+        List<BrowseSection> pinned = new ArrayList<>();
         List<BrowseSection> explore = new ArrayList<>();
 
         for (BrowseSection section : mSections) {
@@ -810,11 +843,24 @@ public class MobileBrowseActivity extends MobileActivity
                     || section.getId() == MediaGroup.TYPE_SHORTS) {
                 continue;
             }
+            // NEWTUBE(menu): channels/playlists pinned from a card menu ("Pin to You") carry the
+            // pinned Video as their data; they get their own group instead of mixing into Explore.
+            if (section.getData() instanceof Video) {
+                pinned.add(section);
+                continue;
+            }
             (isPersonalSection(section.getId()) ? personal : explore).add(section);
         }
 
         for (BrowseSection section : personal) {
             addYouSectionRow(section);
+        }
+
+        if (!pinned.isEmpty()) {
+            addYouGroupLabel(getString(R.string.mobile_you_pinned));
+            for (BrowseSection section : pinned) {
+                addYouSectionRow(section);
+            }
         }
 
         if (!explore.isEmpty()) {
@@ -835,6 +881,7 @@ public class MobileBrowseActivity extends MobileActivity
             mSectionFromYou = true;
             hideYouPanel();
             onSectionChosen(sectionId);
+            onYouPanelToggled(); // now that the chosen section is current: its name in the top bar
         });
         row.setOnLongClickListener(v -> {
             if (mPresenter != null) {
@@ -1210,6 +1257,18 @@ public class MobileBrowseActivity extends MobileActivity
     }
 
     /** The Downloads tab with nothing in it: say what the tab is for instead of a blank grid. */
+    private void showEmptyAfterRemoval() {
+        setSkeletonVisible(false);
+        mContentSwipe.setRefreshing(false);
+        mContentGrid.setVisibility(View.GONE);
+        mErrorContainer.setVisibility(View.VISIBLE);
+        mErrorIcon.setVisibility(View.VISIBLE);
+        mErrorMessage.setText(mCurrentSectionId == MediaGroup.TYPE_SUBSCRIPTIONS
+                ? R.string.mobile_empty_subscriptions : R.string.mobile_empty_generic);
+        mErrorAction.setVisibility(View.GONE);
+        mErrorAction.setTag(null);
+    }
+
     private void showDownloadsEmptyState() {
         setSkeletonVisible(false);
         mContentSwipe.setRefreshing(false);
@@ -1518,6 +1577,49 @@ public class MobileBrowseActivity extends MobileActivity
         updateGridSpanCount(com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(newConfig));
     }
 
+    // NEWTUBE(ui-mode): a recreated Browse (any config change the manifest doesn't absorb, or
+    // process restore) got its section back from the presenter, but BottomNavigationView restored
+    // its own "You" highlight over that feed and the You panel itself was lost. Carry the panel
+    // state across; the presenter still owns which section is current.
+    private static final String STATE_YOU_SHOWING = "newtube:you_showing";
+    private static final String STATE_SECTION_FROM_YOU = "newtube:section_from_you";
+    private static final String STATE_SECTION_ID = "newtube:section_id";
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putBoolean(STATE_YOU_SHOWING, mYouShowing);
+        outState.putBoolean(STATE_SECTION_FROM_YOU, mSectionFromYou);
+        outState.putInt(STATE_SECTION_ID, mCurrentSectionId);
+    }
+
+    @Override
+    protected void onRestoreInstanceState(@NonNull Bundle savedInstanceState) {
+        super.onRestoreInstanceState(savedInstanceState); // restores the nav's own highlight
+
+        if (savedInstanceState.getBoolean(STATE_YOU_SHOWING)) {
+            showYouPanel();
+            mSuppressNavCallback = true;
+            mBottomNav.setSelectedItemId(YOU_ITEM_ID);
+            mSuppressNavCallback = false;
+        } else {
+            // "Opened from You" belongs to the section it was saved with. After a process restore
+            // the presenter reselects the boot section (usually Home): with the flag carried over,
+            // Back on Home would open You instead of leaving.
+            mSectionFromYou = savedInstanceState.getBoolean(STATE_SECTION_FROM_YOU)
+                    && savedInstanceState.getInt(STATE_SECTION_ID, -1) == mCurrentSectionId;
+            // A section with its own tab re-lights that tab; one opened from a You row has none,
+            // so the restored You highlight is the right one to keep.
+            syncNavHighlight(mCurrentSectionId);
+            if (!mSectionFromYou && mBottomNav.getMenu().findItem(toMenuItemId(mCurrentSectionId)) == null) {
+                // A section without a tab that is no longer a You sub-screen: nothing may stay lit
+                // on You over it; fall back to Home's tab like a fresh start.
+                syncNavHighlight(MediaGroup.TYPE_HOME);
+            }
+            onYouPanelToggled();
+        }
+    }
+
     private void updateGridSpanCount(int spanCount) {
         if (mLayoutManager != null && mLayoutManager.getSpanCount() != spanCount) {
             mLayoutManager.setSpanCount(spanCount);
@@ -1533,7 +1635,10 @@ public class MobileBrowseActivity extends MobileActivity
         }
 
         // On the You tab itself, back goes Home (YouTube behavior) instead of exiting.
-        if (mYouShowing) {
+        // NEWTUBE(back-home): so does back on any other tab (Subscriptions, History, Downloads) -
+        // it used to exit the app from there, dropping the mini-player and the Home scroll. Only
+        // Home itself exits.
+        if (mYouShowing || mCurrentSectionId != MediaGroup.TYPE_HOME) {
             int homeItemId = toMenuItemId(MediaGroup.TYPE_HOME);
             if (mBottomNav.getMenu().findItem(homeItemId) != null) {
                 mBottomNav.setSelectedItemId(homeItemId); // listener hides the panel + loads Home
@@ -1708,6 +1813,14 @@ public class MobileBrowseActivity extends MobileActivity
                 } else {
                     setSkeletonVisible(false);
                 }
+                return;
+            }
+
+            if (mCurrentVideos.isEmpty() && (group.getAction() == VideoGroup.ACTION_REMOVE
+                    || group.getAction() == VideoGroup.ACTION_REMOVE_AUTHOR)) {
+                // NEWTUBE(feed): the last rows were removed (e.g. unsubscribing from the only
+                // channel on Subscriptions) - say so instead of leaving a blank tab.
+                showEmptyAfterRemoval();
                 return;
             }
 
@@ -1902,7 +2015,19 @@ public class MobileBrowseActivity extends MobileActivity
                 || sectionId == MediaGroup.TYPE_SUBSCRIPTIONS;
         return video != null
                 && (!shortsFiltered || !video.isShorts)
-                && (!video.isChannel() || video.isPlaylistAsChannel());
+                && (!video.isChannel() || video.isPlaylistAsChannel())
+                && !isSearchQueryTile(video);
+    }
+
+    /**
+     * NEWTUBE(feed): the TV Home feed mixes in search-suggestion tiles - a thumbnail plus a query
+     * ("Rivian owner experience"), no video, playlist or channel behind it. On the phone they
+     * rendered as video cards whose meta line repeated the title, and tapping one opened Search
+     * instead of playing: a card that lies about what it is. Dropped from the grids.
+     */
+    private static boolean isSearchQueryTile(Video video) {
+        return video.searchQuery != null
+                && video.videoId == null && video.playlistId == null && video.channelId == null;
     }
 
     private void syncVideos(List<Video> videos) {
@@ -2005,10 +2130,7 @@ public class MobileBrowseActivity extends MobileActivity
             mErrorIcon.setVisibility(View.VISIBLE);
 
             if (hasSignInAction) {
-                String sectionTitle = getCurrentSectionTitle();
-                mErrorMessage.setText(sectionTitle != null
-                        ? getString(R.string.mobile_empty_signin_section, sectionTitle)
-                        : getString(R.string.mobile_empty_signin_generic));
+                mErrorMessage.setText(SignInCopy.forSection(this, mCurrentSectionId, getCurrentSectionTitle()));
                 mErrorAction.setText(actionText);
                 mErrorAction.setVisibility(View.VISIBLE);
             } else if (!hasValidatedNetwork()) {

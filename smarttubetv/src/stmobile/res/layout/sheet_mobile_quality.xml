@@ -24,22 +24,29 @@
             android:layout_marginTop="8dp"
             android:background="@drawable/bg_mobile_sheet_handle" />
 
+        <!-- NEWTUBE(sheets): the Speed/Subtitles header - plain title + hairline divider (was bold,
+             no divider: the one picker that looked different). -->
         <TextView
             android:id="@+id/quality_sheet_quality_title"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingHorizontal="20dp"
-            android:paddingTop="12dp"
-            android:paddingBottom="4dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="12dp"
             android:text="@string/mobile_quality_title"
             android:textColor="@color/mobile_color_on_surface"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+            android:textSize="16sp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/mobile_color_divider" />
 
         <LinearLayout
             android:id="@+id/quality_sheet_quality_list"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
             android:orientation="vertical" />
 
         <View
@@ -58,8 +65,7 @@
             android:paddingBottom="4dp"
             android:text="@string/mobile_audio_title"
             android:textColor="@color/mobile_color_on_surface"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+            android:textSize="16sp" />
 
         <LinearLayout
             android:id="@+id/quality_sheet_audio_list"

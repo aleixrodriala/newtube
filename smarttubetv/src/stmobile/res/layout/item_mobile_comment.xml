@@ -66,6 +66,7 @@
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center_vertical"
+                android:minHeight="40dp"
                 android:orientation="horizontal"
                 android:paddingEnd="8dp">
 
@@ -74,7 +75,7 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:contentDescription="@string/mobile_watch_like"
-                    android:src="@drawable/ic_watch_thumb_up" />
+                    android:src="@drawable/ic_watch_thumb_up_outline" />
 
                 <TextView
                     android:id="@+id/comment_like_count"
@@ -95,6 +96,8 @@
                 android:background="?attr/selectableItemBackground"
                 android:clickable="true"
                 android:focusable="true"
+                android:gravity="center_vertical"
+                android:minHeight="40dp"
                 android:paddingHorizontal="8dp"
                 android:paddingVertical="4dp"
                 android:textColor="@color/mobile_color_link"

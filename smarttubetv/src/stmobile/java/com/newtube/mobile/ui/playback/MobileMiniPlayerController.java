@@ -189,6 +189,7 @@ public final class MobileMiniPlayerController {
     private void attachTexture() {
         if (mTexture == null) {
             final TextureView texture = new TextureView(mActivity);
+            texture.setOpaque(false); // NEWTUBE(texture-opaque): see MobilePlaybackActivity
             texture.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
                 @Override
                 public void onSurfaceTextureAvailable(SurfaceTexture created, int width, int height) {

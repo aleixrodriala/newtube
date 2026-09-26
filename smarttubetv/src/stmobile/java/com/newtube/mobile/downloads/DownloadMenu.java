@@ -6,7 +6,6 @@ import android.net.Uri;
 
 import androidx.annotation.Nullable;
 
-import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
@@ -74,7 +73,7 @@ public final class DownloadMenu {
             return;
         }
         if (!new DownloadStorage(context).exists(item.outputUri)) {
-            MessageHelpers.showMessage(context, R.string.mobile_download_file_missing);
+            com.newtube.mobile.ui.common.MobileSnackbar.show(context, R.string.mobile_download_file_missing);
             return;
         }
         PlaybackPresenter.instance(context).openVideo(DownloadsBridge.instance(context).videoFor(item));
@@ -83,7 +82,7 @@ public final class DownloadMenu {
     public static void share(Context context, DownloadItem item) {
         Uri uri = new DownloadStorage(context).shareUri(item.outputUri);
         if (uri == null) {
-            MessageHelpers.showMessage(context, R.string.mobile_download_file_missing);
+            com.newtube.mobile.ui.common.MobileSnackbar.show(context, R.string.mobile_download_file_missing);
             return;
         }
         Intent intent = new Intent(Intent.ACTION_SEND)

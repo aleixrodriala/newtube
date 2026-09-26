@@ -804,6 +804,10 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchRelated.setLayoutManager(new LinearLayoutManager(this));
         mWatchRelated.setNestedScrollingEnabled(false);
         mWatchRelated.setHasFixedSize(false);
+        // NEWTUBE(watch-jump): no add/remove fade. The rows' first frame was an alpha-0 fade-in
+        // start drawn in the same pass that hid the skeleton, and on a busy main thread (binding a
+        // dozen rows while the video starts) that empty frame stayed up ~1 s.
+        mWatchRelated.setItemAnimator(null);
         mWatchRelated.setAdapter(mRelatedAdapter);
 
         // Queue list: same row layout and same click routing as Up next, but it scrolls INSIDE the
@@ -822,12 +826,26 @@ public class MobilePlaybackActivity extends MobileActivity
         // Actions row. Like/Dislike/Subscribe go through the presenter's onButtonClicked vocabulary
         // (R.id.action_*); the controller flips the visual state back via setButtonState. Share fires
         // a plain ACTION_SEND of the video url (per brief), independent of the presenter.
-        mWatchLike.setOnClickListener(v -> onActionButtonClicked(R.id.action_thumbs_up));
-        mWatchDislike.setOnClickListener(v -> onActionButtonClicked(R.id.action_thumbs_down));
-        mWatchSubscribe.setOnClickListener(v -> onActionButtonClicked(R.id.action_subscribe));
+        // NEWTUBE(snackbar): signed out, Like/Dislike/Save explain themselves with a Sign in action
+        // (WatchActionFeedback); Subscribe confirms with the channel's name and Undo.
+        mWatchLike.setOnClickListener(v -> {
+            if (!WatchActionFeedback.blockIfSignedOut(this, R.string.mobile_sign_in_to_rate)) {
+                onRateTapped(R.id.action_thumbs_up);
+            }
+        });
+        mWatchDislike.setOnClickListener(v -> {
+            if (!WatchActionFeedback.blockIfSignedOut(this, R.string.mobile_sign_in_to_rate)) {
+                onRateTapped(R.id.action_thumbs_down);
+            }
+        });
+        mWatchSubscribe.setOnClickListener(v -> onSubscribeTapped());
         mWatchShare.setOnClickListener(v -> shareCurrentVideo());
         // Save opens the same add/remove-from-playlist sheet as gear -> More -> Save to playlist.
-        mWatchSave.setOnClickListener(v -> openPlayerOption(R.id.action_playlist_add, false));
+        mWatchSave.setOnClickListener(v -> {
+            if (!WatchActionFeedback.blockIfSignedOut(this, R.string.msg_sign_in_to_save)) {
+                openPlayerOption(R.id.action_playlist_add, false);
+            }
+        });
         // Download: the quality picker, or the download's own menu once it is on the device.
         mWatchDownload.setOnClickListener(v -> onDownloadTapped());
         DownloadRegistry.instance(this).addListener(mDownloadsListener);
@@ -2284,7 +2302,7 @@ public class MobilePlaybackActivity extends MobileActivity
      * stock white otherwise (matches the official app's colored connected icon). This is the
      * ONE coloured icon state left in the app - everything else states itself with a filled vs
      * outlined glyph - so it gets its own colour name rather than riding on the theme accent,
-     * which is monochrome. Distinct from the playback-red used by like/progress states.
+     * which is monochrome. Distinct from the playback red of the progress bar.
      */
     private void updateCastIconTint() {
         if (mCastButton == null) {
@@ -3340,6 +3358,10 @@ public class MobilePlaybackActivity extends MobileActivity
         ViewGroup contentFrame = mPlayerView.getContentFrame();
 
         mVideoTexture = new TextureView(this);
+        // NEWTUBE(texture-opaque): a frame with alpha 0 (seen from the emulator's VP9 decoder
+        // after a paused seek) punched through an OPAQUE TextureView and the translucent player
+        // window, showing Home inside the video box. Blended, such a frame shows the black box.
+        mVideoTexture.setOpaque(false);
         mVideoTexture.setSurfaceTextureListener(mVideoTextureListener);
         contentFrame.addView(mVideoTexture, 0, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -4486,7 +4508,9 @@ public class MobilePlaybackActivity extends MobileActivity
                 mQueueAdapter.submitList(new ArrayList<>());
             }
             if (mWatchRelatedLabel != null) {
-                mWatchRelatedLabel.setVisibility(View.GONE);
+                // NEWTUBE(watch-jump): held over the skeleton instead of inserted above it later.
+                mWatchRelatedLabel.setText(R.string.mobile_watch_related);
+                mWatchRelatedLabel.setVisibility(View.VISIBLE);
             }
             // A new video is loading: the video itself starts first (by design), so show the
             // pulsing "up next" skeleton until the related feed lands.
@@ -4501,7 +4525,44 @@ public class MobilePlaybackActivity extends MobileActivity
      * moment real rows land ({@link #rebuildRelatedList}) or after a safety timeout (no related).
      */
     private static final long SKELETON_TIMEOUT_MS = 10_000;
-    private final Runnable mHideSkeletonTimeout = this::hideRelatedSkeleton;
+    private final Runnable mHideSkeletonTimeout = this::onRelatedSkeletonTimeout;
+
+    /**
+     * The related feed never came. Collapse what was held for it; and with no network (typically a
+     * download played offline) say so once instead of an empty "Up next" and "–" like counts that
+     * look like a broken page (NEWTUBE(watch-offline)).
+     */
+    private void onRelatedSkeletonTimeout() {
+        hideRelatedSkeleton();
+        if (!mRelatedVideos.isEmpty()) {
+            return;
+        }
+        boolean offline = !com.liskovsoft.smartyoutubetv2.common.utils.LoadFailure.hasValidatedNetwork(this);
+        if (mWatchRelatedLabel != null) {
+            if (offline) {
+                mWatchRelatedLabel.setText(R.string.mobile_watch_offline);
+                mWatchRelatedLabel.setVisibility(View.VISIBLE);
+            } else {
+                mWatchRelatedLabel.setVisibility(View.GONE);
+            }
+        }
+        // Nothing came for this page at all: drop what was held for it (online too - a failed
+        // /next leaves no comments key either; a late metadata bind re-shows the row).
+        if (mCommentsKey == null && mWatchCommentsEntry != null) {
+            mWatchCommentsEntry.setVisibility(View.GONE);
+        }
+        if (TextUtils.isEmpty(mWatchSubs.getText())) {
+            mWatchSubs.setVisibility(View.GONE);
+        }
+        if (offline) {
+            if (isCountUnset(mWatchLikeCount)) {
+                mWatchLikeCount.setVisibility(View.GONE);
+            }
+            if (isCountUnset(mWatchDislikeCount)) {
+                mWatchDislikeCount.setVisibility(View.GONE);
+            }
+        }
+    }
 
     private void showRelatedSkeleton() {
         if (mRelatedSkeleton == null) {
@@ -4879,7 +4940,9 @@ public class MobilePlaybackActivity extends MobileActivity
         if (languages.size() > 1) {
             for (java.util.Map.Entry<String, FormatItem> language : languages.entrySet()) {
                 FormatItem item = language.getValue();
-                addQualityRow(audioList, language.getKey(), language.getKey().equals(selectedLanguage), () -> {
+                // Display only: the row reads "English (original)", the key stays the raw tag.
+                addQualityRow(audioList, AudioTrackLabel.format(this, language.getKey()),
+                        language.getKey().equals(selectedLanguage), () -> {
                     setFormat(item);
                     playerData.setFormat(item);
                     dialog.dismiss();
@@ -5314,7 +5377,7 @@ public class MobilePlaybackActivity extends MobileActivity
                     line = stripped;
                 }
             }
-            mWatchMeta.setText(line);
+            mWatchMeta.setText(line.replaceFirst("(?i)(published|premiered|streamed live) on ", ""));
         }
 
         if (!TextUtils.isEmpty(item.likeCount)) {
@@ -5341,14 +5404,20 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchLikeCount.setText(R.string.mobile_watch_count_placeholder);
         mWatchDislikeCount.setText(R.string.mobile_watch_count_placeholder);
         mWatchSubs.setText(null);
-        mWatchSubs.setVisibility(View.GONE);
+        // NEWTUBE(watch-jump): INVISIBLE, not GONE - the subscriber line, the Comments row and the
+        // "Up next" label used to pop in as metadata/related landed, pushing the page down ~180dp
+        // under the person's thumb. Their space is held from the start; only the rare video that
+        // turns out to have none of them collapses (bindWatchMetadata / onRelatedSkeletonTimeout).
+        mWatchSubs.setVisibility(View.INVISIBLE);
         mWatchAvatar.setImageResource(R.drawable.ic_watch_channel_placeholder);
+        mWatchLikeCount.setVisibility(View.VISIBLE);
+        mWatchDislikeCount.setVisibility(View.VISIBLE);
 
         // New video: clear comments/chat availability and any buffered chat until metadata returns.
         mCommentsKey = null;
         mLiveChatKey = null;
         if (mWatchCommentsEntry != null) {
-            mWatchCommentsEntry.setVisibility(View.GONE);
+            mWatchCommentsEntry.setVisibility(View.VISIBLE); // reserved; see above
         }
         if (mWatchChatEntry != null) {
             mWatchChatEntry.setVisibility(View.GONE);
@@ -5399,7 +5468,10 @@ public class MobilePlaybackActivity extends MobileActivity
             }
 
             String views = metadata.getViewCount();
-            String date = metadata.getPublishedDate();
+            // NEWTUBE(watch-meta): prefer the relative date ("4 days ago") - the shape the card's own
+            // line has, so the swap below doesn't jump. The absolute date is the fallback.
+            String relativeDate = metadata.getRelativePublishedDate();
+            String date = !TextUtils.isEmpty(relativeDate) ? relativeDate : metadata.getPublishedDate();
             if (date != null) {
                 date = date.replaceFirst("(?i)^(published|premiered|streamed live) on ", "");
                 // Non-English locales label the date "Data de publicació: 29 de des. 2019" /
@@ -5412,13 +5484,19 @@ public class MobilePlaybackActivity extends MobileActivity
             }
             String meta;
             if (!TextUtils.isEmpty(views) && !TextUtils.isEmpty(date)) {
-                meta = views + "  •  " + date;
+                meta = views + com.newtube.mobile.ui.common.MetaSeparator.DOT + date;
             } else if (!TextUtils.isEmpty(views)) {
                 meta = views;
             } else {
                 meta = date;
             }
-            if (!TextUtils.isEmpty(meta)) {
+            // NEWTUBE(watch-meta): a relative line replaces whatever the card put there - it reads like
+            // a feed card's line anyway, and the card's line isn't always views + date (a download
+            // shows "144p • 8.8 MB", a signed-out Subscriptions card "1.6M • Thu Sep 3 2026"). An
+            // absolute-only answer fills just an empty line: swapping a card's "4 days ago" for
+            // "Sep 20, 2026" a second after opening was the jump UX-14 removed.
+            if (!TextUtils.isEmpty(meta)
+                    && (!TextUtils.isEmpty(relativeDate) || mWatchMeta.length() == 0)) {
                 mWatchMeta.setText(meta);
             }
 
@@ -5434,6 +5512,8 @@ public class MobilePlaybackActivity extends MobileActivity
             if (!TextUtils.isEmpty(metadata.getSubscriberCount())) {
                 mWatchSubs.setText(metadata.getSubscriberCount());
                 mWatchSubs.setVisibility(View.VISIBLE);
+            } else if (TextUtils.isEmpty(mWatchSubs.getText())) {
+                mWatchSubs.setVisibility(View.GONE); // hidden count: release the held line
             }
 
             setChannelIcon(metadata.getAuthorImageUrl());
@@ -5506,15 +5586,98 @@ public class MobilePlaybackActivity extends MobileActivity
         mPresenter.onButtonClicked(actionId, currentState);
     }
 
+    /**
+     * Like/Dislike (signed in), confirmed like every other watch-page action. The controller flips
+     * the state synchronously when it sends the rating; an unchanged state means it didn't (the
+     * video's data isn't in yet), which the phone says instead of a silent tap.
+     */
+    private void onRateTapped(int actionId) {
+        int stateBefore = getButtonState(actionId);
+        int ratingBefore = currentRating();
+        onActionButtonClicked(actionId);
+        int stateAfter = getButtonState(actionId);
+        if (stateAfter == stateBefore) {
+            WatchActionFeedback.rateNotReady(this);
+            return;
+        }
+        int ratingAfter = currentRating();
+        WatchActionFeedback.confirmRating(this, actionId == R.id.action_thumbs_up, stateAfter == BUTTON_ON,
+                undoRating(ratingBefore, ratingAfter));
+    }
+
+    private int currentRating() {
+        return RatingUndo.rating(getButtonState(R.id.action_thumbs_up) == BUTTON_ON,
+                getButtonState(R.id.action_thumbs_down) == BUTTON_ON);
+    }
+
+    /**
+     * Undo puts back the rating from before the tap (liked -> Dislike -> Undo is liked again, not
+     * unrated), only on the video it confirmed - the Snackbar outlives a switch to an Up next video
+     * on this same screen - and only while the thumbs still show what the tap left.
+     */
+    private Runnable undoRating(int ratingBefore, int ratingAfter) {
+        String videoId = currentVideoId();
+        return () -> {
+            if (videoId == null || !videoId.equals(currentVideoId()) || currentRating() != ratingAfter) {
+                return;
+            }
+            int tap = RatingUndo.tapFor(ratingAfter, ratingBefore, R.id.action_thumbs_up, R.id.action_thumbs_down);
+            if (tap != 0) {
+                onActionButtonClicked(tap);
+            }
+        };
+    }
+
+    /** Subscribe's Undo: re-tap it, on the same video and while it still shows {@code stateAfter}. */
+    private Runnable undoOnThisVideo(int actionId, int stateAfter) {
+        String videoId = currentVideoId();
+        return () -> {
+            if (videoId != null && videoId.equals(currentVideoId()) && getButtonState(actionId) == stateAfter) {
+                onActionButtonClicked(actionId);
+            }
+        };
+    }
+
+    @Nullable
+    private String currentVideoId() {
+        Video video = getVideo();
+        return video != null ? video.videoId : null;
+    }
+
+    /** NEWTUBE(snackbar): the rating did not reach YouTube; the controller already put the thumbs back. */
+    @Override
+    public void onRatingNotSaved() {
+        runOnUiThread(() -> WatchActionFeedback.ratingNotSaved(this));
+    }
+
+    /** Subscribe/Unsubscribe, confirmed only when the controller actually flipped the state. */
+    private void onSubscribeTapped() {
+        int before = getButtonState(R.id.action_subscribe);
+        onActionButtonClicked(R.id.action_subscribe);
+        int after = getButtonState(R.id.action_subscribe); // set synchronously by the controller
+        if (after != before) {
+            Video video = getVideo();
+            WatchActionFeedback.confirmSubscription(this, after == BUTTON_ON,
+                    video != null ? video.getAuthor() : null,
+                    undoOnThisVideo(R.id.action_subscribe, after));
+        }
+    }
+
     private void updateButtonVisual(int buttonId, int buttonState) {
         boolean on = buttonState == BUTTON_ON;
 
         if (buttonId == R.id.action_thumbs_up && mWatchLikeIcon != null) {
-            mWatchLikeIcon.setColorFilter(getColorInt(on
-                    ? R.color.mobile_color_primary : R.color.mobile_color_on_surface));
+            // NEWTUBE(icons): filled while on, outlined while off, both in the text colour - the
+            // CC button's language. A red tint on the active thumb broke the no-tints rule.
+            mWatchLikeIcon.setImageResource(on ? R.drawable.ic_watch_thumb_up : R.drawable.ic_watch_thumb_up_outline);
+            if (mWatchLike != null) {
+                mWatchLike.setSelected(on);
+            }
         } else if (buttonId == R.id.action_thumbs_down && mWatchDislikeIcon != null) {
-            mWatchDislikeIcon.setColorFilter(getColorInt(on
-                    ? R.color.mobile_color_primary : R.color.mobile_color_on_surface));
+            mWatchDislikeIcon.setImageResource(on ? R.drawable.ic_watch_thumb_down : R.drawable.ic_watch_thumb_down_outline);
+            if (mWatchDislike != null) {
+                mWatchDislike.setSelected(on);
+            }
         } else if (buttonId == R.id.lb_control_closed_captioning && mSubtitlesButton != null) {
             // YouTube-style: filled CC glyph while captions are on, outlined while off.
             mSubtitlesButton.setImageResource(on ? R.drawable.ic_player_cc : R.drawable.ic_player_cc_off);
@@ -5762,13 +5925,15 @@ public class MobilePlaybackActivity extends MobileActivity
         String currentId = current != null ? current.videoId : null;
         bindQueueCard(current, currentId, findQueueGroupId(current));
 
-        submitRelatedWindow();
-
         // Queue rows count as "content landed" too: a playlist whose suggestions are ALL queue
         // would otherwise leave the Up-next skeleton pulsing until its safety timeout.
-        if (!mRelatedVideos.isEmpty() || !mQueueVideos.isEmpty()) {
-            hideRelatedSkeleton(); // real rows are in; stop pulsing
-        }
+        // NEWTUBE(watch-jump): hide it once the rows are actually in the list - submitList diffs
+        // off the main thread, and hiding before its commit left "Up next" blank for ~1 s.
+        submitRelatedWindow(() -> {
+            if (!mRelatedVideos.isEmpty() || !mQueueVideos.isEmpty()) {
+                hideRelatedSkeleton(); // real rows are in; stop pulsing
+            }
+        });
     }
 
     /**
@@ -5783,12 +5948,20 @@ public class MobilePlaybackActivity extends MobileActivity
 
     /** Push the currently revealed slice of {@link #mRelatedVideos} into the Up-next adapter. */
     private void submitRelatedWindow() {
+        submitRelatedWindow(null);
+    }
+
+    /** As {@link #submitRelatedWindow()}; {@code onCommitted} runs once the list shows the slice. */
+    private void submitRelatedWindow(Runnable onCommitted) {
         if (mRelatedAdapter != null) {
             int end = Math.min(mRelatedWindow, mRelatedVideos.size());
-            mRelatedAdapter.submitList(new ArrayList<>(mRelatedVideos.subList(0, end)));
+            mRelatedAdapter.submitList(new ArrayList<>(mRelatedVideos.subList(0, end)), onCommitted);
+        } else if (onCommitted != null) {
+            onCommitted.run();
         }
-        if (mWatchRelatedLabel != null) {
-            mWatchRelatedLabel.setVisibility(mRelatedVideos.isEmpty() ? View.GONE : View.VISIBLE);
+        if (mWatchRelatedLabel != null && !mRelatedVideos.isEmpty()) {
+            mWatchRelatedLabel.setText(R.string.mobile_watch_related);
+            mWatchRelatedLabel.setVisibility(View.VISIBLE);
         }
     }
 

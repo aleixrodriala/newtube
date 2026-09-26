@@ -28,6 +28,9 @@ public interface PlayerUI {
     boolean isControlsShown();
     int getButtonState(int buttonId);
     void setButtonState(int buttonId, int buttonState);
+    /** NEWTUBE(phone): a like/dislike did not reach YouTube; the thumbs were already put back. */
+    default void onRatingNotSaved() {
+    }
     void setChannelIcon(String iconUrl);
     void setSeekPreviewTitle(String title);
     void setNextTitle(Video nextVideo);

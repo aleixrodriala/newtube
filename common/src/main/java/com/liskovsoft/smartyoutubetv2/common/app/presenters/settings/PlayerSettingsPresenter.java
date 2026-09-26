@@ -12,6 +12,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.base.BasePresenter;
+import com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.service.SidebarService;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.TrackSelectorUtil;
 import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
@@ -58,7 +59,11 @@ public class PlayerSettingsPresenter extends BasePresenter<Void> {
 
         appendPlaybackModeCategory(settingsPresenter);
         appendVideoPresetsCategory(settingsPresenter);
-        appendPlayerButtonsCategory(settingsPresenter);
+        // NEWTUBE(settings): "Setup player buttons" picks the TV player bar's buttons (Auto Frame
+        // Rate first); the phone player has its own fixed overlay + gear sheet and reads none of it.
+        if (!PhoneUi.isEnabled()) {
+            appendPlayerButtonsCategory(settingsPresenter);
+        }
         appendNetworkEngineCategory(settingsPresenter);
         appendVideoBufferCategory(settingsPresenter);
         appendVideoZoomCategory(settingsPresenter);
@@ -79,8 +84,22 @@ public class PlayerSettingsPresenter extends BasePresenter<Void> {
         appendSleepTimerCategory(settingsPresenter);
         appendMiscCategory(settingsPresenter);
         appendDeveloperCategory(settingsPresenter);
+        if (sPhoneExtraRows != null) {
+            sPhoneExtraRows.append(getContext(), settingsPresenter);
+        }
 
         settingsPresenter.showDialog(getContext().getString(R.string.settings_player), mOnFinish);
+    }
+
+    /** NEWTUBE(settings): rows the phone app adds at the end of Player (its SABR experiment switch). */
+    public interface ExtraRows {
+        void append(Context context, AppDialogPresenter settingsPresenter);
+    }
+
+    private static ExtraRows sPhoneExtraRows;
+
+    public static void setPhoneExtraRows(ExtraRows rows) {
+        sPhoneExtraRows = rows;
     }
 
     private void appendOKButtonCategory(AppDialogPresenter settingsPresenter) {

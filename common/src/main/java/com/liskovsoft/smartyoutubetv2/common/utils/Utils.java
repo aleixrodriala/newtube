@@ -81,6 +81,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem.VideoPreset;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.TrackSelectorUtil;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.MediaTrack;
+import com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi;
 import com.liskovsoft.smartyoutubetv2.common.misc.MotherActivity;
 import com.liskovsoft.smartyoutubetv2.common.misc.RemoteControlService;
 import com.liskovsoft.smartyoutubetv2.common.misc.RemoteControlWorker;
@@ -185,6 +186,11 @@ public class Utils {
     }
 
     public static void showMultiChooser(Context context, Uri url) {
+        if (PhoneUi.isEnabled()) {
+            showShareSheet(context, url);
+            return;
+        }
+
         Intent primaryIntent = new Intent(Intent.ACTION_VIEW);
         Intent secondaryIntent = new Intent(Intent.ACTION_SEND);
         primaryIntent.setData(url);
@@ -201,11 +207,34 @@ public class Utils {
     }
 
     /**
+     * NEWTUBE(share): on the phone "Share" sends the link through the system share sheet, like the
+     * watch page's Share pill. The TV chooser leads with ACTION_VIEW ("open this link with...") and
+     * tucks sending behind it.
+     */
+    private static void showShareSheet(Context context, Uri url) {
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_TEXT, url.toString());
+        Intent chooser = Intent.createChooser(send, context.getResources().getText(R.string.share_link));
+        if (!(context instanceof android.app.Activity)) {
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        }
+        try {
+            context.startActivity(chooser);
+        } catch (ActivityNotFoundException e) {
+            Log.e(TAG, "Share chooser not found", e);
+        }
+    }
+
+    /**
      * https://youtu.be/nragduYePsQ?t=193<br/>
      * https://www.youtube.com/watch?v=nragduYePsQ&t=193
      */
     public static Uri convertToFullVideoUrl(String videoId, int posSec) {
-        String url = String.format("https://youtu.be/%s?t=%s", videoId, posSec);
+        // NEWTUBE(share): phone links to the start carry no "?t=0".
+        String url = PhoneUi.isEnabled() && posSec <= 0
+                ? String.format("https://youtu.be/%s", videoId)
+                : String.format("https://youtu.be/%s?t=%s", videoId, posSec);
         return Uri.parse(url);
     }
 

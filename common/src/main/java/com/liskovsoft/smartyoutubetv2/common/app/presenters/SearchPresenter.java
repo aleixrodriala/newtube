@@ -23,6 +23,7 @@ import com.liskovsoft.smartyoutubetv2.common.misc.BrowseProcessorManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.prefs.AccountsData;
 import com.liskovsoft.smartyoutubetv2.common.utils.AppDialogUtil;
+import com.liskovsoft.smartyoutubetv2.common.utils.LoadFailure;
 import io.reactivex.rxjava3.disposables.Disposable;
 
 import java.util.ArrayList;
@@ -191,6 +192,7 @@ public class SearchPresenter extends BasePresenter<SearchView> implements VideoG
                         error -> {
                             Log.e(TAG, "loadSearchData error: %s", error.getMessage());
                             if (getView() != null) {
+                                getView().showLoadFailure(LoadFailure.classify(getContext(), error));
                                 getView().showProgressBar(false);
                             }
                         },

@@ -46,6 +46,7 @@ public abstract class MobileActivity extends MotherActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        MobileSnackbar.install(getApplication()); // NEWTUBE(snackbar): tracks the screen in front
     }
 
     @Override

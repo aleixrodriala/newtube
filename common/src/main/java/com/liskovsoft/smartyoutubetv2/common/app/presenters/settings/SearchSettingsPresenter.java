@@ -7,6 +7,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.base.BasePresenter;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
+import com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi;
 import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.SearchData;
 
@@ -30,14 +31,36 @@ public class SearchSettingsPresenter extends BasePresenter<Void> {
     public void show() {
         AppDialogPresenter settingsPresenter = AppDialogPresenter.instance(getContext());
 
-        appendSpeechRecognizerCategory(settingsPresenter);
-        appendMiscCategory(settingsPresenter);
+        if (PhoneUi.isEnabled()) {
+            appendPhoneRows(settingsPresenter);
+        } else {
+            appendSpeechRecognizerCategory(settingsPresenter);
+            appendMiscCategory(settingsPresenter);
+        }
 
         settingsPresenter.showDialog(getContext().getString(R.string.dialog_search), () -> {
             if (mSearchData.isSearchHistoryDisabled()) {
                 MediaServiceManager.instance().clearSearchHistory();
             }
         });
+    }
+
+    /**
+     * NEWTUBE(settings): phone Search keeps only what the phone reads, as two plain switches (a
+     * "Misc" header over two rows was a list with nothing to group). Dropped here, stored values
+     * untouched: the speech-engine picker (the phone always asks the system recognizer), typing
+     * corrections, focus-on-results, keyboard auto-show and the G20s OK-key keyboard fix (no reader
+     * outside SearchData), the search exit shortcut (read by nothing else), and background play
+     * while searching (it also lives under Player).
+     */
+    private void appendPhoneRows(AppDialogPresenter settingsPresenter) {
+        settingsPresenter.appendSingleSwitch(UiOptionItem.from(getContext().getString(R.string.disable_search_history),
+                option -> mSearchData.setSearchHistoryDisabled(option.isSelected()),
+                mSearchData.isSearchHistoryDisabled()));
+
+        settingsPresenter.appendSingleSwitch(UiOptionItem.from(getContext().getString(R.string.instant_voice_search),
+                option -> mSearchData.setInstantVoiceSearchEnabled(option.isSelected()),
+                mSearchData.isInstantVoiceSearchEnabled()));
     }
 
     private void appendSpeechRecognizerCategory(AppDialogPresenter settingsPresenter) {

@@ -148,7 +148,7 @@ too): 2/2, a brief shrink-and-expand remains. Downloading a video again after de
 download no longer fails at once (its card carried the local `file://` thumbnail, which the
 downloader tried to fetch as a URL; found on the Pixel 09-26).
 
-**UX deep pass: branch `ux/deep-pass-2026-09-25`, not merged, awaiting the owner.** Worktree
+**UX deep pass: branch `ux/deep-pass-2026-09-25`, merged into main 2026-09-26 (owner's call).** Worktree
 `~/projects/smarttube-port-ux`, 21 local commits (`6fc7705`..`55d470a`, + MediaServiceCore
 `711e1396`, `1b42212d`, `910d3f07`, local, never pushed). 28 of 30 audit findings confirmed, 6 more
 found. Built: dark theme holds in system light mode; a light/dark switch keeps the video, You tab
@@ -158,8 +158,8 @@ removed and forced off once; the watch page holds its layout while loading; 48dp
 TalkBack labels; every phone change in shared code behind a phone gate. The reviewers' findings
 (meta line, Snackbars over the mini, ungated shared code, the menu migration) are fixed in
 `e706740`. The integrated build (main + branch, one conflict in `VideoCardAdapter`) was checked on
-the Pixel: paused scrub shows real frames, jank at base level (Home 0.14 %, player open 0.82 %), a night-mode switch keeps the video, dubbed audio labels readable, reopening the same video keeps the full page, no ANR, AFR/Remote rows gone; the subscribe Snackbar works, but liking showed no Snackbar and a red active Like icon (also on main), and a watch-page download showed no Snackbar: fixed on the branch (`2dc4d72`..`55d470a`: filled/outlined thumbs without tint, rating Snackbars with an Undo that restores the exact previous rating, ratings sent in tap order, a failed rating rolled back with "Couldn't save your rating", download Snackbars that survive a closing sheet) and re-checked on the Pixel: all pass, including the Snackbar above the docked mini. Owner decisions: the merge, UX-02 (honour font/Display size, +4 % on the
-Pixel), UX-12 captions, UX-26 centre pause.
+the Pixel: paused scrub shows real frames, jank at base level (Home 0.14 %, player open 0.82 %), a night-mode switch keeps the video, dubbed audio labels readable, reopening the same video keeps the full page, no ANR, AFR/Remote rows gone; the subscribe Snackbar works, but liking showed no Snackbar and a red active Like icon (also on main), and a watch-page download showed no Snackbar: fixed on the branch (`2dc4d72`..`55d470a`: filled/outlined thumbs without tint, rating Snackbars with an Undo that restores the exact previous rating, ratings sent in tap order, a failed rating rolled back with "Couldn't save your rating", download Snackbars that survive a closing sheet) and re-checked on the Pixel: all pass, including the Snackbar above the docked mini. Owner decisions 09-26: merged; UX-02 (honour font/Display size) not wanted; UX-12 captions and
+UX-26 centre pause still open.
 
 **Verified on the Pixel vs not.** On the device: every table row, keep-codec A/B, stash hits,
 resume snap (5/5 resumed reopens; `t=` link and quick back-out controls), `mpd=direct`, lazy Home,
@@ -220,12 +220,13 @@ live-account failures); release and debug assemble. The integrated UX build: 651
 - A light/dark switch while watching restarts the video (0.5-0.8 s gap); fixed on the UX branch.
 - Second share link: brief PiP shrink-and-expand (~0.5-1 s); avoiding it needs the link router
   out of its own task.
-- UX branch: merge, UX-02 font/display scale (owner, on the Pixel), UX-12 captions, UX-13, UX-26.
+- UX: UX-12 captions, UX-13, UX-26 (the branch is merged; UX-02 declined by the owner).
 - Mini: a Quick Settings swipe on Android 11+ never reaches the app (the parked session lingers
   until the 10 min); no resume after 10 min; ordinary paused background sessions can still freeze.
-- SABR fallback still not wired; TV_TIZEN as signed-in first choice and dropping WEB_EMBED (error
-  152-18 on every network) are owner decisions; touch-down prefetch and next-video media preload
-  stay off until their waste is measured.
+- SABR fallback still not wired. Owner 09-26: TV_TIZEN stays the account route only (used when
+  anonymous clients are challenged or asked to sign in), and WEB_EMBED (error 152-18 on every
+  network) leaves the phone walk. Touch-down prefetch and next-video media preload stay off until
+  their waste is measured.
 
 ## Pixel verification and follow-up round (2026-09-25, Pixel 9, Wi-Fi + LTE)
 

@@ -61,6 +61,13 @@
     <string name="settings_language">Language</string>
     <string name="settings_linked_devices">Linked devices</string>
     <string name="settings_about">About</string>
+    <!-- NEWTUBE(settings): the phone's About screen (AboutSimpleSettingsPresenter). -->
+    <string name="about_app">About %1$s</string>
+    <string name="about_source_code">Source code</string>
+    <string name="about_source_code_url" translatable="false">https://github.com/aleixrodriala/newtube</string>
+    <string name="about_license">License</string>
+    <string name="about_license_name" translatable="false">MIT</string>
+    <string name="about_license_url" translatable="false">https://github.com/aleixrodriala/newtube/blob/main/LICENSE</string>
     <string name="dialog_account_list">Select account</string>
     <string name="dialog_account_none">None</string>
     <string name="dialog_remove_account">Sign out</string>
@@ -130,6 +137,12 @@
     <string name="repeat_mode_none">Stop playback after one video (except queue)</string>
     <string name="subscribed_to_channel">Subscribed</string>
     <string name="unsubscribed_from_channel">Unsubscribed</string>
+    <!-- NEWTUBE(menu): phone card-menu subscribe results (VideoMenuPresenter.toggleSubscribePhone). -->
+    <string name="subscribed_to_channel_name">Subscribed to %1$s</string>
+    <string name="unsubscribed_from_channel_name">Unsubscribed from %1$s</string>
+    <string name="subscribe_failed">Couldn\'t subscribe. Try again.</string>
+    <string name="unsubscribe_failed">Couldn\'t unsubscribe. Try again.</string>
+    <string name="action_undo">Undo</string>
     <string name="subtitle_yellow_transparent">Yellow on transparent background</string>
     <string name="subtitle_white_transparent">White on transparent background</string>
     <string name="subtitle_white_black">White on black background</string>

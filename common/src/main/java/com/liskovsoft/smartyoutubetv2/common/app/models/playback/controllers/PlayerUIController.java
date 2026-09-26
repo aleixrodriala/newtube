@@ -34,6 +34,8 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.VideoMe
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.AutoFrameRateSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.SubtitleTrack;
+import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
+import com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.ScreensaverManager;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
@@ -59,6 +61,7 @@ public class PlayerUIController extends BasePlayerController {
     private boolean mEngineReady;
     private boolean mDebugViewEnabled;
     private boolean mIsMetadataLoaded;
+    private final RatingWriter mRatingWriter = new RatingWriter();
     private long mOverlayHideTimeMs;
     private final Runnable mSuggestionsResetHandler = () -> {
         if (getPlayer() == null) {
@@ -425,10 +428,18 @@ public class PlayerUIController extends BasePlayerController {
             return;
 
         boolean dislike = buttonState == PlayerUI.BUTTON_ON;
+        int ratingBefore = dislike ? RatingWriter.DISLIKE
+                : getPlayer().getButtonState(R.id.action_thumbs_up) == PlayerUI.BUTTON_ON ? RatingWriter.LIKE : RatingWriter.NONE;
 
         getPlayer().setButtonState(R.id.action_thumbs_down, !dislike ? PlayerUI.BUTTON_ON : PlayerUI.BUTTON_OFF);
 
         if (!mIsMetadataLoaded) {
+            if (PhoneUi.isEnabled()) {
+                // NEWTUBE(phone): nothing is sent yet, so don't leave the icon flipped; the phone's
+                // watch page says "still loading" itself (no TV Toast).
+                getPlayer().setButtonState(R.id.action_thumbs_down, buttonState);
+                return;
+            }
             MessageHelpers.showMessage(getContext(), R.string.wait_data_loading);
             return;
         }
@@ -440,9 +451,13 @@ public class PlayerUIController extends BasePlayerController {
         }
 
         if (!dislike) {
-            callMediaItemObservable(mMediaItemService::setDislikeObserve);
+            // NEWTUBE(phone): a dislike replaces a like on YouTube; show that instead of two filled thumbs.
+            if (PhoneUi.isEnabled()) {
+                getPlayer().setButtonState(R.id.action_thumbs_up, PlayerUI.BUTTON_OFF);
+            }
+            writeRating(mMediaItemService::setDislikeObserve, ratingBefore, RatingWriter.DISLIKE);
         } else {
-            callMediaItemObservable(mMediaItemService::removeDislikeObserve);
+            writeRating(mMediaItemService::removeDislikeObserve, ratingBefore, RatingWriter.NONE);
         }
     }
 
@@ -452,10 +467,17 @@ public class PlayerUIController extends BasePlayerController {
         }
 
         boolean like = buttonState == PlayerUI.BUTTON_ON;
+        int ratingBefore = like ? RatingWriter.LIKE
+                : getPlayer().getButtonState(R.id.action_thumbs_down) == PlayerUI.BUTTON_ON ? RatingWriter.DISLIKE : RatingWriter.NONE;
 
         getPlayer().setButtonState(R.id.action_thumbs_up, !like ? PlayerUI.BUTTON_ON : PlayerUI.BUTTON_OFF);
 
         if (!mIsMetadataLoaded) {
+            if (PhoneUi.isEnabled()) {
+                // NEWTUBE(phone): see onDislikeClicked.
+                getPlayer().setButtonState(R.id.action_thumbs_up, buttonState);
+                return;
+            }
             MessageHelpers.showMessage(getContext(), R.string.wait_data_loading);
             return;
         }
@@ -467,9 +489,13 @@ public class PlayerUIController extends BasePlayerController {
         }
 
         if (!like) {
-            callMediaItemObservable(mMediaItemService::setLikeObserve);
+            // NEWTUBE(phone): a like replaces a dislike on YouTube.
+            if (PhoneUi.isEnabled()) {
+                getPlayer().setButtonState(R.id.action_thumbs_down, PlayerUI.BUTTON_OFF);
+            }
+            writeRating(mMediaItemService::setLikeObserve, ratingBefore, RatingWriter.LIKE);
         } else {
-            callMediaItemObservable(mMediaItemService::removeLikeObserve);
+            writeRating(mMediaItemService::removeLikeObserve, ratingBefore, RatingWriter.NONE);
         }
     }
 
@@ -669,6 +695,38 @@ public class PlayerUIController extends BasePlayerController {
     private void disposeTimeouts() {
         disableUiAutoHideTimeout();
         disableSuggestionsResetTimeout();
+    }
+
+    /**
+     * NEWTUBE(phone): ratings go through {@link RatingWriter} - one at a time in tap order, and a
+     * failed one puts the thumbs back and tells the screen - instead of fire-and-forget calls whose
+     * errors were only logged under an optimistic "Added to Liked videos". TV: unchanged.
+     */
+    private void writeRating(MediaItemObservable callable, int before, int after) {
+        Video video = getVideo();
+        if (!PhoneUi.isEnabled() || video == null || video.videoId == null) {
+            callMediaItemObservable(callable);
+            return;
+        }
+        Observable<Void> call = callable.call(video.mediaItem != null ? video.mediaItem : video.toMediaItem());
+        PlaybackView from = getPlayer();
+        mRatingWriter.write(video.videoId, before, after, call, (videoId, rating) -> rollBackRating(from, videoId, rating));
+    }
+
+    /**
+     * Only on the live screen the tap came from, still showing that video. getPlayer() keeps
+     * returning a destroyed watch page, and its "not saved" would then land over whatever screen
+     * is in front now. A newer watch page loads the real rating with its own metadata.
+     */
+    void rollBackRating(PlaybackView from, String videoId, int rating) {
+        PlaybackView player = getPlayer();
+        Video video = getVideo();
+        if (player == null || player != from || !isPlayerAlive() || video == null || !videoId.equals(video.videoId)) {
+            return;
+        }
+        player.setButtonState(R.id.action_thumbs_up, rating == RatingWriter.LIKE ? PlayerUI.BUTTON_ON : PlayerUI.BUTTON_OFF);
+        player.setButtonState(R.id.action_thumbs_down, rating == RatingWriter.DISLIKE ? PlayerUI.BUTTON_ON : PlayerUI.BUTTON_OFF);
+        player.onRatingNotSaved();
     }
 
     private void callMediaItemObservable(MediaItemObservable callable) {

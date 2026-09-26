@@ -7,6 +7,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.base.BasePresenter;
+import com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi;
 import com.liskovsoft.smartyoutubetv2.common.prefs.DeArrowData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
 import com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover;
@@ -33,7 +34,11 @@ public class DeArrowSettingsPresenter extends BasePresenter<Void> {
         AppDialogPresenter settingsPresenter = AppDialogPresenter.instance(getContext());
         
         appendSwitches(settingsPresenter);
-        appendThumbQuality(settingsPresenter);
+        // NEWTUBE(settings): on the phone the thumbnail-source picker lives only under User
+        // interface ("Where to grab card thumbnails") - it is the same MainUIData setting.
+        if (!PhoneUi.isEnabled()) {
+            appendThumbQuality(settingsPresenter);
+        }
         appendLinks(settingsPresenter);
 
         settingsPresenter.showDialog(getContext().getString(R.string.dearrow_provider), onFinish);

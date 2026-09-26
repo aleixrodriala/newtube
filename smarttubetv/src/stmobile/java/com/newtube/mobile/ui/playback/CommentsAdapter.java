@@ -221,19 +221,25 @@ public class CommentsAdapter extends RecyclerView.Adapter<CommentsAdapter.VH> {
             // Author + relative time on one secondary line.
             String author = item.getAuthorName() != null ? item.getAuthorName() : "";
             String date = item.getPublishedDate();
-            mAuthor.setText(TextUtils.isEmpty(date) ? author : author + "  •  " + date);
+            mAuthor.setText(TextUtils.isEmpty(date) ? author : author + com.newtube.mobile.ui.common.MetaSeparator.DOT + date);
 
             mMessage.setText(item.getMessage());
 
             // Like affordance: icon always visible, count only when the backend supplied one.
             if (TextUtils.isEmpty(entry.likeCount)) {
                 mLikeCount.setVisibility(View.GONE);
+                mLikeGroup.setContentDescription(null); // recycled row: the icon's "Like" is read
             } else {
                 mLikeCount.setVisibility(View.VISIBLE);
                 mLikeCount.setText(entry.likeCount);
+                // NEWTUBE(a11y): "12K likes", not a bare "12K".
+                mLikeGroup.setContentDescription(context.getString(R.string.mobile_comment_likes, entry.likeCount));
             }
+            // NEWTUBE(icons): filled = active, outline = passive count (no red tint - standing rule).
+            mLikeIcon.setImageResource(entry.liked
+                    ? R.drawable.ic_watch_thumb_up : R.drawable.ic_watch_thumb_up_outline);
             mLikeIcon.setColorFilter(ContextCompat.getColor(context,
-                    entry.liked ? R.color.mobile_color_primary : R.color.mobile_color_on_surface_secondary));
+                    entry.liked ? R.color.mobile_color_on_surface : R.color.mobile_color_on_surface_secondary));
 
             bindRepliesToggle(context, entry);
 

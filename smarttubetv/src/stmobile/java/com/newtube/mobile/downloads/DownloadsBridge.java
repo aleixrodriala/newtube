@@ -131,7 +131,7 @@ public final class DownloadsBridge implements VideoDownloads.Handler {
 
         String status = DownloadProgressText.of(mContext, item);
         card.secondTitle = item.author != null && !item.author.isEmpty()
-                ? item.author + " · " + status
+                ? item.author + com.newtube.mobile.ui.common.MetaSeparator.DOT + status
                 : status;
 
         // Every not-ready state carries a badge (and the thumbnail is dimmed by the card), so a

@@ -8,7 +8,7 @@
 
     <!-- Upstream es translation says "REGISTRARSE" (= create an account) on every sign-in
          button - wrong action. App-module resources override the library's, so fix it here
-         (es-only on purpose: the library's en default is fine - hence the lint ignore). -->
+         (the en default "SIGN IN" is overridden in values/strings_mobile.xml too). -->
     <string name="action_signin" tools:ignore="ExtraTranslation">Iniciar sesión</string>
     <string name="subscriptions_signin_button_text" tools:ignore="ExtraTranslation">Iniciar sesión</string>
 
@@ -20,6 +20,12 @@
     <!-- Signed-out empty states -->
     <string name="mobile_empty_signin_section">Inicia sesión para ver %1$s</string>
     <string name="mobile_empty_signin_generic">Inicia sesión para ver este contenido</string>
+    <string name="mobile_empty_signin_subscriptions">Inicia sesión para ver tus suscripciones</string>
+    <string name="mobile_empty_signin_channels">Inicia sesión para ver los canales que sigues</string>
+    <string name="mobile_empty_signin_playlists">Inicia sesión para ver tus listas</string>
+    <string name="mobile_empty_signin_my_videos">Inicia sesión para ver tus vídeos</string>
+    <string name="mobile_empty_signin_history">Inicia sesión para ver tu historial</string>
+    <string name="mobile_empty_signin_notifications">Inicia sesión para ver tus notificaciones</string>
 
     <!-- Sign-in screen -->
     <string name="mobile_signin_title">Iniciar sesión</string>
@@ -81,6 +87,7 @@
     <string name="mobile_watch_subscribe">Suscribirse</string>
     <string name="mobile_watch_subscribed">Suscrito</string>
     <string name="mobile_watch_related">A continuación</string>
+    <string name="mobile_watch_offline">Sin conexión</string>
     <string name="mobile_watch_description">Descripción</string>
     <string name="mobile_watch_queue_from">Reproduciendo de %1$s</string>
     <string name="mobile_watch_queue_fallback">la cola</string>
@@ -100,6 +107,24 @@
     <string name="mobile_player_zoom_original">Original</string>
     <string name="mobile_player_more">Más opciones</string>
     <string name="mobile_mini_play_pause">Reproducir o pausar</string>
+    <string name="mobile_mini_expand">Ampliar reproductor</string>
+    <string name="pin_playlist">Fijar lista en Tú</string>
+    <string name="pin_channel">Fijar canal en Tú</string>
+    <string name="pinned_to_sidebar">Fijado en Tú</string>
+    <string name="unpin_from_sidebar">Quitar de Tú</string>
+    <string name="unpinned_from_sidebar">Quitado de Tú</string>
+    <string name="subscribe_to_channel">Suscribirse</string>
+    <string name="unsubscribe_from_channel">Cancelar suscripción</string>
+    <string name="subscribe_unsubscribe_from_channel">Suscribirse o cancelar suscripción</string>
+    <string name="share_link">Compartir</string>
+    <string name="mobile_you_pinned">Fijados</string>
+    <string name="pin_unpin_from_sidebar">Fijar en Tú</string>
+    <string name="mobile_settings_experimental">Experimental</string>
+    <string name="subscribed_to_channel">Suscripción añadida</string>
+    <string name="unsubscribed_from_channel">Suscripción cancelada</string>
+    <string name="mobile_player_settings">Ajustes</string>
+    <string name="mobile_more_options_for">Más opciones para %1$s</string>
+    <string name="mobile_comment_likes">%1$s me gusta</string>
     <string name="mobile_mini_close">Cerrar el reproductor</string>
 
     <!-- Player menu -->
@@ -123,6 +148,9 @@
     <string name="mobile_quality_auto_short">Automática</string>
     <string name="mobile_audio_title">Audio</string>
     <string name="mobile_audio_default">Predeterminado</string>
+    <string name="mobile_audio_role_original">original</string>
+    <string name="mobile_audio_role_dubbed">doblado</string>
+    <string name="mobile_audio_role_descriptive">audiodescripción</string>
 
     <!-- Comments -->
     <string name="mobile_comments_entry">Comentarios</string>
@@ -146,7 +174,8 @@
     <string name="mobile_search_voice">Búsqueda por voz</string>
     <string name="mobile_search_insert">Afinar esta búsqueda</string>
     <string name="mobile_search_clear">Borrar la búsqueda</string>
-    <string name="mobile_search_empty">Sin resultados. Toca para reintentar.</string>
+    <string name="mobile_search_no_results">No hay resultados para «%1$s»</string>
+    <string name="mobile_search_error">No se pudieron cargar los resultados.</string>
 
     <!-- Navigation, sheets and empty states -->
     <string name="mobile_back">Atrás</string>
@@ -154,6 +183,7 @@
     <string name="mobile_sheet_close">Cerrar</string>
     <string name="mobile_dialog_unavailable">Todavía no está disponible en el móvil.</string>
     <string name="mobile_empty_generic">Todavía no hay nada que mostrar</string>
+    <string name="mobile_empty_subscriptions">Aquí aparecen los vídeos de los canales a los que te suscribes</string>
     <string name="mobile_empty_no_connection">Sin conexión. Comprueba tu red y vuelve a intentarlo.</string>
     <string name="mobile_page_load_error">No se ha podido cargar esta página.</string>
     <string name="mobile_load_more_error">No se ha podido cargar más.</string>
@@ -254,7 +284,24 @@
     <string name="mobile_cast_switch_subtitles_positive">Cambiar</string>
 
     <!-- Descargas -->
+    <string name="mobile_sign_in_to_rate">Inicia sesión para indicar si te gusta un vídeo</string>
+    <string name="mobile_subscribed_to">Te has suscrito a %1$s</string>
+    <string name="mobile_unsubscribed_from">Has cancelado la suscripción a %1$s</string>
+    <string name="mobile_subscribed">Suscripción añadida</string>
+    <string name="mobile_unsubscribed">Suscripción cancelada</string>
+    <string name="mobile_undo">Deshacer</string>
+    <string name="mobile_liked">Añadido a Vídeos que me gustan</string>
+    <string name="mobile_like_removed">Quitado de Vídeos que me gustan</string>
+    <string name="mobile_disliked">Has indicado que no te gusta este vídeo</string>
+    <string name="mobile_dislike_removed">Se ha quitado el «No me gusta»</string>
+    <string name="mobile_rate_not_ready">El vídeo aún se está cargando. Vuelve a intentarlo en un momento.</string>
+    <string name="mobile_rating_not_saved">No se ha podido guardar tu valoración. Comprueba la conexión y vuelve a intentarlo.</string>
     <string name="mobile_download_started">Descarga iniciada</string>
+    <string name="mobile_download_started_size">Descarga iniciada • %1$s</string>
+    <string name="mobile_download_done">Descargado</string>
+    <string name="mobile_download_done_size">Descargado • %1$s</string>
+    <string name="mobile_download_already_here">Ya está descargado</string>
+    <string name="mobile_download_view">Ver</string>
     <string name="mobile_download_preparing">Preparando la descarga…</string>
     <string name="mobile_download_unavailable">Este vídeo no se puede descargar</string>
     <string name="mobile_download_unavailable_live">Los directos no se pueden descargar</string>

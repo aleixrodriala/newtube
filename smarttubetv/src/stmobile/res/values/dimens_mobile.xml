@@ -10,10 +10,16 @@
     <dimen name="mobile_card_corner_radius">12dp</dimen>
     <!-- Standard phone toolbar height (actionBarSize). -->
     <dimen name="mobile_title_bar_height">56dp</dimen>
+    <!-- MobileAppDialogActivity: a sheet on a wide (landscape) window stops at Material's 640dp
+         and centres; its title lines up with the rows (16dp) or sits 4dp after the back arrow. -->
+    <dimen name="mobile_sheet_max_width">640dp</dimen>
+    <dimen name="mobile_dialog_title_inset">16dp</dimen>
+    <dimen name="mobile_dialog_title_inset_with_back">4dp</dimen>
 
     <!-- Touch player controls -->
     <dimen name="mobile_player_center_button">64dp</dimen>
-    <dimen name="mobile_player_icon_button">40dp</dimen>
+    <!-- 48dp touch target around a 24dp glyph (12dp padding); was 40dp (NEWTUBE(touch)). -->
+    <dimen name="mobile_player_icon_button">48dp</dimen>
     <dimen name="mobile_player_top_scrim_height">112dp</dimen>
     <dimen name="mobile_player_bottom_scrim_height">128dp</dimen>
     <dimen name="mobile_player_time_text">13sp</dimen>

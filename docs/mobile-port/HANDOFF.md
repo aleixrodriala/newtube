@@ -2045,4 +2045,5 @@ python3 psum.py runs/base runs/candA
   the fallback is correct). §26 should point here for the rotation decision. (Astra's
   `nextVisitorCookie` finding is fixed: only `VISITOR_INFO1_LIVE` is carried over when a response
   omits it; the server's other cookies always replace the stored ones.)
-- SABR fallback under a real wall; TV_TIZEN as signed-in head; WEB_EMBED in the walk.
+- SABR fallback under a real wall. Owner 09-26: TV_TIZEN stays the account route only (not the
+  signed-in head); WEB_EMBED leaves the phone walk (follow-up commit).

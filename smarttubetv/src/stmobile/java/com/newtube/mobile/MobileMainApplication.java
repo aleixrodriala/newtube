@@ -167,6 +167,29 @@ public class MobileMainApplication extends MainApplication {
             migrations.edit().putBoolean("downloads_section", true).apply();
         }
 
+        // TV RECEIVER ROLES OFF (mobile-only, one-shot): Auto Frame Rate reprograms the display's
+        // refresh mode per video, and "Remote control" keeps a foreground service listening so
+        // other devices can drive this one - both TV roles. Their Settings rows are gone on the
+        // phone (AppDataSourceManager), so an install that had either on could never turn it off.
+        if (!migrations.getBoolean("tv_receiver_roles_off", false)) {
+            PlayerData.instance(this).setAfrEnabled(false);
+            com.liskovsoft.smartyoutubetv2.common.prefs.RemoteControlData remote =
+                    com.liskovsoft.smartyoutubetv2.common.prefs.RemoteControlData.instance(this);
+            if (remote.isDeviceLinkEnabled()) {
+                remote.enableDeviceLink(false);
+                com.liskovsoft.smartyoutubetv2.common.utils.Utils.updateRemoteControlService(this);
+            }
+            migrations.edit().putBoolean("tv_receiver_roles_off", true).apply();
+        }
+
+        // CARD MENU (mobile-only, one-shot): Share on every card menu next to Download, like
+        // YouTube's, and "Block the channel" below "Play next" - but only for a menu nobody has
+        // customised (CardMenuMigration); a user's own order or a Share they turned off stays.
+        if (!migrations.getBoolean("card_menu_share_block_order_v2", false)) {
+            CardMenuMigration.applyIfDefault(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.instance(this));
+            migrations.edit().putBoolean("card_menu_share_block_order_v2", true).apply();
+        }
+
         // NOTE(buffering): the back-buffer / start-gate / forward-buffer tuning that used to be
         // pushed into the legacy engine here (ExoPlayerInitializer.set*Override) moved into the
         // media3 engine itself - see Media3PlayerInitializer (back 120s, start gate 1000/2500ms).
@@ -369,6 +392,16 @@ public class MobileMainApplication extends MainApplication {
         // keeps its own live-first sort; deeper pages arrive via normal scroll pagination.
         // TV never calls this -> TV keeps the combined-window sort unchanged.
         com.liskovsoft.youtubeapi.browse.v2.BrowseServiceGates.setSkipContinuationPreCombine(true);
+
+        // SEARCH HISTORY (mobile-only): a typed query the suggest endpoint has nothing for used to
+        // list the user's WHOLE search history as its suggestions; now only the past searches that
+        // match it. The empty field still shows the full history. TV never calls this.
+        com.liskovsoft.youtubeapi.search.v2.SearchServiceGates.setHistoryMatchesQuery(true);
+
+        // PHONE UI (mobile-only): shared settings screens, card menus and sharing take their phone
+        // form - TV-only settings rows hidden, menus that close and confirm with a Snackbar, share
+        // sheets instead of the TV "open with" chooser. TV never calls this (PhoneUi).
+        com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi.setEnabled(true);
 
         // FEED FIRST-PAINT (mobile-only, round 2): Home's eager row-pad continuations exist to
         // fill short TV shelf rows to MIN_ROW_GROUP_SIZE=5; the phone flattens every row into one
