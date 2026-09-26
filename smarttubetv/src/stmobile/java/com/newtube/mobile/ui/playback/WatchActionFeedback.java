@@ -41,6 +41,11 @@ final class WatchActionFeedback {
         MobileSnackbar.show(activity, activity.getString(text), activity.getString(R.string.mobile_undo), undo);
     }
 
+    /** A rating YouTube did not take (offline, or the request failed); the thumbs are back as they were. */
+    static void ratingNotSaved(Activity activity) {
+        MobileSnackbar.show(activity, R.string.mobile_rating_not_saved);
+    }
+
     /** A rating tapped before the video's data arrived (nothing was sent). */
     static void rateNotReady(Activity activity) {
         MobileSnackbar.show(activity, R.string.mobile_rate_not_ready);

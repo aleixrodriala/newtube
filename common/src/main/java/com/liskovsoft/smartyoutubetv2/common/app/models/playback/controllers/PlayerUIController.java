@@ -60,6 +60,7 @@ public class PlayerUIController extends BasePlayerController {
     private boolean mEngineReady;
     private boolean mDebugViewEnabled;
     private boolean mIsMetadataLoaded;
+    private final RatingWriter mRatingWriter = new RatingWriter();
     private long mOverlayHideTimeMs;
     private final Runnable mSuggestionsResetHandler = () -> {
         if (getPlayer() == null) {
@@ -426,6 +427,8 @@ public class PlayerUIController extends BasePlayerController {
             return;
 
         boolean dislike = buttonState == PlayerUI.BUTTON_ON;
+        int ratingBefore = dislike ? RatingWriter.DISLIKE
+                : getPlayer().getButtonState(R.id.action_thumbs_up) == PlayerUI.BUTTON_ON ? RatingWriter.LIKE : RatingWriter.NONE;
 
         getPlayer().setButtonState(R.id.action_thumbs_down, !dislike ? PlayerUI.BUTTON_ON : PlayerUI.BUTTON_OFF);
 
@@ -451,9 +454,9 @@ public class PlayerUIController extends BasePlayerController {
             if (PhoneUi.isEnabled()) {
                 getPlayer().setButtonState(R.id.action_thumbs_up, PlayerUI.BUTTON_OFF);
             }
-            callMediaItemObservable(mMediaItemService::setDislikeObserve);
+            writeRating(mMediaItemService::setDislikeObserve, ratingBefore, RatingWriter.DISLIKE);
         } else {
-            callMediaItemObservable(mMediaItemService::removeDislikeObserve);
+            writeRating(mMediaItemService::removeDislikeObserve, ratingBefore, RatingWriter.NONE);
         }
     }
 
@@ -463,6 +466,8 @@ public class PlayerUIController extends BasePlayerController {
         }
 
         boolean like = buttonState == PlayerUI.BUTTON_ON;
+        int ratingBefore = like ? RatingWriter.LIKE
+                : getPlayer().getButtonState(R.id.action_thumbs_down) == PlayerUI.BUTTON_ON ? RatingWriter.DISLIKE : RatingWriter.NONE;
 
         getPlayer().setButtonState(R.id.action_thumbs_up, !like ? PlayerUI.BUTTON_ON : PlayerUI.BUTTON_OFF);
 
@@ -487,9 +492,9 @@ public class PlayerUIController extends BasePlayerController {
             if (PhoneUi.isEnabled()) {
                 getPlayer().setButtonState(R.id.action_thumbs_down, PlayerUI.BUTTON_OFF);
             }
-            callMediaItemObservable(mMediaItemService::setLikeObserve);
+            writeRating(mMediaItemService::setLikeObserve, ratingBefore, RatingWriter.LIKE);
         } else {
-            callMediaItemObservable(mMediaItemService::removeLikeObserve);
+            writeRating(mMediaItemService::removeLikeObserve, ratingBefore, RatingWriter.NONE);
         }
     }
 
@@ -689,6 +694,31 @@ public class PlayerUIController extends BasePlayerController {
     private void disposeTimeouts() {
         disableUiAutoHideTimeout();
         disableSuggestionsResetTimeout();
+    }
+
+    /**
+     * NEWTUBE(phone): ratings go through {@link RatingWriter} - one at a time in tap order, and a
+     * failed one puts the thumbs back and tells the screen - instead of fire-and-forget calls whose
+     * errors were only logged under an optimistic "Added to Liked videos". TV: unchanged.
+     */
+    private void writeRating(MediaItemObservable callable, int before, int after) {
+        Video video = getVideo();
+        if (!PhoneUi.isEnabled() || video == null || video.videoId == null) {
+            callMediaItemObservable(callable);
+            return;
+        }
+        Observable<Void> call = callable.call(video.mediaItem != null ? video.mediaItem : video.toMediaItem());
+        mRatingWriter.write(video.videoId, before, after, call, this::rollBackRating);
+    }
+
+    private void rollBackRating(String videoId, int rating) {
+        Video video = getVideo();
+        if (getPlayer() == null || video == null || !videoId.equals(video.videoId)) {
+            return; // another video by now: nothing on screen to correct
+        }
+        getPlayer().setButtonState(R.id.action_thumbs_up, rating == RatingWriter.LIKE ? PlayerUI.BUTTON_ON : PlayerUI.BUTTON_OFF);
+        getPlayer().setButtonState(R.id.action_thumbs_down, rating == RatingWriter.DISLIKE ? PlayerUI.BUTTON_ON : PlayerUI.BUTTON_OFF);
+        getPlayer().onRatingNotSaved();
     }
 
     private void callMediaItemObservable(MediaItemObservable callable) {

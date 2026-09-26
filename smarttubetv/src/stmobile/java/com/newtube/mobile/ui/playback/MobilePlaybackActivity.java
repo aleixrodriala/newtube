@@ -5227,30 +5227,62 @@ public class MobilePlaybackActivity extends MobileActivity
      * video's data isn't in yet), which the phone says instead of a silent tap.
      */
     private void onRateTapped(int actionId) {
-        int before = getButtonState(actionId);
+        int stateBefore = getButtonState(actionId);
+        int ratingBefore = currentRating();
         onActionButtonClicked(actionId);
-        int after = getButtonState(actionId);
-        if (after == before) {
+        int stateAfter = getButtonState(actionId);
+        if (stateAfter == stateBefore) {
             WatchActionFeedback.rateNotReady(this);
             return;
         }
-        WatchActionFeedback.confirmRating(this, actionId == R.id.action_thumbs_up, after == BUTTON_ON,
-                undoOnThisVideo(actionId));
+        int ratingAfter = currentRating();
+        WatchActionFeedback.confirmRating(this, actionId == R.id.action_thumbs_up, stateAfter == BUTTON_ON,
+                undoRating(ratingBefore, ratingAfter));
+    }
+
+    private int currentRating() {
+        return RatingUndo.rating(getButtonState(R.id.action_thumbs_up) == BUTTON_ON,
+                getButtonState(R.id.action_thumbs_down) == BUTTON_ON);
     }
 
     /**
-     * Undo re-taps the same action, but only on the video it confirmed: the Snackbar outlives a
-     * switch to an Up next video (same screen), and there it would rate or unsubscribe the wrong one.
+     * Undo puts back the rating from before the tap (liked -> Dislike -> Undo is liked again, not
+     * unrated), only on the video it confirmed - the Snackbar outlives a switch to an Up next video
+     * on this same screen - and only while the thumbs still show what the tap left.
      */
-    private Runnable undoOnThisVideo(int actionId) {
-        Video tapped = getVideo();
-        String videoId = tapped != null ? tapped.videoId : null;
+    private Runnable undoRating(int ratingBefore, int ratingAfter) {
+        String videoId = currentVideoId();
         return () -> {
-            Video now = getVideo();
-            if (videoId != null && now != null && videoId.equals(now.videoId)) {
+            if (videoId == null || !videoId.equals(currentVideoId()) || currentRating() != ratingAfter) {
+                return;
+            }
+            int tap = RatingUndo.tapFor(ratingAfter, ratingBefore, R.id.action_thumbs_up, R.id.action_thumbs_down);
+            if (tap != 0) {
+                onActionButtonClicked(tap);
+            }
+        };
+    }
+
+    /** Subscribe's Undo: re-tap it, on the same video and while it still shows {@code stateAfter}. */
+    private Runnable undoOnThisVideo(int actionId, int stateAfter) {
+        String videoId = currentVideoId();
+        return () -> {
+            if (videoId != null && videoId.equals(currentVideoId()) && getButtonState(actionId) == stateAfter) {
                 onActionButtonClicked(actionId);
             }
         };
+    }
+
+    @Nullable
+    private String currentVideoId() {
+        Video video = getVideo();
+        return video != null ? video.videoId : null;
+    }
+
+    /** NEWTUBE(snackbar): the rating did not reach YouTube; the controller already put the thumbs back. */
+    @Override
+    public void onRatingNotSaved() {
+        runOnUiThread(() -> WatchActionFeedback.ratingNotSaved(this));
     }
 
     /** Subscribe/Unsubscribe, confirmed only when the controller actually flipped the state. */
@@ -5262,7 +5294,7 @@ public class MobilePlaybackActivity extends MobileActivity
             Video video = getVideo();
             WatchActionFeedback.confirmSubscription(this, after == BUTTON_ON,
                     video != null ? video.getAuthor() : null,
-                    undoOnThisVideo(R.id.action_subscribe));
+                    undoOnThisVideo(R.id.action_subscribe, after));
         }
     }
 
