@@ -76,6 +76,9 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     private static final long SAME_POSITION_WINDOW_MS = 5_000;
     private long mLastErrorPositionMs = -1;
     private int mSamePositionErrorCount;
+    // The video the same-position window belongs to. Deliberately NOT mAutoFixVideoId: onPlay's
+    // resetAutoFixCap() nulls that one, see registerAutoFixAndCheckCap.
+    private String mSamePositionVideoId;
     // Dead state: the cap tripped on a connectivity-class error and auto-fixing stopped. A play tap
     // now means "retry" (onPlayClicked/onPauseClicked), a timer retries on the escalating backoff
     // below, and a default-network callback retries as soon as connectivity provably returns.
@@ -330,6 +333,11 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         String errorContent = error != null ? error.getMessage() : null;
         String errorTitle = getErrorTitle(type, rendererIndex);
 
+        // NEWTUBE(offline-wait): a media load failing with no network at all - wait for one.
+        if (type == PlayerEventListener.ERROR_TYPE_SOURCE && waitForNetworkInstead(errorTitle, error)) {
+            return;
+        }
+
         // 4th consecutive error without healthy playback in between: stop auto-fixing entirely
         // (no config mutation, no reload/restart) and leave a state the user can act on.
         if (registerAutoFixAndCheckCap(error)) {
@@ -417,6 +425,10 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
                 com.liskovsoft.youtubeapi.service.YouTubeMediaItemService.instance().invalidateCache();
                 freshUrlsRequested = true;
             } else {
+                // NEWTUBE(recovery-blame): everything below reads the service's CURRENT client, which
+                // a next-video prefetch may have overwritten since this video resolved. Point it back
+                // at the client that actually served this video before blaming anything.
+                VideoInfoService.instance().anchorRouteToVideo(getVideo() != null ? getVideo().videoId : null);
                 // A proven GVS 403 from an authenticated TV route is remembered against this
                 // default network. Recovery still remints immediately; later opens avoid selecting
                 // the same doomed carrier/client route first for a short self-healing window.
@@ -557,6 +569,11 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         // No toast here either (see applyEngineErrorAction): this one threw a whole stack trace on
         // screen for a failure the very next line usually reloads away.
 
+        // NEWTUBE(offline-wait): the open's /player fetch failed with no network at all.
+        if (waitForNetworkInstead(getContext().getString(R.string.unknown_source_error), error)) {
+            return;
+        }
+
         // Format(metadata)-fetch errors reload just like engine errors - same consecutive cap.
         if (registerAutoFixAndCheckCap(error)) {
             surfaceCappedError(getContext().getString(R.string.unknown_source_error), error);
@@ -586,9 +603,19 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         String videoId = getVideo() != null ? getVideo().videoId : null;
 
         if (!Helpers.equals(videoId, mAutoFixVideoId)) {
-            // Different video than the one being counted: fresh window.
+            // Different video than the one being counted (or healthy playback reopened the
+            // window): fresh consecutive count.
             mAutoFixVideoId = videoId;
             mConsecutiveAutoFixCount = 0;
+        }
+        // NEWTUBE(same-position cap): keyed on its OWN video id. It used to reset together with the
+        // consecutive count above, and onPlay's resetAutoFixCap() nulls mAutoFixVideoId - so the
+        // error after every cached replay looked like a NEW video and restarted the very window
+        // that exists to survive that false-healthy onPlay: samePos never passed 1, and the
+        // identical-cycle reload loop it was written for could run forever (static finding,
+        // 2026-09-25; SamePositionCapTest reproduces it).
+        if (!Helpers.equals(videoId, mSamePositionVideoId)) {
+            mSamePositionVideoId = videoId;
             resetSamePositionWindow();
         }
 
@@ -627,6 +654,81 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     }
 
     /**
+     * NEWTUBE(offline-wait): whether an automatic reload/retry is pointless right now because the
+     * device has NO validated default network at all (airplane mode, Wi-Fi and data off, out of
+     * coverage). Measured on the Pixel 9 with both radios off: every reload failed in ~10 ms with
+     * zero traffic ("fromNullable result is null", net=none), yet the open ran the full 4-reload
+     * burst 1 s apart, and every timer step of {@link #AUTO_RETRY_BACKOFF_MS} (5 s, 15 s, ...) reset
+     * the burst counter and ran it again - reloads spinning on a device that cannot answer.
+     *
+     * <p>A validated network, however dead (the silent-tunnel case the timer ladder exists for),
+     * never waits here: only an absent/unvalidated one does. A downloaded video plays from the
+     * device and never needs the network.</p>
+     */
+    static boolean shouldWaitForNetwork(boolean hasValidatedNetwork, boolean localVideo) {
+        return !hasValidatedNetwork && !localVideo;
+    }
+
+    /**
+     * NEWTUBE(offline-wait): a timer-driven retry waits while there is no network - but only when
+     * the default-network callback is armed to take over (if registering it failed, the timer is
+     * the only way back and keeps running). Network edges and an answering probe never wait.
+     */
+    static boolean defersTimerRetry(String trigger, boolean networkCallbackArmed,
+            boolean hasValidatedNetwork, boolean localVideo) {
+        return "timer".equals(trigger) && networkCallbackArmed
+                && shouldWaitForNetwork(hasValidatedNetwork, localVideo);
+    }
+
+    /**
+     * NEWTUBE(offline-wait): with no network, skip the reload burst and go straight to the dead
+     * state, whose default-network callback ({@link #armConnectivityRetry}) retries ONCE as soon as a
+     * validated network appears (seeded "disconnected", so it fires on that very edge). A play tap
+     * is still a manual retry in the meantime.
+     *
+     * @return true when the caller must stop (the error was handled by waiting).
+     */
+    private boolean waitForNetworkInstead(String errorTitle, Throwable error) {
+        if (!isOfflineWaitCandidate(error)
+                || !shouldWaitForNetwork(hasValidatedNetwork(), getVideo() != null && getVideo().isLocal())) {
+            return false;
+        }
+        NetPath.log(NetPath.context() + " recovery-wait-network " + NetPath.networkSnapshot(getContext())
+                + " causes=" + NetPath.throwableSummary(error));
+        surfaceCappedError(errorTitle, error, /* observedOffline= */ true);
+        return true;
+    }
+
+    /**
+     * NEWTUBE(offline-wait): only a failure that looks like the missing network may wait for one - a
+     * transport failure (see {@link #hasConnectivityMarker}) or the open path's verdict-free null
+     * result (see {@link #hasServerVerdict}). A failure with a known LOCAL cause keeps its own
+     * recovery even offline: a player-JS parse / token failure ("Unexpected token", "is not
+     * defined", PoTokenException...) needs the cache invalidation and client fix that
+     * {@link #runFormatErrorAction} applies, and an OutOfMemoryError needs its buffer step-down.
+     * Waiting instead would label them "no connection" and skip that fix on the retry.
+     */
+    static boolean isOfflineWaitCandidate(Throwable error) {
+        if (error == null || isRecognizedLocalFailure(error)) {
+            return false;
+        }
+        return hasConnectivityMarker(error) || !hasServerVerdict(error);
+    }
+
+    private static boolean isRecognizedLocalFailure(Throwable error) {
+        Throwable cause = error;
+        for (int depth = 0; cause != null && depth < 12; cause = cause.getCause(), depth++) {
+            if (cause instanceof OutOfMemoryError
+                    || Helpers.equalsAny(cause.getClass().getSimpleName(), "PoTokenException", "BadWebViewException")
+                    || Helpers.containsAny(cause.getMessage(),
+                            "Unexpected token", "Syntax error", "invalid argument", "is not defined")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Cap reached: surface the error in the player itself - a readable title over a stopped,
      * user-actionable state (manual retry / back out), never an endless spinner and never a toast.
      * Enters the dead state: a play tap becomes a manual retry, and for a connectivity-class error
@@ -635,6 +737,18 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
      * @param errorTitle localized, user-facing. The raw exception text belongs in the NetPath log.
      */
     private void surfaceCappedError(String errorTitle, Throwable error) {
+        surfaceCappedError(errorTitle, error, false);
+    }
+
+    /**
+     * @param observedOffline NEWTUBE(offline-wait): this dead state was entered because the device
+     *                        had no validated network (see {@link #waitForNetworkInstead}). The
+     *                        recovery triggers then treat "no network" as the outage already seen,
+     *                        so the first sign of a working link - the network callback's replay of a
+     *                        network that validated in the meantime, or a first answering probe -
+     *                        completes the episode instead of waiting for a second transition.
+     */
+    private void surfaceCappedError(String errorTitle, Throwable error, boolean observedOffline) {
         boolean connectivity = !(error instanceof
                 com.liskovsoft.smartyoutubetv2.common.app.models.playback.TerminalSourceException)
                 && isConnectivityError(error);
@@ -648,9 +762,9 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         boolean retrying = false;
         if (connectivity) {
             retrying = scheduleAutoRetry();
-            armConnectivityRetry();
+            armConnectivityRetry(observedOffline);
             if (retrying) {
-                startLivenessProbe();
+                startLivenessProbe(observedOffline);
             }
         }
 
@@ -736,7 +850,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         return !(error instanceof IllegalStateException);
     }
 
-    private boolean hasValidatedNetwork() {
+    /** Package-private so tests can stand in for ConnectivityManager. */
+    boolean hasValidatedNetwork() {
         Context context = getContext();
         ConnectivityManager cm = context != null
                 ? (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE) : null;
@@ -811,6 +926,17 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             return;
         }
 
+        // NEWTUBE(offline-wait): the timer ladder is for a network Android still calls VALIDATED
+        // (a tunnel). With none at all a reload cannot succeed; the armed default-network callback
+        // retries on the next validated network instead. Skipping spends no budget. Only the
+        // timer defers: a network edge or an answering liveness probe is evidence the link is back.
+        if (defersTimerRetry(trigger, mNetworkCallback != null, hasValidatedNetwork(),
+                getVideo() != null && getVideo().isLocal())) {
+            NetPath.log(NetPath.context() + " recovery-auto-retry deferred reason=no-network attempt="
+                    + mAutoRetryAttempt + ' ' + NetPath.networkSnapshot(getContext()));
+            return;
+        }
+
         long waitMs = mNextAutoRetryAtMs - SystemClock.elapsedRealtime();
         if (waitMs > 0) {
             // A timer arrived before its deadline; re-arm for the remainder instead of firing.
@@ -835,7 +961,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
      * backgrounded dead player would otherwise leak it).
      * Idempotent: one live registration per dead-state episode.
      */
-    private void armConnectivityRetry() {
+    private void armConnectivityRetry(boolean observedOffline) {
         if (mNetworkCallback != null) {
             return;
         }
@@ -853,9 +979,11 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         // network. Replaying this same healthy network must not bypass the timer's retry budget.
         Network active = cm.getActiveNetwork();
         NetworkCapabilities activeCaps = active != null ? cm.getNetworkCapabilities(active) : null;
-        boolean seedDisconnected = activeCaps == null || !activeCaps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        boolean seedDisconnected = seedsDisconnected(observedOffline,
+                activeCaps != null && activeCaps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED));
         NetPath.log(NetPath.context() + " recovery-network-arm seedDisconnected="
-                + (seedDisconnected ? "y" : "n") + ' ' + NetPath.networkSnapshot(context));
+                + (seedDisconnected ? "y" : "n") + " observedOffline=" + (observedOffline ? "y" : "n")
+                + ' ' + NetPath.networkSnapshot(context));
 
         DefaultNetworkRecoveryCallback callback = new DefaultNetworkRecoveryCallback(
                 active, !seedDisconnected, Utils::post, network -> {
@@ -876,6 +1004,18 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             mNetworkCallback = null;
             Log.e(TAG, "Failed to register connectivity retry: %s", e.getMessage());
         }
+    }
+
+    /**
+     * NEWTUBE(offline-wait): how the network callback is seeded. Normally from the network as it is
+     * NOW (edge-only: a slow-but-alive validated link must not fire on its own registration replay,
+     * see {@link #armConnectivityRetry}). But an episode entered because the device had no validated
+     * network already saw the outage: if a network validates between that check and this
+     * registration, its replay IS the recovery edge - seeding it as "validated" would ignore it and
+     * leave the retry to the timer.
+     */
+    static boolean seedsDisconnected(boolean observedOffline, boolean activeValidatedNow) {
+        return observedOffline || !activeValidatedNow;
     }
 
     /**
@@ -922,7 +1062,11 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
             // An explicit Play tap retries the same normal metadata path, not the generic
             // client/format/token recovery circuit used by other sources.
             com.liskovsoft.youtubeapi.service.YouTubeMediaItemService.instance().invalidateCache();
-        } else YouTubeServiceManager.instance().applyNoPlaybackFix();
+        } else {
+            // NEWTUBE(recovery-blame): see the source-error branch - rotate past THIS video's client.
+            VideoInfoService.instance().anchorRouteToVideo(getVideo() != null ? getVideo().videoId : null);
+            YouTubeServiceManager.instance().applyNoPlaybackFix();
+        }
         if (mVideoLoaderController != null) {
             mVideoLoaderController.reloadVideo();
         }
@@ -938,14 +1082,16 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         disarmAutoRetry();
     }
 
-    private void startLivenessProbe() {
+    private void startLivenessProbe(boolean observedOffline) {
         if (mLivenessProbe == null) {
             mLivenessProbe = new LivenessProbe(ErrorFixerController::probeYouTube,
                     LivenessProbe.backgroundScheduler(), Utils::post, SystemClock::elapsedRealtime,
                     this::onLivenessRecovered);
         }
-        mLivenessProbe.start();
-        NetPath.log(NetPath.context() + " recovery-probe start attempt=" + mAutoRetryAttempt);
+        // Offline episode: its first answer already counts (see LivenessProbe#start(boolean)).
+        mLivenessProbe.start(observedOffline);
+        NetPath.log(NetPath.context() + " recovery-probe start attempt=" + mAutoRetryAttempt
+                + " firstAnswerCounts=" + (observedOffline ? "y" : "n"));
     }
 
     /**

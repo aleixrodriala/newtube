@@ -969,6 +969,8 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
                 mMediaItemService.unsubscribeObserve(video.channelId) : mMediaItemService.subscribeObserve(video.channelId);
 
         mSubscribeAction = RxHelper.execute(observable);
+        // NEWTUBE(reopen-related): kept watch-page documents carry the old subscribe state.
+        com.liskovsoft.smartyoutubetv2.common.app.models.playback.controllers.SuggestionsController.onUserStateChanged();
 
         video.isSubscribed = !video.isSubscribed;
 

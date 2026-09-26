@@ -34,6 +34,8 @@ import java.util.List;
 public class VideoStateControllerPositionTest {
     private final Video video = new Video();
     private final List<Long> seeks = new ArrayList<>();
+    /** The subset of {@link #seeks} that asked for a history resume (may snap to a keyframe). */
+    private final List<Long> resumeSeeks = new ArrayList<>();
     private final List<Boolean> playWrites = new ArrayList<>();
     private VideoStateService states;
     private VideoStateController controller;
@@ -68,6 +70,11 @@ public class VideoStateControllerPositionTest {
                         case "setPositionMs":
                             positionMs = (long) args[0];
                             seeks.add(positionMs);
+                            return null;
+                        case "setResumePositionMs":
+                            positionMs = (long) args[0];
+                            seeks.add(positionMs);
+                            resumeSeeks.add(positionMs);
                             return null;
                         case "setPlayWhenReady": playWrites.add((boolean) args[0]); return null;
                         case "isOverlayShown": return overlayShown;
@@ -109,7 +116,21 @@ public class VideoStateControllerPositionTest {
         remember(259_957);
         controller.onVideoLoaded(video);
         assertEquals(List.of(259_957L), seeks);
+        // NEWTUBE(resume-seek): continue watching is the one seek an engine may snap.
+        assertEquals(List.of(259_957L), resumeSeeks);
         assertEquals(0, video.pendingPosMs);
+    }
+
+    @Test
+    public void linkTimestampAndLiveEdgeStayExact() {
+        remember(259_957);
+        video.pendingPosMs = 1_000;
+        controller.onVideoLoaded(video);
+        video.isLive = true;
+        remember(durationMs - 1_000);
+        controller.onVideoLoaded(video);
+        assertEquals(List.of(1_000L, durationMs - 15_000), seeks);
+        assertTrue(resumeSeeks.isEmpty());
     }
 
     @Test

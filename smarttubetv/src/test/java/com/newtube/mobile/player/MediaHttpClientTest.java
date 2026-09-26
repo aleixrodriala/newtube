@@ -142,6 +142,10 @@ public class MediaHttpClientTest {
         assertEquals(4_000, media.readTimeoutMillis());
         assertEquals(4_000, media.writeTimeoutMillis());
         assertTrue(media.fastFallback());
+        // Its own H2 PING even though the shared client here has none: a fresh builder inherits
+        // nothing, and an idle pooled googlevideo H2 connection must not go silently stale.
+        assertEquals(0, shared.pingIntervalMillis());
+        assertEquals(MediaHttpClient.PING_INTERVAL_MS, media.pingIntervalMillis());
     }
 
     @Test
@@ -232,6 +236,88 @@ public class MediaHttpClientTest {
         } finally {
             source.close();
             closeClient(media);
+        }
+    }
+
+    /**
+     * NEWTUBE(media-path): the OkHttp warm (MediaPathRouting) and every player's media client are
+     * separate OkHttpClient instances; they share a pooled connection only because they derive
+     * from one base (same Dns / SSLSocketFactory identities in the connection's Address).
+     */
+    @Test
+    public void mediaClientsOfOneApiClientReuseEachOthersConnections() throws Exception {
+        OkHttpClient shared = new OkHttpClient.Builder().proxy(Proxy.NO_PROXY).build();
+        OkHttpClient warm = MediaHttpClient.create(shared);
+        OkHttpClient player = MediaHttpClient.create(shared);
+        OkHttpClient otherApi = MediaHttpClient.create(
+                new OkHttpClient.Builder().proxy(Proxy.NO_PROXY).build());
+        assertNotSame(warm.dispatcher(), player.dispatcher()); // per-caller request limits kept
+        try (KeepAliveServer server = new KeepAliveServer()) {
+            fetch(warm, server.url());
+            fetch(player, server.url());
+            assertEquals(1, server.connections.get()); // the player reused the warm connection
+
+            fetch(otherApi, server.url()); // another API client = another pool and base
+            assertEquals(2, server.connections.get());
+        } finally {
+            closeClient(warm);
+            closeClient(player);
+            closeClient(otherApi);
+        }
+    }
+
+    private static void fetch(OkHttpClient client, String url) throws IOException {
+        try (okhttp3.Response response = client.newCall(
+                new okhttp3.Request.Builder().url(url).build()).execute()) {
+            assertEquals(204, response.code());
+        }
+    }
+
+    /** HTTP/1.1 keep-alive: answers every request on a connection, counts connections. */
+    private static final class KeepAliveServer implements AutoCloseable {
+        final AtomicInteger connections = new AtomicInteger();
+        private final ServerSocket mServer;
+        private final ExecutorService mExecutor = Executors.newCachedThreadPool();
+
+        KeepAliveServer() throws IOException {
+            mServer = new ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"));
+            mExecutor.submit(() -> {
+                while (!mServer.isClosed()) {
+                    Socket socket = mServer.accept();
+                    connections.incrementAndGet();
+                    mExecutor.submit(() -> serve(socket));
+                }
+                return null;
+            });
+        }
+
+        String url() {
+            return "http://127.0.0.1:" + mServer.getLocalPort() + "/generate_204";
+        }
+
+        private Void serve(Socket socket) throws IOException {
+            try (Socket s = socket) {
+                s.setSoTimeout(5_000);
+                BufferedReader reader = new BufferedReader(new InputStreamReader(
+                        s.getInputStream(), StandardCharsets.US_ASCII));
+                while (reader.readLine() != null) {
+                    for (String line; (line = reader.readLine()) != null && !line.isEmpty();) {
+                        // drain the request headers
+                    }
+                    s.getOutputStream().write("HTTP/1.1 204 No Content\r\n\r\n"
+                            .getBytes(StandardCharsets.US_ASCII));
+                    s.getOutputStream().flush();
+                }
+            } catch (IOException ignored) {
+                // client went away
+            }
+            return null;
+        }
+
+        @Override
+        public void close() throws IOException {
+            mServer.close();
+            mExecutor.shutdownNow();
         }
     }
 

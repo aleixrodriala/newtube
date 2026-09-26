@@ -68,6 +68,24 @@ import com.newtube.mobile.ui.webbrowser.MobileWebBrowserActivity;
  * runs.
  */
 public class MobileMainApplication extends MainApplication {
+    /** BotGuard warmup for a process whose first Activity never draws (see onCreate). */
+    private static final long TOKEN_WARMUP_FALLBACK_MS = 4_000;
+
+    static {
+        // HTTP/2 (mobile-only): unpin the API OkHttp client from HTTP/1.1. The pin dodges a
+        // StreamResetException on old TV boxes; on phones it costs every InnerTube call its
+        // multiplexing, and - worse - its liveness: only H2 carries the shared client's 10 s PING,
+        // which keeps a carrier NAT mapping alive between calls and kills a dead connection.
+        // Measured 2026-09-26 (Movistar LTE): pinned to HTTP/1.1, a /player POST reused a socket
+        // idle for 76 s whose NAT mapping was gone and stalled 8 s (attempt-timeout, wasted ring
+        // steps, first frame +9.2 s).
+        // It has to win against EVERY path that builds the shared client, so it runs when this
+        // class loads, before onCreate. It used to be a line deep inside onCreate; a round-3
+        // call placed above it (VideoInfoService.setBotWallStore -> instance() -> Retrofit ->
+        // OkHttpManager.getClient) built the client first, and the flag silently did nothing.
+        // OkHttpManager now reports a late call. TV never calls this.
+        OkHttpManager.setPreferHttp2(true);
+    }
 
     @Override
     public boolean restorePictureInPictureFromLauncher(Activity launcher) {
@@ -100,6 +118,9 @@ public class MobileMainApplication extends MainApplication {
         // Keep ALL existing TV init: Conscrypt, GlobalPreferences, multidex, the
         // global exception handler and every other View->Activity mapping.
         super.onCreate();
+
+        // Release-visible launch milestones + the "first frame drawn" hook used below.
+        LaunchMilestones.install(this);
 
         // NETWORK FORENSICS (mobile-only): observe default-network replacements/capability changes
         // so a Wi-Fi -> 5G transition can be correlated with URL remints, media errors and ABR
@@ -278,6 +299,10 @@ public class MobileMainApplication extends MainApplication {
                 SuggestionsController.setEagerColdOpenEnabled(false);
                 android.util.Log.w("NetPath", "cold-open eager suggestions disabled (debug)");
             }
+
+            // BOT-WALL SIMULATION (debug builds only): debug.arc.botwall anon|all|<CLIENT,...>
+            // answers the chosen /player requests with YouTube's "not a bot" wall. See DebugBotWall.
+            com.newtube.mobile.player.DebugBotWall.install();
         }
 
         // LIVE ROUTING (mobile-only): WEB_EMBED answers live videos HLS-only (no dashManifestUrl
@@ -313,13 +338,22 @@ public class MobileMainApplication extends MainApplication {
         // reconnect, or every ten minutes. TV never calls this.
         VideoInfoService.setAuthRouteQuarantineStore(new AuthRouteQuarantineStore(this));
 
-        // GUEST IDENTITY (mobile-only): a bot challenge on the anonymous partition now starts a
-        // NEW visitor instead of only starting the 15-minute cooldown on the challenged one. Off
-        // device, the same client and IP answered "Sign in to confirm you're not a bot" with no
-        // visitorData and OK with a freshly minted one. Not a guaranteed cure -- a challenge can
-        // also be bound to the client context -- so the outcome is logged (visitorRotated=) rather
-        // than assumed. TV keeps its previous behaviour.
-        VideoInfoService.setRotateVisitorOnAnonChallenge(true);
+        // BOT-WALL MEMORY (mobile-only): the walled network attachments, their probe backoff and
+        // the account route's benches survive a restart within the boot, so a cold open under a
+        // wall resumes its short plan instead of re-walking the ring. Restored off the main
+        // thread; see VideoInfoService.setBotWallStore. TV never calls this.
+        VideoInfoService.setBotWallStore(new com.newtube.mobile.player.BotWallPrefsStore(this));
+
+        // GUEST IDENTITY: a bot challenge on the anonymous partition keeps the visitor the app
+        // already has, like TV; the anonymous cooldown reorders the ring and BotWallBook limits
+        // walled requests. VideoInfoService.setRotateVisitorOnAnonChallenge(true) used to be called
+        // here (2026-09-07) and replaced the PERSISTENT visitor -- Home, /next, search, signed-out
+        // history -- on every challenge. It did not rescue either wall we observed: on 09-25 LTE
+        // it made seven new identities in about two minutes and none of the 140 anonymous answers
+        // that followed was OK, and on 07-27 a brand-new visitor was challenged 7/7. Why those
+        // walls happened (IP, client, attestation, session) is unproven; the identity cost is not.
+        // Evidence and the dormant web-pot-only variant (one line here re-enables it):
+        // VideoInfoService.rotateAnonymousIdentity.
 
         // STORYBOARD TRIM (mobile-only): the touch UI has no seek-preview thumbnails yet
         // (MobilePlaybackActivity.loadStoryboard is a stub), but a winning client without a
@@ -345,6 +379,28 @@ public class MobileMainApplication extends MainApplication {
         // these -> TV shelf fill + focus behavior unchanged.
         com.liskovsoft.smartyoutubetv2.common.app.presenters.BrowsePresenter.setRowPadContinuationsDisabled(true);
         com.liskovsoft.smartyoutubetv2.common.app.presenters.BrowsePresenter.setSkipRedundantRefocusLoad(true);
+
+        // FEED LAUNCH (mobile-only, round 3): signed-in Home drained its whole section list at
+        // launch - the first /browse plus 6 serial continuations and their JSON parses in the
+        // ~1.5 s after first paint, i.e. during the first thumbnails and the first tap. Fetch the
+        // first page and one page ahead; later pages when the grid scrolls toward them, never
+        // behind the player (HomeSectionPacer). Debug A/B: setprop debug.arc.lazy_home 0.
+        boolean eagerHomeWalk = com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG
+                && "0".equals(getDebugSystemProperty("debug.arc.lazy_home"));
+        com.liskovsoft.smartyoutubetv2.common.app.presenters.BrowsePresenter.setPacedHomeWalkEnabled(!eagerHomeWalk);
+        if (eagerHomeWalk) {
+            android.util.Log.w("NetPath", "lazy home walk disabled (debug)");
+        }
+
+        // FEED LAUNCH (mobile-only, round 3): Splash starts Home's first /browse the moment it
+        // decides to open Home, instead of 150-360 ms later from the Browse Activity (see
+        // BrowsePresenter.prefetchBootSection). Debug A/B: setprop debug.arc.home_prefetch 0.
+        boolean noHomePrefetch = com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG
+                && "0".equals(getDebugSystemProperty("debug.arc.home_prefetch"));
+        com.liskovsoft.smartyoutubetv2.common.app.presenters.BrowsePresenter.setBootPrefetchEnabled(!noHomePrefetch);
+        if (noHomePrefetch) {
+            android.util.Log.w("NetPath", "home boot prefetch disabled (debug)");
+        }
 
         // API COMPRESSION (mobile-only): negotiate brotli for InnerTube JSON (feeds are the big
         // payloads — br is ~15-25% smaller than gzip on them). Upstream flip-flopped `br` four
@@ -396,12 +452,7 @@ public class MobileMainApplication extends MainApplication {
         // into the media3 engine (Media3TrackAdapter.setPreferOriginalAudio, wired by
         // Media3PlayerController) - the legacy TrackSelectorManager flag is gone with that engine.
 
-        // HTTP/2 (mobile-only): unpin the API OkHttp client from HTTP/1.1. The pin dodges a
-        // StreamResetException on old TV boxes; on phones it just costs every InnerTube call
-        // multiplexing + connection reuse (Home fires several section fetches in parallel = N TLS
-        // handshakes on H1 vs one shared H2 connection). Must run before the first client build
-        // (the token warmup immediately below can build it). TV never calls this.
-        OkHttpManager.setPreferHttp2(true);
+        // HTTP/2 (mobile-only): set in this class's static initializer - see there.
 
         // Decoder capability only: do not switch the metadata client or alter account state.
         com.newtube.mobile.player.SabrSourcePreference.initialize(this);
@@ -432,7 +483,22 @@ public class MobileMainApplication extends MainApplication {
             if (com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG) {
                 android.util.Log.d("NetPath", "startup token-warmup scheduled");
             }
-            VideoInfoService.warmUpPoTokenGate();
+            // NEWTUBE(startup): ...but not before the first screen has drawn. The warmup thread
+            // posts the BotGuard WebView construction to the MAIN thread, and at app start that
+            // message lands right behind SplashActivity.onCreate - i.e. in front of the next
+            // Activity's creation. A Pixel 9 sampling trace of a cold share-link open shows it
+            // there: 89 ms of PoTokenWebView init on the main thread between Splash and
+            // MobilePlaybackActivity.onCreate; on a launcher start the same message lands somewhere
+            // in Home's creation or first frames (not traced). After the first frame it delays
+            // neither screen's first draw. VISIONOS/TV only peek the
+            // visitor (no WebView), so the common open never waits for it; a web-family fallback
+            // (seconds into a ring walk) still finds the generator warm or warming - it starts
+            // ~0.1-0.2 s later than before - and demand initialization is unchanged. The 4 s
+            // fallback covers processes started without any UI.
+            LaunchMilestones.runAfterFirstFrame(TOKEN_WARMUP_FALLBACK_MS, () -> {
+                LaunchMilestones.log("token-warmup start");
+                VideoInfoService.warmUpPoTokenGate();
+            });
         }
 
         // POOL EVICTION (mobile-only): with H2 on, every InnerTube call rides ONE connection, and
@@ -488,10 +554,13 @@ public class MobileMainApplication extends MainApplication {
         // process starts. RetrofitOkHttpHelper's InnerTube client is built via newBuilder() off
         // OkHttpManager's base client, so they SHARE one ConnectionPool — a completed handshake
         // here is the connection the first /browse rides, taking DNS+TCP+TLS off the cold-start
-        // critical path (the googlevideo preconnect above covers only the media host).
+        // critical path (the googlevideo preconnect above covers only the media host). It runs
+        // on the InnerTube client itself so that client's stale-connection guard sees this
+        // connection too (it only observes its own calls).
         Thread preconnect = new Thread(() -> {
             try {
-                OkHttpManager.instance().warmUpConnection("https://www.youtube.com/generate_204");
+                com.liskovsoft.googlecommon.common.helpers.RetrofitHelper.warmUpApiConnection(
+                        "https://www.youtube.com/generate_204");
                 android.util.Log.d("NetPath", "preconnected www.youtube.com");
             } catch (Throwable e) {
                 android.util.Log.d("NetPath", "www.youtube.com preconnect skipped: " + e.getMessage());

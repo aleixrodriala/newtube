@@ -81,6 +81,13 @@ without auditing `LiveDashManifestParser` + `Helpers.setField` call sites).
   as routine — the first /player client's links are often refused; recover like
   `ErrorFixerController` (`markCurrentPlaybackRouteForbidden` + `applyNoPlaybackFix`
   + re-resolve the same itags), never by retrying the same link.
+- **InnerTube must run over HTTP/2** (`protocol=h2` on every `api-http`/`player-http` NetPath
+  line). The shared OkHttp client freezes its protocols when first built, so anything that builds
+  it early (a `VideoInfoService.instance()` or Retrofit call at startup) used to pin HTTP/1.1
+  silently; that cost a day of measurements and a 7 s `/player` stall on LTE (a NAT-dropped idle
+  socket; HTTP/2's 10 s ping prevents it). The flag is now set in `MobileMainApplication`'s static
+  initializer and a late call logs `prefer-http2=true IGNORED` — check that line after touching
+  app startup.
 - **`getResources().getDisplayMetrics()` is NOT this device's metrics.**
   `MotherActivity.initDpi()` (private, called from its `onCreate` — not overridable)
   swaps in one process-wide cached instance: density is derived from a 1920px TV

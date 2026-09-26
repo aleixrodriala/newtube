@@ -250,7 +250,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             bindProgress(video);
             bindReadiness(video);
 
-            String thumbnailUrl = ClickbaitRemover.updateThumbnail(video, MainUIData.instance(context).getThumbQuality());
+            String thumbnailUrl = thumbnailUrl(context, video);
             if (thumbnailUrl == null ? mBoundThumbUrl != null : !thumbnailUrl.equals(mBoundThumbUrl)) {
                 bindThumbnail(context, video);
             }
@@ -319,21 +319,44 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             return sThumbW;
         }
 
-        private void bindThumbnail(Context context, Video video) {
-            int thumbQuality = MainUIData.instance(context).getThumbQuality();
-            String thumbnailUrl = ClickbaitRemover.updateThumbnail(video, thumbQuality);
-            mBoundThumbUrl = thumbnailUrl;
-
+        /**
+         * The card's primary thumbnail request, without its view-only options (transition, error
+         * fallback). NEWTUBE(scroll): shared with {@link com.newtube.mobile.ui.common.FeedThumbnailPreloader}
+         * so a preloaded image has exactly the memory-cache key the bind will ask for (same URL,
+         * size, transformation and decode format) and the card binds it with no network wait and
+         * no fade.
+         */
+        public static com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable> thumbnailRequest(
+                com.bumptech.glide.RequestManager glide, Context context, Video video) {
             int w = thumbWidth(context);
-            com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable> request = Glide.with(context)
-                    .load(thumbnailUrl)
+            return glide
+                    .load(thumbnailUrl(context, video))
                     .diskCacheStrategy(DiskCacheStrategy.ALL)
                     .format(DecodeFormat.PREFER_RGB_565)
                     .override(w, sThumbH)
-                    .centerCrop()
+                    .centerCrop();
+        }
+
+        public static String thumbnailUrl(Context context, Video video) {
+            return ClickbaitRemover.updateThumbnail(video, MainUIData.instance(context).getThumbQuality());
+        }
+
+        private void bindThumbnail(Context context, Video video) {
+            String thumbnailUrl = thumbnailUrl(context, video);
+            mBoundThumbUrl = thumbnailUrl;
+
+            int w = thumbWidth(context);
+            com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable> request =
+                    thumbnailRequest(Glide.with(context), context, video)
                     // Network loads fade in over the placeholder-colored card instead of popping;
                     // memory-cache hits skip the transition entirely, so scrolling stays crisp.
                     .transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.withCrossFade(150));
+
+            // NEWTUBE(startup): release-visible "first thumbnail on screen" milestone. The listener
+            // is attached only until it has fired once per process.
+            if (com.newtube.mobile.LaunchMilestones.wantsFirstThumb()) {
+                request = request.addListener(FIRST_THUMB_LISTENER);
+            }
 
             // At the default thumb quality the primary URL IS the card URL, so a fallback request
             // would be identical - only pay the second RequestBuilder when it can actually differ.
@@ -348,6 +371,24 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
 
             request.into(mThumbnail);
         }
+
+        private static final com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable> FIRST_THUMB_LISTENER =
+                new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
+                    @Override
+                    public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model,
+                            com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                            boolean isFirstResource) {
+                        return false;
+                    }
+
+                    @Override
+                    public boolean onResourceReady(android.graphics.drawable.Drawable resource, Object model,
+                            com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target,
+                            com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                        com.newtube.mobile.LaunchMilestones.onFirstThumb(dataSource);
+                        return false;
+                    }
+                };
 
         public void unbind() {
             mVideo = null;

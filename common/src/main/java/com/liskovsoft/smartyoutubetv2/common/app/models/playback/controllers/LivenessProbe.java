@@ -65,9 +65,22 @@ final class LivenessProbe {
     }
 
     synchronized void start() {
+        start(false);
+    }
+
+    /**
+     * @param failureAlreadySeen NEWTUBE(offline-wait): the episode began with the device reporting
+     *                           no validated network. That IS the failure half of the transition,
+     *                           so the first answer already means recovery. It matters on a network
+     *                           that reaches YouTube but never earns VALIDATED (a VPN, a network
+     *                           blocking Android's validation check): no network edge ever fires
+     *                           there, and requiring a failed probe first left the player waiting
+     *                           for good.
+     */
+    synchronized void start(boolean failureAlreadySeen) {
         int generation = ++mGeneration;
         mStartedAtMs = mClock.nowMs();
-        mSawFailure = false;
+        mSawFailure = failureAlreadySeen;
         mProbeCount = 0;
         mScheduler.schedule(() -> runProbe(generation), FIRST_DELAY_MS);
     }

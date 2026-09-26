@@ -63,5 +63,33 @@ public class MobilePlaybackLaunchTest {
         assertFalse(MobilePlaybackActivity.shouldFinishWithoutVideo(true, false, false));
         assertFalse(MobilePlaybackActivity.shouldFinishWithoutVideo(true, false, true));
         assertFalse(MobilePlaybackActivity.shouldFinishWithoutVideo(true, true, false));
+        assertFalse(MobilePlaybackActivity.isRestoredWithoutVideo(true, true, true));
+        assertFalse(MobilePlaybackActivity.isRestoredWithoutVideo(true, false, true));
+    }
+
+    /**
+     * Saved state with an empty presenter only happens in a NEW process: the task record outlived
+     * the process. Reproduced on the API-36 emulator by killing the app while a closed mini-player
+     * session was parked behind Home - Back on Home then recreated the empty 00:00 watch page.
+     * Only a player that was a HIDDEN mini session when its state was saved bails out.
+     */
+    @Test
+    public void hiddenMiniSessionRestoredAfterProcessDeathBailsOut() {
+        assertTrue(MobilePlaybackActivity.isRestoredWithoutVideo(
+                /* hasSavedState= */ true, /* wasHiddenSession= */ true,
+                /* presenterHasVideo= */ false));
+    }
+
+    /**
+     * A full player the user was watching (backgrounded, then killed for memory) is restored from
+     * Recents with the same inputs minus the hidden flag. It must not vanish.
+     */
+    @Test
+    public void restoredFullPlayerIsKept() {
+        assertFalse(MobilePlaybackActivity.isRestoredWithoutVideo(
+                /* hasSavedState= */ true, /* wasHiddenSession= */ false,
+                /* presenterHasVideo= */ false));
+        // A fresh launch is the other rule's business (shouldFinishWithoutVideo).
+        assertFalse(MobilePlaybackActivity.isRestoredWithoutVideo(false, false, false));
     }
 }

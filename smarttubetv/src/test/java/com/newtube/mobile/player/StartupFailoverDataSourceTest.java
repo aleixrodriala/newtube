@@ -182,6 +182,59 @@ public class StartupFailoverDataSourceTest {
     }
 
     @Test
+    public void anHttpAnswerOnTheFallbackIsEvidenceAgainstTheStalledPrimary() {
+        // Measured (Pixel 9, LTE, signed-in head): Cronet silent in TLS for 3.5 s, then OkHttp got
+        // the media 403. The 403 surfaces unchanged (fatal: fresh URLs), and Cronet is still the
+        // transport at fault - the recovery reload must not pay its stall again.
+        FakeTransports transports = new FakeTransports();
+        transports.primaryBehavior = Behavior.SILENT;
+        transports.fallbackBehavior = Behavior.HTTP_403;
+        RecordingCallbacks callbacks = new RecordingCallbacks(early(3_100));
+        StartupFailoverDataSource source = newSource(transports, callbacks);
+
+        HttpDataSource.InvalidResponseCodeException failure = assertThrows(
+                HttpDataSource.InvalidResponseCodeException.class, () -> source.open(INIT));
+
+        assertEquals(403, failure.responseCode);
+        assertFalse(MediaStartupTimeoutException.isInChain(failure)); // an answer, not a timeout
+        assertTrue(Media3SourceFactory.FailFastLoadErrorPolicy.isFatalTransportError(failure));
+        assertEquals(Collections.singletonList("http-403"), callbacks.fallbackOutcomes);
+        assertEquals(1, callbacks.primaryFaults);
+    }
+
+    @Test
+    public void onlyAConnectOrTlsStallIsAPathVerdict() {
+        // Movistar LTE: every Cronet stall was 11(tls) - the persisted per-network verdict.
+        assertTrue(Media3SourceFactory.isPathPhase(Media3SourceFactory.cronetStatusCode(
+                cronetStuckIn(org.chromium.net.UrlRequest.Status.SSL_HANDSHAKE))));
+        assertTrue(Media3SourceFactory.isPathPhase(Media3SourceFactory.cronetStatusCode(
+                new IOException("wrapped", cronetStuckIn(org.chromium.net.UrlRequest.Status.CONNECTING)))));
+        // 13(waiting): the request reached the edge, which was slow for it - not the path; nor
+        // DNS, nor Cronet's own socket pool, nor a failure that carries no phase at all.
+        for (int status : new int[] {org.chromium.net.UrlRequest.Status.WAITING_FOR_RESPONSE,
+                org.chromium.net.UrlRequest.Status.RESOLVING_HOST,
+                org.chromium.net.UrlRequest.Status.WAITING_FOR_AVAILABLE_SOCKET}) {
+            assertFalse(Media3SourceFactory.isPathPhase(
+                    Media3SourceFactory.cronetStatusCode(cronetStuckIn(status))));
+        }
+        assertEquals(-1, Media3SourceFactory.cronetStatusCode(new SocketTimeoutException()));
+        assertFalse(Media3SourceFactory.isPathPhase(-1));
+    }
+
+    private static CronetDataSource.OpenException cronetStuckIn(int status) {
+        return new CronetDataSource.OpenException(new SocketTimeoutException(), INIT, 2002, status);
+    }
+
+    @Test
+    public void responseCodeIsFoundAnywhereInTheChain() {
+        assertEquals(403, StartupFailoverDataSource.responseCode(forbidden()));
+        assertEquals(403, StartupFailoverDataSource.responseCode(
+                new IOException("load", new IOException("open", forbidden()))));
+        assertEquals(-1, StartupFailoverDataSource.responseCode(new SocketTimeoutException()));
+        assertEquals(-1, StartupFailoverDataSource.responseCode(null));
+    }
+
+    @Test
     public void noAlternatePathMeansNoEarlyFailover() {
         FakeTransports transports = new FakeTransports();
         transports.primaryBehavior = Behavior.SILENT;
@@ -556,14 +609,18 @@ public class StartupFailoverDataSourceTest {
         public void onFallbackResult(DataSpec dataSpec, StartupDeadlinePolicy.Decision decision,
                 boolean answered, boolean deadlineHit, long legMs, long totalMs,
                 @Nullable IOException cause) {
+            int status = StartupFailoverDataSource.responseCode(cause);
             fallbackOutcomes.add(answered ? "answered"
-                    : deadlineHit ? "no-response-deadline" : "no-response");
+                    : deadlineHit ? "no-response-deadline"
+                    : status > 0 ? "http-" + status : "no-response");
         }
 
         @Override
         public void onPrimaryTransportFault(DataSpec dataSpec,
-                StartupDeadlinePolicy.Decision decision) {
+                StartupDeadlinePolicy.Decision decision, IOException primaryFailure) {
             primaryFaults++;
+            // The primary's own failure travels along (Cronet: the phase it was stuck in).
+            assertTrue(StartupFailoverDataSource.isNoResponseTimeout(primaryFailure));
             // The fault is attributed to the network the primary stalled on, not today's.
             assertEquals("cell:104", decision.networkKey);
         }

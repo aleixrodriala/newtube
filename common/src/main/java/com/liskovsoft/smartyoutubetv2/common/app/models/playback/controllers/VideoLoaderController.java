@@ -97,6 +97,13 @@ public class VideoLoaderController extends BasePlayerController {
             getPlayer().showProgressBar(true);
         }
     };
+    /** NEWTUBE(next-prefetch): one-shot deadline timer, see {@link NextPrefetchPolicy}. */
+    private final Runnable mNextPrefetchDue = this::onNextPrefetchDue;
+    /** What this playback may still spend on autoplay-next resolutions (targets, retries). */
+    private final NextPrefetchLedger mNextPrefetchLedger = new NextPrefetchLedger();
+    /** Wall time this open has spent PLAYING, for the short-clip guard (a seek adds nothing). */
+    private long mPlayedWallMs;
+    private long mPlayingSinceMs = -1;
 
     public VideoLoaderController() {
         mPlaylist = Playlist.instance();
@@ -259,6 +266,8 @@ public class VideoLoaderController extends BasePlayerController {
 
     @Override
     public void onPlayEnd() {
+        stopPlayedClock();
+        Utils.removeCallbacks(mNextPrefetchDue);
         if (getPlayer() == null) {
             return;
         }
@@ -297,7 +306,81 @@ public class VideoLoaderController extends BasePlayerController {
     @Override
     public void onTickle() {
         checkSleepTimer();
-        preloadNextVideoIfNeeded();
+        preloadNextVideoIfNeeded(); // fallback only - the deadline timer below normally fires first
+    }
+
+    // NEWTUBE(next-prefetch): keep the autoplay-next deadline in step with the playhead. Every
+    // event that moves "wall time until the end" re-arms it; pause/end/open cancel it.
+    @Override
+    public void onPlay() {
+        if (mPlayingSinceMs < 0) {
+            mPlayingSinceMs = SystemClock.elapsedRealtime();
+        }
+        scheduleNextPrefetch();
+    }
+
+    @Override
+    public void onPause() {
+        stopPlayedClock();
+        Utils.removeCallbacks(mNextPrefetchDue);
+    }
+
+    @Override
+    public void onBuffering() {
+        stopPlayedClock(); // a rebuffer is not watching; onPlay restarts the clock and the timer
+    }
+
+    private void stopPlayedClock() {
+        if (mPlayingSinceMs >= 0) {
+            mPlayedWallMs += SystemClock.elapsedRealtime() - mPlayingSinceMs;
+            mPlayingSinceMs = -1;
+        }
+    }
+
+    private long playedWallMs() {
+        return mPlayedWallMs + (mPlayingSinceMs >= 0 ? SystemClock.elapsedRealtime() - mPlayingSinceMs : 0);
+    }
+
+    @Override
+    public void onSeekEnd() {
+        scheduleNextPrefetch();
+    }
+
+    @Override
+    public void onSpeedChanged(float speed) {
+        scheduleNextPrefetch();
+    }
+
+    private void scheduleNextPrefetch() {
+        Utils.removeCallbacks(mNextPrefetchDue);
+        PlaybackView player = getPlayer();
+        if (player == null || getVideo() == null || getVideo().isLive || !player.isPlaying()) {
+            return;
+        }
+        long delayMs = NextPrefetchPolicy.delayUntilDueMs(player.getDurationMs(),
+                player.getPositionMs(), player.getSpeed(), playedWallMs());
+        if (delayMs == NextPrefetchPolicy.NEVER) {
+            return;
+        }
+        if (delayMs == 0) {
+            preloadNextVideoIfNeeded();
+        } else {
+            Utils.postDelayed(mNextPrefetchDue, delayMs);
+        }
+    }
+
+    private void onNextPrefetchDue() {
+        PlaybackView player = getPlayer();
+        if (player == null) {
+            return;
+        }
+        // A rebuffer or a slow playhead makes the timer early; re-arm from the real position.
+        if (NextPrefetchPolicy.isDue(player.getDurationMs(), player.getPositionMs(), player.getSpeed(),
+                playedWallMs())) {
+            preloadNextVideoIfNeeded();
+        } else {
+            scheduleNextPrefetch();
+        }
     }
 
     private void checkSleepTimer() {
@@ -321,6 +404,8 @@ public class VideoLoaderController extends BasePlayerController {
     private void loadVideo(Video item) {
         if (getPlayer() != null && item != null) {
             mPlaybackGeneration++;
+            mPlayedWallMs = 0; // NEWTUBE(next-prefetch): the short-clip guard counts per open
+            mPlayingSinceMs = -1;
             NetPath.logOpen(item.videoId, item.getTitle()); // NetPath milestone 1: open requested
             mPlaylist.setCurrent(item);
             getPlayer().setVideo(item);
@@ -682,7 +767,7 @@ public class VideoLoaderController extends BasePlayerController {
     private void disposeActions() {
         MediaServiceManager.instance().disposeActions();
         RxHelper.disposeActions(mFormatInfoAction);
-        Utils.removeCallbacks(mReloadVideo, mLoadNext, mRestartEngine, mMetadataSync);
+        Utils.removeCallbacks(mReloadVideo, mLoadNext, mRestartEngine, mMetadataSync, mNextPrefetchDue);
         mUpcomingPollDueAtMs = 0; // NEWTUBE(upcoming-poll): its reload was just removed above
     }
 
@@ -929,11 +1014,12 @@ public class VideoLoaderController extends BasePlayerController {
     }
 
     /**
-     * NEWTUBE(next-prefetch): called from the minute {@link #onTickle()}. Inside the last ~80s of
-     * playback (raised from 50s so the minute-aligned tick always lands in the window) prefetch the
-     * NEXT video's format info: it lands in the media service's single-slot cache (and the
-     * single-flight collapses a concurrent fetch), so the autoplay advance skips the full InnerTube
-     * round-trip, and the fetch's media-host preconnect warms the next googlevideo host for free.
+     * NEWTUBE(next-prefetch): called by the deadline timer ({@link #scheduleNextPrefetch}, armed on
+     * play/seek/speed) and, as a fallback, the minute {@link #onTickle()}. Once
+     * {@link NextPrefetchPolicy} says the end is near, prefetch the NEXT video's format info: it
+     * lands in the media service's format cache (and the single-flight collapses a concurrent
+     * fetch), so the autoplay advance skips the full InnerTube round-trip, and the fetch's
+     * media-host preconnect warms the next googlevideo host shortly before it is needed.
      * The mobile engine may also preload bounded media once current playback is safely buffered.
      * Skipped while paused (user browsing) and when the playback mode
      * won't auto-advance.
@@ -954,7 +1040,8 @@ public class VideoLoaderController extends BasePlayerController {
             return; // autoplay-next is off for this mode
         }
 
-        if (getPlayer().getDurationMs() - getPlayer().getPositionMs() < 80_000) {
+        if (NextPrefetchPolicy.isDue(getPlayer().getDurationMs(), getPlayer().getPositionMs(),
+                getPlayer().getSpeed(), playedWallMs())) {
             // NEWTUBE(prepare-stash): once the next video's info lands, also pre-build its
             // MediaSource (the MPD XML gen+parse the open path would otherwise pay) - but ONLY
             // when the open dispatch below (processFormatInfo) would take the plain
@@ -962,7 +1049,25 @@ public class VideoLoaderController extends BasePlayerController {
             // matching openDash. No-op on TV (default PlayerEngine method).
             Video currentVideo = getVideo();
             long generation = mPlaybackGeneration;
-            MediaServiceManager.instance().loadFormatInfo(mSuggestionsController.getNext(), formatInfo -> {
+            // Inside the lead window the candidate is re-read every RECHECK_MS (a local call): a
+            // queue edit, a late shuffle pick or /next landing after the deadline changes it, and
+            // a short video could end before the minute tick noticed. Network is only spent on a
+            // target the ledger allows (new target, bounded retry, stale answer).
+            Utils.removeCallbacks(mNextPrefetchDue);
+            Utils.postDelayed(mNextPrefetchDue, NextPrefetchPolicy.RECHECK_MS);
+            Video next = mSuggestionsController.getNext();
+            if (next == null || next.videoId == null) {
+                return; // /next (the autoplay target's source) may still be in flight
+            }
+            String nextId = next.videoId;
+            if (!mNextPrefetchLedger.tryStart(generation, nextId, SystemClock.elapsedRealtime())) {
+                return;
+            }
+            NetPath.log(NetPath.context() + " next-prefetch video=" + nextId
+                    + " remainingMs=" + (getPlayer().getDurationMs() - getPlayer().getPositionMs())
+                    + " speed=" + getPlayer().getSpeed() + " playedMs=" + playedWallMs());
+            loadNextFormatInfo(next, formatInfo -> {
+                mNextPrefetchLedger.onSuccess(generation, nextId, SystemClock.elapsedRealtime());
                 // A slow callback from a previous video must not inherit the new engine generation
                 // and start speculative media after a manual switch.
                 if (getVideo() != currentVideo || mPlaybackGeneration != generation) {
@@ -972,8 +1077,20 @@ public class VideoLoaderController extends BasePlayerController {
                 if (player != null && formatInfo != null && wouldOpenPlainDash(formatInfo)) {
                     player.prebuildNextSource(formatInfo);
                 }
+            }, error -> {
+                // Error or no answer: the ledger allows one retry, which the running recheck
+                // timer picks up after NextPrefetchLedger.RETRY_AFTER_MS.
+                mNextPrefetchLedger.onFailure(generation, nextId, SystemClock.elapsedRealtime());
+                NetPath.log(NetPath.context() + " next-prefetch failed video=" + nextId
+                        + " retry=" + (mNextPrefetchLedger.canRetry(generation, nextId) ? "y" : "n"));
             });
         }
+    }
+
+    /** The autoplay-next resolution itself; a seam so the deadline logic is testable offline. */
+    protected void loadNextFormatInfo(Video next, MediaServiceManager.OnFormatInfo onFormatInfo,
+            MediaServiceManager.OnError onError) {
+        MediaServiceManager.instance().loadFormatInfo(next, onFormatInfo, onError);
     }
 
     /**

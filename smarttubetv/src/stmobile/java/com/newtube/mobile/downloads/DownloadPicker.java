@@ -76,7 +76,10 @@ public final class DownloadPicker {
         // The format info carries the canonical title/author; the card may only have a partial one.
         String title = video.getTitle() != null ? video.getTitle() : info.getTitle();
         String author = video.getAuthor() != null ? video.getAuthor() : info.getAuthor();
-        String thumb = video.getCardImageUrl() != null ? video.getCardImageUrl()
+        // A card built from a download carries its local file:// thumbnail, which a new job cannot
+        // fetch (the file goes with the deleted copy): only http(s) card images are used as is.
+        String cardImage = video.getCardImageUrl();
+        String thumb = cardImage != null && cardImage.startsWith("http") ? cardImage
                 : "https://i.ytimg.com/vi/" + video.videoId + "/hqdefault.jpg";
 
         AppDialogPresenter dialog = AppDialogPresenter.instance(context);

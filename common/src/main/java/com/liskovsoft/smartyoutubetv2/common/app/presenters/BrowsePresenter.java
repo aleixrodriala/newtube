@@ -123,6 +123,50 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         sSkipRedundantRefocusLoad = skip;
     }
 
+    /**
+     * NEWTUBE(lazy-home): phone gate. Home's section list is fetched one page ahead of the
+     * reader instead of draining every continuation at launch - see {@link HomeSectionPacer}.
+     * TV never calls this -> the eager walk is unchanged there.
+     */
+    private static volatile HomeSectionPacer sHomePacer;
+
+    public static void setPacedHomeWalkEnabled(boolean enabled) {
+        HomeSectionPacer pacer = enabled ? new HomeSectionPacer() : null;
+        sHomePacer = pacer;
+        com.liskovsoft.youtubeapi.browse.v2.BrowseServiceGates.setSectionListPacer(pacer);
+    }
+
+    /** A paced Home walk is subscribed and has not completed: scroll-end asks it for the next page. */
+    private boolean mHomeWalkActive;
+    /** ...and has delivered its first page (it is now only waiting for the grid). */
+    private boolean mHomeWalkDelivered;
+    /** Scroll-end that asked the walk for a page; replayed as a shelf continuation if the walk ends first. */
+    private Video mPendingScrollEndItem;
+
+    /**
+     * NEWTUBE(boot-prefetch): phone gate. On a cold launch Home's first /browse used to leave only
+     * once MobileBrowseActivity had been created and its presenter had focused the boot section -
+     * 150-360 ms after SplashActivity had already decided to open Home (Pixel 9 release logs:
+     * "splash route" -> first "api-http[S] ... /browse"), in front of a ~1-1.6 s server response.
+     * Splash now starts that same observable ({@link #prefetchBootSection}); the Browse load adopts
+     * it instead of subscribing again. TV never enables it.
+     */
+    private static volatile boolean sBootPrefetchEnabled;
+    /** An unclaimed boot prefetch is dropped after this; Browse normally claims it within ~0.3 s. */
+    private static final long BOOT_PREFETCH_MAX_AGE_MS = 20_000;
+    private io.reactivex.rxjava3.observables.ConnectableObservable<List<MediaGroup>> mBootPrefetch;
+    private Disposable mBootPrefetchConnection;
+    private long mBootPrefetchStartMs;
+    private final Runnable mDropBootPrefetch = () -> dropBootPrefetch("unclaimed");
+
+    public static void setBootPrefetchEnabled(boolean enabled) {
+        sBootPrefetchEnabled = enabled;
+    }
+
+    public static boolean isBootPrefetchEnabled() {
+        return sBootPrefetchEnabled;
+    }
+
     private BrowsePresenter(Context context) {
         super(context);
         mDataSourcePresenter = AppDataSourceManager.instance();
@@ -179,11 +223,21 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
 
         saveSelectedItems();
         pauseFeedRetry();
+
+        HomeSectionPacer pacer = sHomePacer;
+        if (pacer != null) {
+            pacer.setViewResumed(false); // nothing is fetched behind the player
+        }
     }
 
     @Override
     public void onViewResumed() {
         super.onViewResumed();
+
+        HomeSectionPacer pacer = sHomePacer;
+        if (pacer != null) {
+            pacer.setViewResumed(true);
+        }
 
         mViewResumed = true;
         refreshIfNeeded();
@@ -538,9 +592,30 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
             return;
         }
 
+        // NEWTUBE(lazy-home): while Home's section list still has pages, the next page (already
+        // requested by onScrollNearEnd, which fires further from the end) is what extends the
+        // grid; the shelf continuation below is for when the list is done. Remember this
+        // scroll-end in case the walk ends without another page (see onHomeWalkCompleted).
+        if (sHomePacer != null && mHomeWalkActive && isHomeSection()) {
+            mPendingScrollEndItem = item;
+            return;
+        }
+
         VideoGroup group = item.getGroup();
 
         continueGroup(group);
+    }
+
+    /**
+     * NEWTUBE(lazy-home): the grid has less than a screen plus the view's lookahead of cards left
+     * (while scrolling, or after an update that added too little - e.g. a page of filtered rows).
+     * Releases Home's next section page early enough that it lands before the reader gets there.
+     */
+    public void onScrollNearEnd() {
+        HomeSectionPacer pacer = sHomePacer;
+        if (pacer != null && mHomeWalkActive && isHomeSection()) {
+            pacer.demand();
+        }
     }
 
     @Override
@@ -549,8 +624,22 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         // updateCurrentSection would dispose that load and resubscribe the same observable.
         if (sSkipRedundantRefocusLoad && mCurrentSection != null && mCurrentSection.getId() == sectionId
                 && RxHelper.isAnyActionRunning(mActions)) {
-            Log.d(TAG, "Section %s load already in flight — skipping refocus reload", mCurrentSection.getTitle());
-            return;
+            // NEWTUBE(lazy-home): a paced Home walk stays "in flight" while it waits for the grid
+            // to ask for its next page, long after its first page painted. A refocus then
+            // (re-tapping the Home tab) has repainted the FeedCache snapshot, which IS the current
+            // content: say so and keep the walk, or the view keeps waiting for fresh content and
+            // the next lazily fetched page would swap the whole grid out instead of extending it.
+            // Past the freshness TTL it is an ordinary reload (which ends the parked walk).
+            if (mHomeWalkActive && mHomeWalkDelivered) {
+                if (isSectionFresh(mCurrentSection) && getView() != null) {
+                    Log.d(TAG, "Section %s is current (paced walk waiting) — skipping refocus reload", mCurrentSection.getTitle());
+                    getView().onSectionContentCurrent(sectionId);
+                    return;
+                }
+            } else {
+                Log.d(TAG, "Section %s load already in flight — skipping refocus reload", mCurrentSection.getTitle());
+                return;
+            }
         }
 
         saveSelectedItems(); // save previous state
@@ -842,18 +931,37 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
             return;
         }
 
+        Observable<List<MediaGroup>> prefetched = takeBootPrefetch(section);
+        if (prefetched != null) {
+            groups = prefetched;
+        }
+
+        boolean pacedHome = sHomePacer != null && section.getId() == MediaGroup.TYPE_HOME;
+        mHomeWalkActive = pacedHome;
+        mHomeWalkDelivered = false;
+        mPendingScrollEndItem = null;
+
         Disposable updateAction = groups
                 .subscribe(
                         mediaGroups -> {
                             getView().showProgressBar(false);
 
+                            if (pacedHome) {
+                                mHomeWalkDelivered = true;
+                                mPendingScrollEndItem = null; // the grid grew; the view re-triggers if needed
+                            }
+
                             filterHomeIfNeeded(mediaGroups);
+
+                            boolean pageHadRows = false;
 
                             for (MediaGroup mediaGroup : mediaGroups) {
                                 if (mediaGroup.isEmpty()) {
                                     Log.e(TAG, "loadRowsHeader: MediaGroup is empty. Group Name: " + mediaGroup.getTitle());
                                     continue;
                                 }
+
+                                pageHadRows = true;
 
                                 VideoGroup videoGroup = VideoGroup.from(mediaGroup, section);
 
@@ -867,13 +975,115 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
 
                                 continueGroupIfNeeded(videoGroup, false);
                             }
+
+                            // NEWTUBE(lazy-home): a page with no rows at all never reaches the grid,
+                            // so the grid cannot ask for more on its behalf - it did not add runway.
+                            HomeSectionPacer pacer = sHomePacer;
+                            if (pacedHome && !pageHadRows && pacer != null) {
+                                pacer.demand();
+                            }
                         },
                         error -> {
                             Log.e(TAG, "updateRowsHeader error: %s", error.getMessage());
+                            if (pacedHome) {
+                                mHomeWalkActive = false;
+                                mPendingScrollEndItem = null;
+                            }
                             handleLoadError(error);
-                        }, () -> handleLoadError(null));
+                        }, () -> {
+                            if (pacedHome) {
+                                onHomeWalkCompleted();
+                            }
+                            handleLoadError(null);
+                        });
 
         mActions.add(updateAction);
+    }
+
+    /**
+     * Called by SplashPresenter right before it opens Home: start Home's load now, so its first
+     * /browse overlaps the Browse Activity's creation. Only when Home is the boot section, no Browse
+     * view exists (a warm launch just brings the existing Home to the front) and Home is not fresh
+     * within its TTL (then it is repainted from FeedCache without a fetch).
+     */
+    public void prefetchBootSection() {
+        if (!sBootPrefetchEnabled || mBootPrefetch != null || getView() != null
+                || getSidebarService().getBootSectionId() != MediaGroup.TYPE_HOME) {
+            return;
+        }
+        BrowseSection home = mSectionsMapping.get(MediaGroup.TYPE_HOME);
+        Observable<List<MediaGroup>> groups = mRowMapping.get(MediaGroup.TYPE_HOME);
+        if (home == null || groups == null || home.isAuthOnly() || home.getType() != BrowseSection.TYPE_ROW
+                || isSectionFresh(home)) { // a fresh Home is repainted from FeedCache, not refetched
+            return;
+        }
+
+        // replay(): every page that lands before Browse subscribes is kept and handed over in
+        // order; the connection (not a subscriber) owns the network walk, so disposing it ends it.
+        mBootPrefetch = groups.replay();
+        mBootPrefetchConnection = mBootPrefetch.connect();
+        mBootPrefetchStartMs = SystemClock.elapsedRealtime();
+        Utils.postDelayed(mDropBootPrefetch, BOOT_PREFETCH_MAX_AGE_MS);
+        NetPath.log("home-prefetch start");
+    }
+
+    /** The boot prefetch for this section, now owned by the caller's load (or null). */
+    @Nullable
+    private Observable<List<MediaGroup>> takeBootPrefetch(BrowseSection section) {
+        io.reactivex.rxjava3.observables.ConnectableObservable<List<MediaGroup>> prefetch = mBootPrefetch;
+        Disposable connection = mBootPrefetchConnection;
+        if (prefetch == null) {
+            return null;
+        }
+        mBootPrefetch = null;
+        mBootPrefetchConnection = null;
+        Utils.removeCallbacks(mDropBootPrefetch);
+
+        long ageMs = SystemClock.elapsedRealtime() - mBootPrefetchStartMs;
+        if (section.getId() != MediaGroup.TYPE_HOME || ageMs > BOOT_PREFETCH_MAX_AGE_MS) {
+            connection.dispose();
+            NetPath.log("home-prefetch dropped reason=" + (section.getId() != MediaGroup.TYPE_HOME ? "other-section" : "stale")
+                    + " ageMs=" + ageMs);
+            return null;
+        }
+
+        // Disposing the section's actions (section switch, refresh, account change) must end the
+        // underlying walk, not just this subscriber.
+        mActions.add(connection);
+        NetPath.log("home-prefetch adopted ageMs=" + ageMs);
+        return prefetch;
+    }
+
+    private void dropBootPrefetch(String reason) {
+        Utils.removeCallbacks(mDropBootPrefetch);
+        if (mBootPrefetchConnection != null) {
+            mBootPrefetchConnection.dispose();
+            wakeHomeWalk();
+            NetPath.log("home-prefetch dropped reason=" + reason);
+        }
+        mBootPrefetch = null;
+        mBootPrefetchConnection = null;
+    }
+
+    private static void wakeHomeWalk() {
+        HomeSectionPacer pacer = sHomePacer;
+        if (pacer != null) {
+            pacer.wake();
+        }
+    }
+
+    /**
+     * The paced Home walk ran out of pages (or its last continuation failed). A scroll-end that was waiting
+     * for one becomes the ordinary last-shelf continuation - the view only re-triggers when the
+     * grid grows, so without this the end of the feed would stay put.
+     */
+    private void onHomeWalkCompleted() {
+        mHomeWalkActive = false;
+        Video pending = mPendingScrollEndItem;
+        mPendingScrollEndItem = null;
+        if (pending != null && isHomeSection()) {
+            continueGroup(pending.getGroup());
+        }
     }
 
     private void updateVideoGrid(BrowseSection section, Observable<MediaGroup> group, int column) {
@@ -1045,7 +1255,10 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
     }
 
     private void disposeActions() {
+        mHomeWalkActive = false;
+        mPendingScrollEndItem = null;
         RxHelper.disposeActions(mActions);
+        wakeHomeWalk(); // a parked Home walk notices its disposal now, not at its next poll
         Utils.removeCallbacks(mRefreshSection);
         mLastUpdateTimeMs = -1;
         mBrowseProcessor.dispose();
@@ -1265,6 +1478,7 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         Log.d(TAG, "On account changed");
 
         mSectionFetchTimeMs.clear(); // feeds are per-account
+        dropBootPrefetch("account-change");
 
         // An in-flight load belongs to the PREVIOUS account; without this the refocus guard
         // (onSectionFocused) would see it running and skip the new account's reload.

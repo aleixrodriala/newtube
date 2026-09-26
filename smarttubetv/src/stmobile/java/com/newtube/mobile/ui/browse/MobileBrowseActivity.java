@@ -66,6 +66,7 @@ import com.newtube.mobile.casting.CastSessionManager;
 import com.newtube.mobile.casting.CastTarget;
 import com.newtube.mobile.casting.CastVolumeKeys;
 import com.newtube.mobile.ui.common.FeedCache;
+import com.newtube.mobile.ui.common.FeedSwapWarmup;
 import com.newtube.mobile.ui.common.MobileActivity;
 import com.newtube.mobile.ui.playback.MiniPlayerBridge;
 import com.newtube.mobile.ui.playback.SystemPipBridge;
@@ -99,6 +100,12 @@ public class MobileBrowseActivity extends MobileActivity
     /** BottomNavigationView item ids must be non-zero; BrowseSection ids start at 0. */
     private static final int ITEM_ID_OFFSET = 1_000_000;
     private static final int SCROLL_END_THRESHOLD_ITEMS = 6;
+    /**
+     * NEWTUBE(lazy-home): Home's next section page is requested when the last visible card is this
+     * close to the end (~6 portrait screens of full-width cards) - far enough ahead that a page
+     * (one /browse, ~0.2-0.5 s) lands before the reader reaches the end. See HomeSectionPacer.
+     */
+    private static final int NEAR_END_LOOKAHEAD_ITEMS = 16;
     /** BottomNavigationView hard-caps at this many items. */
     private static final int MAX_NAV_ITEMS = 5;
     /**
@@ -177,6 +184,7 @@ public class MobileBrowseActivity extends MobileActivity
     private boolean mProgressShowing;
     private boolean mSuppressNavCallback;
     private int mLastPaginationTriggerCount = -1;
+    private int mLastNearEndTriggerCount = -1;
     /**
      * The grid is painting a stale {@link FeedCache} snapshot while the presenter refetches the
      * section. While set, the presenter's clear-before-load empty REPLACE is skipped (it would
@@ -184,6 +192,16 @@ public class MobileBrowseActivity extends MobileActivity
      * below the stale items.
      */
     private boolean mAwaitingFreshContent;
+    /**
+     * NEWTUBE(feed-swap): the stale -> fresh swap in flight while the fresh first screen's pictures
+     * warm up (see {@link #submitFeed}). While it is pending, grid submissions wait for it - it
+     * submits the newest {@link #mCurrentVideos} when it lands.
+     */
+    private FeedSwapWarmup mFeedSwap;
+    /** NEWTUBE(feed-swap): the grid's item animator, parked while a swap is laid out. */
+    private RecyclerView.ItemAnimator mParkedItemAnimator;
+    private boolean mFeedSwapPinTop;
+    private final Runnable mRestoreItemAnimator = this::restoreItemAnimator;
 
     @Override
     protected boolean shouldInsetContentForNavigationBar() {
@@ -215,6 +233,9 @@ public class MobileBrowseActivity extends MobileActivity
         mPresenter = BrowsePresenter.instance(this);
         mPresenter.setView(this);
         mPresenter.onViewInitialized();
+        // The presenter just reported every section; build the bar ONCE, now, so the first
+        // measure already has its tabs (see rebuildNavigation).
+        flushNavRebuild();
 
         // NEWTUBE(downloads): keep the Downloads grid live (progress badges, finished files)
         // while it is the section on screen; see onDownloadsChanged.
@@ -351,6 +372,9 @@ public class MobileBrowseActivity extends MobileActivity
 
         attachMiniTexture();
         mMiniPlayerBar.setVisibility(View.VISIBLE);
+        // NEWTUBE(mini-park): a session resumed from the notification in the background runs
+        // audio-only; the card needs its video track back.
+        MiniPlayerBridge.onCardShown();
         updateMiniPlayPauseIcon(player);
 
         Utils.removeCallbacks(mMiniPlayerTick);
@@ -557,6 +581,8 @@ public class MobileBrowseActivity extends MobileActivity
         // more offscreen holders around (default 2) so a fling-back rebinds/redecodes far fewer cards.
         mContentGrid.setHasFixedSize(true);
         mContentGrid.setItemViewCacheSize(8);
+        // Next cards' thumbnails decoded before they scroll in (no grey card + fade on a fling).
+        com.newtube.mobile.ui.common.FeedThumbnailPreloader.attach(mContentGrid, mAdapter);
         mContentGrid.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
@@ -894,6 +920,7 @@ public class MobileBrowseActivity extends MobileActivity
         // that showed it - a switch repaints, so drop it here. updateSection can't be relied on
         // for this: a fresh-within-TTL section skips the refetch and never emits a group.
         hideError();
+        cancelFeedSwap(); // NEWTUBE(feed-swap): the previous section's swap is moot now
 
         // Falls back to the persisted snapshot on the process's first paint of this section,
         // so even a cold start shows cards instead of the skeleton (display-only until the
@@ -907,10 +934,12 @@ public class MobileBrowseActivity extends MobileActivity
         }
 
         mLastPaginationTriggerCount = -1;
+        mLastNearEndTriggerCount = -1;
         mAdapter.submitList(new ArrayList<>(mCurrentVideos));
         if (!mCurrentVideos.isEmpty()) {
             setSkeletonVisible(false);
             mContentGrid.scrollToPosition(0);
+            com.newtube.mobile.LaunchMilestones.onFeedSnapshotPainted(sectionId, mCurrentVideos.size());
         }
     }
 
@@ -1012,11 +1041,49 @@ public class MobileBrowseActivity extends MobileActivity
             return;
         }
 
+        if (com.newtube.mobile.ui.common.FeedRunway.isShort(lastVisible, itemCount, NEAR_END_LOOKAHEAD_ITEMS)
+                && itemCount != mLastNearEndTriggerCount) {
+            mLastNearEndTriggerCount = itemCount;
+            mPresenter.onScrollNearEnd();
+        }
+
         if (lastVisible >= itemCount - SCROLL_END_THRESHOLD_ITEMS && itemCount != mLastPaginationTriggerCount) {
             mLastPaginationTriggerCount = itemCount;
             mPresenter.onScrollEnd(mCurrentVideos.get(mCurrentVideos.size() - 1));
         }
     }
+
+    /**
+     * NEWTUBE(lazy-home): after every grid update, ask for more when fewer than a screen plus
+     * {@link #NEAR_END_LOOKAHEAD_ITEMS} cards are left below the viewport - including an EMPTY grid.
+     * The scroll listener alone cannot cover this: a page whose rows were all filtered out (Shorts,
+     * channel shelves, duplicates) leaves the grid unchanged, so nothing scrolls and no new size is
+     * ever reported, and the walk would sit waiting for a demand while usable sections exist.
+     * Only Home's paced walk acts on it (see BrowsePresenter.onScrollNearEnd).
+     */
+    private void checkFeedRunway() {
+        // Posted, and once per burst: a page arrives as one updateSection per shelf, all inside
+        // one main-thread message, and judging the grid after its FIRST shelf would ask for a
+        // page the rest of this one is about to make unnecessary.
+        if (!mRunwayCheckPosted) {
+            mRunwayCheckPosted = true;
+            mNavHandler.post(mRunwayCheck);
+        }
+    }
+
+    private boolean mRunwayCheckPosted;
+    private final Runnable mRunwayCheck = () -> {
+        mRunwayCheckPosted = false;
+        if (isDestroyed() || mPresenter == null || mYouShowing || isDownloadsSectionShowing()) {
+            return;
+        }
+        // Before the new list is laid out this is the old layout's last card (or NO_POSITION = -1
+        // for an empty grid): a lower bound of what will be visible, which is what the check needs.
+        int lastVisible = mLayoutManager.findLastVisibleItemPosition();
+        if (com.newtube.mobile.ui.common.FeedRunway.isShort(lastVisible, mCurrentVideos.size(), NEAR_END_LOOKAHEAD_ITEMS)) {
+            mPresenter.onScrollNearEnd();
+        }
+    };
 
     private int computeSpanCount() {
         return com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(this);
@@ -1026,14 +1093,55 @@ public class MobileBrowseActivity extends MobileActivity
         return sectionId + ITEM_ID_OFFSET;
     }
 
-    /** Rebuild both nav surfaces (bottom nav = the main tabs + You; You panel = the rest). */
+    /**
+     * Rebuild both nav surfaces (bottom nav = the main tabs + You; You panel = the rest).
+     *
+     * <p>NEWTUBE(startup): coalesced. BrowsePresenter.refreshSections() reports the sections one
+     * by one - removeAllSections, then an addSection/removeSection per pinned section (~16 on a
+     * default install) - all inside this Activity's onCreate, and the bar was rebuilt for each of
+     * them. Material's NavigationBarMenuView rebuilds every tab view on each menu.add() and
+     * discards its item-view pool whenever the item count changes, so one clear-and-refill of k
+     * tabs inflates 1+2+...+k NavigationBarItemViews: 89 per cold start (Robolectric count of the
+     * default section order) against 15 for a single rebuild. Now a burst of section
+     * changes posts ONE rebuild with the final section list; onCreate flushes it synchronously
+     * once the presenter has reported its sections, so the first frame has its tabs.</p>
+     */
     private void rebuildNavigation() {
+        if (mNavRebuildPosted) {
+            return;
+        }
+        mNavRebuildPosted = true;
+        mNavHandler.post(mNavRebuild);
+    }
+
+    /** Run a pending coalesced rebuild now instead of on the next loop. */
+    private void flushNavRebuild() {
+        if (mNavRebuildPosted) {
+            mNavHandler.removeCallbacks(mNavRebuild);
+            mNavRebuild.run();
+        }
+    }
+
+    private final android.os.Handler mNavHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean mNavRebuildPosted;
+    private final Runnable mNavRebuild = () -> {
+        mNavRebuildPosted = false;
+        if (isDestroyed()) {
+            return;
+        }
         rebuildBottomNav();
         if (mYouShowing) {
             rebuildYouRows();
         }
         openPendingDownloads();
-    }
+    };
+
+    /**
+     * What the bottom nav currently shows (ids, titles, icons, in order), so an unchanged section
+     * list - e.g. BrowsePresenter.updateSections() after a profile/account refresh - does not
+     * tear down and re-inflate the whole bar.
+     */
+    private String mNavSignature;
 
     // ---------------------------------------------------------------------------------
     // Downloads section
@@ -1114,23 +1222,38 @@ public class MobileBrowseActivity extends MobileActivity
     }
 
     private void rebuildBottomNav() {
+        Menu menu = mBottomNav.getMenu();
+        List<BrowseSection> navSections = selectNavSections();
+
+        StringBuilder signature = new StringBuilder();
+        for (BrowseSection section : navSections) {
+            signature.append(toMenuItemId(section.getId())).append('\u0001')
+                    .append(section.getTitle()).append('\u0001')
+                    .append(navIconOrResFor(section)).append('\u0002');
+        }
+        String newSignature = signature.toString();
+
+        if (newSignature.equals(mNavSignature) && menu.size() == navSections.size() + 1) {
+            // Same tabs as on screen: only re-assert the highlight (the section may have moved).
+            mSuppressNavCallback = true;
+            reassertNavHighlight(menu, false);
+            mSuppressNavCallback = false;
+            return;
+        }
+        mNavSignature = newSignature;
+
         mSuppressNavCallback = true;
 
-        Menu menu = mBottomNav.getMenu();
         menu.clear();
-
-        List<BrowseSection> navSections = selectNavSections();
 
         for (int i = 0; i < navSections.size(); i++) {
             BrowseSection section = navSections.get(i);
 
             android.view.MenuItem item = menu.add(Menu.NONE, toMenuItemId(section.getId()), i, section.getTitle());
 
-            int navIcon = navIconFor(section.getId());
-            if (navIcon != 0) {
-                item.setIcon(navIcon);
-            } else if (section.getResId() > 0) {
-                item.setIcon(section.getResId());
+            int icon = navIconOrResFor(section);
+            if (icon > 0) {
+                item.setIcon(icon);
             }
         }
 
@@ -1139,11 +1262,7 @@ public class MobileBrowseActivity extends MobileActivity
                 .setIcon(R.drawable.ic_nav_you);
 
         // Re-assert the highlight after clear()/add() wiped it, so the current tab stays lit.
-        if (mYouShowing) {
-            mBottomNav.setSelectedItemId(YOU_ITEM_ID);
-        } else if (mCurrentSectionId >= 0 && menu.findItem(toMenuItemId(mCurrentSectionId)) != null) {
-            mBottomNav.setSelectedItemId(toMenuItemId(mCurrentSectionId));
-        }
+        reassertNavHighlight(menu, true);
 
         mSuppressNavCallback = false;
 
@@ -1165,6 +1284,27 @@ public class MobileBrowseActivity extends MobileActivity
                 }
             }
         });
+    }
+
+    /** Callers hold {@link #mSuppressNavCallback}. {@code force}: the menu was just rebuilt. */
+    private void reassertNavHighlight(Menu menu, boolean force) {
+        int itemId;
+        if (mYouShowing) {
+            itemId = YOU_ITEM_ID;
+        } else if (mCurrentSectionId >= 0 && menu.findItem(toMenuItemId(mCurrentSectionId)) != null) {
+            itemId = toMenuItemId(mCurrentSectionId);
+        } else {
+            return;
+        }
+        if (force || mBottomNav.getSelectedItemId() != itemId) {
+            mBottomNav.setSelectedItemId(itemId);
+        }
+    }
+
+    /** The icon a nav tab shows for this section: its outline/filled pair, else the stock icon. */
+    private static int navIconOrResFor(BrowseSection section) {
+        int navIcon = navIconFor(section.getId());
+        return navIcon != 0 ? navIcon : Math.max(section.getResId(), 0);
     }
 
     /**
@@ -1352,6 +1492,10 @@ public class MobileBrowseActivity extends MobileActivity
 
     @Override
     protected void onDestroy() {
+        mNavHandler.removeCallbacks(mNavRebuild);
+        mNavHandler.removeCallbacks(mRunwayCheck);
+        cancelFeedSwap(); // NEWTUBE(feed-swap)
+        mContentGrid.removeCallbacks(mRestoreItemAnimator);
         MiniPlayerBridge.unregisterMiniHost(this);
         DownloadRegistry.instance(this).removeListener(mDownloadsListener);
 
@@ -1502,14 +1646,27 @@ public class MobileBrowseActivity extends MobileActivity
                 return;
             }
 
+            // NEWTUBE(feed-swap): this update replaces a FeedCache snapshot with fresh content.
+            boolean staleSwap = false;
             switch (group.getAction()) {
                 case VideoGroup.ACTION_REPLACE:
                     boolean emptyReplace = group.getVideos() == null || group.getVideos().isEmpty();
-                    if (emptyReplace && mAwaitingFreshContent) {
+                    boolean swapPending = mFeedSwap != null && mFeedSwap.isPending();
+                    if (emptyReplace && swapPending) {
+                        // NEWTUBE(feed-swap): a reload (pull-to-refresh...) started while the fresh
+                        // page was still warming up. The grid still shows the snapshot, so this is
+                        // again "a snapshot awaiting fresh content": drop the swap, keep the screen.
+                        cancelFeedSwap();
+                        mCurrentVideos.clear();
+                        mCurrentVideos.addAll(mAdapter.getCurrentList());
+                        mAwaitingFreshContent = true;
+                    }
+                    if (emptyReplace && FeedSwapWarmup.keepScreenOnClear(mAwaitingFreshContent, swapPending)) {
                         // The presenter's clear-before-load. The grid is painting a FeedCache
                         // snapshot - keep it on screen; the fresh result replaces it below.
                         return;
                     }
+                    staleSwap = mAwaitingFreshContent;
                     mCurrentVideos.clear();
                     if (!emptyReplace) {
                         mCurrentVideos.addAll(visibleFeedItems(group.getVideos(), mCurrentSectionId));
@@ -1532,13 +1689,16 @@ public class MobileBrowseActivity extends MobileActivity
                         // out instead of appending fresh rows below it.
                         mCurrentVideos.clear();
                         mAwaitingFreshContent = false;
+                        staleSwap = true;
                     }
                     appendNew(group.getVideos());
                     break;
             }
 
             mLastPaginationTriggerCount = -1; // allow pagination to trigger again on the new size
-            mAdapter.submitList(new ArrayList<>(mCurrentVideos));
+            mLastNearEndTriggerCount = -1;
+            submitFeed(staleSwap);
+            checkFeedRunway();
 
             if (isDownloadsSectionShowing()) {
                 // Local cards carry their file and registry entry - not something a persisted
@@ -1553,6 +1713,7 @@ public class MobileBrowseActivity extends MobileActivity
 
             if (!mCurrentVideos.isEmpty()) {
                 setSkeletonVisible(false);
+                com.newtube.mobile.LaunchMilestones.onFeedFreshBound(mCurrentSectionId, mCurrentVideos.size());
                 FeedCache.put(mCurrentSectionId, mCurrentVideos);
                 // First FRESH feed content is on screen -> the launch-critical /browse chain is
                 // done; now the heavy one-time session warmup can run without racing it.
@@ -1561,12 +1722,154 @@ public class MobileBrowseActivity extends MobileActivity
         });
     }
 
+    /**
+     * NEWTUBE(feed-swap): hand {@link #mCurrentVideos} to the grid. {@code staleSwap}: this update
+     * replaces a FeedCache snapshot that is ON SCREEN with the first fresh page. That swap used to go
+     * through the item animator like any other change: every stale card faded out, the grid sat
+     * EMPTY, then the new cards faded in - ~180 ms of blank Home on 4 of 6 Wi-Fi cold launches on the
+     * Pixel, and again ~1 s after minimizing onto a freshly created Home. A stale card that survived
+     * into the fresh list could also drag the viewport down to wherever it moved. Now the fresh
+     * first screen's pictures warm up first (FeedSwapWarmup, capped at a few hundred ms, the
+     * snapshot stays up meanwhile), then the list is swapped in ONE frame with no item animation,
+     * pinned to the top. Only a grid resting at the top waits and is pinned: a scrolled or moving
+     * one swaps at once (the first screen's pictures are not what it shows) and is never moved.
+     * A swap that arrives before the snapshot was ever laid out (the fresh page beat the first
+     * frame) needs none of this and goes straight in.
+     */
+    private void submitFeed(boolean staleSwap) {
+        if (staleSwap && isShowingCards()) {
+            beginFeedSwap();
+            return;
+        }
+        if (mFeedSwap != null && mFeedSwap.isPending()) {
+            if (!mCurrentVideos.isEmpty()) {
+                return; // the rest of the page (next shelves): the pending swap submits the newest list
+            }
+            cancelFeedSwap(); // cleared under a pending swap: there is nothing left to swap to
+        }
+        submitGrid();
+    }
+
+    private boolean isShowingCards() {
+        return mAdapter.getItemCount() > 0 && mContentGrid.getChildCount() > 0 && mContentGrid.isShown();
+    }
+
+    private void beginFeedSwap() {
+        cancelFeedSwap();
+        if (!isGridAtTopAndIdle()) {
+            com.liskovsoft.smartyoutubetv2.common.misc.NetPath.log("feed-swap section=" + mCurrentSectionId
+                    + " warmed=0/0 waitMs=0 scrolled +" + com.newtube.mobile.LaunchMilestones.sinceProcessStartMs());
+            commitFeedSwap();
+            return;
+        }
+        int first = mLayoutManager.findFirstVisibleItemPosition();
+        int last = mLayoutManager.findLastVisibleItemPosition();
+        int visible = first >= 0 && last >= first ? last - first + 1 : 1;
+        long startMs = android.os.SystemClock.uptimeMillis();
+        int sectionId = mCurrentSectionId;
+        FeedSwapWarmup swap = FeedSwapWarmup.create(this);
+        mFeedSwap = swap; // before begin(): it may finish synchronously (memory-cache hits)
+        swap.begin(FeedSwapWarmup.firstScreen(mCurrentVideos, visible), (warmed, total, timedOut) -> {
+            if (mFeedSwap == swap) {
+                mFeedSwap = null;
+            }
+            if (isDestroyed()) {
+                return;
+            }
+            com.liskovsoft.smartyoutubetv2.common.misc.NetPath.log("feed-swap section=" + sectionId
+                    + " warmed=" + warmed + "/" + total
+                    + " waitMs=" + (android.os.SystemClock.uptimeMillis() - startMs)
+                    + (timedOut ? " timeout" : "")
+                    + " +" + com.newtube.mobile.LaunchMilestones.sinceProcessStartMs());
+            commitFeedSwap();
+        });
+    }
+
+    private void cancelFeedSwap() {
+        if (mFeedSwap != null) {
+            mFeedSwap.cancel();
+            mFeedSwap = null;
+        }
+    }
+
+    /** At the very top and not being dragged or flung: the only state a swap may pin. */
+    private boolean isGridAtTopAndIdle() {
+        return FeedSwapWarmup.warmAndPin(!mContentGrid.canScrollVertically(-1),
+                mContentGrid.getScrollState() == RecyclerView.SCROLL_STATE_IDLE);
+    }
+
+    /** Swap the whole list in one layout: animator parked, top pinned if the grid rests at the top. */
+    private void commitFeedSwap() {
+        if (!mCurrentVideos.isEmpty()) {
+            mFeedSwapPinTop = isGridAtTopAndIdle();
+            if (mParkedItemAnimator == null && mContentGrid.getItemAnimator() != null) {
+                mParkedItemAnimator = mContentGrid.getItemAnimator();
+                mContentGrid.setItemAnimator(null);
+                // Safety net for a commit that never lands (superseded by a section switch).
+                mContentGrid.postDelayed(mRestoreItemAnimator, 1_000);
+            }
+        }
+        submitGrid();
+    }
+
+    private void submitGrid() {
+        List<Video> list = new ArrayList<>(mCurrentVideos);
+        if (mParkedItemAnimator == null) {
+            mAdapter.submitList(list);
+        } else {
+            // Every submission while parked carries the callback: a later one supersedes the
+            // earlier diff (and drops its callback), and the last one must still restore.
+            mAdapter.submitList(list, this::onFeedSwapCommitted);
+        }
+    }
+
+    private void onFeedSwapCommitted() {
+        if (isDestroyed()) {
+            return;
+        }
+        boolean pin = mFeedSwapPinTop && isGridAtTopAndIdle(); // a finger may have landed since
+        mFeedSwapPinTop = false;
+        if (pin) {
+            // DiffUtil keeps the viewport anchored on a surviving card; pin the fresh top instead.
+            mLayoutManager.scrollToPositionWithOffset(0, 0);
+        }
+        // Item animations are decided when the update is LAID OUT (the next frame), so the animator
+        // may only come back once RecyclerView has consumed the swap.
+        mContentGrid.getViewTreeObserver().addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                if (mContentGrid.hasPendingAdapterUpdates()) {
+                    return true;
+                }
+                ViewTreeObserver observer = mContentGrid.getViewTreeObserver();
+                if (observer.isAlive()) {
+                    observer.removeOnPreDrawListener(this);
+                }
+                restoreItemAnimator();
+                return true;
+            }
+        });
+    }
+
+    private void restoreItemAnimator() {
+        mContentGrid.removeCallbacks(mRestoreItemAnimator);
+        if (mParkedItemAnimator != null) {
+            mContentGrid.setItemAnimator(mParkedItemAnimator);
+            mParkedItemAnimator = null;
+        }
+    }
+
     private void appendNew(List<Video> videos) {
         if (videos == null) {
             return;
         }
+        // NEWTUBE(perf): membership through a hash set instead of List.contains - every page of a
+        // long feed used to scan the whole grid per new item on the main thread (Video.equals
+        // recomputes both hashCodes per comparison). Same answer: Video.equals is "same hashCode
+        // and same isMix()", so equal videos always share a bucket.
+        java.util.Set<Video> present = new java.util.HashSet<>(mCurrentVideos);
         for (Video video : videos) {
-            if (isVisibleFeedItem(video, mCurrentSectionId) && !mCurrentVideos.contains(video)) {
+            if (isVisibleFeedItem(video, mCurrentSectionId) && present.add(video)) {
                 mCurrentVideos.add(video);
             }
         }
@@ -1636,6 +1939,7 @@ public class MobileBrowseActivity extends MobileActivity
         }
 
         runOnUiThread(() -> {
+            cancelFeedSwap(); // NEWTUBE(feed-swap)
             mCurrentVideos.clear();
             mAdapter.submitList(new ArrayList<>());
         });

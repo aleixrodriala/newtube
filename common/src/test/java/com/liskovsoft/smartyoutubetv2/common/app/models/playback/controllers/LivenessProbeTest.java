@@ -48,6 +48,20 @@ public class LivenessProbeTest {
         assertEquals("one report per start: nothing further is scheduled", 0, mTasks.size());
     }
 
+    /**
+     * NEWTUBE(offline-wait): an episode that began with no validated network already saw its
+     * failure, so the first answer is the recovery (a VPN / unvalidated network never fires a
+     * network edge).
+     */
+    @Test
+    public void anOfflineEpisodeReportsTheFirstAnswer() {
+        LivenessProbe probe = probe(true);
+        probe.start(/* failureAlreadySeen= */ true);
+        step();
+        assertEquals(1, mRecovered);
+        assertEquals(0, mTasks.size());
+    }
+
     @Test
     public void aLinkThatAnswersFromTheStartIsNeverReported() {
         LivenessProbe probe = probe(true, true, true, true);

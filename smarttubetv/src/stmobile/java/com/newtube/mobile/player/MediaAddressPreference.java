@@ -33,24 +33,21 @@ import okhttp3.Response;
  * only then does IPv4 connect: every OkHttp media open to that edge paid ~4.2 s.</p>
  *
  * <p>When a call to a googlevideo host sees an IPv6 connect/TLS attempt TIME OUT and an IPv4 route
- * then connect - both attempts started on the same network, still the current one - IPv4 is
- * preferred for googlevideo hosts on that network. With fast fallback on, OkHttp 5 re-interleaves
- * resolved addresses IPv6-first ({@code RouteSelector} -> {@code reorderForHappyEyeballs},
- * verified in 5.4.0), so a mere reordering would be undone: while the mark is active the lookup
- * returns the IPv4 addresses only (all addresses when there are none). Cronet is untouched.</p>
+ * then connect - both attempts started on the same network, still the current one - the
+ * {@code v6-stall} verdict is recorded for that network in {@link MediaPathVerdicts} (persisted;
+ * scoped to the SIM + carrier on cellular, to the attachment on Wi-Fi; re-probed in the background
+ * - see there). With fast fallback on, OkHttp
+ * 5 re-interleaves resolved addresses IPv6-first ({@code RouteSelector} ->
+ * {@code reorderForHappyEyeballs}, verified in 5.4.0), so a mere reordering would be undone: while
+ * the verdict holds, the lookup returns the IPv4 addresses only (all addresses when there are
+ * none). Cronet is untouched.</p>
  *
- * <p>IPv6 is never stranded: the mark stays valid only while IPv4 keeps proving itself (an IPv4
- * connect on that network within {@link #PREFER_V4_MS}, and at most {@link #MAX_PREFER_V4_MS}
- * after the stall), any IPv4 connect failure clears it, and a call whose filtered IPv4 routes all
- * failed is retried once, in the same request, with the unfiltered answer
- * ({@link RetryInterceptor}).</p>
+ * <p>IPv6 is never stranded: a call whose filtered IPv4 routes all failed is retried once, in the
+ * same request, with the unfiltered answer ({@link RetryInterceptor}), and when that retry then
+ * connects over IPv6 the verdict is dropped (IPv4 is the broken family there). The verdict's own
+ * re-probe drops it as soon as IPv6 answers the host that stalled.</p>
  */
 final class MediaAddressPreference {
-
-    /** The mark lapses when no IPv4 connect on its network proved it for this long. */
-    static final long PREFER_V4_MS = 20 * 60_000L;
-    /** Hard cap after the stall that set it: IPv6 gets re-tested at least this often. */
-    static final long MAX_PREFER_V4_MS = 60 * 60_000L;
 
     /** Clock, network identity and logging; Android-backed in production, fakes in tests. */
     interface Env {
@@ -63,21 +60,85 @@ final class MediaAddressPreference {
         void log(String line);
     }
 
-    private static final MediaAddressPreference SHARED = new MediaAddressPreference(new AndroidEnv());
+    private static final MediaAddressPreference SHARED =
+            new MediaAddressPreference(new AndroidEnv(), MediaPathRouting.verdicts());
+
+    /**
+     * Set by {@link RetryInterceptor} around its one unfiltered re-send. OkHttp resolves routes on
+     * the thread running the interceptor chain (verified with 5.4.0 fast fallback by
+     * MediaAddressPreferenceTest's end-to-end retry), so the flag reaches exactly that call's
+     * lookup while the verdict itself stays in place for every other call.
+     */
+    private static final ThreadLocal<Boolean> UNFILTERED_RETRY = new ThreadLocal<>();
 
     private final Env mEnv;
+    private final MediaPathVerdicts mVerdicts;
     /** Per-call watches, so the retry interceptor can read what its call's routes did. */
     private final Map<Call, CallWatch> mWatches = Collections.synchronizedMap(new WeakHashMap<>());
-    @Nullable private String mNetwork;
-    private long mMarkedAtMs;
-    private long mLastV4ProofMs;
 
+    /** A preference whose verdicts live only in memory (tests). */
     MediaAddressPreference(Env env) {
+        this(env, inMemoryVerdicts(env));
+    }
+
+    MediaAddressPreference(Env env, MediaPathVerdicts verdicts) {
         mEnv = env;
+        mVerdicts = verdicts;
+    }
+
+    static MediaPathVerdicts inMemoryVerdicts(Env env) {
+        return new MediaPathVerdicts(new MediaPathVerdicts.Env() {
+            @Override public long nowMs() {
+                return env.nowMs();
+            }
+
+            @Nullable @Override public String networkKey() {
+                return env.networkKey();
+            }
+
+            @Nullable @Override public String scope(String network) {
+                return network.equals(env.networkKey()) ? network + "/test0" : null;
+            }
+
+            @Override public boolean direct() {
+                return true;
+            }
+
+            @Nullable @Override public String episode() {
+                return null;
+            }
+
+            @Override public long bootCount() {
+                return -1;
+            }
+
+            @Override public long bootWallMs() {
+                return 0;
+            }
+
+            @Nullable @Override public String loadLastOff() {
+                return null;
+            }
+
+            @Nullable @Override public String load() {
+                return null;
+            }
+
+            @Override public void save(@Nullable String snapshot, @Nullable String lastOff) {
+            }
+
+            @Override public void log(String line) {
+                env.log(line);
+            }
+        }, /* persistent= */ false);
     }
 
     static MediaAddressPreference shared() {
         return SHARED;
+    }
+
+    MediaPathVerdicts verdicts() {
+        return mVerdicts;
     }
 
     /** Gives the shared instance a context for the network identity (application context). */
@@ -89,69 +150,45 @@ final class MediaAddressPreference {
         return host != null && host.endsWith(".googlevideo.com");
     }
 
-    /** Whether IPv4 is currently preferred on the active network; retires a stale mark. */
-    synchronized boolean isPreferV4Active() {
-        if (mNetwork == null) {
-            return false;
-        }
-        String network = mEnv.networkKey();
-        if (!mNetwork.equals(network)) {
-            clear("network-change", network);
-            return false;
-        }
-        long now = mEnv.nowMs();
-        if (now >= mLastV4ProofMs + PREFER_V4_MS || now >= mMarkedAtMs + MAX_PREFER_V4_MS) {
-            clear("expired", network);
-            return false;
-        }
-        return true;
+    /** Whether IPv4 is currently preferred on the active network. */
+    boolean isPreferV4Active() {
+        // No verdict anywhere (every Wi-Fi-only device): no network lookup per media call.
+        return !mVerdicts.isEmpty()
+                && mVerdicts.isActive(MediaPathVerdicts.Kind.V6_STALL, mEnv.networkKey());
     }
 
     /** An IPv6 attempt to {@code host} stalled and an IPv4 route then connected on {@code network}. */
-    synchronized void markV6HandshakeStall(String host, String network) {
-        if (!StartupDeadlinePolicy.isKnownNetwork(network)) {
-            return;
-        }
-        long now = mEnv.nowMs();
-        boolean wasActive = network.equals(mNetwork);
-        if (!wasActive) {
-            mNetwork = network;
-            mMarkedAtMs = now;
-            mEnv.log("media-dns prefer-v4 on reason=v6-handshake-stall host=" + host
-                    + " net=" + network + " proofWindowMs=" + PREFER_V4_MS
-                    + " maxMs=" + MAX_PREFER_V4_MS);
-        }
-        mLastV4ProofMs = now;
+    void markV6HandshakeStall(String host, String network) {
+        mVerdicts.observe(MediaPathVerdicts.Kind.V6_STALL, network, host, "v6-handshake-stall");
     }
 
-    /** IPv4 connected to googlevideo on {@code network}: keeps a mark on that network valid. */
-    synchronized void onV4Connected(@Nullable String network) {
-        if (mNetwork != null && mNetwork.equals(network)) {
-            mLastV4ProofMs = mEnv.nowMs();
-        }
-    }
-
-    /** An IPv4 connect failed on {@code network}: give IPv6 its chance back there. */
-    synchronized void onV4ConnectFailed(String host, @Nullable String network) {
-        if (mNetwork != null && mNetwork.equals(network)) {
-            clear("v4-failed host=" + host, network);
-        }
-    }
-
-    private void clear(String reason, @Nullable String network) {
-        mEnv.log("media-dns prefer-v4 off reason=" + reason + " net=" + network
-                + " was=" + mNetwork);
-        mNetwork = null;
-        mMarkedAtMs = 0;
-        mLastV4ProofMs = 0;
+    /**
+     * A filtered call's IPv4 routes all failed and its unfiltered retry then connected over IPv6 on
+     * {@code network}: IPv4 is the broken family there, so IPv6 gets its chance back.
+     */
+    void onV6ConnectedAfterV4Failed(String host, @Nullable String network) {
+        mVerdicts.clear(MediaPathVerdicts.Kind.V6_STALL, network,
+                "v4-failed-v6-connected host=" + host);
     }
 
     /** The lookup result OkHttp should see for {@code host}. */
     List<InetAddress> order(String host, List<InetAddress> addresses) {
-        if (!isGoogleVideoHost(host) || addresses.size() < 2 || !isPreferV4Active()) {
+        if (!isGoogleVideoHost(host) || addresses.size() < 2
+                || Boolean.TRUE.equals(UNFILTERED_RETRY.get()) || mVerdicts.isEmpty()) {
             return addresses;
         }
-        return ipv4Only(addresses);
+        String network = mEnv.networkKey();
+        // A host this network's media reaches: the verdicts' EXPLORE probe candidate.
+        mVerdicts.noteHost(network, host);
+        if (!mVerdicts.isActive(MediaPathVerdicts.Kind.V6_STALL, network)) {
+            return addresses;
+        }
+        List<InetAddress> ipv4 = ipv4Only(addresses);
+        if (ipv4.size() < addresses.size()) {
+            // The verdict kept this connection off IPv6: its re-probe may be due.
+            mVerdicts.noteUse(MediaPathVerdicts.Kind.V6_STALL, network);
+        }
+        return ipv4;
     }
 
     /** IPv4 addresses in their original order, or the input when it has none. */
@@ -193,7 +230,8 @@ final class MediaAddressPreference {
      * Per-call observer fed from OkHttp's EventListener. Every attempt remembers the network it
      * STARTED on, so a handover between the IPv6 stall and the IPv4 success marks nothing. Only a
      * TIMEOUT on an IPv6 route counts: fast-fallback race losers are cancelled (socket closed),
-     * which says nothing about IPv6 on this network. Attempts of one call report from several
+     * which says nothing about IPv6 on this network. OkHttp reports connectEnd after TLS, so an
+     * IPv6 connectEnd means the whole handshake worked. Attempts of one call report from several
      * threads, hence the lock.
      */
     final class CallWatch {
@@ -224,18 +262,30 @@ final class MediaAddressPreference {
             if (address instanceof Inet6Address && isTimeout(failure)) {
                 mV6StallNetwork = network;
             } else if (address instanceof Inet4Address) {
+                // Counted for this call's unfiltered retry only. One host's IPv4 failure (a dead
+                // edge fails on both families) is no evidence that IPv6 works on this network;
+                // the retry connecting over IPv6 is (see connectEnd).
                 mV4Failures++;
-                onV4ConnectFailed(host, network);
             }
         }
 
         synchronized void connectEnd(@Nullable String host, @Nullable InetAddress address) {
             mConnected = true;
-            if (!isGoogleVideoHost(host) || !(address instanceof Inet4Address)) {
+            if (!isGoogleVideoHost(host)) {
+                return;
+            }
+            if (address instanceof Inet6Address) {
+                String network = startNetwork(address);
+                if (mRetried && mV4Failures > 0
+                        && StartupDeadlinePolicy.sameKnownNetwork(network, mEnv.networkKey())) {
+                    onV6ConnectedAfterV4Failed(host, network);
+                }
+                return;
+            }
+            if (!(address instanceof Inet4Address)) {
                 return;
             }
             String network = startNetwork(address);
-            onV4Connected(network);
             if (mV6StallNetwork == null) {
                 return;
             }
@@ -271,8 +321,9 @@ final class MediaAddressPreference {
 
     /**
      * Keeps a filtered call from failing on the filter itself: when its IPv4-only routes all
-     * failed (which also cleared the mark), the request is sent once more, resolving afresh with
-     * both families. Application interceptors may call proceed() again after an exception.
+     * failed, the request is sent once more, resolving afresh with both families (this call only;
+     * the verdict is dropped if that retry then connects over IPv6). Application interceptors may
+     * call proceed() again after an exception.
      */
     static final class RetryInterceptor implements Interceptor {
         private final MediaAddressPreference mPreference;
@@ -293,7 +344,12 @@ final class MediaAddressPreference {
                 mPreference.mEnv.log("media-dns prefer-v4 retry=unfiltered reason=v4-routes-failed"
                         + " host=" + chain.request().url().host()
                         + " cause=" + e.getClass().getSimpleName());
-                return chain.proceed(chain.request());
+                UNFILTERED_RETRY.set(Boolean.TRUE);
+                try {
+                    return chain.proceed(chain.request());
+                } finally {
+                    UNFILTERED_RETRY.remove();
+                }
             }
         }
     }

@@ -4,9 +4,12 @@ apply plugin: 'com.android.application'
 
 import com.android.build.api.artifact.SingleArtifact
 import com.android.build.api.variant.BuiltArtifactsLoader
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
@@ -43,6 +46,75 @@ abstract class CopyRenamedApks extends DefaultTask {
             def version = artifact.versionName ?: 'unknown'
             def outputFile = new File(outputDirectory, "NewTube_${version}_${abi}.apk")
             Files.copy(new File(artifact.outputFile).toPath(), outputFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+}
+
+/**
+ * NEWTUBE(startup): the baseline profile where ART itself looks for it at INSTALL time.
+ *
+ * AGP packages the profile as assets/dexopt/baseline.prof, which only androidx.profileinstaller
+ * reads - on the app's first run it queues the profile for the next BACKGROUND dexopt (idle +
+ * charging). NewTube is sideloaded (GitHub APK, in-app updater -> system installer), so an update
+ * installs with filter "verify" and every cold start runs interpreted/JIT until that background
+ * job: measured on the Pixel 9, cold share-link opens at median 926 ms right after install vs
+ * 582 ms once compiled. Since Android 15, ART Service's install-time dexopt also reads an
+ * EMBEDDED profile at assets/art-profile/baseline.prof (art/artd: kEmbeddedProfileEntry, used
+ * when the APK comes without a .dm file) and compiles it right away. That entry must be a binary
+ * profile in ART's own format (v0.1.5) keyed to the final dex, so it is generated here from the
+ * merged dex and AGP's merged human-readable profile, and added as an ordinary asset (packaging
+ * and signing are untouched). If profgen (cmdline-tools) is missing the task logs and emits
+ * nothing; the APK is then exactly what it was before.
+ */
+abstract class EmbeddedArtProfileTask extends DefaultTask {
+    @InputFiles
+    @PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract ConfigurableFileCollection getDexFiles()
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.NONE)
+    abstract ConfigurableFileCollection getHumanReadableProfile()
+
+    @Input
+    abstract Property<String> getProfgen()
+
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDir()
+
+    @javax.inject.Inject
+    abstract org.gradle.process.ExecOperations getExecOperations()
+
+    @TaskAction
+    void generate() {
+        def root = outputDir.get().asFile
+        root.deleteDir()
+        def target = new File(root, 'art-profile')
+        target.mkdirs()
+
+        def profgenFile = new File(profgen.get())
+        def hrf = humanReadableProfile.files.find { it.isFile() }
+        def dexes = dexFiles.files.findAll { it.isFile() && it.name ==~ /classes\d*\.dex/ }
+        if (!profgenFile.canExecute() || hrf == null || dexes.isEmpty()) {
+            logger.warn("NewTube: no embedded ART profile (profgen=${profgenFile.canExecute()}, " +
+                    "profile=${hrf != null}, dex=${dexes.size()}); install-time compilation stays off")
+            return
+        }
+
+        // profgen resolves rules against classes*.dex inside an APK-shaped zip.
+        def dexZip = new File(temporaryDir, 'dex.zip')
+        new java.util.zip.ZipOutputStream(new FileOutputStream(dexZip)).withCloseable { zip ->
+            dexes.sort { it.name }.each { dex ->
+                zip.putNextEntry(new java.util.zip.ZipEntry(dex.name))
+                dex.withInputStream { zip << it }
+                zip.closeEntry()
+            }
+        }
+
+        execOperations.exec {
+            commandLine profgenFile.absolutePath, 'bin', hrf.absolutePath,
+                    '--apk', dexZip.absolutePath,
+                    '--output', new File(target, 'baseline.prof').absolutePath,
+                    '--profile-format', 'v0_1_5_s'
         }
     }
 }
@@ -223,6 +295,29 @@ androidComponents {
         }
         variant.artifacts.use(copyTask).wiredWith { it.input }.toListenTo(SingleArtifact.APK.INSTANCE)
     }
+
+    // Install-time ART profile (see EmbeddedArtProfileTask) for the non-debuggable builds that get
+    // installed and timed: release, and benchmark (release-derived) so it can be measured.
+    onVariants(selector().withBuildType('release')) { variant -> registerEmbeddedArtProfile(variant) }
+    onVariants(selector().withBuildType('benchmark')) { variant -> registerEmbeddedArtProfile(variant) }
+}
+
+def registerEmbeddedArtProfile(variant) {
+    def cap = variant.name.capitalize()
+    def override = project.findProperty('profgenPath')
+    def profgenPath = override != null ? providers.provider { override.toString() }
+            : androidComponents.sdkComponents.sdkDirectory.map { it.file('cmdline-tools/latest/bin/profgen').asFile.absolutePath }
+    def task = tasks.register("generate${cap}EmbeddedArtProfile", EmbeddedArtProfileTask) {
+        dependsOn("mergeDex${cap}", "merge${cap}ArtProfile")
+        dexFiles.from(layout.buildDirectory.dir("intermediates/dex/${variant.name}/mergeDex${cap}").map {
+            it.asFileTree.matching { include 'classes*.dex' }
+        })
+        humanReadableProfile.from(layout.buildDirectory.file(
+                "intermediates/merged_art_profile/${variant.name}/merge${cap}ArtProfile/baseline-prof.txt"))
+        profgen.set(profgenPath)
+        outputDir.set(layout.buildDirectory.dir("generated/embeddedArtProfile/${variant.name}"))
+    }
+    variant.sources.assets?.addGeneratedSourceDirectory(task, { it.outputDir })
 }
 
 dependencies {

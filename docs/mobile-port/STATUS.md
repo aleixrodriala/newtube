@@ -10,6 +10,223 @@ Phone-only: the TV flavors, vendored ExoPlayer fork and Leanback modules were
 deleted. Playback uses Media3 1.10.1 with embedded Cronet and an OkHttp fallback.
 Toolchain: AGP 9.2.1 / Gradle 9.6.1 / compileSdk 37 / targetSdk 37 / minSdk 24.
 
+## Speed, stability and smoothness round 3 (2026-09-25/26, Pixel 9, Wi-Fi + LTE)
+
+Asked for, in the owner's words: "network stability and efficiency, the time to first frame, and
+how fast and smooth the app is ... extremely fast and smooth ... with lazy loading ... focusing on
+playing the videos ... loading the videos and loading the app, and how smooth the app feels". Test
+it by hopping related videos; try other identities and workarounds against the blocks; make a
+closed mini-player resumable from the notification (asked by the owner's brother); do a deep UI/UX
+pass in a separate worktree/branch. Priority unchanged: stability and speed over megabytes.
+Method, architecture and traps: HANDOFF §31.
+
+**How to read the numbers.** Owner's signed-in Pixel 9 (Android 17), Wi-Fi "La Coveta" and Movistar
+LTE over USB adb, release builds compiled `speed-profile`. Base = `f081fc4` (1.9.0-era), measured
+12:07-13:40; candidates r3a (14:04-15:24), r3b (15:32-16:40), r3d (16:43-17:42), so the link
+differs between columns. 1-24 samples per cell, one phone, one carrier. The Movistar media stall
+that dominated the LTE base is intermittent; where the candidate run did not hit it, the LTE gain
+is conditions, not code (`*`). The final column (r3h) was measured the next morning.
+
+| median / p90 (n), ms | Wi-Fi base | Wi-Fi now | LTE base | LTE now |
+|---|---|---|---|---|
+| Cold launch: activity displayed | 397 / 540 (6) | 240 / 269 (4) | 458 / 536 (6) | 241 / 248 (2) |
+| Cold launch: cached Home painted | 565 / 702 | 489 / 504 | 613 | 402 b |
+| Cold launch: Home visually complete | 1834 / 2566 | 1352 / 1807 | 2048 / 2401 | 1564 / 1696 |
+| Cold launch: blank flash at the fresh-feed swap | 4/6 | 0/4 | 1/6 | 0/4 b |
+| Cold launch: first `/browse` answered | 1354 / 1842 | 1202 / 1459 | 1482 / 1848 | 1312 / 1323 |
+| Cold launch: `/browse` calls in the first 6 s | 7 | 4 | 8 | 4 |
+| Related hop: tap -> first frame | 554 / 820 (18) | 497 / 1375 (8) | 1033 / 5081 (15) | 528 / 648 (3) |
+| Related hop: tap -> picture visible | 684 / 916 | 662 / 1533 | 1355 / 4846 | 726 / 779 |
+| Related hop: related list ready | 1004 / 1241 | 980 / 1231 | 948 / 1349 | 1016 / 1096 |
+| Open after 95 s idle on the watch page | - | - | - | 490, 537 (r3g: 9156) |
+| Resumed open: tap -> picture visible | - | 356-390 (6) f | - | - |
+| Autoplay (next prefetched): first frame | 582 / 676 (3) | 479 / 1072 (3) a | 2532 / 4917 (4) | 392 / 402 (2) b |
+| Card tap while the mini plays: picture visible | 1138 (2) | 704 (2) a | 1210 (2) | 619 (1) a |
+| Cold share link: intent -> first frame | 952 / 1618 (6) | 664 / 888 (4) | 8960 (6) * | 844 / 1060 (6) b * |
+| Cold share link: intent -> picture visible | 1084 / 1782 | 782 / 1049 | 9136 | 972 b |
+| Jank, player open: janky % / p99 frame | 0.8 % / 18 | 0.8 % / 13 a | 1.4 % / 28 | 0.8 % / 26 a |
+
+"now" = the final build (r3h, 09-26 11:29-11:45, HTTP/2 restored) unless marked: `a`/`b` = r3a/r3b
+(09-25), `f` = r3f (09-26 morning). The one Wi-Fi hop behind the 1375 ms p90 waited 1.75 s on a
+googlevideo audio init (`/player` answered in 117 ms). `*` every base LTE share link hit the
+Cronet TLS stall (~8.8 s), no later link did. The LTE hop gain is partly the media-path verdict
+(09-25) and partly a healthy Movistar (09-26: both stalled edges answered again at 10:44).
+Flings stayed at 0-0.1 % janky, p99 7-10 ms; no `Skipped frames` or `Davey!` line in any suite.
+
+**Switching videos.** Decoders are kept across opens (ExoPlayer foreground mode). Wi-Fi A/B,
+alternating builds, 24 fresh hops each: picture visible 699 vs 781 ms median (p90 1197 vs 1582);
+only first frame -> READY (-14 ms) has a 90 % interval that excludes zero. An idle player in
+background audio drops the mode so other apps get the decoder. Codec lists are warmed at app
+start. Autoplay fetches the next `/player` and manifest 20 s (x speed) before the end, one retry;
+10/10 Pixel autoplays hit the stash. A **history resume** lands on the start of the segment that
+holds the resume point (at most ~5 s earlier) instead of decoding seconds of hidden frames:
+resumed reopens went from 382 ms (n=9) to 59 ms (n=5) between the last chunk and the first frame.
+`t=` links, user seeks and live stay exact.
+
+**Resumes: the audio no longer holds the picture.** The Pixel showed the slow resumes were
+waiting on audio, not video or the network: the video was ready in ~0.2 s, the audio 0.66-1.2 s,
+from the cache, with or without the snap. YouTube's Opus audio comes in 10 s pieces, and media3
+decodes every packet from the piece's start to the resume point (~100 ms per second skipped). The
+audio renderer now drops the packets it doesn't need (keeping Opus's 80 ms pre-roll), the way media3
+already does in its offload path. Pixel, r3f release, 6 resumes: audio ready -9 to +24 ms from video, picture visible 356-390 ms (r3e's slow cases 1046-1359 ms; r3d's snapped resumes 609 ms median, up to 1436). Debug A/B, 2 resumes each: skip off 1378-1389 ms to picture, on 414-435 ms. No audio errors or underruns after 6 resumes and 2 scrubs (the phone can't be listened to by the harness: the owner should listen for a click in the first second).
+
+**The API is back on HTTP/2.** A round-3 change built the shared OkHttp client early in app
+start, before the line that turns HTTP/2 on, so from r3d every InnerTube call went over HTTP/1.1
+(base/r3a logs: `protocol=h2` on all 1,227 API lines; r3d-r3g: `http/1.1` on all 1,329). On LTE
+that cost a 9.2 s open: a connection idle 76 s had been dropped by Movistar's NAT without a word,
+and `/player` waited 7 s for a reply that never came (HTTP/2's 10 s ping keeps the mapping alive
+and catches a dead link). HTTP/2 is now switched on before anything can build the client, media
+OkHttp connections got the same ping, and if HTTP/1.1 ever comes back, a `/player` or `/next` on
+cellular first drops API connections idle for 45 s or more. Pixel r3h: every process built the client with `[h2, http/1.1]`, all 188 InnerTube answers were `h2`, and two LTE opens after 95-100 s idle took 490 / 537 ms (`/player` 164 / 179 ms), where r3g took 9.2 s.
+
+**No network: wait, don't spin.** With Wi-Fi and data off, a failed open ran bursts of 4 reloads a
+second apart, again at +5 s and +15 s, each failing instantly. Now a network failure with no
+network goes straight to "no connection" and retries once when a network comes back (or, on a VPN
+that Android never marks validated, when YouTube answers). Parser and token errors keep their own
+fixes. Pixel, r3f debug, parked Next and a plain open with Wi-Fi and data off: one wait, no bursts, one retry when the network came back (first frame 1046 / 1189 ms).
+
+**Open-path CPU.** Faster JSON mapping and URL handling, and a manifest fed straight into media3's
+parser (no XML text). Pixel, VISIONOS hop: parse 45 -> 10 ms, transform 13-16 -> 4 ms, transform
+-> cache 39-52 -> 7 ms, `info` -> `prepare` ~40 -> 11-18 ms; 60/60 opens `mpd=direct`. Output is
+identical on 4 real responses, 6,375 model/JSON pairs and 30,000 random URLs.
+
+**Launch and Home.** Lighter Splash (regex compiled once, one-pass history restore; share-link
+splash -> openVideo ~200 -> 105-135 ms, and the format fetch starts there); BotGuard warm-up after
+the first frame; bottom bar built once; Home's first `/browse` leaves from Splash (+130 ms, was
++348). Home loads pages 1-2 at launch and the rest on demand, never behind the player: `/browse`
+calls in the first 6 s 7 -> 4; scroll-to-end and pull-to-refresh verified. The fresh feed replaces
+the cached one in one frame once its first thumbnails are warm (<= 350 ms): 0/10 blank flashes.
+Glide memory 2 -> 3 screens (~+10 MB). The APK embeds an ART profile (~35k methods): the sideloaded
+update landed `speed-profile` at install, and update-day cold share links were 751 ms before any
+compile (926 ms last round). That needs `pm.dexopt.install=speed-profile`, which the Pixel has;
+other phones are unverified.
+
+**LTE media path.** A Cronet stall that OkHttp answered, or an IPv6 stall that IPv4 got past, is now
+a persisted verdict: later opens start on OkHttp/IPv4 instead of waiting 3.5 s again. Learnt on the
+Pixel (cell:116, a 7.4 s learning hop); the next 8 hops in that process had no failover (median
+596 ms). The cell network id changed on every Wi-Fi <-> LTE round trip (108 ... 124), so cellular
+verdicts are keyed by carrier + SIM, Wi-Fi by attachment. A new cell network's placeholder
+bandwidth (`downKbps=14`) no longer sets an 8 s startup budget (r3a: first LTE open after Wi-Fi
+13.2 s); verified on two attachments.
+
+**Blocks.** New account route **TV_TIZEN** (TV client 5.x with Samsung Tizen device fields, from
+yt-dlp PR #17723) plays with the owner's account (Wi-Fi, 2 videos x 150 s with a seek, no 403). It
+is not in the ring: it is the account route when anonymous clients are challenged (0.2-0.6 s
+signature solve, so not the signed-in first choice). A per-network **bot-wall book**, persisted
+across restarts, stops re-walking the ring under a wall. Replayed wall: signed in, 2 calls on the
+first open (plays) then 1 per open, where it was ~20 calls and nothing played; signed out 8, then 0
+until a backed-off probe. Pixel, injected challenges (`debug.arc.botwall`): as designed after one
+fix (a wall established mid-walk lost the account route: 7 calls); a restarted process restores the
+wall and plays in 1 call. No real wall today (40/40 anonymous answers OK in the base). Latent bugs
+fixed: the same-position retry cap reset on every play; a next-video prefetch could make a 403
+quarantine the wrong client; bot-check suppression outlived a network change; an expired format
+cache entry could fall back to stale URLs.
+
+**Visitor rotation on bot checks: retired.** Nothing on record shows a fresh visitor passing where
+the old one failed: 07-27 Pixel/LTE, 7/7 anonymous clients challenged with a brand-new visitor;
+07-28, VISIONOS OK while other clients were challenged the same second on the same IP; 09-25 wall,
+7 rotations in ~2 min, then 0/140 anonymous answers OK. yt-dlp never rotates. A rotation costs
+~200 KB and a BotGuard rebuild (~1-1.5 s) and rotated the owner's visitor too. Codex astra agreed
+(~85 %) but rejected "the wall is IP-level" as proven (one episode, no wait-only control); that
+wording is gone. Pixel: one visitor across 3 cold starts. Re-enable with one line,
+`setRotateVisitorOnAnonChallenge(true)` in `MobileMainApplication` (persist the cooldown first).
+
+**Mini-player: X parks the video.** X used to destroy the player, session and notification. It now
+pauses and hides the card, and the paused notification stays up to 10 min. Play from the
+notification, lock screen, Quick Settings or a headset resumes the same position (card with video
+if a list screen is up, else audio); a notification tap opens the full player paused; Next/Previous
+restart the 10 min. A bounded foreground hold stops Android freezing and then killing the parked
+process. Pixel (media keys via `cmd media_session dispatch`): park, resume with Home up, resume
+after 3.5 min behind the launcher, Next while parked, expiry at exactly 10:00 leaving nothing
+behind. Lock screen, Quick Settings, headset, recents swipe, cast, engine restart: emulator/unit.
+
+**UI fixes on main.** Reopening the video you just left shows its related list again (the `/next`
+answer is reused for 5 min, same playlist and account; a like or subscribe drops it): 2/2, and
+after a light/dark switch. Minimizing after a cold share link no longer flashes the launcher. A
+second share link while a share-linked video plays no longer lands in PiP over the launcher (1.9.0
+too): 2/2, a brief shrink-and-expand remains. Downloading a video again after deleting its
+download no longer fails at once (its card carried the local `file://` thumbnail, which the
+downloader tried to fetch as a URL; found on the Pixel 09-26).
+
+**UX deep pass: branch `ux/deep-pass-2026-09-25`, not merged, awaiting the owner.** Worktree
+`~/projects/smarttube-port-ux`, 21 local commits (`6fc7705`..`55d470a`, + MediaServiceCore
+`711e1396`, `1b42212d`, `910d3f07`, local, never pushed). 28 of 30 audit findings confirmed, 6 more
+found. Built: dark theme holds in system light mode; a light/dark switch keeps the video, You tab
+and Settings; landscape sheets fit; Back from any tab goes Home; offline/failed/empty search told
+apart; Snackbars instead of Toasts (with Undo/View, above the docked mini); AFR and Remote control
+removed and forced off once; the watch page holds its layout while loading; 48dp targets and
+TalkBack labels; every phone change in shared code behind a phone gate. The reviewers' findings
+(meta line, Snackbars over the mini, ungated shared code, the menu migration) are fixed in
+`e706740`. The integrated build (main + branch, one conflict in `VideoCardAdapter`) was checked on
+the Pixel: paused scrub shows real frames, jank at base level (Home 0.14 %, player open 0.82 %), a night-mode switch keeps the video, dubbed audio labels readable, reopening the same video keeps the full page, no ANR, AFR/Remote rows gone; the subscribe Snackbar works, but liking showed no Snackbar and a red active Like icon (also on main), and a watch-page download showed no Snackbar: fixed on the branch (`2dc4d72`..`55d470a`: filled/outlined thumbs without tint, rating Snackbars with an Undo that restores the exact previous rating, ratings sent in tap order, a failed rating rolled back with "Couldn't save your rating", download Snackbars that survive a closing sheet) and re-checked on the Pixel: all pass, including the Snackbar above the docked mini. Owner decisions: the merge, UX-02 (honour font/Display size, +4 % on the
+Pixel), UX-12 captions, UX-26 centre pause.
+
+**Verified on the Pixel vs not.** On the device: every table row, keep-codec A/B, stash hits,
+resume snap (5/5 resumed reopens; `t=` link and quick back-out controls), `mpd=direct`, lazy Home,
+install-time profile, TV_TIZEN, injected-wall routing and persistence, stable visitor, verdict
+learning, in-process use and restore in a new process on a new cell id, placeholder budget, the
+UI fixes, mini park (incl. Next while offline), Opus pre-roll skip, offline wait. Unit or emulator
+only: verdict restore after a reboot, probe-driven verdict clearing, VPN/proxy
+exclusions, background-audio decoder release, next-prefetch retry, behaviour under a real wall
+(probe rotation, backoff, budgets), resume-snap cancellation by a lock-screen seek or double tap.
+
+**Final Pixel passes (09-25 evening r3e, 09-26 morning r3f-r3h).** Wi-Fi r3d -> r3f (n=4-8, medians):
+activity displayed 217 -> 224 ms, Home visually complete 1544 -> 1162, first `/browse` answered 1452
+-> 1240, related hop first frame 540 -> 602 (p90 1114 -> 818), related list 808 -> 1024, cold share
+link 701 -> 692: parity within morning-vs-afternoon noise. LTE (Movistar stalling again on two
+edges): once the verdict was in place, cold opens 969 / 1028 ms and hops 619 / 632 / 959 ms with no
+failover; the first open of the morning re-learnt the verdict (9.6 s): the 24 h verdict learnt at
+20:00 was gone by 09:10 with nothing recording in between. The logs rule out a lost save and a
+Wi-Fi-to-LTE restore gap; the likely cause is a single answering probe (Movistar edges flip: one
+answered 4 min after stalling). A verdict with two stalled edges now needs answers from two
+different edges to clear (the second probe scheduled 60 s later, the pending state saved), and
+every removal leaves a breadcrumb the next restore line prints, so a repeat names its cause. Carrier
+restore across processes and network ids confirmed (`restored=y`, 2.7 s vs 9.8 s on the debug
+build). Mini park with Next while offline: foreground held, resumed on the network's return.
+
+**Reviews.** Every change got a Codex adversarial review (gpt-6-sol per area, the mini merge and
+the UX branch; gpt-6-astra for the visitor decision; an astra ideas pass found the four latent
+bugs). Fixed findings were mostly timers on the wrong clock or outliving their video (park timeout
+on uptime; Next from a parked notification closed by the old timer), budgets spent without a
+request (a cancelled prefetch used the wall probe), keys too broad (a verdict following a VPN; one
+stalled edge keeping a network-wide verdict alive), attribution races (a prefetch changing the
+client a 403 blames), cache correctness and paging stalls. On 09-26 the overnight fixes got
+their own passes: offline wait (3 defects fixed), Opus pre-roll (none), verdict persistence (7,
+then 2 more), HTTP/2 (3), UX ratings and Snackbars (4, then 1). Not addressed: DirectMpd falls back to
+XML after partial work when a caption name holds an emoji (one extra parse, rare).
+
+**Harness incidents on the owner's phone (three).** Twice a scripted tap hit a WhatsApp heads-up that
+reached into the tap area. 12:33: WhatsApp opened and ~40 s of taps/swipes opened and scrolled its
+"Archivados" list; no chat opened, nothing typed or sent (some taps were near the "Keep chats
+archived" banner: worth checking WhatsApp > Settings > Chats).
+20:13: a phone call arrived mid-run and the guard did not check the call state: it tapped the mini
+X and turned **mobile data and Wi-Fi off for ~30 s during the call** (the call held and ended
+normally). Everything now waits while a call is up. 14:59: a tap opened the chat list;
+the new focus guard stopped further input, then two BACK presses at NewTube's task root returned to
+WhatsApp (no input went in); one text dump of the chat list was read (not saved), a screenshot taken
+and deleted. Input now needs NewTube focused and no heads-up or shade on screen; BACK is never sent
+at our root, HOME never pressed; captures showing other apps were deleted.
+
+**Tests:** 620 smarttubetv and 229 common unit tests pass on the final tree (0 failures, 1
+opt-in benchmark skipped); focused youtubeapi suites pass (the full suite keeps its pre-existing
+live-account failures); release and debug assemble. The integrated UX build: 651 + 234.
+
+**Still open:**
+- The first stalled open per carrier still pays the ~7-8 s learning once; probe-driven clearing
+  of a verdict is not yet seen on the device (Movistar's stall was real on every probe).
+- The first `/browse` left earlier but was not answered sooner (Wi-Fi ~1.45 s vs 1.35; LTE
+  1.68-1.79 s vs 1.48); those runs were on the accidental HTTP/1.1 (one connection per parallel
+  request): back on HTTP/2 (r3h) it is 1202 ms on Wi-Fi and 1312 ms on LTE, below base.
+- A light/dark switch while watching restarts the video (0.5-0.8 s gap); fixed on the UX branch.
+- Second share link: brief PiP shrink-and-expand (~0.5-1 s); avoiding it needs the link router
+  out of its own task.
+- UX branch: merge, UX-02 font/display scale (owner, on the Pixel), UX-12 captions, UX-13, UX-26.
+- Mini: a Quick Settings swipe on Android 11+ never reaches the app (the parked session lingers
+  until the 10 min); no resume after 10 min; ordinary paused background sessions can still freeze.
+- SABR fallback still not wired; TV_TIZEN as signed-in first choice and dropping WEB_EMBED (error
+  152-18 on every network) are owner decisions; touch-down prefetch and next-video media preload
+  stay off until their waste is measured.
+
 ## Pixel verification and follow-up round (2026-09-25, Pixel 9, Wi-Fi + LTE)
 
 Asked for: test the 2026-09-24 round on the owner's Pixel 9 (signed in) over Wi-Fi and

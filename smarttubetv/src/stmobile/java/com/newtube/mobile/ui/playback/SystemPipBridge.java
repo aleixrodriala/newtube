@@ -38,12 +38,25 @@ public final class SystemPipBridge {
             return false;
         }
 
+        com.liskovsoft.smartyoutubetv2.common.misc.NetPath.log(
+                "pip-restore pinnedTask=" + player.getTaskId() + " foregroundTask=" + launcher.getTaskId());
+        restore(player);
+        return true;
+    }
+
+    /**
+     * Expand the pinned player back to full screen: a launch routed from the player instance itself
+     * makes Android expand exactly its task (see the class doc).
+     */
+    static void restore(MobilePlaybackActivity player) {
         Intent restore = new Intent(player, MobilePlaybackActivity.class)
                 .setAction(ACTION_RESTORE_FROM_PIP)
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-        com.liskovsoft.smartyoutubetv2.common.misc.NetPath.log(
-                "pip-restore pinnedTask=" + player.getTaskId() + " foregroundTask=" + launcher.getTaskId());
         player.startActivity(restore);
-        return true;
+    }
+
+    /** True for our own expand request (so it is never mistaken for a new video being routed in). */
+    static boolean isRestoreIntent(Intent intent) {
+        return intent != null && ACTION_RESTORE_FROM_PIP.equals(intent.getAction());
     }
 }

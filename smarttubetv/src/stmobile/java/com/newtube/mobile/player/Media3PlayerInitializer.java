@@ -326,7 +326,8 @@ public class Media3PlayerInitializer {
         mPreloadManagerBuilder = null;
         mPreloadTrackSelector = null;
 
-        DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(mContext)
+        DefaultRenderersFactory renderersFactory = new PrerollRenderersFactory(mContext,
+                opusPrerollSkipEnabled())
                 // A blacklisted/failed primary decoder falls back to another instead of erroring
                 // (replaces the legacy BlacklistMediaCodecSelector's job for the common cases).
                 .setEnableDecoderFallback(true);
@@ -351,6 +352,7 @@ public class Media3PlayerInitializer {
             // A disabled prototype must not add a second selector or manager builder to TTFF.
             ExoPlayer player = playerBuilder.build();
             setupAudio(player);
+            keepCodecsAcrossOpens(player);
             return player;
         }
 
@@ -376,8 +378,106 @@ public class Media3PlayerInitializer {
         ExoPlayer player = mPreloadManagerBuilder.buildExoPlayer(playerBuilder);
 
         setupAudio(player);
+        keepCodecsAcrossOpens(player);
 
         return player;
+    }
+
+    /**
+     * NEWTUBE(keep-codec): every open on this player - a related tap, autoplay-next, next/previous,
+     * a Home card while the mini player runs, and each 403/transport recovery reload - goes through
+     * {@code Media3PlayerController.resetPlayerState()}: {@code stop()} + {@code clearMediaItems()}
+     * + a new source. With media3's default (foreground mode off), {@code stop()} RESETS the
+     * disabled renderers (ExoPlayerImplInternal.stopInternal: {@code resetRenderers =
+     * forceResetRenderers || !foregroundMode}), which releases the video and audio MediaCodec, so
+     * the next stream creates, configures and starts a new decoder on the playback thread - while
+     * that thread is also the one that must start the first media request after the init segment.
+     *
+     * <p>Foreground mode keeps the disabled renderers' codecs (flushed, on the same persistent
+     * session surface), and the new stream's first format goes through media3's own
+     * {@code canReuseCodec} check: same MIME within the codec's configured max size and color info
+     * reuses it (adaptive reconfiguration), anything else (VP9 -&gt; AV1, a taller portrait video,
+     * HDR) re-creates exactly as before. This is the use media3 documents for the mode: one player,
+     * several items, gaps between a {@code stop()} and the next {@code prepare()}.</p>
+     *
+     * <p>What it does NOT change: fatal renderer errors still force-reset renderers
+     * ({@code stopInternal(true, ...)}), so a broken codec is never carried over; {@code release()}
+     * resets everything. The AudioTrack is still released on every flush (DefaultAudioSink.flush,
+     * media3 1.10.1). Leaving the foreground: background audio disables the video track, and media3
+     * resets every renderer a new selection leaves disabled (ExoPlayerImplInternal.enableRenderers,
+     * not gated by foreground mode), so a playing background-audio player holds no video decoder;
+     * the one leftover - an IDLE player that kept a flushed decoder - is handled by
+     * {@code Media3PlayerController.onBackgroundAudio}.
+     * Proof on the device: {@code decoder reuse +X type=video result=reconfigure|as-is} instead of
+     * {@code decoder init +X type=video initMs=} on the second and later opens of one watch page.
+     * Debug/benchmark A/B switch: {@code debug.arc.keep_codec=0}.</p>
+     */
+    static void keepCodecsAcrossOpens(ExoPlayer player) {
+        boolean keep = keepCodecsEnabled();
+        if (keep) {
+            player.setForegroundMode(true);
+        }
+        NetPath.log("player-codec keep-across-opens=" + (keep ? "y" : "n"));
+    }
+
+    /** Always on in release; debug/benchmark builds can compare with {@code debug.arc.keep_codec=0}. */
+    static boolean keepCodecsEnabled() {
+        return !((com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG
+                || com.liskovsoft.smartyoutubetv2.tv.BuildConfig.BENCHMARK)
+                && "0".equals(DebugMediaShaper.prop("debug.arc.keep_codec")));
+    }
+
+    /** Always on in release; debug/benchmark builds can compare with {@code debug.arc.opus_preroll=0}. */
+    static boolean opusPrerollSkipEnabled() {
+        return !((com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG
+                || com.liskovsoft.smartyoutubetv2.tv.BuildConfig.BENCHMARK)
+                && "0".equals(DebugMediaShaper.prop("debug.arc.opus_preroll")));
+    }
+
+    /**
+     * NEWTUBE(opus-preroll): the stock factory, with the stock MediaCodec audio renderer swapped for
+     * {@link OpusPrerollAudioRenderer} (same constructor arguments, same position in the list), so a
+     * seek/resume into an Opus segment stops decoding every packet up to the target. Extension
+     * renderers (none are bundled) keep their stock placement.
+     */
+    static final class PrerollRenderersFactory extends DefaultRenderersFactory {
+        private final boolean mSkipOpusPreroll;
+
+        PrerollRenderersFactory(Context context, boolean skipOpusPreroll) {
+            super(context);
+            mSkipOpusPreroll = skipOpusPreroll;
+        }
+
+        @Override
+        protected void buildAudioRenderers(Context context, int extensionRendererMode,
+                androidx.media3.exoplayer.mediacodec.MediaCodecSelector mediaCodecSelector,
+                boolean enableDecoderFallback, androidx.media3.exoplayer.audio.AudioSink audioSink,
+                android.os.Handler eventHandler,
+                androidx.media3.exoplayer.audio.AudioRendererEventListener eventListener,
+                java.util.ArrayList<androidx.media3.exoplayer.Renderer> out) {
+            if (mSkipOpusPreroll && extensionRendererMode == EXTENSION_RENDERER_MODE_OFF) {
+                // Exactly what the stock method adds in this mode: one MediaCodec audio renderer.
+                out.add(new OpusPrerollAudioRenderer(context, getCodecAdapterFactory(),
+                        mediaCodecSelector, enableDecoderFallback, eventHandler, eventListener,
+                        audioSink));
+                return;
+            }
+            int first = out.size();
+            super.buildAudioRenderers(context, extensionRendererMode, mediaCodecSelector,
+                    enableDecoderFallback, audioSink, eventHandler, eventListener, out);
+            if (!mSkipOpusPreroll) {
+                return;
+            }
+            for (int i = first; i < out.size(); i++) {
+                // Exact class: the stock instance was never enabled, so nothing is registered on the
+                // shared AudioSink yet (MediaCodecAudioRenderer sets its sink listener on enable).
+                if (out.get(i).getClass() == androidx.media3.exoplayer.audio.MediaCodecAudioRenderer.class) {
+                    out.set(i, new OpusPrerollAudioRenderer(context, getCodecAdapterFactory(),
+                            mediaCodecSelector, enableDecoderFallback, eventHandler, eventListener,
+                            audioSink));
+                }
+            }
+        }
     }
 
     /** Valid after createPlayer; the controller owns and releases the built manager. */

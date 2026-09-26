@@ -489,7 +489,7 @@ public class VideoStateController extends BasePlayerController {
         // 2) Pause on end enabled
         // 3) Watching live stream in real time
         long durationMs = getPlayer().getDurationMs();
-        long positionMs = getPlayer().getPositionMs();
+        long positionMs = getPlayer().getHistoryPositionMs(); // NEWTUBE(resume-seek): see PlayerEngine
         long remainsMs = durationMs - positionMs;
         boolean isPositionActual = remainsMs > 1_000;
         boolean isLiveBroken = video.isLive && durationMs <= 30_000; // the live without a history
@@ -536,7 +536,13 @@ public class VideoStateController extends BasePlayerController {
         // 259957ms then link 1000ms only 9ms apart). Keep state/speed and play-state restoration;
         // skip only this superseded seek, including the live-position fallback above.
         if (state != null && item.pendingPosMs <= 0) {
-            getPlayer().setPositionMs(state.positionMs);
+            if (item.isLive) {
+                getPlayer().setPositionMs(state.positionMs); // live edge / DVR offset: exact
+            } else {
+                // NEWTUBE(resume-seek): continue watching may land on the keyframe before the saved
+                // spot (YouTube does too) instead of decoding up to it before the first frame.
+                getPlayer().setResumePositionMs(state.positionMs);
+            }
         }
 
         if (!mIsPlayBlocked) {
@@ -557,7 +563,7 @@ public class VideoStateController extends BasePlayerController {
             return;
         }
 
-        MediaServiceManager.instance().updateHistory(video, Math.max(getPlayer().getPositionMs(), 3_000)); // 0 == fully watched
+        MediaServiceManager.instance().updateHistory(video, Math.max(getPlayer().getHistoryPositionMs(), 3_000)); // 0 == fully watched
     }
 
     /**

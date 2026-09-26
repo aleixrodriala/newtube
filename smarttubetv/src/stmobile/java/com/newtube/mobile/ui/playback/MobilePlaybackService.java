@@ -31,6 +31,7 @@ import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
+import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
@@ -81,6 +82,20 @@ public class MobilePlaybackService extends Service {
 
     private final IBinder mBinder = new LocalBinder();
 
+    /**
+     * NEWTUBE(mini-park): what the owning Activity needs to hear from outside its own window. Both
+     * matter only for a mini session the user closed (parked, see MiniSessionState). Resuming
+     * needs no callback here: the Activity watches the player itself, which catches every source
+     * of playback (notification, system controls, headset, Next/Previous, cast hand-back).
+     */
+    interface SessionListener {
+        /** The user swiped the (paused, dismissible) notification away. */
+        void onNotificationDismissed();
+
+        /** The user removed the app's task from Recents (see {@link #onTaskRemoved}). */
+        void onTaskRemoved();
+    }
+
     private PlayerNotificationManager mNotificationManager;
     private MediaSessionCompat mMediaSession;
     private PlaybackPresenter mPresenter;
@@ -88,6 +103,10 @@ public class MobilePlaybackService extends Service {
     private ExoPlayer mPlayer;
     private Player mNotificationPlayer;
     private Player.Listener mSessionSyncListener;
+    @Nullable
+    private SessionListener mSessionListener;
+    /** NEWTUBE(mini-park): see {@link #setKeepForegroundWhilePaused(boolean)}. */
+    private final ParkedForegroundHold mParkedHold = new ParkedForegroundHold();
     private boolean mIsForeground;
     /**
      * A new player is being attached over an old one: the old notification's cancel callback must
@@ -252,7 +271,8 @@ public class MobilePlaybackService extends Service {
      * Attach the reused player. Sets up the media session + notification. Safe to call once per
      * player instance; a second call re-attaches (used when the engine is restarted).
      */
-    public void attachPlayer(ExoPlayer player, PlaybackPresenter presenter, PendingIntent contentIntent) {
+    public void attachPlayer(ExoPlayer player, PlaybackPresenter presenter, PendingIntent contentIntent,
+            @Nullable SessionListener sessionListener) {
         if (player == null) {
             return;
         }
@@ -270,6 +290,7 @@ public class MobilePlaybackService extends Service {
 
         mPresenter = presenter;
         mPlayer = player;
+        mSessionListener = sessionListener;
         mNotificationPlayer = new QueueForwardingPlayer(player);
 
         mMediaSession = new MediaSessionCompat(getApplicationContext(), getPackageName());
@@ -367,7 +388,7 @@ public class MobilePlaybackService extends Service {
                 .setNotificationListener(new PlayerNotificationManager.NotificationListener() {
                     @Override
                     public void onNotificationPosted(int notificationId, Notification notification, boolean ongoing) {
-                        if (ongoing) {
+                        if (mParkedHold.promotesOnPost(ongoing)) {
                             // Promote to foreground so audio keeps playing when backgrounded / screen off.
                             try {
                                 startForeground(notificationId, notification);
@@ -392,14 +413,31 @@ public class MobilePlaybackService extends Service {
                     @Override
                     public void onNotificationCancelled(int notificationId, boolean dismissedByUser) {
                         if (mReattaching) {
-                            // Old player detaching as part of attachPlayer()'s re-attach; the new
-                            // player's notification replaces this one immediately. Keep the
-                            // foreground grant and the service alive (see attachPlayer).
+                            // Old player detaching as part of attachPlayer()'s re-attach (or an
+                            // engine restart, see detachPlayerForRestart); the new player's
+                            // notification replaces this one immediately. Keep the foreground
+                            // grant and the service alive (see attachPlayer).
+                            return;
+                        }
+                        if (mParkedHold.keepsServiceOnCancel(dismissedByUser)) {
+                            // NEWTUBE(mini-park): Next/Previous on a parked session - the media
+                            // reset emptied the timeline. The session is still parked: keep the
+                            // foreground (the parked notification stays up, an app cannot cancel
+                            // its own foreground notification) until the new item re-posts it.
+                            NetPath.log("mini park-hold kept reason=notification-cancel");
                             return;
                         }
                         ServiceCompat.stopForeground(MobilePlaybackService.this, ServiceCompat.STOP_FOREGROUND_REMOVE);
                         mIsForeground = false;
                         stopSelf();
+                        // NEWTUBE(mini-park): a parked session ends here. Posted: the Activity's
+                        // teardown detaches this very notification manager, which must not
+                        // happen inside its own broadcast callback. Only a user dismiss counts;
+                        // our own detach/re-attach cancels are not a request to stop.
+                        final SessionListener listener = mSessionListener;
+                        if (dismissedByUser && listener != null) {
+                            Utils.post(listener::onNotificationDismissed);
+                        }
                     }
                 })
                 .build();
@@ -423,6 +461,23 @@ public class MobilePlaybackService extends Service {
     }
 
     /**
+     * Detach for an engine restart (error recovery): the Activity releases this player and attaches
+     * a fresh one right after. Same no-teardown rules as attachPlayer's own re-attach: the
+     * notification cancel must not demote or stop the service (a backgrounded session could not be
+     * promoted again - API 31+ background start restriction), and a parked session keeps its
+     * foreground hold. The media session and the notification manager are still released, so
+     * nothing references the released player in between.
+     */
+    public void detachPlayerForRestart() {
+        mReattaching = true;
+        try {
+            releaseInternal(false);
+        } finally {
+            mReattaching = false;
+        }
+    }
+
+    /**
      * Foreground-recovery hook (called from the Activity's onResume): if a background
      * {@code startForeground} was rejected (see {@code onNotificationPosted}), re-post the current
      * notification now that the app is in the foreground - the promotion is retried and succeeds.
@@ -433,7 +488,38 @@ public class MobilePlaybackService extends Service {
         }
     }
 
+    /**
+     * NEWTUBE(mini-park): hold the foreground state through a pause - only for a parked mini
+     * session (the user closed the card), which ends after MiniSessionState#PARK_TIMEOUT_MS, so the
+     * hold is bounded to the same 10 minutes Media3's own MediaSessionService keeps a paused session
+     * in the foreground ("to allow users to resume playback within this timeout").
+     *
+     * <p>Why not the usual demote-on-pause: measured on the API-36 emulator, a paused, demoted
+     * session in a backgrounded app is dead within ~2 minutes. About a minute after the app goes
+     * idle the system stops the (now background) started service ("Stopping service due to app
+     * idle"), the process drops to cached and the freezer freezes it; the next press of play on the
+     * quick-settings / lock-screen player then reaches us as a SYNC binder call (the compat
+     * controller's extra binder) and ActivityManager kills the process for it ("Sync transaction
+     * while in frozen state") - the resume button killed the app instead of resuming. A frozen
+     * process also never runs the park timeout. Held in the foreground the process is never
+     * frozen, the resume works at any point of the window, and the timeout fires on time.</p>
+     *
+     * <p>Turned on from the foreground (the card's X tap), where the promotion is always allowed;
+     * re-posts the notification so the change applies even when the player state did not change.</p>
+     */
+    public void setKeepForegroundWhilePaused(boolean keep) {
+        if (!mParkedHold.set(keep)) {
+            return;
+        }
+        if (mNotificationManager != null) {
+            mNotificationManager.invalidate();
+        }
+    }
+
     private void releaseInternal(boolean removeNotification) {
+        // The real teardown ends a parked hold FIRST, so the cancel below takes the normal
+        // stop-foreground path; a re-attach / engine restart keeps it (see ParkedForegroundHold).
+        mParkedHold.onDetach(/* realTeardown= */ removeNotification);
         if (mNotificationManager != null) {
             mNotificationManager.setPlayer(null); // triggers onNotificationCancelled -> stopForeground
             mNotificationManager = null;
@@ -465,6 +551,23 @@ public class MobilePlaybackService extends Service {
         mPresenter = null;
         mPlayer = null;
         mNotificationPlayer = null;
+        mSessionListener = null;
+    }
+
+    /**
+     * NEWTUBE(mini-park): Recents swipe. What happens to the app's Activities (and so to a PLAYING
+     * background session) is left exactly as before; only a parked session is ended explicitly.
+     * While parked this service holds the foreground (setKeepForegroundWhilePaused), which keeps
+     * the process alive through the task removal, and the hidden Activity's teardown is then up to
+     * the platform - do not leave a paused notification and player behind for up to 10 minutes.
+     */
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        SessionListener listener = mSessionListener;
+        if (listener != null) {
+            listener.onTaskRemoved();
+        }
     }
 
     @Override

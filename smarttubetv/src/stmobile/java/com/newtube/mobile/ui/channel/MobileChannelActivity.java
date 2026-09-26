@@ -163,6 +163,8 @@ public class MobileChannelActivity extends MobileActivity
         mGrid.setLayoutManager(mLayoutManager);
         // Cards first, so grid positions below the footer are card positions.
         mGrid.setAdapter(new ConcatAdapter(mAdapter, mLoadMoreFooter));
+        // Next cards' thumbnails decoded before they scroll in (no grey card + fade on a fling).
+        com.newtube.mobile.ui.common.FeedThumbnailPreloader.attach(mGrid, mAdapter);
         mGrid.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {

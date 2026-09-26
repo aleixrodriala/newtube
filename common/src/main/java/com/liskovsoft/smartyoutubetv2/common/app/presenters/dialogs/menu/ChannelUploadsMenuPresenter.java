@@ -164,6 +164,8 @@ public class ChannelUploadsMenuPresenter extends BaseMenuPresenter {
 
         RxHelper.disposeActions(mUnsubscribeAction);
         mUnsubscribeAction = RxHelper.execute(mItemManager.unsubscribeObserve(channelId));
+        // NEWTUBE(reopen-related): kept watch-page documents carry the old subscribe state.
+        com.liskovsoft.smartyoutubetv2.common.app.models.playback.controllers.SuggestionsController.onUserStateChanged();
 
         if (mCallback != null) {
             mDialogPresenter.closeDialog();

@@ -129,6 +129,10 @@ public class Media3SourceFactory {
      * mid-stream segment stall: there is no playable buffer yet, so replaying the same QUIC stream
      * up to six times only extends the spinner. Surface that first timeout to the app-level source
      * recovery and temporarily build the replacement source on the OkHttp transport.
+     * NEWTUBE(media-path): this short bypass is only for that weak evidence (Cronet timed out, the
+     * other transport was never tried). A proven stall - OkHttp answered the request Cronet could
+     * not - is a persisted per-network verdict instead (MediaPathVerdicts): a flat 120 s made
+     * every open after it lapsed pay the 3.5 s stall again (4 of 16 LTE hops, Pixel 9).
      */
     private static final long CRONET_STARTUP_TIMEOUT_BYPASS_MS = 2 * 60_000L;
 
@@ -190,7 +194,8 @@ public class Media3SourceFactory {
     // of Mbps (or a slow cellular session unnecessarily hold Wi-Fi down). Media3 resets the meter
     // on network replacement and now finds a seed learned on the same class of link. Values remain
     // clamped; corrupt/pathological prefs fall back to media3's country x network-type table.
-    private static final String NETWORK_PREFS_NAME = "newtube_network";
+    /** Package-private: MediaPathRouting keeps its verdicts in the same (already loaded) file. */
+    static final String NETWORK_PREFS_NAME = "newtube_network";
     /** Read once as a migration source for installs that predate per-network seeds. */
     private static final String KEY_BITRATE_ESTIMATE = "bw_estimate_bps";
     private static final String KEY_BITRATE_ESTIMATE_PREFIX = "bw_estimate_bps_net_";
@@ -392,7 +397,9 @@ public class Media3SourceFactory {
         // http<->https redirects natively (no setAllowCrossProtocolRedirects equivalent needed).
         CronetEngine cronetEngine = CronetManager.getEngine(mContext);
         mCronetAvailable = cronetEngine != null;
-        MediaAddressPreference.attach(mContext); // network identity for the media-dns preference
+        // Network identity, the persisted media-path verdicts (Cronet / IPv6 stalls per network
+        // attachment), their background re-probes and the preconnect route. No I/O here.
+        MediaPathRouting.attach(mContext);
         mMediaOkHttpClient = MediaHttpClient.create(OkHttpManager.instance().getClient());
         OkHttpDataSource.Factory okHttp = new OkHttpDataSource.Factory(mMediaOkHttpClient)
                 .setUserAgent(USER_AGENT)
@@ -503,10 +510,24 @@ public class Media3SourceFactory {
             return fallbackFactory.createDataSource();
         }
         StartupFailoverDataSource.Transports transports = okHttpOnly;
-        if (cronetFirst != null && !shouldBypassCronet(mContext)) {
-            transports = cronetFirst;
-        } else if (cronetFirst != null) {
-            logBypassedSource();
+        // NEWTUBE(media-path): the network id costs binder calls, so only once a verdict exists.
+        String network = MediaPathRouting.verdicts().isEmpty() ? null : NetPath.networkId(mContext);
+        if (cronetFirst != null) {
+            // A Cronet stall proven on THIS network attachment (persisted across processes,
+            // re-probed in the background) starts media on OkHttp; so does the short load-error
+            // bypass. Anywhere else Cronet leads, exactly as before.
+            boolean verdict = network != null && MediaPathRouting.isCronetStalled(network);
+            if (!verdict && !shouldBypassCronet(mContext)) {
+                transports = cronetFirst;
+            } else {
+                logBypassedSource(verdict, network);
+                if (verdict) {
+                    MediaPathRouting.verdicts().noteUse(MediaPathVerdicts.Kind.CRONET_STALL, network);
+                }
+            }
+        }
+        if (network != null) {
+            MediaPathRouting.logUse(NetPath.context(), network);
         }
         // Link evidence comes only from the device's normal transport: Cronet, or OkHttp when
         // there is no Cronet at all - never from OkHttp standing in for a bypassed Cronet.
@@ -517,15 +538,17 @@ public class Media3SourceFactory {
     }
 
     /** Once per open: its sources start on OkHttp because Cronet is bypassed on this network. */
-    private static synchronized void logBypassedSource() {
+    private static synchronized void logBypassedSource(boolean verdict, @Nullable String network) {
         String episode = NetPath.context();
         if (episode.equals(sCronetBypassLoggedEpisode)) {
             return;
         }
         sCronetBypassLoggedEpisode = episode;
         NetPath.log(episode + " media-transport okhttp-fallback active reason="
-                + "startup-init-timeout net=" + sCronetBypassNetwork + " remainingMs="
-                + Math.max(0, sCronetBypassUntilMs - android.os.SystemClock.elapsedRealtime()));
+                + (verdict ? "cronet-stall-verdict net=" + network
+                        : "startup-init-timeout net=" + sCronetBypassNetwork + " remainingMs="
+                                + Math.max(0, sCronetBypassUntilMs
+                                        - android.os.SystemClock.elapsedRealtime())));
     }
 
     private DataSource.Factory newCronetFactory(CronetEngine cronetEngine,
@@ -669,11 +692,15 @@ public class Media3SourceFactory {
             // Only an answer on the other transport for the SAME request, on the SAME network the
             // primary stalled on, is evidence against Cronet/QUIC. Silence on both is a dead edge
             // host; an answer after a handover says nothing about the network that stalled.
+            // NEWTUBE(media-path): an HTTP status (a 403 of a dead signed URL) is an answer too.
             String answeredOn = NetPath.networkId(mContext);
-            String bypass = !answered
+            int httpStatus = answered ? -1 : StartupFailoverDataSource.responseCode(cause);
+            boolean reached = answered || (!noResponse && httpStatus > 0);
+            String bypass = !reached
                     ? (noResponse ? "bypass=n reason=host-dead" : "bypass=n reason=okhttp-error")
                     : StartupDeadlinePolicy.sameKnownNetwork(decision.networkKey, answeredOn)
-                    ? "bypass=y reason=okhttp-answered"
+                    ? (answered ? "bypass=y reason=okhttp-answered"
+                            : "bypass=y reason=okhttp-http-" + httpStatus)
                     : "bypass=n reason=network-changed stalledOn=" + decision.networkKey
                             + " answeredOn=" + answeredOn;
             NetPath.log(NetPath.context() + " startup-failover okhttp " + outcome
@@ -684,13 +711,29 @@ public class Media3SourceFactory {
         }
 
         @Override
-        public void onPrimaryTransportFault(DataSpec dataSpec, StartupDeadlinePolicy.Decision decision) {
+        public void onPrimaryTransportFault(DataSpec dataSpec, StartupDeadlinePolicy.Decision decision,
+                IOException primaryFailure) {
             if (!mCronetAvailable) {
                 return;
             }
             String answeredOn = NetPath.networkId(mContext);
             if (StartupDeadlinePolicy.sameKnownNetwork(decision.networkKey, answeredOn)) {
-                markCronetBypass(decision.networkKey, "adaptive", "okhttp-answered");
+                int status = cronetStatusCode(primaryFailure);
+                if (isPathPhase(status)) {
+                    // NEWTUBE(media-path): Cronet never got past connect/TLS while OkHttp reached
+                    // the same edge - a fault of this network's path for Cronet (Movistar LTE:
+                    // cronetStatus=11 on every stall). A persisted per-network verdict, re-probed
+                    // in the background, instead of a flat 120 s bypass.
+                    MediaPathRouting.verdicts().observe(MediaPathVerdicts.Kind.CRONET_STALL,
+                            decision.networkKey, dataSpec.uri.getHost(),
+                            "okhttp-answered cronetStatus=" + cronetStatus(primaryFailure));
+                } else {
+                    // Stuck after the request was sent (13 "waiting": the edge was slow for that
+                    // request), or in DNS / Cronet's own socket pool: not a path verdict. The
+                    // short in-memory bypass still keeps this open's retries off Cronet.
+                    markCronetBypass(decision.networkKey, "adaptive",
+                            "okhttp-answered cronetStatus=" + cronetStatus(primaryFailure));
+                }
             } else {
                 NetPath.log(NetPath.context() + " media-transport cronet-bypass mark=n"
                         + " reason=network-changed stalledOn=" + decision.networkKey
@@ -710,13 +753,34 @@ public class Media3SourceFactory {
             if (caps == null) {
                 return new StartupDeadlinePolicy.Evidence(networkKey, false, false, 0, 0);
             }
+            int downKbps = Math.max(0, caps.getLinkDownstreamBandwidthKbps());
+            boolean cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
+            // NEWTUBE(startup-budget): the radio generation tells Android's just-connected 14 kbps
+            // placeholder from a real 2G reading; only looked up when the reading is that low.
+            int rat = cellular && downKbps > 0
+                    && downKbps <= StartupDeadlinePolicy.PLACEHOLDER_MAX_DOWN_KBPS
+                    ? radioGeneration(manager, network) : StartupDeadlinePolicy.RAT_UNKNOWN;
             return new StartupDeadlinePolicy.Evidence(networkKey,
                     caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
                     caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL),
-                    Math.max(0, caps.getLinkDownstreamBandwidthKbps()),
-                    mBandwidthMeter.measuredBitrate());
+                    downKbps, mBandwidthMeter.measuredBitrate(), cellular, rat);
         } catch (RuntimeException e) {
             return new StartupDeadlinePolicy.Evidence(networkKey, false, false, 0, 0);
+        }
+    }
+
+    /**
+     * The network's own NetworkInfo subtype (no phone-state permission needed; media3's
+     * NetworkTypeObserver reads the same field, but only for the default network and with lag).
+     */
+    @SuppressWarnings("deprecation")
+    private static int radioGeneration(ConnectivityManager manager, Network network) {
+        try {
+            android.net.NetworkInfo info = manager.getNetworkInfo(network);
+            return info != null ? StartupDeadlinePolicy.ratOf(info.getSubtype())
+                    : StartupDeadlinePolicy.RAT_UNKNOWN;
+        } catch (RuntimeException e) {
+            return StartupDeadlinePolicy.RAT_UNKNOWN;
         }
     }
 
@@ -732,6 +796,8 @@ public class Media3SourceFactory {
                 + " early=" + (decision.early ? "y" : "n") + " reason=" + decision.reason
                 + " samples=" + decision.samples + " worstFirstByteMs=" + decision.worstFirstByteMs
                 + " downKbps=" + evidence.downKbps
+                + (evidence.rat != StartupDeadlinePolicy.RAT_UNKNOWN
+                        ? " rat=" + StartupDeadlinePolicy.ratName(evidence.rat) : "")
                 + " measuredKbps=" + evidence.measuredBps / 1000
                 + " validated=" + (evidence.validated ? "y" : "n")
                 + " captive=" + (evidence.captive ? "y" : "n")
@@ -754,6 +820,25 @@ public class Media3SourceFactory {
             // opaque uri
         }
         return " host=" + dataSpec.uri.getHost() + " itag=" + itag;
+    }
+
+    /** Cronet's connection status when it gave up, or -1 when the failure did not carry one. */
+    static int cronetStatusCode(@Nullable Throwable error) {
+        for (Throwable e = error; e != null; e = e.getCause()) {
+            if (e instanceof CronetDataSource.OpenException) {
+                return ((CronetDataSource.OpenException) e).cronetConnectionStatus;
+            }
+            if (e.getCause() == e) {
+                break;
+            }
+        }
+        return -1;
+    }
+
+    /** Stuck establishing the path itself (TCP connect or TLS), before any request was sent. */
+    static boolean isPathPhase(int cronetStatus) {
+        return cronetStatus == UrlRequest.Status.CONNECTING
+                || cronetStatus == UrlRequest.Status.SSL_HANDSHAKE;
     }
 
     /** Where Cronet was stuck when the budget expired (resolving/connecting/tls/waiting...). */
@@ -830,7 +915,44 @@ public class Media3SourceFactory {
     /** DASH VOD from InnerTube formats via the generated MPD. Null if the manifest can't be built. */
     @Nullable
     MediaSource fromDashFormatInfo(MediaItemFormatInfo formatInfo) {
-        return fromDashManifest(formatInfo.createMpdStream(), formatInfo.isLive());
+        return fromDashFormatInfo(formatInfo, null);
+    }
+
+    /** Same build; {@code timing} (open path only) receives the XML generation / parse split. */
+    @Nullable
+    MediaSource fromDashFormatInfo(MediaItemFormatInfo formatInfo, @Nullable SourceBuildTiming timing) {
+        long startMs = android.os.SystemClock.elapsedRealtime();
+        // NEWTUBE(open-cpu): the same manifest without printing and re-lexing its XML (see
+        // DirectMpd). Anything it declines or fails on takes the text route below, unchanged.
+        DirectMpd.Recorder recorder = DirectMpd.record(formatInfo);
+        if (recorder != null) {
+            long recordedMs = android.os.SystemClock.elapsedRealtime();
+            MediaSource direct = null;
+            try {
+                StaticDashManifestParser parser = new StaticDashManifestParser();
+                direct = fromStaticManifest(
+                        parser.parse(recorder.replay(), GENERATED_MANIFEST_URI), parser);
+            } catch (IOException | RuntimeException e) {
+                Log.w(TAG, "fromDashFormatInfo: direct manifest failed, using xml: " + e);
+            }
+            if (direct != null) {
+                if (timing != null) {
+                    timing.genMs = recordedMs - startMs;
+                    timing.parseMs = android.os.SystemClock.elapsedRealtime() - recordedMs;
+                    timing.mpdRoute = "direct";
+                }
+                return direct;
+            }
+        }
+        InputStream mpd = formatInfo.createMpdStream();
+        long generatedMs = android.os.SystemClock.elapsedRealtime();
+        MediaSource source = fromDashManifest(mpd, formatInfo.isLive());
+        if (timing != null) {
+            timing.genMs = generatedMs - startMs;
+            timing.parseMs = android.os.SystemClock.elapsedRealtime() - generatedMs;
+            timing.mpdRoute = "xml";
+        }
+        return source;
     }
 
     MediaSource fromSabrFormatInfo(MediaItemFormatInfo formatInfo) {
@@ -905,6 +1027,11 @@ public class Media3SourceFactory {
             return null;
         }
 
+        return fromStaticManifest(manifest, parser);
+    }
+
+    /** The side-loaded source for a generated manifest {@code parser} produced (either route). */
+    private MediaSource fromStaticManifest(DashManifest manifest, StaticDashManifestParser parser) {
         // "Live media bypasses the cache" applies to SIDE-LOADED manifests too: the generated MPD
         // (YouTubeMPDBuilder) declares type="dynamic" whenever the FORMATS are live media
         // (yt_live_broadcast / live=1 urls) - which includes PAST live streams whose formatInfo is
@@ -1221,12 +1348,32 @@ public class Media3SourceFactory {
      * {@code StaticDashManifestParser}). The original {@code dynamic} flag is recorded first -
      * it's how {@link #fromDashManifest} tells a side-loaded LIVE manifest from VOD.
      */
-    private static class StaticDashManifestParser extends DashManifestParser {
+    // Package-private for DirectMpdEquivalenceTest.
+    static class StaticDashManifestParser extends DashManifestParser {
         private boolean mWasDynamic;
 
         /** Whether the source manifest declared {@code type="dynamic"} (live), pre-forcing. */
         boolean wasDynamic() {
             return mWasDynamic;
+        }
+
+        /**
+         * NEWTUBE(open-cpu): {@link #parse(Uri, InputStream)}'s own steps on events that are
+         * already in hand ({@link DirectMpd.Replay}) instead of text.
+         */
+        DashManifest parse(org.xmlpull.v1.XmlPullParser xpp, Uri uri) throws IOException {
+            try {
+                int eventType = xpp.next();
+                if (eventType != org.xmlpull.v1.XmlPullParser.START_TAG || !"MPD".equals(xpp.getName())) {
+                    throw androidx.media3.common.ParserException.createForMalformedManifest(
+                            "inputStream does not contain a valid media presentation description",
+                            /* cause= */ null);
+                }
+                return parseMediaPresentationDescription(xpp, uri);
+            } catch (org.xmlpull.v1.XmlPullParserException e) {
+                throw androidx.media3.common.ParserException.createForMalformedManifest(
+                        /* message= */ null, /* cause= */ e);
+            }
         }
 
         @Override

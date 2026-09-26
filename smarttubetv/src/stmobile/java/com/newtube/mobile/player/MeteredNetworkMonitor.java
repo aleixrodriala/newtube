@@ -147,6 +147,8 @@ final class MeteredNetworkMonitor {
                         mCurrent = network;
                     }
                     update(isMetered(capabilities), "capabilities");
+                    // NEWTUBE(media-path): a roaming flip re-scopes this network's verdicts.
+                    MediaPathRouting.onDefaultCapabilities(network, capabilities);
                 }
 
                 @Override

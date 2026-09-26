@@ -179,6 +179,8 @@ public class MobileSearchActivity extends MobileActivity
         mGrid.setItemViewCacheSize(8);
         mGrid.setLayoutManager(mLayoutManager);
         mGrid.setAdapter(mAdapter);
+        // Next cards' thumbnails decoded before they scroll in (no grey card + fade on a fling).
+        com.newtube.mobile.ui.common.FeedThumbnailPreloader.attach(mGrid, mAdapter);
         mGrid.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {

@@ -54,6 +54,8 @@ public class MediaServiceManager implements OnAccountChange {
     private Disposable mFormatInfoAction;
     private Disposable mPrefetchAction;
     private String mPrefetchVideoId;
+    private Disposable mSpeculativeAction;
+    private String mSpeculativeVideoId;
     private Disposable mPlaylistGroupAction;
     private Disposable mPlaylistInfosAction;
     private Disposable mHistoryAction;
@@ -263,6 +265,37 @@ public class MediaServiceManager implements OnAccountChange {
     }
 
     /**
+     * NEWTUBE(next-prefetch): {@link #loadFormatInfo(Video, OnFormatInfo)} that also reports a
+     * failure - an error, or a flight that completed without an answer (canceled) - so the caller
+     * can retry. {@code onError} receives null for the no-answer case.
+     */
+    public void loadFormatInfo(Video item, OnFormatInfo onFormatInfo, OnError onError) {
+        if (item == null) {
+            return;
+        }
+
+        RxHelper.disposeActions(mFormatInfoAction);
+
+        boolean[] answered = {false};
+        mFormatInfoAction = mItemService.getFormatInfoObserve(item.videoId)
+                .subscribe(
+                        info -> {
+                            answered[0] = true;
+                            onFormatInfo.onFormatInfo(info);
+                        },
+                        error -> {
+                            Log.e(TAG, "loadFormatInfo error: %s", error.getMessage());
+                            onError.onError(error);
+                        },
+                        () -> {
+                            if (!answered[0]) {
+                                onError.onError(null);
+                            }
+                        }
+                );
+    }
+
+    /**
      * Mobile click-to-play win: warm the format-info fetch for {@code item} the instant the user taps,
      * so the network round-trip overlaps the player Activity's bring-up (layout inflation + ExoPlayer
      * construction) instead of running after it. The player's own end-of-onCreate fetch then shares this
@@ -296,6 +329,40 @@ public class MediaServiceManager implements OnAccountChange {
                         info -> { /* cached by the service; nothing to do here */ },
                         error -> Log.e(TAG, "prefetchFormatInfo error: %s", error.getMessage())
                 );
+    }
+
+    /**
+     * NEWTUBE(touch-prefetch, experiment): resolve {@code item}'s format info on a strong intent
+     * signal that is not yet a tap (a finger resting on a related row). Unlike
+     * {@link #prefetchFormatInfo} it cancels NOTHING: the video on screen may still be resolving,
+     * and a touch that turns into a scroll must not abort it. The tap that usually follows joins
+     * this flight through the service's per-video single-flight. At most one speculative
+     * subscription is kept; a newer one only drops the older subscription (its request, if any,
+     * completes into the format cache). Returns false when nothing new was started.
+     */
+    public boolean speculativePrefetchFormatInfo(Video item) {
+        if (item == null || item.videoId == null) {
+            return false;
+        }
+
+        if (item.videoId.equals(mPrefetchVideoId) && mPrefetchAction != null && !mPrefetchAction.isDisposed()) {
+            return false; // the real open is already resolving it
+        }
+
+        if (mSpeculativeAction != null && !mSpeculativeAction.isDisposed()) {
+            if (item.videoId.equals(mSpeculativeVideoId)) {
+                return false;
+            }
+            mSpeculativeAction.dispose();
+        }
+
+        mSpeculativeVideoId = item.videoId;
+        mSpeculativeAction = mItemService.getFormatInfoObserve(item.videoId)
+                .subscribe(
+                        info -> { /* cached by the service; the tap reads it from there */ },
+                        error -> Log.e(TAG, "speculativePrefetchFormatInfo error: %s", error.getMessage())
+                );
+        return true;
     }
 
     public void loadPlaylists(Video item, OnMediaGroup onPlaylistGroup) {

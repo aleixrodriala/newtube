@@ -114,6 +114,44 @@ public class Media3PlayerController implements Player.Listener {
      */
     private final SourceStash<MediaSource> mSourceStash = new SourceStash<>();
 
+    /** NEWTUBE(open-phases): release-build milestones between prepare and first frame. */
+    private final OpenPhaseLog mOpenPhaseLog = new OpenPhaseLog();
+    /** NEWTUBE(keep-codec): foreground mode was dropped by {@link #onBackgroundAudio} and is owed back. */
+    private boolean mKeepCodecSuspended;
+    /**
+     * NEWTUBE(resume-seek): the snap seek. PREVIOUS_SYNC can only resolve to a real sync point (a
+     * DASH segment start from the loaded index) at or before the target - never to an arbitrary
+     * "target - tolerance" edge the way a bounded tolerance falls back - and it is only issued
+     * after the loading segment's start was checked to lie 0.5-8 s before the target (see
+     * {@link ResumeSeekSnap}). The resume seek itself is EXACT so that the snap decision, not the
+     * player-wide scrub tolerance (which may land up to 1 s AFTER), decides where a resume lands.
+     */
+    static final androidx.media3.exoplayer.SeekParameters RESUME_SNAP_PARAMETERS =
+            androidx.media3.exoplayer.SeekParameters.PREVIOUS_SYNC;
+    private final ResumeSeekSnap mResumeSnap = new ResumeSeekSnap();
+    /** elapsedRealtime of this open's first audio media request, to quantify a snap's audio cost. */
+    private long mAudioChunkStartedAtMs;
+    /** Media start time of that request (its audio segment), to see if a snap crosses into the previous one. */
+    private long mAudioChunkStartMs = C.TIME_UNSET;
+    /** The first video media request of an open carries the index-derived segment start. */
+    private final androidx.media3.exoplayer.analytics.AnalyticsListener mResumeListener =
+            new androidx.media3.exoplayer.analytics.AnalyticsListener() {
+                @Override
+                public void onLoadStarted(EventTime eventTime,
+                        androidx.media3.exoplayer.source.LoadEventInfo loadEventInfo,
+                        androidx.media3.exoplayer.source.MediaLoadData mediaLoadData, int retryCount) {
+                    if (mediaLoadData.dataType != C.DATA_TYPE_MEDIA || !isCurrentPeriod(eventTime)) {
+                        return;
+                    }
+                    if (mediaLoadData.trackType == C.TRACK_TYPE_AUDIO && mAudioChunkStartedAtMs == 0) {
+                        mAudioChunkStartedAtMs = android.os.SystemClock.elapsedRealtime();
+                        mAudioChunkStartMs = mediaLoadData.mediaStartTimeMs;
+                    } else if (mediaLoadData.trackType == C.TRACK_TYPE_VIDEO) {
+                        onVideoChunkStart(mediaLoadData.mediaStartTimeMs, mediaLoadData.mediaEndTimeMs);
+                    }
+                }
+            };
+
     public Media3PlayerController(Context context, PlayerEventListener eventListener) {
         mContext = context.getApplicationContext();
         mMediaSourceFactory = new Media3SourceFactory(context);
@@ -192,8 +230,9 @@ public class Media3PlayerController implements Player.Listener {
         }
 
         // "dash-mpd-live" only fires on the last-resort live route (no dash/hls manifest url).
-        openMediaSourceOffMain(() -> mMediaSourceFactory.fromDashFormatInfo(formatInfo),
-                formatInfo.isLive() ? "dash-mpd-live" : "dash-mpd");
+        SourceBuildTiming timing = new SourceBuildTiming();
+        openMediaSourceOffMain(() -> mMediaSourceFactory.fromDashFormatInfo(formatInfo, timing),
+                formatInfo.isLive() ? "dash-mpd-live" : "dash-mpd", timing);
     }
 
     /**
@@ -313,7 +352,8 @@ public class Media3PlayerController implements Player.Listener {
     }
 
     public void openMerged(MediaItemFormatInfo formatInfo, String hlsPlaylistUrl) {
-        openMediaSourceOffMain(() -> mMediaSourceFactory.fromMerged(formatInfo, hlsPlaylistUrl), "dash-mpd+hls");
+        openMediaSourceOffMain(() -> mMediaSourceFactory.fromMerged(formatInfo, hlsPlaylistUrl), "dash-mpd+hls",
+                new SourceBuildTiming());
     }
 
     public void openMerged(InputStream dashManifest, String hlsPlaylistUrl) {
@@ -327,10 +367,14 @@ public class Media3PlayerController implements Player.Listener {
      * an open/reset/release during the build cannot prepare over the newer video. URL-only paths
      * stay synchronous - they are already lazy (no XML work at open time).
      */
-    private void openMediaSourceOffMain(Supplier<MediaSource> mediaSourceBuilder, String netPathType) {
+    private void openMediaSourceOffMain(Supplier<MediaSource> mediaSourceBuilder, String netPathType,
+            SourceBuildTiming timing) {
         final int generation = mOpenGeneration.next();
+        timing.queuedAtMs = android.os.SystemClock.elapsedRealtime();
+        timing.queuedAtOpenMs = NetPath.elapsedMs();
 
         SOURCE_BUILD_EXECUTOR.execute(mOpenGeneration.guard(generation, () -> {
+            timing.startedAtMs = android.os.SystemClock.elapsedRealtime();
             MediaSource mediaSource;
             try {
                 mediaSource = mediaSourceBuilder.get();
@@ -338,10 +382,21 @@ public class Media3PlayerController implements Player.Listener {
                 Log.e(TAG, "openMediaSourceOffMain: source build failed: " + e);
                 mediaSource = null;
             }
+            timing.builtAtMs = android.os.SystemClock.elapsedRealtime();
 
             final MediaSource result = mediaSource;
-            mMainHandler.post(mOpenGeneration.guard(generation, "deliver",
-                    () -> openMediaSource(result, netPathType)));
+            mMainHandler.post(mOpenGeneration.guard(generation, "deliver", () -> {
+                long deliveredAtMs = android.os.SystemClock.elapsedRealtime();
+                long deliveredAtOpenMs = NetPath.elapsedMs();
+                openMediaSource(result, netPathType);
+                // NEWTUBE(open-phases): info -> prepare was a flat 40-50 ms median on the Pixel
+                // (release, compiled) for every open; this splits it into executor queueing, XML
+                // generation, XML parse + source creation, and the main-thread hop back. Written
+                // AFTER prepare() so the line itself is never on the open's critical path; its +X
+                // is the delivery time, i.e. the moment prepare started.
+                NetPath.log(NetPath.context() + " source-build +" + deliveredAtOpenMs
+                        + " type=" + netPathType + ' ' + timing.describe(deliveredAtMs));
+            }));
         }));
     }
 
@@ -370,6 +425,11 @@ public class Media3PlayerController implements Player.Listener {
         mOnSourceChanged = true;
         mEventListener.onSourceChanged(getVideo());
 
+        mOpenPhaseLog.onPrepare();
+        mResumeSnap.onPrepare();
+        mAudioChunkStartedAtMs = 0;
+        mAudioChunkStartMs = C.TIME_UNSET;
+        PlayerInfrastructureWarmup.onPlaybackPreparing();
         mPlayer.setMediaSource(mediaSource);
         mPlayer.prepare();
         if (mNextPreloader != null) {
@@ -397,7 +457,13 @@ public class Media3PlayerController implements Player.Listener {
         if (mPlayer == null || positionMs < 0) {
             return;
         }
+        // Scrubs, SponsorBlock/chapter skips, share-link timestamps, live-edge jumps: exact (within
+        // the player-wide tolerance) and never replaced by a pending resume snap.
+        mResumeSnap.onOtherSeek();
+        seekTo(positionMs);
+    }
 
+    private void seekTo(long positionMs) {
         if (mNextPreloader != null) {
             mNextPreloader.cancel("seek");
         }
@@ -405,6 +471,137 @@ public class Media3PlayerController implements Player.Listener {
         // clamp tiny overflows instead of dropping the jump (same fix as the legacy controller).
         long durationMs = getDurationMs();
         mPlayer.seekTo(durationMs >= 0 ? Math.min(positionMs, durationMs) : positionMs);
+    }
+
+    /**
+     * NEWTUBE(resume-seek): the automatic history ("continue watching") position of an open - see
+     * {@link ResumeSeekSnap}. Lands on the keyframe at or before {@code positionMs} (at most 10 s
+     * earlier, in practice the start of its ~5 s segment), like YouTube's own resume, instead of
+     * decoding every frame from that keyframe up to the exact millisecond before the first one
+     * shows. Live streams and positions at the very end stay exact.
+     */
+    public void seekToResumePosition(long positionMs) {
+        if (mPlayer == null || positionMs < 0) {
+            return;
+        }
+        boolean live = mPlayer.isCurrentMediaItemLive()
+                || (getVideo() != null && getVideo().isLive);
+        if (!resumeSnapEnabled() || !mResumeSnap.onResumeRequest(positionMs, getDurationMs(), live)) {
+            seekTo(positionMs); // the pre-snap behavior: player-wide seek parameters
+            return;
+        }
+        // cacheMB: how full the 512 MB LRU media cache is when a resume starts - the resume's
+        // READY wait is only explained by a cache miss if its range was evicted or never stored.
+        androidx.media3.datasource.cache.Cache cache = Media3PlayerCache.get(mContext);
+        NetPath.log(NetPath.context() + " resume-seek target=" + positionMs + " armed cacheMB="
+                + (cache != null ? cache.getCacheSpace() / (1024 * 1024) : -1));
+        // Exact: makes media3 request the segment that contains the target; the snap decision
+        // follows when that request starts (onVideoChunkStart).
+        ownSeek(positionMs, androidx.media3.exoplayer.SeekParameters.EXACT);
+    }
+
+    private void onVideoChunkStart(long chunkStartMs, long chunkEndMs) {
+        if (mPlayer == null || !mResumeSnap.isArmed()) {
+            return;
+        }
+        long target = mResumeSnap.armedTargetMs();
+        long audioInFlightMs = mAudioChunkStartedAtMs == 0 ? -1
+                : android.os.SystemClock.elapsedRealtime() - mAudioChunkStartedAtMs;
+        int decision = mResumeSnap.onVideoChunkStart(chunkStartMs, chunkEndMs,
+                mPlayer.getCurrentPosition(), audioInFlightMs);
+        switch (decision) {
+            case ResumeSeekSnap.SNAP:
+                // audioInFlightMs quantifies the one cost of the snap: a started audio request is
+                // restarted at the snapped position (-1 = not started yet: nothing to restart).
+                NetPath.log(NetPath.context() + " resume-seek snap target=" + target
+                        + " segmentStart=" + chunkStartMs + " audioInFlightMs=" + audioInFlightMs
+                        + audioChunkTag(chunkStartMs));
+                ownSeek(target, RESUME_SNAP_PARAMETERS);
+                break;
+            case ResumeSeekSnap.SKIP_NEAR:
+            case ResumeSeekSnap.SKIP_FAR:
+            case ResumeSeekSnap.SKIP_AUDIO:
+                NetPath.log(NetPath.context() + " resume-seek skipped target=" + target
+                        + " segmentStart=" + chunkStartMs + " audioInFlightMs=" + audioInFlightMs
+                        + audioChunkTag(chunkStartMs)
+                        + " reason=" + (decision == ResumeSeekSnap.SKIP_NEAR ? "near"
+                                : decision == ResumeSeekSnap.SKIP_FAR ? "far" : "audio-busy"));
+                break;
+            case ResumeSeekSnap.DROPPED_MOVED:
+                NetPath.log(NetPath.context() + " resume-seek dropped reason=moved pos="
+                        + mPlayer.getCurrentPosition());
+                break;
+            default:
+                break;
+        }
+    }
+
+    /**
+     * Whether a snap to {@code snappedMs} leaves the audio segment the first audio request asked
+     * for ({@code crossesAudioChunk=y}: that request is cancelled and the previous 10 s segment is
+     * loaded instead). Known only once the audio request has started.
+     */
+    private String audioChunkTag(long snappedMs) {
+        if (mAudioChunkStartMs == C.TIME_UNSET) {
+            return "";
+        }
+        return " audioChunkStart=" + mAudioChunkStartMs
+                + " crossesAudioChunk=" + (snappedMs < mAudioChunkStartMs ? "y" : "n");
+    }
+
+    /**
+     * A seek of the resume machinery: recorded as ours (its SEEK discontinuity must not cancel the
+     * snap), issued with {@code parameters} for this one seek; the previous (player-wide)
+     * parameters are restored right after. setSeekParameters and seekTo reach the playback thread
+     * in order, so only this seek resolves with {@code parameters}.
+     */
+    private void ownSeek(long positionMs, androidx.media3.exoplayer.SeekParameters parameters) {
+        androidx.media3.exoplayer.SeekParameters previous = mPlayer.getSeekParameters();
+        mPlayer.setSeekParameters(parameters);
+        long durationMs = getDurationMs();
+        mResumeSnap.noteOwnSeek(durationMs >= 0 ? Math.min(positionMs, durationMs) : positionMs);
+        seekTo(positionMs);
+        mPlayer.setSeekParameters(previous);
+    }
+
+    /** Always on in release; debug/benchmark builds can A/B it with {@code debug.arc.resume_snap=0}. */
+    static boolean resumeSnapEnabled() {
+        return !((com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG
+                || com.liskovsoft.smartyoutubetv2.tv.BuildConfig.BENCHMARK)
+                && "0".equals(DebugMediaShaper.prop("debug.arc.resume_snap")));
+    }
+
+    /** Events of an earlier source/period (queued across a new open) must not drive this open's snap. */
+    private boolean isCurrentPeriod(androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime eventTime) {
+        if (mPlayer == null || eventTime.mediaPeriodId == null) {
+            return false;
+        }
+        androidx.media3.common.Timeline timeline = mPlayer.getCurrentTimeline();
+        int periodIndex = mPlayer.getCurrentPeriodIndex();
+        if (timeline.isEmpty() || periodIndex < 0 || periodIndex >= timeline.getPeriodCount()) {
+            return false;
+        }
+        return eventTime.mediaPeriodId.periodUid.equals(timeline.getUidOfPeriod(periodIndex));
+    }
+
+    /**
+     * NEWTUBE(resume-seek): the position history and resume should store - the real playback
+     * position, except that it never reports earlier than a snapped-over resume target the user
+     * has not watched back to yet (open and leave at once must not lose that segment of progress).
+     */
+    public long getHistoryPositionMs() {
+        return mResumeSnap.historyPositionMs(getPositionMs());
+    }
+
+    private void reportResumeSnap(long snappedMs, boolean adjusted) {
+        long target = mResumeSnap.awaitingTargetMs();
+        if (target == C.TIME_UNSET) {
+            return;
+        }
+        mResumeSnap.onReported();
+        NetPath.log(NetPath.context() + " resume-seek target=" + target + " snapped=" + snappedMs
+                + " earlyMs=" + (target - snappedMs) + " adjusted=" + (adjusted ? "y" : "n")
+                + " mode=previous-sync");
     }
 
     public long getDurationMs() {
@@ -455,6 +652,7 @@ public class Media3PlayerController implements Player.Listener {
             mNextPreloader.onReset(getVideoId());
         }
         mFirstFrameLogged = false; // new open = a fresh NetPath first-frame milestone
+        mResumeSnap.onPrepare();
 
         if (containsMedia()) {
             mPlayer.stop();
@@ -468,7 +666,10 @@ public class Media3PlayerController implements Player.Listener {
 
     public void setPlayer(ExoPlayer player) {
         mPlayer = player;
+        mKeepCodecSuspended = false; // a new player starts with its builder's foreground mode
         player.addListener(this);
+        player.addAnalyticsListener(mOpenPhaseLog);
+        player.addAnalyticsListener(mResumeListener);
     }
 
     public void setTrackSelector(DefaultTrackSelector trackSelector) {
@@ -517,12 +718,76 @@ public class Media3PlayerController implements Player.Listener {
 
         if (mPlayer != null) {
             mPlayer.removeListener(this);
+            mPlayer.removeAnalyticsListener(mOpenPhaseLog);
+            mPlayer.removeAnalyticsListener(mResumeListener);
             mPlayer.stop();
             mPlayer.clearMediaItems();
             mPlayer.clearVideoSurface();
             mPlayer.release();
             mPlayer = null;
         }
+    }
+
+    /**
+     * NEWTUBE(keep-codec): the watch page entered ({@code true}) or left true background audio.
+     * Media3 wants foreground mode off while the app is not in the foreground; what that mode can
+     * retain here is narrow, and turning it off is not free, so only the case that matters is
+     * handled:
+     * <ul>
+     *   <li>A player with media (READY/BUFFERING/ENDED): the background-audio track disable makes
+     *       media3 reselect tracks, and {@code ExoPlayerImplInternal.enableRenderers} resets every
+     *       renderer the new selection leaves disabled - the video decoder is released there,
+     *       foreground mode or not. Nothing to do; above all, no blocking call next to live
+     *       audio.</li>
+     *   <li>An IDLE player (between an open's stop() and its prepare, or parked after an error):
+     *       no reselection runs, so a decoder kept by foreground mode would stay allocated while
+     *       another app may want it. Foreground mode is dropped, which resets the disabled
+     *       renderers on the playback thread. {@code setForegroundMode(false)} blocks this thread
+     *       for at most the player's release timeout (500 ms) and turns a timeout into a player
+     *       error - harmless here because nothing is playing, and that one error is filtered in
+     *       {@link #onPlayerError}.</li>
+     * </ul>
+     * Leaving background audio restores the mode ({@code setForegroundMode(true)} never blocks).
+     * PiP and the Browse mini player show live video and never come here.
+     */
+    public void onBackgroundAudio(boolean background) {
+        if (mPlayer == null) {
+            return;
+        }
+        if (!background) {
+            if (mKeepCodecSuspended) {
+                mKeepCodecSuspended = false;
+                mPlayer.setForegroundMode(true);
+                NetPath.log(NetPath.context() + " codec-keep resumed");
+            }
+            return;
+        }
+        if (mKeepCodecSuspended || !Media3PlayerInitializer.keepCodecsEnabled()) {
+            return;
+        }
+        if (mPlayer.getPlaybackState() != Player.STATE_IDLE) {
+            NetPath.log(NetPath.context() + " codec-keep background state=" + mPlayer.getPlaybackState()
+                    + " action=none reason=track-disable-resets-video");
+            return;
+        }
+        mKeepCodecSuspended = true;
+        long startMs = android.os.SystemClock.elapsedRealtime();
+        mPlayer.setForegroundMode(false);
+        NetPath.log(NetPath.context() + " codec-keep suspended state=idle blockedMs="
+                + (android.os.SystemClock.elapsedRealtime() - startMs));
+    }
+
+    static boolean isKeepCodecReleaseTimeout(@Nullable PlaybackException error) {
+        if (error == null || error.errorCode != PlaybackException.ERROR_CODE_TIMEOUT) {
+            return false;
+        }
+        for (Throwable cause = error.getCause(); cause != null; cause = cause.getCause()) {
+            if (cause instanceof androidx.media3.exoplayer.ExoTimeoutException) {
+                return ((androidx.media3.exoplayer.ExoTimeoutException) cause).timeoutOperation
+                        == androidx.media3.exoplayer.ExoTimeoutException.TIMEOUT_OPERATION_SET_FOREGROUND_MODE;
+            }
+        }
+        return false;
     }
 
     public void setVideo(Video video) {
@@ -721,6 +986,10 @@ public class Media3PlayerController implements Player.Listener {
         if (mNextPreloader != null) {
             mNextPreloader.update();
         }
+        if (playbackState == Player.STATE_READY && mResumeSnap.onReady()) {
+            // Never snap back once playable (e.g. audio-only playback whose video came back later).
+            NetPath.log(NetPath.context() + " resume-seek expired reason=ready");
+        }
         dispatchStateChange(getPlayWhenReady(), playbackState);
     }
 
@@ -785,6 +1054,16 @@ public class Media3PlayerController implements Player.Listener {
 
     @Override
     public void onPositionDiscontinuity(Player.PositionInfo oldPosition, Player.PositionInfo newPosition, int reason) {
+        if (reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT && newPosition != null) {
+            reportResumeSnap(newPosition.positionMs, /* adjusted= */ true);
+        }
+        // Any seek that is not ours - also the raw ones that bypass setPositionMs (media session /
+        // lock screen, the double-tap overlay) - cancels a pending snap and the history floor.
+        if (reason == Player.DISCONTINUITY_REASON_SEEK && newPosition != null
+                && mResumeSnap.onSeekDiscontinuity(newPosition.positionMs)) {
+            NetPath.log(NetPath.context() + " resume-seek cancelled reason=other-seek to="
+                    + newPosition.positionMs);
+        }
         if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
             if (mNextPreloader != null) {
                 mNextPreloader.cancel("seek");
@@ -805,11 +1084,22 @@ public class Media3PlayerController implements Player.Listener {
         if (!mFirstFrameLogged) {
             mFirstFrameLogged = true;
             NetPath.logFirstFrame(getVideoId()); // NetPath milestone 4: first frame rendered
+            // A snap that needed no adjustment (the saved position already sat on a keyframe).
+            if (mPlayer != null) {
+                reportResumeSnap(mPlayer.getCurrentPosition(), /* adjusted= */ false);
+            }
         }
     }
 
     @Override
     public void onPlayerError(PlaybackException error) {
+        if (isKeepCodecReleaseTimeout(error)) {
+            // Our own onBackgroundAudio(true) on an IDLE player: media3 turned the late codec
+            // release into this error. Nothing was playing and nothing failed to load, so it
+            // must not reach the reload/quarantine machinery (see onBackgroundAudio).
+            NetPath.log(NetPath.context() + " codec-keep release-timeout ignored");
+            return;
+        }
         if (mNextPreloader != null) {
             mNextPreloader.onForegroundError();
         }

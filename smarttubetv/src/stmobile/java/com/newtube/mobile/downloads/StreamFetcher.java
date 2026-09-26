@@ -176,8 +176,10 @@ final class StreamFetcher {
     /** Best-effort single GET to a file (thumbnails); null on any failure. */
     @Nullable
     File fetchSmall(String url, File target) {
-        Request request = new Request.Builder().url(url).header("User-Agent", mUserAgent).build();
-        try (Response response = mClient.newCall(request).execute()) {
+        // Building the request is inside the guard too: a non-http URL (a local file:// card image
+        // of a deleted download) throws IllegalArgumentException there, which used to fail the job.
+        try (Response response = mClient.newCall(new Request.Builder().url(url)
+                .header("User-Agent", mUserAgent).build()).execute()) {
             ResponseBody body = response.body();
             if (!response.isSuccessful() || body == null) {
                 return null;

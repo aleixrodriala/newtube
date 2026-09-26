@@ -221,6 +221,17 @@ public abstract class MobileActivity extends MotherActivity {
     }
 
     /**
+     * NEWTUBE(mini-park): pop ONLY this Activity - no parent relaunch, no task-to-back. For a screen
+     * the user cannot see that ends on its own: a parked mini-player session ending from its
+     * notification or its timeout, possibly while the whole app is in the background (the parent
+     * relaunch in {@link #finishReally()} would then drag the app to the front).
+     */
+    protected void finishWithoutRouting() {
+        getViewManager().removeTop(this);
+        super.finish();
+    }
+
+    /**
      * Replaces the TV window chrome wholesale. {@code MotherActivity.onResume()} used to call
      * {@code Helpers.makeActivityFullscreen2()} on every mobile screen (immersive-sticky, hidden
      * status bar, translucent flags, {@code decorFits=false}); subclasses then partially undid it,

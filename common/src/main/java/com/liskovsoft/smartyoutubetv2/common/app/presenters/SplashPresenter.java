@@ -91,8 +91,46 @@ public class SplashPresenter extends BasePresenter<SplashView> {
             RxHelper.setupGlobalErrorHandler();
             initGlobalPrefs();
             initProxy();
+            prefetchLinkedVideo();
             initVideoStateService();
             initStreamReminderService();
+        }
+    }
+
+    /**
+     * NEWTUBE(share-link): a cold share-link open used to reach PlaybackPresenter.openVideo - where
+     * the format fetch starts - only after the rest of Splash's one-time setup (the watch-history
+     * restore, stream reminders, remote-control service, account checks): Pixel 9 release logs put
+     * the in-app "tap" ~65 ms after SplashActivity.onCreate. The /player request needs none of that,
+     * only the global prefs/auth and proxy set up just above, so start it here, as soon as the
+     * link's video id is known. openVideo's own prefetch then joins this flight
+     * (MediaServiceManager "format-prefetch reuse"), so there is still one request. Only for an
+     * intent the chain below will route to the player; never behind a master password.
+     */
+    private void prefetchLinkedVideo() {
+        if (!PlaybackPresenter.isPrefetchOnOpenEnabled() || getView() == null
+                || GeneralData.instance(getContext()).getMasterPassword() != null) {
+            return;
+        }
+
+        Intent intent = getView().getNewIntent();
+        String videoId;
+        try {
+            if (IntentExtractor.extractAccountName(intent) != null) {
+                return; // the chain may switch accounts first; the request must carry the new one
+            }
+            if (IntentExtractor.extractSearchText(intent) != null || IntentExtractor.isStartVoiceCommand(intent)
+                    || IntentExtractor.extractChannelId(intent) != null || IntentExtractor.extractPlaylistId(intent) != null) {
+                return; // routed to search / channel / playlist, not to the player
+            }
+            videoId = IntentExtractor.extractVideoId(intent);
+        } catch (RuntimeException e) {
+            return; // malformed link: let the chain report it as before
+        }
+
+        if (videoId != null) {
+            com.liskovsoft.smartyoutubetv2.common.misc.NetPath.log("splash prefetch video=" + videoId);
+            MediaServiceManager.instance().prefetchFormatInfo(Video.from(videoId));
         }
     }
 
@@ -302,6 +340,11 @@ public class SplashPresenter extends BasePresenter<SplashView> {
         // Should come last
         mIntentChain.add(intent -> {
             ViewManager viewManager = getViewManager();
+            // NEWTUBE(boot-prefetch): Home is about to open - start its first /browse now instead
+            // of after the Browse Activity has been created (see BrowsePresenter.prefetchBootSection).
+            if (BrowsePresenter.isBootPrefetchEnabled()) {
+                BrowsePresenter.instance(getContext()).prefetchBootSection();
+            }
             viewManager.startDefaultView();
 
             // For debug purpose when using ATV bridge.

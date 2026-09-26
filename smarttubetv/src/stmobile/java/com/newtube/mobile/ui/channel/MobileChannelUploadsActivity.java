@@ -228,6 +228,12 @@ public class MobileChannelUploadsActivity extends MobileActivity
         mGrid.setLayoutManager(mLayoutManager);
         // NOT setHasFixedSize: the header row makes the content height change with the data.
         mGrid.setAdapter(new ConcatAdapter(mHeaderAdapter, mAdapter, mLoadMoreFooter));
+        // Next cards' thumbnails decoded before they scroll in (no grey card + fade on a fling).
+        // Grid positions are shifted by the optional playlist header row.
+        com.newtube.mobile.ui.common.FeedThumbnailPreloader.attach(mGrid, position -> {
+            int card = position - (mHeaderAdapter.hasHeader() ? 1 : 0);
+            return card >= 0 && card < mAdapter.getItemCount() ? mAdapter.getCurrentList().get(card) : null;
+        });
         mGrid.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {

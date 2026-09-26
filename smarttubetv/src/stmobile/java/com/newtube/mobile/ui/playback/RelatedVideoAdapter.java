@@ -39,7 +39,15 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         void onRelatedClick(Video video);
     }
 
+    /** NEWTUBE(touch-prefetch, experiment): a finger has rested on a row, see PressIntentDetector. */
+    public interface OnRelatedPressListener {
+        void onRelatedPress(Video video);
+    }
+
     private final OnRelatedClickListener mClickListener;
+    @androidx.annotation.Nullable
+    private final OnRelatedPressListener mPressListener;
+    private final long mPressIntentMs;
     /**
      * Video id to mark as "Now playing", or null for none. Only the queue list sets this - in the
      * Up-next list the playing video isn't present at all.
@@ -47,8 +55,16 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
     private String mCurrentVideoId;
 
     public RelatedVideoAdapter(OnRelatedClickListener clickListener) {
+        this(clickListener, null, 0);
+    }
+
+    /** {@code pressListener} fires after {@code pressIntentMs} of a still finger; null/0 = off. */
+    public RelatedVideoAdapter(OnRelatedClickListener clickListener,
+            @androidx.annotation.Nullable OnRelatedPressListener pressListener, long pressIntentMs) {
         super(DIFF_CALLBACK);
         mClickListener = clickListener;
+        mPressListener = pressIntentMs > 0 ? pressListener : null;
+        mPressIntentMs = pressIntentMs;
     }
 
     /**
@@ -85,7 +101,7 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
     public RelatedViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View view = LayoutInflater.from(parent.getContext())
                 .inflate(R.layout.item_mobile_related_video, parent, false);
-        return new RelatedViewHolder(view, mClickListener);
+        return new RelatedViewHolder(view, mClickListener, mPressListener, mPressIntentMs);
     }
 
     @Override
@@ -110,7 +126,9 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         private final TextView mSubtitle;
         private Video mVideo;
 
-        RelatedViewHolder(@NonNull View itemView, OnRelatedClickListener clickListener) {
+        @SuppressLint("ClickableViewAccessibility") // observes only; the row's click still runs
+        RelatedViewHolder(@NonNull View itemView, OnRelatedClickListener clickListener,
+                @androidx.annotation.Nullable OnRelatedPressListener pressListener, long pressIntentMs) {
             super(itemView);
 
             mThumbnail = itemView.findViewById(R.id.related_thumbnail);
@@ -124,6 +142,29 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
                     clickListener.onRelatedClick(mVideo);
                 }
             });
+
+            if (pressListener != null) {
+                PressIntentDetector detector = new PressIntentDetector(
+                        android.view.ViewConfiguration.get(itemView.getContext()).getScaledTouchSlop(),
+                        pressIntentMs,
+                        new PressIntentDetector.Scheduler() {
+                            @Override
+                            public void postDelayed(Runnable task, long delayMs) {
+                                itemView.postDelayed(task, delayMs);
+                            }
+
+                            @Override
+                            public void remove(Runnable task) {
+                                itemView.removeCallbacks(task);
+                            }
+                        },
+                        () -> {
+                            if (mVideo != null) {
+                                pressListener.onRelatedPress(mVideo);
+                            }
+                        });
+                itemView.setOnTouchListener((v, event) -> detector.onTouch(event));
+            }
         }
 
         void bind(Video video, boolean isCurrent) {

@@ -90,4 +90,64 @@ public class PlayerInfrastructureWarmupTest {
         assertEquals(2, attempts.get());
         assertEquals(2, calls.get());
     }
+    @Test
+    public void decoderListWarmsLastAndIndependently() {
+        List<String> order = new ArrayList<>();
+        new PlayerInfrastructureWarmup(Runnable::run,
+                () -> order.add("transport"),
+                () -> { order.add("cache"); throw new IllegalStateException("test"); },
+                () -> order.add("codecs")).schedule();
+        assertEquals(java.util.Arrays.asList("transport", "cache", "codecs"), order);
+    }
+
+    @Test
+    public void decoderListFailureIsSwallowed() {
+        AtomicInteger calls = new AtomicInteger();
+        PlayerInfrastructureWarmup warmup = new PlayerInfrastructureWarmup(Runnable::run,
+                calls::incrementAndGet, calls::incrementAndGet,
+                () -> { throw new NoClassDefFoundError("test"); });
+        warmup.schedule();
+        assertEquals(2, calls.get());
+    }
+
+    @Test
+    public void decoderListCoversEveryYouTubeCodec() {
+        List<String> mimes = java.util.Arrays.asList(PlayerInfrastructureWarmup.DECODER_MIME_TYPES);
+        for (String mime : new String[] {"video/x-vnd.on2.vp9", "video/av01", "video/avc",
+                "audio/opus", "audio/mp4a-latm"}) {
+            org.junit.Assert.assertTrue(mime, mimes.contains(mime));
+        }
+    }
+
+    @Test
+    public void decoderScanStopsBeforeTheNextTypeOncePlaybackPrepares() {
+        List<String> warmed = new ArrayList<>();
+        boolean[] preparing = {false};
+        int count = PlayerInfrastructureWarmup.warmDecoderInfos(
+                PlayerInfrastructureWarmup.DECODER_MIME_TYPES, () -> preparing[0], mime -> {
+                    warmed.add(mime);
+                    if (warmed.size() == 2) {
+                        preparing[0] = true; // the first source is handed over mid-scan
+                    }
+                });
+        assertEquals(2, count);
+        // The types a YouTube DASH answer nearly always carries went first.
+        assertEquals(java.util.Arrays.asList("video/x-vnd.on2.vp9", "audio/opus"), warmed);
+    }
+
+    @Test
+    public void decoderScanCoversEverythingWhenNothingPrepares() {
+        List<String> warmed = new ArrayList<>();
+        assertEquals(PlayerInfrastructureWarmup.DECODER_MIME_TYPES.length,
+                PlayerInfrastructureWarmup.warmDecoderInfos(
+                        PlayerInfrastructureWarmup.DECODER_MIME_TYPES, () -> false, warmed::add));
+        assertEquals(PlayerInfrastructureWarmup.DECODER_MIME_TYPES.length, warmed.size());
+    }
+
+    @Test
+    public void realDecoderWarmupRunsWithoutADecoder() {
+        // Robolectric has no codecs: media3 must answer an empty list, never throw to the caller.
+        PlayerInfrastructureWarmup.warmDecoderInfos();
+    }
 }
+

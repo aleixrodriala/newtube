@@ -2,6 +2,8 @@ package com.newtube.mobile.player;
 
 import android.os.SystemClock;
 
+import androidx.annotation.Nullable;
+
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.tv.BuildConfig;
 
@@ -17,6 +19,7 @@ import java.util.concurrent.TimeUnit;
 
 import okhttp3.Call;
 import okhttp3.Connection;
+import okhttp3.Dispatcher;
 import okhttp3.Dns;
 import okhttp3.EventListener;
 import okhttp3.Handshake;
@@ -26,9 +29,40 @@ import okhttp3.Response;
 
 /** Standard OkHttp transport for media, with bounded inactivity but no whole-stream deadline. */
 public final class MediaHttpClient {
+    /**
+     * HTTP/2 liveness PING, the same 10 s as the shared API client (OkHttpCommons.PING_INTERVAL_MS,
+     * not visible here). This client starts from a fresh builder, so it does not inherit it: without
+     * one, an idle pooled googlevideo H2 connection can lose its carrier NAT mapping and stall the
+     * next media request that reuses it. No-op on HTTP/1.1.
+     */
+    static final long PING_INTERVAL_MS = 10_000;
+
     private MediaHttpClient() {}
 
+    @Nullable private static OkHttpClient sBaseFor;
+    @Nullable private static OkHttpClient sBase;
+
+    /**
+     * A media client for {@code sharedClient}'s pool and proxy. NEWTUBE(media-path): every client
+     * returned for the same API client derives from ONE base, because OkHttp reuses a pooled
+     * connection only for an identical Address, which compares the Dns, SSLSocketFactory and
+     * verifier by identity: separately built clients (one per player, the preconnect's) could
+     * never share a connection, so the OkHttp warm and a previous player's connection were wasted.
+     * Each caller still gets its own Dispatcher (per-host request limits), as before.
+     */
     public static OkHttpClient create(OkHttpClient sharedClient) {
+        return base(sharedClient).newBuilder().dispatcher(new Dispatcher()).build();
+    }
+
+    private static synchronized OkHttpClient base(OkHttpClient sharedClient) {
+        if (sBase == null || sBaseFor != sharedClient) {
+            sBase = build(sharedClient);
+            sBaseFor = sharedClient;
+        }
+        return sBase;
+    }
+
+    private static OkHttpClient build(OkHttpClient sharedClient) {
         // Start with stock TLS and headers. Share the pool so the existing default-network
         // handover eviction also retires media sockets, and retain the configured proxy route.
         // API interceptors, cookies and origin authentication do not belong on media requests.
@@ -41,7 +75,8 @@ public final class MediaHttpClient {
                 .connectTimeout(8, TimeUnit.SECONDS)
                 .readTimeout(4, TimeUnit.SECONDS)
                 .writeTimeout(4, TimeUnit.SECONDS)
-                .callTimeout(0, TimeUnit.MILLISECONDS);
+                .callTimeout(0, TimeUnit.MILLISECONDS)
+                .pingInterval(PING_INTERVAL_MS, TimeUnit.MILLISECONDS);
         // NEWTUBE(media-dns): an IPv6 handshake stall on a googlevideo edge followed by a fast
         // IPv4 connect marks "prefer IPv4 for googlevideo on this network" (MediaAddressPreference).
         return withAddressPreference(builder, MediaAddressPreference.shared(), Dns.SYSTEM).build();
@@ -59,7 +94,11 @@ public final class MediaHttpClient {
                         : new RouteListener(preference.newCallWatch(call)));
     }
 
-    /** Feeds per-route connect outcomes (address family only) to the IPv4 preference. */
+    /**
+     * Feeds per-route connect outcomes (address family only) to the IPv4 preference. Routes through
+     * a proxy are ignored: their socket address is the PROXY's, which says nothing about how the
+     * googlevideo edge answers IPv6 (NEWTUBE(media-path)).
+     */
     static class RouteListener extends EventListener {
         private final MediaAddressPreference.CallWatch mWatch;
 
@@ -68,16 +107,26 @@ public final class MediaHttpClient {
         }
 
         @Override public void connectStart(Call call, InetSocketAddress address, Proxy proxy) {
-            mWatch.connectStart(call.request().url().host(), address.getAddress());
+            if (isDirect(proxy)) {
+                mWatch.connectStart(call.request().url().host(), address.getAddress());
+            }
         }
 
         @Override public void connectEnd(Call call, InetSocketAddress address, Proxy proxy, Protocol protocol) {
-            mWatch.connectEnd(call.request().url().host(), address.getAddress());
+            if (isDirect(proxy)) {
+                mWatch.connectEnd(call.request().url().host(), address.getAddress());
+            }
         }
 
         @Override public void connectFailed(Call call, InetSocketAddress address, Proxy proxy,
                 Protocol protocol, IOException failure) {
-            mWatch.connectFailed(call.request().url().host(), address.getAddress(), failure);
+            if (isDirect(proxy)) {
+                mWatch.connectFailed(call.request().url().host(), address.getAddress(), failure);
+            }
+        }
+
+        static boolean isDirect(@Nullable Proxy proxy) {
+            return proxy == null || proxy.type() == Proxy.Type.DIRECT;
         }
     }
 

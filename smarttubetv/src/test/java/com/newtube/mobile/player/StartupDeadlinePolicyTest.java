@@ -164,6 +164,112 @@ public class StartupDeadlinePolicyTest {
         assertFalse(policy.isSpent(EP2));
     }
 
+    // --- NEWTUBE(startup-budget): Android's placeholder bandwidth on a fresh cellular network ---
+
+    private static StartupDeadlinePolicy.Evidence cell(String network, boolean validated,
+            int downKbps, long measuredBps, int rat) {
+        return new StartupDeadlinePolicy.Evidence(network, validated, false, downKbps, measuredBps,
+                /* cellular= */ true, rat);
+    }
+
+    @Test
+    public void theFreshLteNetworksPlaceholderGetsTheFastBudgetNotEightSeconds() {
+        // Pixel 9, first LTE open after Wi-Fi: validated cell:114 at downKbps=14 (Android's
+        // placeholder, 11278 about 13 s later) -> budget 8000 "low-downKbps", 13.2 s to picture.
+        StartupDeadlinePolicy.Decision decision = new StartupDeadlinePolicy().decide(
+                cell("cell:114", true, 14, 0, StartupDeadlinePolicy.RAT_4G_PLUS), EP1, 1_000);
+
+        assertTrue(decision.early);
+        assertEquals(StartupDeadlinePolicy.MAX_EARLY_BUDGET_MS, decision.budgetMs);
+        assertEquals("placeholder-downKbps", decision.reason);
+    }
+
+    @Test
+    public void aPlaceholderWithUnknownRadioCountsOnlyOnAJustSeenNetwork() {
+        StartupDeadlinePolicy policy = new StartupDeadlinePolicy();
+        StartupDeadlinePolicy.Evidence unknownRadio =
+                cell("cell:114", true, 14, 0, StartupDeadlinePolicy.RAT_UNKNOWN);
+
+        assertEquals("placeholder-downKbps", policy.decide(unknownRadio, EP1, 1_000).reason);
+        assertEquals("placeholder-downKbps", policy.decide(unknownRadio, EP2,
+                1_000 + StartupDeadlinePolicy.YOUNG_NETWORK_MS - 1).reason);
+        // Still 14 kbps long after this network appeared: believe it (slow, keep 8 s).
+        assertLong(policy.decide(unknownRadio, "ep=5 video=x",
+                1_000 + StartupDeadlinePolicy.YOUNG_NETWORK_MS), "low-downKbps");
+    }
+
+    @Test
+    public void genuinelySlowOrUnvalidatedLinksKeepTheLongBudget() {
+        StartupDeadlinePolicy policy = new StartupDeadlinePolicy();
+        // A known 2G radio at GPRS-table speed: a real low estimate.
+        assertLong(policy.decide(cell("cell:200", true, 24, 0, StartupDeadlinePolicy.RAT_2G),
+                EP1, 1_000), "low-downKbps");
+        // 3G at 14 kbps: not the LTE placeholder either.
+        assertLong(policy.decide(cell("cell:201", true, 14, 0, StartupDeadlinePolicy.RAT_3G),
+                EP1, 1_000), "low-downKbps");
+        // Unvalidated (captive or not yet checked): patient, whatever it reports.
+        assertLong(policy.decide(cell("cell:202", false, 14, 0, StartupDeadlinePolicy.RAT_4G_PLUS),
+                EP1, 1_000), "unvalidated");
+        // LTE reporting 200 kbps is above the placeholder band: a real (slow) reading.
+        assertLong(policy.decide(cell("cell:203", true, 200, 0, StartupDeadlinePolicy.RAT_4G_PLUS),
+                EP1, 1_000), "low-downKbps");
+        // Wi-Fi never has the telephony placeholder.
+        assertLong(policy.decide(new StartupDeadlinePolicy.Evidence(WIFI, true, false, 14, 0),
+                EP1, 1_000), "low-downKbps");
+    }
+
+    @Test
+    public void realEvidenceStillOverridesAPlaceholder() {
+        StartupDeadlinePolicy policy = new StartupDeadlinePolicy();
+        // A slow measured estimate on this network: slow wins, placeholder or not.
+        assertLong(policy.decide(cell("cell:114", true, 14, 400_000,
+                StartupDeadlinePolicy.RAT_4G_PLUS), EP1, 1_000), "low-estimate");
+        // Slow first bytes already seen here: slow wins.
+        policy.recordFirstByte("cell:115", 2_000, 1_000);
+        assertLong(policy.decide(cell("cell:115", true, 14, 0, StartupDeadlinePolicy.RAT_4G_PLUS),
+                EP2, 2_000), "slow-first-byte");
+        // Fast first bytes: the proportional budget, as on any fast link.
+        policy.recordFirstByte("cell:116", 150, 1_000);
+        StartupDeadlinePolicy.Decision fast = policy.decide(
+                cell("cell:116", true, 14, 0, StartupDeadlinePolicy.RAT_4G_PLUS), EP2, 2_000);
+        assertEquals("first-byte", fast.reason);
+        assertEquals(2_950, fast.budgetMs);
+        // A fast measured estimate while the radio still shows the placeholder: the estimate.
+        StartupDeadlinePolicy.Decision measured = policy.decide(
+                cell("cell:117", true, 14, 12_000_000, StartupDeadlinePolicy.RAT_4G_PLUS), EP2, 2_000);
+        assertEquals("estimate", measured.reason);
+        assertTrue(measured.early);
+    }
+
+    @Test
+    public void placeholderClassification() {
+        StartupDeadlinePolicy.Evidence lte14 =
+                cell("cell:1", true, 14, 0, StartupDeadlinePolicy.RAT_4G_PLUS);
+        assertTrue(StartupDeadlinePolicy.isPlaceholderBandwidth(lte14, 0, 60_000));
+        assertTrue(StartupDeadlinePolicy.isPlaceholderBandwidth(
+                cell("cell:1", true, StartupDeadlinePolicy.PLACEHOLDER_MAX_DOWN_KBPS, 0,
+                        StartupDeadlinePolicy.RAT_4G_PLUS), 0, 60_000));
+        assertFalse(StartupDeadlinePolicy.isPlaceholderBandwidth(
+                cell("cell:1", true, StartupDeadlinePolicy.PLACEHOLDER_MAX_DOWN_KBPS + 1, 0,
+                        StartupDeadlinePolicy.RAT_4G_PLUS), 0, 60_000));
+        // On LTE/NR a sample does not make 14 kbps real (the sample itself then decides)...
+        assertTrue(StartupDeadlinePolicy.isPlaceholderBandwidth(lte14, 1, 60_000));
+        // ...on an unknown radio, anything measured on the network means it is not brand new.
+        StartupDeadlinePolicy.Evidence unknown14 =
+                cell("cell:1", true, 14, 0, StartupDeadlinePolicy.RAT_UNKNOWN);
+        assertTrue(StartupDeadlinePolicy.isPlaceholderBandwidth(unknown14, 0, 0));
+        assertFalse(StartupDeadlinePolicy.isPlaceholderBandwidth(unknown14, 1, 0));
+        assertFalse(StartupDeadlinePolicy.isPlaceholderBandwidth(
+                cell("cell:1", true, 14, 300_000, StartupDeadlinePolicy.RAT_UNKNOWN), 0, 0));
+        assertFalse(StartupDeadlinePolicy.isPlaceholderBandwidth(
+                cell("cell:1", true, 0, 0, StartupDeadlinePolicy.RAT_4G_PLUS), 0, 0)); // unknown
+        assertEquals(StartupDeadlinePolicy.RAT_4G_PLUS, StartupDeadlinePolicy.ratOf(13)); // LTE
+        assertEquals(StartupDeadlinePolicy.RAT_4G_PLUS, StartupDeadlinePolicy.ratOf(20)); // NR
+        assertEquals(StartupDeadlinePolicy.RAT_2G, StartupDeadlinePolicy.ratOf(2));       // EDGE
+        assertEquals(StartupDeadlinePolicy.RAT_3G, StartupDeadlinePolicy.ratOf(15));      // HSPA+
+        assertEquals(StartupDeadlinePolicy.RAT_UNKNOWN, StartupDeadlinePolicy.ratOf(0));
+    }
+
     private static void assertLong(StartupDeadlinePolicy.Decision decision, String reason) {
         assertFalse(decision.early);
         assertEquals(StartupDeadlinePolicy.LONG_BUDGET_MS, decision.budgetMs);

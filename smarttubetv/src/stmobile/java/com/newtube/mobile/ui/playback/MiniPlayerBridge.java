@@ -7,6 +7,8 @@ import android.graphics.SurfaceTexture;
 import android.os.SystemClock;
 
 import androidx.annotation.Nullable;
+import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.LifecycleOwner;
 
 import androidx.media3.exoplayer.ExoPlayer;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
@@ -31,6 +33,12 @@ import java.lang.ref.WeakReference;
  * <p>All access is main-thread (activity lifecycle callbacks + view clicks), so plain statics
  * are safe. The activity is held weakly: if the system destroys the backgrounded player
  * activity, {@link #isActive()} turns false on its own and the bar simply hides.</p>
+ *
+ * <p>NEWTUBE(mini-park): the card's X no longer ends playback. It PARKS the session (see
+ * {@link MiniSessionState}): paused, card hidden, player + media session + paused notification
+ * kept, so the notification / system media controls can resume it. {@link #isActive()} stays true
+ * while parked (the hidden player is still physically in the task, which is what the back-stack
+ * routing in MobileActivity cares about); {@link #getPlayer()} - what the cards draw - does not.</p>
  */
 public final class MiniPlayerBridge {
     /**
@@ -52,6 +60,15 @@ public final class MiniPlayerBridge {
          * THIS host's card instead of always assuming Home's geometry.
          */
         int getMiniCardBottomOffsetPx();
+
+        /**
+         * NEWTUBE(mini-park): a parked session was resumed from the notification / system media
+         * controls while this host is in front - bring the card back. The pre-render path already
+         * does exactly that (sync the card, schedule a draw), so it is reused with no follow-up.
+         */
+        default void showMiniPlayer() {
+            prepareMiniPlayerForHandoff(() -> { });
+        }
     }
 
     private static final long NAVIGATION_PENDING_MS = 30_000;
@@ -60,7 +77,7 @@ public final class MiniPlayerBridge {
     private static WeakReference<MobilePlaybackActivity> sPendingNavigation = new WeakReference<>(null);
     private static WeakReference<MiniHost> sMiniHost = new WeakReference<>(null);
     private static long sPendingNavigationAtMs;
-    private static boolean sActive;
+    private static final MiniSessionState sState = new MiniSessionState();
     private static Bitmap sHandoffStill;
     private static Bitmap sMiniEntryStill;
     private static Rect sMiniBounds;
@@ -104,7 +121,7 @@ public final class MiniPlayerBridge {
     /** Called by the playback activity right before it backgrounds itself into mini mode. */
     static void activate(MobilePlaybackActivity activity) {
         sActivity = new WeakReference<>(activity);
-        sActive = true;
+        sState.dock();
     }
 
     /**
@@ -131,7 +148,7 @@ public final class MiniPlayerBridge {
 
     /** Called when the playback activity takes its surface back (expand / new video / destroy). */
     public static void deactivate() {
-        sActive = false;
+        sState.clear();
         sActivity = new WeakReference<>(null);
         sPendingNavigation = new WeakReference<>(null);
         sPendingNavigationAtMs = 0;
@@ -144,6 +161,10 @@ public final class MiniPlayerBridge {
      * The session-long video {@link SurfaceTexture} (see MobilePlaybackActivity's persistent
      * surface docs). The Browse card re-parents this into its own TextureView while the mini
      * session is active - the codec's output surface never changes, so playback never stalls.
+     *
+     * <p>Deliberately still returned while PARKED (unlike {@link #getPlayer()}): the cards'
+     * {@code onSurfaceTextureDestroyed} compares against it to decide whether a view may release
+     * the texture it holds, and a parked session's texture must survive for the resume.</p>
      */
     @Nullable
     public static SurfaceTexture getSessionTexture() {
@@ -188,9 +209,12 @@ public final class MiniPlayerBridge {
         return frame;
     }
 
-    /** True while a live, still-alive player session is docked in the mini bar. */
+    /**
+     * True while a live, still-alive player session sits hidden behind the host screens - docked
+     * in a card OR parked in the notification (see {@link MiniSessionState}).
+     */
     public static boolean isActive() {
-        if (!sActive) {
+        if (!sState.isBehindHosts()) {
             return false;
         }
         MobilePlaybackActivity activity = sActivity.get();
@@ -202,10 +226,32 @@ public final class MiniPlayerBridge {
         return true;
     }
 
-    /** The live player to render in the bar, or null when no mini session is active. */
+    /** NEWTUBE(mini-park): the card was closed; the session waits in the paused notification. */
+    public static boolean isParked() {
+        return isActive() && sState.isParked();
+    }
+
+    /** True when {@code activity} is the player that owns the current parked session. */
+    static boolean isParkedBy(MobilePlaybackActivity activity) {
+        return isParked() && sActivity.get() == activity;
+    }
+
+    /**
+     * True when {@code activity} is the player of the current mini session, docked or parked - i.e.
+     * hidden behind the host screens. Persisted in its saved state (see MobilePlaybackActivity
+     * #isRestoredWithoutVideo).
+     */
+    static boolean isHiddenBy(MobilePlaybackActivity activity) {
+        return isActive() && sActivity.get() == activity;
+    }
+
+    /**
+     * The live player to render in the bar, or null when no card should show (no mini session,
+     * or a parked one - hosts hide their card on null).
+     */
     @Nullable
     public static ExoPlayer getPlayer() {
-        return isActive() ? sActivity.get().getSharedPlayer() : null;
+        return isActive() && sState.isCardVisible() ? sActivity.get().getSharedPlayer() : null;
     }
 
     /** Metadata of the playing video (title/author for the bar), or null. */
@@ -223,12 +269,97 @@ public final class MiniPlayerBridge {
         ViewManager.instance(context).startView(PlaybackView.class);
     }
 
-    /** Close from the bar's X: stop playback and finish the hidden playback activity. */
+    /**
+     * The bar's X. NEWTUBE(mini-park): parks the session - paused, card gone, the paused media
+     * notification stays so the user can resume it (beta-tester report: closing the card while
+     * listening to music killed it with no way back). Falls back to the old full close when there
+     * is nothing to resume (ended, failed, casting). The caller has already hidden its card.
+     */
     public static void close() {
         MobilePlaybackActivity activity = sActivity.get();
+        boolean alive = activity != null && !activity.isFinishing() && !activity.isDestroyed();
+        Video video = alive ? activity.getVideo() : null;
+        if (alive && isActive() && sState.park(activity.canParkFromMiniPlayer(),
+                SystemClock.elapsedRealtime(), video != null ? video.videoId : null)) {
+            // The card is gone: no geometry to morph from and no card-entry frame to consume. The
+            // hand-off still the card captured on hide is exactly the paused frame, so it stays
+            // for whichever surface shows this session next (expanded player or a returning card).
+            sMiniBounds = null;
+            sMiniEntryStill = null;
+            activity.parkFromMiniPlayer();
+            return;
+        }
+
         deactivate();
-        if (activity != null && !activity.isFinishing() && !activity.isDestroyed()) {
+        if (alive) {
             activity.closeFromMiniPlayer();
+        }
+    }
+
+    /**
+     * NEWTUBE(mini-park): playback started again while parked (any source, see
+     * MiniSessionState#resume). The session becomes a normal mini session again; if a host screen
+     * is in front (the app is open under the notification shade) its card comes straight back,
+     * otherwise the next host to resume shows it.
+     *
+     * @return true when a visible host re-showed the card.
+     */
+    static boolean unpark() {
+        if (!isParked() || !sState.resume()) {
+            return false;
+        }
+        // The paused frame covers the new card until its TextureView gets the next frame.
+        if (sHandoffStill != null) {
+            sMiniEntryStill = sHandoffStill;
+        }
+        MiniHost host = sMiniHost.get();
+        if (host instanceof LifecycleOwner && ((LifecycleOwner) host).getLifecycle()
+                .getCurrentState().isAtLeast(Lifecycle.State.RESUMED)) {
+            host.showMiniPlayer();
+            return true;
+        }
+        return false;
+    }
+
+    /** NEWTUBE(mini-park): the paused notification was swiped away - does that end the session? */
+    static boolean endsOnNotificationDismiss(MobilePlaybackActivity activity) {
+        return isParkedBy(activity) && sState.endsOnNotificationDismiss();
+    }
+
+    /**
+     * NEWTUBE(mini-park): {@code activity}'s parked session waited {@link
+     * MiniSessionState#PARK_TIMEOUT_MS} of real time (deep sleep included) and is not playing; the
+     * Activity then ends it.
+     */
+    static boolean shouldEndParked(MobilePlaybackActivity activity, boolean playWhenReady) {
+        return isParkedBy(activity)
+                && sState.shouldEnd(SystemClock.elapsedRealtime(), playWhenReady);
+    }
+
+    /** Real time left before the parked session may end, or -1 when nothing is parked. */
+    static long parkRemainingMs() {
+        return isParked() ? sState.remainingMs(SystemClock.elapsedRealtime()) : -1;
+    }
+
+    /**
+     * A different video was set on the parked player (Next/Previous from the notification).
+     *
+     * @return true when that restarted the park clock.
+     */
+    static boolean onParkedVideoChanged(MobilePlaybackActivity activity, @Nullable String videoId) {
+        return isParkedBy(activity)
+                && sState.onVideoChanged(videoId, SystemClock.elapsedRealtime());
+    }
+
+    /**
+     * A host just put the live session on screen. The player may be audio-only (a parked session
+     * resumed from the notification while the app was in the background drops the video track);
+     * the card needs frames again.
+     */
+    public static void onCardShown() {
+        MobilePlaybackActivity activity = isActive() ? sActivity.get() : null;
+        if (activity != null) {
+            activity.onMiniCardShown();
         }
     }
 }

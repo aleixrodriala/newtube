@@ -62,9 +62,11 @@ public class MediaAddressPreferenceTest {
         call.connectEnd(EDGE, v4(1));
 
         assertTrue(mPreference.isPreferV4Active());
-        assertEquals(Collections.singletonList("media-dns prefer-v4 on reason=v6-handshake-stall"
-                + " host=" + EDGE + " net=cell:104 proofWindowMs=" + MediaAddressPreference.PREFER_V4_MS
-                + " maxMs=" + MediaAddressPreference.MAX_PREFER_V4_MS), mEnv.lines);
+        assertEquals(Collections.singletonList("media-path verdict on kind=v6-stall"
+                + " network=cell:104 scope=attachment key=cell:104/test0 host=" + EDGE
+                + " evidence=v6-handshake-stall ttlMs=" + MediaPathVerdicts.SINGLE_EDGE_TTL_MS
+                + "/" + MediaPathVerdicts.TTL_MS + " reprobeMs=" + MediaPathVerdicts.FIRST_REPROBE_MS
+                + "/" + MediaPathVerdicts.REPROBE_MS + " persisted=n"), mEnv.lines);
         // IPv4 only, original order (OkHttp's fast fallback would re-interleave IPv6 first).
         assertEquals(Arrays.asList(v4(1), v4(2)),
                 mPreference.order(EDGE, Arrays.asList(v6(1), v4(1), v6(2), v4(2))));
@@ -143,74 +145,156 @@ public class MediaAddressPreferenceTest {
     }
 
     @Test
-    public void theMarkLapsesWithoutRecentIpv4Proof() throws Exception {
+    public void theVerdictLapsesOnlyAfterItsTtl() throws Exception {
         markStall();
-        mEnv.now += MediaAddressPreference.PREFER_V4_MS;
+        // No IPv4 proof is needed any more (the old 20 min window made every cold start after a
+        // pause re-pay the ~4.3 s stall); the background re-probe re-tests IPv6 instead.
+        mEnv.now += 90 * MIN;
+        assertTrue(mPreference.isPreferV4Active());
 
+        mEnv.now += MediaPathVerdicts.SINGLE_EDGE_TTL_MS;
         assertFalse(mPreference.isPreferV4Active());
-        assertEquals("media-dns prefer-v4 off reason=expired net=cell:104 was=cell:104",
-                mEnv.lines.get(1));
+        assertTrue(mEnv.lines.get(1).startsWith(
+                "media-path verdict off kind=v6-stall scope=attachment key=cell:104/test0"
+                        + " reason=expired"));
         List<InetAddress> mixed = Arrays.asList(v6(1), v4(1));
         assertSame(mixed, mPreference.order(EDGE, mixed));
     }
 
     @Test
-    public void workingIpv4KeepsTheMarkAliveUpToTheHardCap() throws Exception {
-        markStall();
-        for (int i = 0; i < 5; i++) { // an IPv4 media connect every 10 minutes
-            mEnv.now += 10 * MIN;
-            MediaAddressPreference.CallWatch call = mPreference.newCallWatch(EDGE);
-            call.connectStart(EDGE, v4(1));
-            call.connectEnd(EDGE, v4(1));
-            assertTrue(mPreference.isPreferV4Active());
-        }
-        // ...but IPv6 is re-tested at least hourly.
-        mEnv.now += 10 * MIN;
-        assertFalse(mPreference.isPreferV4Active());
-    }
-
-    @Test
-    public void ipv4ProofOnAnotherNetworkDoesNotCount() throws Exception {
-        markStall();
-        mEnv.now += 15 * MIN;
-        mPreference.onV4Connected("wifi:7");
-        mEnv.now += 6 * MIN;
-
-        assertFalse(mPreference.isPreferV4Active());
-    }
-
-    @Test
-    public void theMarkBelongsToTheNetworkThatShowedTheStall() throws Exception {
+    public void theVerdictBelongsToTheAttachmentThatShowedTheStall() throws Exception {
         markStall();
         mEnv.network = "wifi:7";
 
         List<InetAddress> mixed = Arrays.asList(v6(1), v4(1));
+        assertSame(mixed, mPreference.order(EDGE, mixed)); // Wi-Fi is never penalised
+        mEnv.network = "cell:105"; // a new cellular attachment (airplane mode, coverage loss)
         assertSame(mixed, mPreference.order(EDGE, mixed));
-        assertEquals("media-dns prefer-v4 off reason=network-change net=wifi:7 was=cell:104",
-                mEnv.lines.get(1));
+
+        // Back on the SAME attachment (mobile data stays up under Wi-Fi): the verdict still holds,
+        // so the first LTE open after leaving Wi-Fi goes straight to IPv4.
         mEnv.network = "cell:104";
-        assertFalse(mPreference.isPreferV4Active()); // cleared, not suspended
+        assertTrue(mPreference.isPreferV4Active());
+        assertEquals(1, mEnv.lines.size());
     }
 
     @Test
-    public void anIpv4FailureGivesIpv6ItsChanceBack() throws Exception {
+    public void oneHostsIpv4FailureIsNoEvidenceForIpv6() throws Exception {
         markStall();
+        // A dead edge fails on both families: its IPv4 timeout must not re-open IPv6 (and its
+        // ~4 s stall) for every other host on this network.
         MediaAddressPreference.CallWatch call = mPreference.newCallWatch(EDGE);
         call.connectFailed(EDGE, v4(1), new SocketTimeoutException("connect timed out"));
 
+        assertTrue(mPreference.isPreferV4Active());
+        assertEquals(1, mEnv.lines.size());
+    }
+
+    @Test
+    public void anUnfilteredRetryThatConnectsOverIpv6GivesIpv6ItsChanceBack() throws Exception {
+        markStall();
+        MediaAddressPreference.CallWatch call = mPreference.newCallWatch(EDGE);
+        call.connectStart(EDGE, v4(1));
+        call.connectFailed(EDGE, v4(1), new SocketException("Connection refused"));
+        assertTrue(call.claimUnfilteredRetry());
+        call.connectStart(EDGE, v6(1));
+        call.connectEnd(EDGE, v6(1));
+
         assertFalse(mPreference.isPreferV4Active());
-        assertTrue(mEnv.lines.get(1).startsWith("media-dns prefer-v4 off reason=v4-failed host="));
+        assertEquals("media-path verdict off kind=v6-stall scope=attachment key=cell:104/test0"
+                + " reason=v4-failed-v6-connected host=" + EDGE + " ageMs=0 count=1 edges=1",
+                mEnv.lines.get(1));
+    }
+
+    @Test
+    public void anIpv6ConnectOutsideARetryClearsNothing() throws Exception {
+        markStall();
+        // Calls that began before the verdict raced IPv6 and it worked for THAT edge (on Movistar
+        // the -cjoe edges answered over IPv6 while -cjol stalled): not evidence for the network.
+        MediaAddressPreference.CallWatch call = mPreference.newCallWatch(EDGE);
+        call.connectStart(EDGE, v6(2));
+        call.connectEnd(EDGE, v6(2));
+
+        assertTrue(mPreference.isPreferV4Active());
     }
 
     @Test
     public void aRepeatStallExtendsWithoutRelogging() throws Exception {
         markStall();
-        mEnv.now += MediaAddressPreference.PREFER_V4_MS - 1;
+        mEnv.now += MediaPathVerdicts.SINGLE_EDGE_TTL_MS - 1;
         markStall();
         mEnv.now += 10;
 
         assertTrue(mPreference.isPreferV4Active());
         assertEquals(1, mEnv.lines.size());
+    }
+
+    @Test
+    public void aRestoredVerdictFiltersTheFirstLookupOfANewProcess() throws Exception {
+        MediaPathVerdictsTest.FakeStore store = new MediaPathVerdictsTest.FakeStore();
+        MediaPathVerdictsTest.FakeEnv bookEnv = new MediaPathVerdictsTest.FakeEnv(store);
+        bookEnv.network = "cell:104";
+        bookEnv.scopes.put("cell:104", "cell:104/rmnet_data0");
+        MediaPathVerdicts first = new MediaPathVerdicts(bookEnv, true);
+        first.load();
+        first.observe(MediaPathVerdicts.Kind.V6_STALL, "cell:104", EDGE, "v6-handshake-stall");
+
+        // The next process: a fresh preference over the same store, nothing learnt yet in memory.
+        MediaPathVerdicts restored = new MediaPathVerdicts(bookEnv, true);
+        restored.load(); // the background restore, before the first media lookup
+        MediaAddressPreference next = new MediaAddressPreference(mEnv, restored);
+        assertEquals(Collections.singletonList(v4(1)),
+                next.order(EDGE, Arrays.asList(v6(1), v4(1))));
+        MediaAddressPreference.CallWatch call = next.newCallWatch(EDGE);
+        call.connectFailed(EDGE, v4(1), new SocketException("Connection refused"));
+        assertTrue(call.claimUnfilteredRetry()); // the call was answered IPv4-only
+    }
+
+    @Test
+    public void routesThroughAProxyNeverTeachTheAddressFamily() throws Exception {
+        // Codex review P2: behind an HTTP proxy the socket address is the PROXY's.
+        Call call = new OkHttpClient().newCall(new Request.Builder()
+                .url("https://" + EDGE + "/videoplayback?itag=251").build());
+        MediaHttpClient.RouteListener listener =
+                new MediaHttpClient.RouteListener(mPreference.newCallWatch(call));
+        Proxy proxy = new Proxy(Proxy.Type.HTTP, InetSocketAddress.createUnresolved("proxy", 3128));
+
+        listener.connectStart(call, new InetSocketAddress(v6(1), 3128), proxy);
+        listener.connectFailed(call, new InetSocketAddress(v6(1), 3128), proxy, null,
+                new SocketTimeoutException("Read timed out"));
+        listener.connectStart(call, new InetSocketAddress(v4(1), 3128), proxy);
+        listener.connectEnd(call, new InetSocketAddress(v4(1), 3128), proxy, null);
+
+        assertFalse(mPreference.isPreferV4Active());
+        assertTrue(mEnv.lines.isEmpty());
+    }
+
+    @Test
+    public void aLookupNotesTheHostForTheExploreProbe() throws Exception {
+        markStall();
+        String other = "rr1---sn-uxax4vopj5xn-cjoe.googlevideo.com";
+        mPreference.order(other, Arrays.asList(v6(1), v4(1)));
+        mEnv.now += MediaPathVerdicts.FIRST_REPROBE_MS;
+        MediaPathVerdicts.ProbeTicket recheck =
+                mPreference.verdicts().claimProbe(MediaPathVerdicts.Kind.V6_STALL, "cell:104");
+        assertEquals(EDGE, recheck.host);
+        mEnv.now += MediaPathVerdicts.FIRST_REPROBE_MS;
+        MediaPathVerdicts.ProbeTicket explore =
+                mPreference.verdicts().claimProbe(MediaPathVerdicts.Kind.V6_STALL, "cell:104");
+        assertEquals(other, explore.host);
+        assertTrue(explore.explore);
+    }
+
+    @Test
+    public void filteringALookupReportsTheUseForTheReprobe() throws Exception {
+        List<String> uses = new ArrayList<>();
+        mPreference.verdicts().setUseListener((kind, network) -> uses.add(kind.label + "@" + network));
+        mPreference.order(EDGE, Arrays.asList(v6(1), v4(1))); // no verdict: nothing to report
+        markStall();
+        mPreference.order(EDGE, Arrays.asList(v4(1), v4(2))); // nothing filtered out
+        mPreference.order(EDGE, Arrays.asList(v6(1), v4(1)));
+
+        assertEquals(Collections.singletonList("v6-stall@cell:104"), uses);
     }
 
     @Test
@@ -228,7 +312,7 @@ public class MediaAddressPreferenceTest {
         failed.connectFailed(EDGE, v4(1), new SocketException("Connection refused"));
         assertTrue(failed.claimUnfilteredRetry());
         assertFalse(failed.claimUnfilteredRetry()); // once per call
-        assertFalse(mPreference.isPreferV4Active()); // and the failure cleared the mark
+        assertTrue(mPreference.isPreferV4Active()); // the retry is per call, the verdict stays
     }
 
     @Test
@@ -312,13 +396,18 @@ public class MediaAddressPreferenceTest {
                 assertEquals(200, response.code());
                 assertEquals("ok", response.body().string());
             }
-            // The first resolution was IPv4-only, the retry saw both families.
+            // The first resolution was IPv4-only; the retry saw both families even though the
+            // verdict was still in place for every other call (the per-call flag reached the
+            // lookup: OkHttp resolves on the thread that runs the interceptor chain).
             assertEquals(Collections.singletonList(deadV4), answers.get(0));
             assertEquals(2, answers.get(answers.size() - 1).size());
             assertTrue(mEnv.lines.stream().anyMatch(line -> line.startsWith(
-                    "media-dns prefer-v4 off reason=v4-failed")));
-            assertTrue(mEnv.lines.stream().anyMatch(line -> line.startsWith(
                     "media-dns prefer-v4 retry=unfiltered reason=v4-routes-failed host=" + EDGE)));
+            // ...and connecting over IPv6 after IPv4 failed dropped the verdict.
+            assertTrue(mEnv.lines.stream().anyMatch(line -> line.startsWith(
+                    "media-path verdict off kind=v6-stall scope=attachment key=cell:104/test0"
+                            + " reason=v4-failed-v6-connected host=" + EDGE)));
+            assertFalse(mPreference.isPreferV4Active());
         } finally {
             server.close();
             executor.shutdownNow();

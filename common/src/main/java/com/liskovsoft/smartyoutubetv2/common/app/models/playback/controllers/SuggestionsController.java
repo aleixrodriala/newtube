@@ -1,5 +1,6 @@
 package com.liskovsoft.smartyoutubetv2.common.app.models.playback.controllers;
 
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Pair;
 
@@ -11,6 +12,7 @@ import com.liskovsoft.mediaserviceinterfaces.data.ChapterItem;
 import com.liskovsoft.mediaserviceinterfaces.data.DislikeData;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaGroup;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemMetadata;
+import com.liskovsoft.mediaserviceinterfaces.oauth.Account;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.sharedutils.mylogger.Log;
@@ -36,6 +38,7 @@ import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.disposables.Disposable;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -83,6 +86,7 @@ public class SuggestionsController extends BasePlayerController {
     private String mLoadedVideoId;
     private MediaItemMetadata mPendingViewMetadata;
     private Video mPendingViewVideo;
+    private String mPendingViewKey; // NEWTUBE(reopen-related): the parked document's request key
     /**
      * Park and replay both run on the main thread as things stand: the metadata callback is
      * delivered through {@code RxHelper.create}, which ends in
@@ -117,6 +121,28 @@ public class SuggestionsController extends BasePlayerController {
      */
     private String mSuggestionsDeliveredVideoId;
     private String mMetadataFetchVideoId;
+    /**
+     * NEWTUBE(reopen-related): the watch page (view instance) the current document was painted
+     * into, and the last delivered document. The playback controllers outlive the playback
+     * Activity, so "this video's document was delivered" alone cannot tell an in-place reload of
+     * the page that shows it (keep it) from a brand-new page for the same video (it is empty) -
+     * see onNewVideo.
+     */
+    private WeakReference<PlaybackView> mDocumentView = new WeakReference<>(null);
+    /**
+     * NEWTUBE(reopen-related): what the document on mDocumentView was requested for - video,
+     * playlist context and account, as of the request's START (see contextOf).
+     */
+    private String mDocumentViewKey;
+    private final WatchDocumentCache<MediaItemMetadata> mDocumentCache = new WatchDocumentCache<>();
+    /**
+     * NEWTUBE(reopen-related): bumped whenever the user subscribes/unsubscribes or rates a video,
+     * wherever that happens (watch page, card menu, the subscriptions list). A kept document
+     * records the subscribe/like state it was fetched with, so the generation is part of its key:
+     * after any such action no older document is reused. Process-wide on purpose - the card menus
+     * have no reference to the playback controllers.
+     */
+    private static volatile int sUserStateGeneration;
 
     public static void setRowContinuationsDisabled(boolean disabled) {
         sRowContinuationsDisabled = disabled;
@@ -128,6 +154,15 @@ public class SuggestionsController extends BasePlayerController {
 
     public static void setEagerColdOpenEnabled(boolean enabled) {
         sEagerColdOpenEnabled = enabled;
+    }
+
+    /**
+     * NEWTUBE(reopen-related): the user subscribed/unsubscribed to a channel or rated a video
+     * somewhere. Every kept /next document may now show a stale button state - see
+     * {@link #sUserStateGeneration}.
+     */
+    public static void onUserStateChanged() {
+        sUserStateGeneration++;
     }
 
     private interface OnVideoGroup {
@@ -146,7 +181,43 @@ public class SuggestionsController extends BasePlayerController {
 
         // NEWTUBE(mobile): the player view exists now (the Activity sets it right before calling
         // this), so hand over anything the cold-open fetch had to park. See mPendingViewMetadata.
+        onPageAttached();
+    }
+
+    /** The playback Activity has just set its (new) view - see {@link #onInit}. */
+    void onPageAttached() {
         deliverPendingViewMetadata();
+        rebindDocumentOnRecreatedPage();
+    }
+
+    /**
+     * NEWTUBE(reopen-related): a NEW page for the video whose document was already delivered,
+     * without a new open. A dark/light switch recreates the playback Activity, and the engine then
+     * reloads the same video from onEngineInitialized - no onNewVideo - so nothing ever gave the
+     * new page its title, channel row or related list (observed: empty for 25+ s). Re-bind the
+     * kept document, or fetch it when it is gone or too old. Held onMetadata as on any open:
+     * the engine is not loaded yet at this point.
+     */
+    private void rebindDocumentOnRecreatedPage() {
+        Video video = getVideo();
+        if (!sEagerSuggestionsEnabled || !mEagerDelivered || video == null || !isPlayerAlive()
+                || !Helpers.equals(video.videoId, mEagerVideoId) || isDocumentOnLiveView()) {
+            return;
+        }
+
+        NetPath.log(NetPath.context() + " suggest reopen page=recreated");
+        mLoadedVideoId = null;
+        mPendingListenerMetadata = null;
+        String key = documentKey(video);
+        MediaItemMetadata cached = mDocumentCache.get(key, nowMs());
+        if (cached != null && !isEmbedPlayer()) {
+            NetPath.log(NetPath.context() + " suggest rebind +" + NetPath.elapsedMs()
+                    + " ageMs=" + mDocumentCache.ageMs(nowMs()) + " view=y");
+            updateSuggestions(cached, video, key);
+        } else {
+            mEagerDelivered = false;
+            loadSuggestions(video);
+        }
     }
 
     /**
@@ -187,9 +258,20 @@ public class SuggestionsController extends BasePlayerController {
         // reload path doesn't need them repeated (position restore runs off the state service).
         // If the metadata never arrived (mEagerDelivered false) this doesn't trigger and the
         // classic dispose+reload below runs as always. TV (flag off) is untouched.
+        // NEWTUBE(reopen-related): ...but only while the page that SHOWS the document is still up.
+        // Open a video, go back to Home, tap the same card again: the controllers still remember
+        // the delivered document, the new playback Activity has an empty related list, and this
+        // return used to leave it empty for good (no /next, the page ended at the channel row).
+        // A new page falls through to the re-bind below (or a fetch). So does the same page asked
+        // for the same video in another playlist context or by another account: its document
+        // (playlist row, subscribe/like state) is not the one that would be fetched now.
         if (sEagerSuggestionsEnabled && video != null && mEagerDelivered
                 && Helpers.equals(video.videoId, mEagerVideoId)) {
-            return;
+            boolean livePage = isDocumentOnLiveView();
+            if (livePage && Helpers.equals(contextOf(documentKey(video)), mDocumentViewKey)) {
+                return;
+            }
+            NetPath.log(NetPath.context() + " suggest reopen page=" + (livePage ? "same-other-context" : "new"));
         }
 
         // Remote control fix. Slow network fix. Suggestions may still be loading.
@@ -210,10 +292,93 @@ public class SuggestionsController extends BasePlayerController {
         boolean canFetch = mMediaItemService != null || sEagerColdOpenEnabled;
         if (sEagerSuggestionsEnabled && video != null && video.hasVideo() && canFetch) {
             mEagerVideoId = video.videoId;
-            loadSuggestions(video);
+            // NEWTUBE(reopen-related): the same video re-opened within minutes - bind the document
+            // the last page got, instantly and without a /next. It goes through the normal
+            // delivery (parked until the new page exists, controllers' onMetadata still held until
+            // onVideoLoaded), so the page cannot tell it from a very fast network answer.
+            String key = documentKey(video);
+            MediaItemMetadata cached = mDocumentCache.get(key, nowMs());
+            if (cached != null && !isEmbedPlayer()) {
+                NetPath.log(NetPath.context() + " suggest rebind +" + NetPath.elapsedMs()
+                        + " ageMs=" + mDocumentCache.ageMs(nowMs()) + " view=" + (isPlayerAlive() ? "y" : "n"));
+                updateSuggestions(cached, video, key);
+            } else {
+                loadSuggestions(video);
+            }
         } else {
             mEagerVideoId = null;
         }
+    }
+
+    /**
+     * NEWTUBE(reopen-related): is the document for the current video painted on a page that is
+     * still alive? True for an error-recovery reload or engine restart inside the same playback
+     * Activity (and for a tap on the video already docked in the mini-player); false once that
+     * Activity is gone, even though getPlayer() still hands back the dead view.
+     */
+    private boolean isDocumentOnLiveView() {
+        PlaybackView view = getPlayer();
+        return view != null && isPlayerAlive() && view == mDocumentView.get();
+    }
+
+    /**
+     * NEWTUBE(reopen-related): keep this document for a later page of the same video.
+     * {@code requestKey} is the key captured when its /next was STARTED: if the account (or a
+     * subscribe/like, see sUserStateGeneration) changed while it was in flight, the answer
+     * describes the old state and must not be filed under the new one.
+     */
+    private void rememberDocument(MediaItemMetadata metadata, Video video, String requestKey) {
+        if (!sEagerSuggestionsEnabled || metadata == null || video == null) {
+            return;
+        }
+
+        // A live or upcoming page is re-fetched on its own schedule (live refresh, upcoming poll),
+        // a remote (cast) page carries the TV's current queue, and a document without a related
+        // list is not worth reusing - fetch those again.
+        List<MediaGroup> suggestions = metadata.getSuggestions();
+        if (video.isLive || video.isUpcoming || video.isRemote || metadata.isLive() || metadata.isUpcoming()
+                || suggestions == null || suggestions.isEmpty()
+                || requestKey == null || !requestKey.equals(documentKey(video))) {
+            mDocumentCache.invalidate(video.videoId);
+            return;
+        }
+
+        mDocumentCache.put(video.videoId, requestKey, metadata, nowMs());
+    }
+
+    /** Everything the /next answer for this open depends on (see WatchDocumentCache.key). */
+    String documentKey(Video video) {
+        return WatchDocumentCache.key(video.videoId, video.getPlaylistId(), video.playlistIndex,
+                video.playlistParams, accountKey() + "#" + sUserStateGeneration);
+    }
+
+    /**
+     * A {@link #documentKey} without its user-state generation (the last '#' part): what decides
+     * whether the page ON SCREEN still shows the right document. A like or subscribe tapped on that
+     * very page is already on it (the button flipped), so a recovery reload after one must keep the
+     * list rather than wipe and refetch it; only KEPT documents need the generation.
+     */
+    static String contextOf(String documentKey) {
+        if (documentKey == null) {
+            return null;
+        }
+        int generation = documentKey.lastIndexOf('#');
+        return generation >= 0 ? documentKey.substring(0, generation) : documentKey;
+    }
+
+    /** Opaque id of the signed-in account; a document carries that account's like/subscribe state. */
+    String accountKey() {
+        try {
+            Account account = getSignInService().getSelectedAccount();
+            return account != null ? account.getId() + "|" + account.getName() : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Wall-clock age source: elapsedRealtime keeps counting while the phone sleeps (uptime does not). */
+    long nowMs() {
+        return SystemClock.elapsedRealtime();
     }
 
     /**
@@ -284,6 +449,17 @@ public class SuggestionsController extends BasePlayerController {
     @Override
     public void onSuggestionItemClicked(Video item) {
         markAsQueueIfNeeded(item);
+    }
+
+    @Override
+    public void onButtonClicked(int buttonId, int buttonState) {
+        // NEWTUBE(reopen-related): the kept document records the like/dislike/subscribe state it was
+        // fetched with. Once the user changes one, a later page must fetch the real state.
+        if (buttonId == R.id.action_thumbs_up || buttonId == R.id.action_thumbs_down
+                || buttonId == R.id.action_subscribe) {
+            onUserStateChanged();
+            mDocumentCache.clear();
+        }
     }
 
     @Override
@@ -454,7 +630,9 @@ public class SuggestionsController extends BasePlayerController {
         }
 
         clearSuggestionsIfNeeded(video);
-        loadMetadata(video, metadata -> updateSuggestions(metadata, video));
+        // NEWTUBE(reopen-related): the key as of NOW, when the request starts - see rememberDocument.
+        String requestKey = sEagerSuggestionsEnabled && video != null ? documentKey(video) : null;
+        loadMetadata(video, metadata -> updateSuggestions(metadata, video, requestKey));
     }
 
     /**
@@ -485,6 +663,9 @@ public class SuggestionsController extends BasePlayerController {
      */
     public void cancelPendingSuggestions() {
         disposeActions();
+        mDocumentCache.invalidate(mEagerVideoId); // NEWTUBE(reopen-related): never re-bind onto a denial
+        mDocumentView = new WeakReference<>(null);
+        mDocumentViewKey = null;
         mEagerVideoId = null;
         mEagerDelivered = false;
         mLoadedVideoId = null;
@@ -606,7 +787,7 @@ public class SuggestionsController extends BasePlayerController {
         }
     }
 
-    private void updateSuggestions(MediaItemMetadata mediaItemMetadata, Video video) {
+    private void updateSuggestions(MediaItemMetadata mediaItemMetadata, Video video, String requestKey) {
         // NEWTUBE(mobile): cold open - the playback Activity isn't up yet, so syncCurrentVideo,
         // appendSuggestions and onWatchMetadata below would all no-op against a null player and
         // the document would be lost. Park it; onInit replays this exact call. See the field docs.
@@ -617,10 +798,12 @@ public class SuggestionsController extends BasePlayerController {
                 if (!isPlayerAlive()) {
                     mPendingViewMetadata = mediaItemMetadata;
                     mPendingViewVideo = video;
+                    mPendingViewKey = requestKey;
                     if (Helpers.equals(video.videoId, mEagerVideoId)) {
                         mEagerDelivered = true; // the document is in hand: don't refetch it
                     }
                     mSuggestionsDeliveredVideoId = video.videoId;
+                    rememberDocument(mediaItemMetadata, video, requestKey);
                     NetPath.log(NetPath.context() + " suggest parked +" + NetPath.elapsedMs());
                     return;
                 }
@@ -630,6 +813,9 @@ public class SuggestionsController extends BasePlayerController {
         syncCurrentVideo(mediaItemMetadata, video);
         if (mediaItemMetadata != null && video != null && getPlayer() != null) {
             mSuggestionsDeliveredVideoId = video.videoId;
+            mDocumentView = new WeakReference<>(getPlayer()); // NEWTUBE(reopen-related)
+            mDocumentViewKey = contextOf(requestKey);
+            rememberDocument(mediaItemMetadata, video, requestKey);
         }
 
         appendSuggestions(video, mediaItemMetadata);
@@ -672,6 +858,7 @@ public class SuggestionsController extends BasePlayerController {
     private void deliverPendingViewMetadata() {
         MediaItemMetadata metadata;
         Video video;
+        String key;
 
         synchronized (mPendingViewLock) {
             if (mPendingViewMetadata == null || !isPlayerAlive()) {
@@ -680,8 +867,10 @@ public class SuggestionsController extends BasePlayerController {
 
             metadata = mPendingViewMetadata;
             video = mPendingViewVideo;
+            key = mPendingViewKey;
             mPendingViewMetadata = null;
             mPendingViewVideo = null;
+            mPendingViewKey = null;
         }
 
         // Only for the open this document belongs to: a parked document from a previous open
@@ -692,7 +881,7 @@ public class SuggestionsController extends BasePlayerController {
 
         NetPath.log(NetPath.context() + " suggest replay +" + NetPath.elapsedMs());
 
-        updateSuggestions(metadata, video);
+        updateSuggestions(metadata, video, key);
     }
 
     private void appendSuggestions(Video video, MediaItemMetadata mediaItemMetadata) {
@@ -709,11 +898,15 @@ public class SuggestionsController extends BasePlayerController {
 
         appendChaptersIfNeeded(mediaItemMetadata);
 
-        mergePlaybackAndRemoteQueueIfNeeded(video, mediaItemMetadata);
+        // NEWTUBE(reopen-related): a COPY of the rows. The remote-queue merge removes its row from
+        // the list it is given, and this document may be kept and bound again (WatchDocumentCache):
+        // removing from the document itself made every re-bind drop one more row.
+        List<MediaGroup> suggestions = mediaItemMetadata.getSuggestions() != null
+                ? new ArrayList<>(mediaItemMetadata.getSuggestions()) : null;
+
+        mergePlaybackAndRemoteQueueIfNeeded(video, suggestions);
 
         appendSectionPlaylistIfNeeded(video);
-
-        List<MediaGroup> suggestions = mediaItemMetadata.getSuggestions();
 
         if (suggestions == null) {
             String msg = "loadSuggestions: Can't obtain suggestions for video: " + video.getTitle();
@@ -765,12 +958,10 @@ public class SuggestionsController extends BasePlayerController {
     /**
      * Merge remote queue with player's queue (when phone cast just started or user clicked on playlist item)
      */
-    private void mergePlaybackAndRemoteQueueIfNeeded(Video video, MediaItemMetadata metadata) {
+    private void mergePlaybackAndRemoteQueueIfNeeded(Video video, List<MediaGroup> suggestions) {
         // Ensure that the user pressed video thumb on the phone
         if (video.isRemote && video.remotePlaylistId != null) {
             // Create user queue from remote queue
-
-            List<MediaGroup> suggestions = metadata.getSuggestions();
 
             if (suggestions != null && !suggestions.isEmpty()) {
                 MediaGroup remoteRow = suggestions.get(0);
@@ -1189,6 +1380,7 @@ public class SuggestionsController extends BasePlayerController {
         synchronized (mPendingViewLock) { // ...nor a parked document from an abandoned open
             mPendingViewMetadata = null;
             mPendingViewVideo = null;
+            mPendingViewKey = null;
         }
         if (mBrowseProcessor != null) {
             mBrowseProcessor.dispose();

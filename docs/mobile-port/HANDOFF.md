@@ -1261,6 +1261,10 @@ smarttubetv + 48 common tests pass; debug build green.
   fresh visitor clears a challenge off-device — not that rotation fixes a
   challenge the phone is actually under. The `visitorRotated=` field on
   `player-ring anon-challenged` says which happened; read it before claiming it.
+  **Follow-up (§31, 2026-09-25): the rotation is retired.** Every recorded wall
+  (07-27, 07-28, 09-25) challenged fresh visitors too, 0/140 anonymous answers
+  were OK after 7 rotations; `setRotateVisitorOnAnonChallenge(true)` re-enables it.
+  An authenticated route now exists: TV_TIZEN (§31).
 - Restoring authenticated playback still has no known path. TVHTML5 is dead at
   every timestamp we can send, `WEB_EMBED` refuses our OAuth bearer with HTTP 400
   (§19), and TVHTML5_SIMPLY does not support auth at all. What is left is a
@@ -1676,3 +1680,369 @@ counted=n reason=account-changed`, `debug-blackhole host= leg=`.
   TV_DOWNGRADED 403, all anonymous clients challenged) and never plays: SABR fallback, and
   not re-walking the ring on each recovery once the wall is established.
 - Buffer v2 alignment flags are global while the buffer value is per profile.
+
+## 31. Speed, stability and smoothness round 3 (2026-09-25/26, Pixel 9, Wi-Fi + LTE)
+
+Results are in STATUS (top section). This is the architecture of each new piece, the traps, the
+lines to grep and the bench harness.
+
+### Rig and method
+- Owner's signed-in Pixel 9 `4A120DLAQ0049N`, Wi-Fi "La Coveta", Movistar LTE over USB adb; timing
+  as in §30 (release, `install -r`, `compile -m speed-profile -f`, one warm-up open). Base `f081fc4`
+  12:07-13:40, r3a/r3b/r3d the same afternoon: cross-column deltas carry link drift.
+- **first frame** = NetPath `first-frame` (decoded under the loading still); **picture visible** =
+  `picture-visible` (READY + texture update, still lifted), what the user sees. Hops start at
+  `tap`/`open +0`; share links at the VIEW intent (`ttff_intent`) or openVideo (`ttff`, pttff basis).
+- Chains need `--fresh` (never reopen a title an earlier run opened): resumes made r3a's hops look
+  +164 ms slower. Autoplay seeks 35-40 s before the end, as in real viewing. Never A/B `stall_ms`.
+
+### Switching videos (`smarttubetv/.../player`, common `playback/controllers`)
+- **Keep codecs:** `Media3PlayerInitializer.keepCodecsAcrossOpens` sets ExoPlayer foreground mode for
+  the player's lifetime (`player-codec keep-across-opens=y`; per open `decoder init ... initMs=` or
+  `decoder reuse ... result=as-is`). `Media3PlayerController.onBackgroundAudio(boolean)` turns it off
+  only for an IDLE player entering background audio (with media loaded, media3 1.10.1 already resets
+  the video renderer the reselection disabled) and back on when returning. `setForegroundMode(false)`
+  blocks up to the 500 ms release timeout, then stops the player with `ExoTimeoutException`, which
+  `onPlayerError` swallows. `codec-keep suspended|resumed|...` not yet seen on a device.
+- **Codec warm-up:** `PlayerInfrastructureWarmup` scans VP9, Opus, AV1, H.264, AAC lists on a worker
+  at app start and stops at `onPlaybackPreparing()` (media3's `MediaCodecUtil.getDecoderInfos` is
+  synchronized). `player-warmup codecs elapsedMs=|stopped warmed=N/5`.
+- **Autoplay-next:** `NextPrefetchPolicy` (20 s wall time x speed before the end; re-armed on
+  play/seek/speed, cancelled on pause/new open; clips < 40 s need min(5 s, half) of real playing;
+  candidate re-read every 2 s in the last 20 s, cap 3) + `NextPrefetchLedger` (one `/player` per
+  target; failure or no answer in 15 s -> one retry after 5 s; answers > 4 min old refetched);
+  repeat-one and live gated out. `next-prefetch video= remainingMs= speed=`, `next-prefetch failed
+  ... retry=`, then `prepare-stash hit`. `Media3NextPreloader` (media bytes) stays off.
+- **Touch-down prefetch, off:** `PressIntentDetector` + `speculativePrefetchFormatInfo`;
+  `SwitchExperiments.touchPrefetchStillMs()` is 0 in release. Each rest-then-scroll would cost an
+  unplayed `/player`: compare `touch-prefetch fire` vs `used` before enabling.
+- **Phase lines (release, bounded per open):** `media-load init +X track= id= h=`, `media-chunk done
+  +X loadMs=`, `ready +X`, `source-build +X queueMs= genMs= parseMs= buildMs= mpd=direct|xml`
+  (`OpenPhaseLog`, `SourceBuildTiming`); related taps log `tap`.
+
+### Resume to the segment start (`ResumeSeekSnap`, `Media3PlayerController`)
+- Only the automatic history resume snaps (`VideoStateController` -> `PlayerEngine
+  .setResumePositionMs`; the common default is exact, so TV/embed are unchanged). Live, `t=`
+  timestamps, scrubs, SponsorBlock and chapter seeks stay exact; 403/transport reloads snap too.
+- The first seek is exact (right segment requested). When the video segment holding the target
+  starts loading (current period; the load event carries the real start from the index), it seeks
+  once more with tolerance 10 s before / 0 after, landing on that segment's first keyframe with no
+  second video request. Only when the start is 0.5-8 s before the target (`skipped reason=near|far`)
+  and no audio request is > 250 ms in flight (`reason=audio-busy`).
+- Any other seek cancels it (`onPositionDiscontinuity`: lock-screen seek, double tap); it expires at
+  READY. `PlayerEngine.getHistoryPositionMs()` reports the original target until playback passes
+  it, so leaving right after a snap keeps the bookmark. Segment starts are 5.34 s apart (median of
+  1,780). `resume-seek target=P armed` -> `snap target=P segmentStart=K` -> `target=P snapped=K
+  earlyMs=N adjusted=y mode=previous-sync`; `cancelled reason=other-seek`, `expired reason=ready`.
+  The snap line also logs `audioChunkStart=<ms> crossesAudioChunk=y|n` (the audio segment index is
+  not reachable outside media3's chunk source; this is the in-flight audio request's start).
+
+### Resume audio: Opus pre-roll skip (`OpusPrerollAudioRenderer`, `OpusPrerollGate`)
+- r3e Pixel, 10 resumes: the slow ones waited on the AUDIO renderer (video ready ~150-220 ms, audio
+  0.66-1.2 s), with and without the snap, audio always `src=cache`. YouTube Opus (itag 251/251-drc,
+  WebM) comes in 10 s segments; after a reset into one, media3 feeds every packet from the segment
+  start through MediaCodec as decode-only (`SampleQueue` drops pre-start samples only for
+  `MimeTypes.allSamplesAreSyncSamples`, and Opus is not one): ~100 ms per second skipped (4.87 s ->
+  487 ms ... 9.76 s -> 982 ms). AAC (140) resumes were fast for that reason. When the packets were
+  already queued at seek time the queue seeked inside its buffer and READY was immediate.
+- `Media3PlayerInitializer.PrerollRenderersFactory` puts `OpusPrerollAudioRenderer` (a stock
+  `MediaCodecAudioRenderer`, `c2.android.opus.decoder` on the Pixel; the app has no libopus) where
+  the stock one was. It overrides `MediaCodecRenderer.shouldSkipDecoderInputBuffer` (default false;
+  a skipped buffer is cleared and counted, never queued): after a reset that flushed the decoder
+  (`sampleStreamIsResetToKeyFrame`), Opus packets older than reset - 80 ms
+  (`OpusUtil.needToDecodeOpusFrame`, the RFC 7845 pre-roll media3 applies only on its bypass path)
+  are dropped; the pre-roll is still decoded and discarded on output. Disarmed by the first queued
+  packet and by any stream change; end of stream never skipped; both times are renderer time.
+- `audio-preroll skipped=N fromMs= toMs= resetMs=` (+ `interrupted=y` when the snap's second reset
+  arrives first). `debug.arc.opus_preroll 0` (debug/benchmark) = stock renderer. Codex sol: no
+  defect. Pixel result: r3f release, 6 resumes: every one logged `audio-preroll skipped=`, audio ready -9..+24 ms from video, picture visible 356-390 ms; debug A/B (2 each) off 1378-1389 / on 414-435 ms; no AudioTrack/sink errors or underruns after 6 resumes + 2 scrubs (`skipped=174`, `458`). `fromMs`/`toMs` print media3's +1,000,000,000 ms renderer offset (cosmetic). Nobody has listened for a click yet.
+
+### API back on HTTP/2 (`MobileMainApplication`, SharedModules `OkHttpManager`, MSC `RetrofitOkHttpHelper`)
+- Regression found 09-26: round 3 added `VideoInfoService.setBotWallStore(...)` early in
+  `MobileMainApplication.onCreate`, above `OkHttpManager.setPreferHttp2(true)`; that call builds the
+  shared client (via `VideoInfoService.instance()` and Retrofit) while the HTTP/1.1 pin (a TV-era
+  `StreamResetException` workaround) is still on, and the later call did nothing. Every InnerTube
+  line from r3d on says `protocol=http/1.1` (base/r3a `h2`).
+- The r3g symptom: `/player` rid=3 on a www.youtube.com HTTP/1.1 connection idle 76 s on Movistar
+  LTE -> `player-ring attempt-timeout client=VISIONOS ms=7000`, `player-http[E] ms=8014
+  SocketTimeoutException` (NAT mapping gone, no FIN/RST; OkHttp's health check passes such a
+  socket and never retries a read timeout after the request was sent). Also likely
+  `api/stats/playback ms=20005` on 09-25.
+- Fix: `setPreferHttp2(true)` in a static initializer of `MobileMainApplication` (runs before
+  providers and `onCreate` in every process); `OkHttpManager.setPreferHttp2` logs `api-client
+  prefer-http2=true IGNORED` if the client already exists. The shared client pings every 10 s;
+  `MediaHttpClient` now sets its own 10 s ping (its builder shares the pool, not the settings).
+- Safety net for HTTP/1.1 only (`StaleApiConnectionGuard`): before `/player` or `/next` on cellular,
+  when a www.youtube.com HTTP/1.1 connection has been idle >= 45 s (Movistar: alive at 55 s, dead
+  at 76 s), evict the pool's idle connections under one lock (`api-pool evict-idle reason=
+  http1-stale idleMs=`). The `www.youtube.com` preconnect now goes through the InnerTube client
+  (`RetrofitHelper.warmUpApiConnection`) so the guard sees it. Dormant on HTTP/2.
+- Lines: `api-client built protocols=[h2, http/1.1] pingMs=10000`; `protocol=h2` on every
+  `api-http`/`player-http` line. Tests: `ApiHttp2OrderTest`, `StaleApiConnectionGuardTest`,
+  `ApiPreconnectGuardTest`, `MediaHttpClientTest`. Two Codex sol passes. Pixel r3h: 12/12 processes `api-client built protocols=[h2, http/1.1]`, 188/188 answers `protocol=h2` (player 47, next 20, api 121), no `IGNORED`/`attempt-timeout`/`SocketTimeoutException`/`evict-idle`; LTE opens after 95-100 s idle 490 / 537 ms (`/player` 164 / 179 ms, `/next` 828 / 844 ms).
+
+### Offline wait (`ErrorFixerController`, `LivenessProbe`)
+- Found by the parked-mini "next" test with Wi-Fi and data off, but general: every open with no
+  network ran the 4 x 1 s reload burst, hit `auto-reload cap hit`, and each timed retry (5 s, 15 s,
+  45 s ..., meant for validated-but-dead tunnels) reset the counter and started another burst, each
+  failing at once with `net=none`.
+- Now a transport failure (UnknownHost/Connect/Cronet `ERR_*`) or the open path's null-result outage
+  with no validated default network (not a download) goes straight to the no-connection state,
+  whose `ConnectivityManager` callback retries once when a validated network appears. Timed retries
+  defer without spending attempts while offline, only if that callback is armed. Parser/token
+  (`Unexpected token`, `PoTokenException`, ...), OOM and server answers (403) keep their own
+  recovery. An episode that began offline registers the callback as disconnected (a network that
+  validated in between counts) and starts the YouTube liveness probe with `start(true)` so its first
+  answer retries (a VPN or a network that never validates would otherwise wait forever); the
+  probe's retries use the normal 5-attempt budget.
+- `recovery-wait-network net=none causes=`, `recovery-auto-retry deferred reason=no-network`,
+  `recovery-network-arm seedDisconnected=y observedOffline=y|n`, `recovery-probe start
+  firstAnswerCounts=y|n`, `recovery-auto-retry trigger=network|probe`. The liveness probe still runs
+  while offline (tiny, fails instantly). Codex sol found 3 defects (VPN hang, validation race,
+  local errors labelled offline), all fixed. Pixel result: PASS on r3f debug: parked Next and a plain open, offline -> `recovery-wait-network`, `observedOffline=y`, `firstAnswerCounts=y`, `deferred reason=no-network`, no `auto-reload cap hit`; online -> exactly one `trigger=network` + `recovery-retry-now` (ff 1046 / 1189 ms); park-hold foreground 8/8.
+
+### Open-path CPU (MSC `youtubeapi`, app `DirectMpd`)
+- `JsonPathTypeAdapter`: reflection once per class; `$.a.b`, `$.a[0].b`, `$.a[*]` read straight from
+  the Gson tree, anything else through JsonPath; it reproduces the library dropping JSON-null
+  members, guarded by a startup self-check (failure -> old path). `CanonicalQueryUrl.kt` +
+  `VideoUrlHolder.kt`: round-trip-stable URLs skip the parser, prints cached (`setParam` clears).
+  `CaptionTrack`: one base URL per caption format instead of ~156 rebuilds.
+- `YouTubeMPDBuilder.writeTo(formatInfo, serializer)`; `DirectMpd` replays those events into media3's
+  unmodified `DashManifestParser`, declining live, OTF, segment lists and attributes XML cannot carry
+  (-> XML text path). Guarded by `JsonPathAdapterEquivalenceTest` (vs a verbatim legacy adapter),
+  `CanonicalQueryUrlTest`, `DirectMpdEquivalenceTest`; opt-in `PlayerOpenCpuBenchTest`.
+
+### Launch and Home
+- SharedModules `Helpers` compiles each regex once; `VideoStateService` restores history in one
+  pass; `LaunchMilestones` starts the BotGuard warm-up after `launch first-frame` (4 s fallback).
+  `SplashPresenter` -> `BrowsePresenter.prefetchBootSection` sends Home's first `/browse`; Home
+  adopts it (`home-prefetch adopted ageMs=`), else it is dropped after 20 s or on account change.
+  `SplashPresenter.prefetchLinkedVideo` does the same for a share link (`splash prefetch video=`).
+- `HomeSectionPacer` (common; hook in MSC `YouTubeContentService` via `BrowseServiceGates.kt`) +
+  `FeedRunway`: page 2 at once (held while Home is paused), later pages when the grid is 16 cards
+  from its end or short (under a screen + 16 cards; an empty page pulls the next), never behind the
+  player; a parked walk ends on list end, section change, refresh or account change. `home-walk wait
+  page=N reason=no-demand`, `home-walk go page=N waitedMs=`.
+- Bottom bar inflated once (89 tab inflations -> 15); `FeedThumbnailPreloader` (next 4 cards, max 8
+  in flight). `FeedSwapWarmup` (`MobileBrowseActivity`): only while the cached snapshot shows and the
+  grid rests at the top, warm the fresh first screen (<= 6 thumbnails, <= 350 ms), then replace the
+  list in one frame, animations off, pinned to the top; pull-to-refresh during it keeps the snapshot.
+  `feed-swap section= warmed=k/n waitMs=`; `launch feed-fresh` logs data arrival, up to 350 ms
+  earlier. Also `launch first-frame|token-warmup start|feed-snapshot|first-thumb source=`.
+- Profile: a release/benchmark task in `smarttubetv/build.gradle` runs profgen on the final dex into
+  `assets/art-profile/baseline.prof` (35,207 methods). Cost: longer install, bigger odex.
+
+### LTE media path (`MediaPathVerdicts`, `MediaPathProber`, `MediaPathRouting`)
+- `cronet-stall`: Cronet had no headers within the startup budget in status 10/11 (connect/TLS) AND
+  OkHttp answered the same request on the same network (any status); other Cronet states keep the
+  in-memory 120 s bypass. `v6-stall`: IPv6 connect/TLS timed out and IPv4 connected -> OkHttp DNS
+  returns A records only; a call whose IPv4 routes all fail retries once unfiltered, and an IPv6
+  success there drops the verdict.
+- Keys: cellular, not roaming, known carrier -> `carrier:<subId>:<servingPlmn>:<simPlmn>` (e.g.
+  `carrier:1:21407:21407`; PLMNs from the subscription's TelephonyManager, no permission). Otherwise
+  the attachment (network id + interface, + subId on cellular), fingerprinted once per network id
+  (`reason=attachment-changed was= now=`). VPN/other transports -> `skipped reason=vpn`; a proxy for
+  googlevideo -> nothing learnt, existing verdict not applied.
+- Lifetime since the last renewal: 2 h while one edge has stalled, 24 h with >= 2; max 4 scopes. A
+  background `generate_204` probe 5 s after an open, due every 60 s while single-edge and every
+  15 min after, alternating RECHECK (the stalled
+  edge over the avoided path: < 2.5 s answer clears, a stall never renews, `reason=known-edge`) and
+  EXPLORE (an edge not known to stall: a stall renews and adds it, `reason=healthy-edge`), bound to
+  the verdict generation (`reason=stale-verdict|newer-evidence`).
+- Prefs `newtube_network` / `media_path_verdicts` (snapshot v3), loaded on the probe thread only.
+  Carrier verdicts survive a reboot within their lifetime; attachment verdicts only the same boot.
+  `MediaHostPreconnect.RouteAdvisor` (MSC) swaps the Cronet warm for an OkHttp `generate_204` on a
+  cronet-stall network. `MediaHttpClient.create` now builds every client from one shared base, so
+  SABR and downloads share pooled connections with media.
+- `StartupDeadlinePolicy`: validated non-captive cellular at 1-64 kbps on an LTE/NR radio, or an
+  unknown radio seen < 10 s with nothing measured, is a placeholder -> `budgetMs=3500 early=y
+  reason=placeholder-downKbps ... rat=4g+`. 8 s stays for unvalidated/captive and 2G/3G.
+- Lines: `media-path restore|verdict on|off|use ... scope= restored=y|n`, `media-path probe role=
+  outcome= applied=`, `media-path warm via=okhttp`, `okhttp-fallback active reason=cronet-stall-...`.
+- **Overnight loss (09-26) and the fix.** A 24 h two-edge carrier verdict learnt 09-25 20:00 was gone
+  at 09:10 (no reboot; nothing captured 20:49-09:10). Ruled out by logs: the explore renewal was
+  saved (`count=2:edges=2` at 20:11 and 20:34, same pid), and a restore made on Wi-Fi does apply
+  on a later LTE network in the same process. Likely a single recheck answer (edges flip:
+  `verdict off ... reason=probe-answered ageMs=237227` on 09-25). Now: with >= 2 edges a clear
+  needs answers from two DIFFERENT edges (`applied=n reason=confirm-pending answered=1/2`, the
+  confirming recheck scheduled 60 s later on an unanswered edge, answered edges persisted in
+  snapshot v4, v3 still loads, reset by any stall or re-learn); rechecks rotate over stalled edges;
+  capacity: expired pruned first, carrier kept over attachment, an older incoming record never
+  evicts a newer one (`overflow:<kind>@<scope>`), a Wi-Fi verdict is declined when only live
+  carriers remain (`reason=full-of-carriers`); a probe result applies only if the network's scope
+  is unchanged (`reason=scope-changed`, roaming flips also drop the cached scope via
+  `MeteredNetworkMonitor`); every removal writes `media_path_last_off` in the same prefs edit;
+  every process logs `media-path restore records= stored=present|none ... all=[...] lastOff=`.
+  Two Codex sol passes; 48 `MediaPathVerdictsTest`. Not yet on the Pixel: step 3 of the check is an
+  overnight wait, then read the first restore line.
+
+### Bot wall and TV_TIZEN (MSC `videoinfo/V2`)
+- `AppClient.TV_TIZEN`: TVHTML5 5.20260707, Tizen UA + device fields, authenticated, real 5-digit
+  signature timestamp (yt-dlp PR #17723). End of the enum, not in `VIDEO_INFO_TYPE_LIST`. Its
+  signature solve (223-646 ms `player-transform`, VISIONOS 5-15 ms) keeps it a fallback.
+- `BotWallBook`, per attachment (max 4). Established by one walk's strong evidence (>= 3 anonymous
+  clients challenged, >= 2 non-web; that walk switches plans) or one non-web challenge on a second
+  video within 10 min (`cause=second-video`, later opens only). Walled + signed in: TV_TIZEN first,
+  VISIONOS probed at 5/10/20/30 min. Walled + signed out: probe rotates VISIONOS -> ANDROID_VR -> WEB
+  at 1/2/4/8/15 min, TV_TIZEN once per wall, zero requests when nothing can serve. Budget 3 requests
+  per video per 3 min incl. recovery reloads (`budget=capped`). Ends on an anonymous success, 15 min
+  without a challenge (+30 min probation), a 60 min cap (signed out) or another network.
+- A TV_TIZEN failure (challenged, reload, SABR-only, media 403) benches it for that video
+  (`scope=video`), a second video within 30 min for the attachment; account change resets.
+  `VideoInfoService.noteBotWallEvidence` puts TV_TIZEN next whenever a signed-in walk gets an
+  anonymous "sign in" answer (bot check or age gate); on the device it had fired only when TV_TIZEN
+  was absent from the rest of the plan. The probe is consumed when sent, not at `plan()`; recovery
+  blame reads a per-video route anchor.
+- `BotWallPrefsStore` (prefs `newtube_player_routes` / `bot_wall`): walls, backoff, rotation,
+  benches; boot-scoped, loaded off the main thread, process-learned state wins.
+- Latent bugs (Codex astra ideas pass): C1 same-position retry cap reset on every `onPlay`
+  (`SamePositionCapTest`); C2 a next-video prefetch rewrote the client a 403 blamed, now the last 8
+  videos' clients are remembered and `ErrorFixerController` re-points first; C3 the bot-check block
+  clears on a network change; C4 the one-slot format-cache fallback is gone, entries are scoped to
+  the network their URLs came from.
+- Lines: `player-ring botwall suspect|established|route|restore|cleared|shortcut` (restore prints
+  `network=null none`: cosmetic), `player-ring account-route next|failed ... scope=`, `bot-check
+  cleared reason=network-change`, `debug-botwall client= mode= realStatus=`.
+
+### Visitor rotation retired
+- `setRotateVisitorOnAnonChallenge(true)` is gone from `MobileMainApplication` (one line restores
+  09-07). `VideoInfoService.rotateAnonymousIdentity` stays dormant; its javadoc says to persist the
+  cooldown first (kept in memory, each cold start rotated again: 7 rotations in ~2 min on 09-25).
+- `VisitorFingerprint.kt`: `visitor=` in `api-http`/`player-http`/`next-http`/`player-context` is now
+  a hash of the decoded visitor id (not comparable with older logs). What would change the decision
+  (astra): in a natural wall, persistent vs fresh visitor seconds apart on one client, with a
+  wait-only control, over repeated episodes.
+
+### Mini-player park (`ui/playback`)
+- `MiniSessionState` (none/docked/parked; 10 min on `elapsedRealtime`; nothing to resume or cast
+  connected/connecting -> old full close), `MiniPlayerBridge`, `ParkedForegroundHold` (max 10 min,
+  survives `restartEngine()` -> `detachPlayerForRestart()`), `MobilePlaybackService`
+  (`onTaskRemoved` ends only a parked session). The handler timer only triggers a re-check, as does
+  `ACTION_SCREEN_ON` while parked. Any playback start un-parks; another video restarts the 10 min;
+  the timeout never ends a playing player; a non-user notification cancel keeps the hold. The video
+  track stays on while parked (dropping it cost a 4.6 s audio stall on resume).
+- `mini park video= pos-ms=`, `mini park-resume reason=play card=y|n video=on|off`, `mini
+  park-rearm`, `mini park-end reason=timeout-timer`, `mini park-check trigger=screen-on`, `mini
+  park-hold kept reason=notification-cancel`, `abort=no-video reason=hidden-session-restored`.
+
+### UI fixes on main
+- `WatchDocumentCache` (common): last `/next` answer per video + playlist + account, < 5 min, not
+  live; dropped on like/dislike/subscribe anywhere (`onUserStateChanged()` counter) and on denial;
+  keyed when the request starts; remote-queue documents copied, never mutated. The
+  `SuggestionsController.onNewVideo` early return now needs the list page alive. `suggest reopen
+  page=new|recreated|same-other-context`, `suggest rebind ageMs= view=y|n`.
+- Minimize with no screen of ours underneath keeps the dark backdrop and fades Home in (160 ms);
+  creating Home at release froze the video mid-drag, so it is created after. Routed-in PiP:
+  `onNewIntent` while paused and not in PiP sets `mRoutedInWhileLeaving`, and PiP entry then
+  self-expands via `SystemPipBridge.restore()` (every 500 ms, max 3): `pip routed-in
+  while-leaving`, `pip restore reason=routed-in-during-pip-entry`.
+
+### Downloads: a file:// thumbnail (09-26)
+- Playing a download, deleting it from the watch page and pressing Download again failed at once
+  (`IllegalArgumentException: Expected URL scheme 'http' or 'https' but was 'file'` in
+  `StreamFetcher.fetchSmall` <- `DownloadJob.fetchThumbnail`): `DownloadsBridge.videoFor` puts the
+  local thumbnail in the card image, `DownloadPicker` passed it on as the thumbnail URL, and the
+  OkHttp request was built outside `fetchSmall`'s guard. Now the picker only passes http(s) card
+  images (else `i.ytimg.com/vi/<id>/hqdefault.jpg`) and the request is built inside the guard
+  (`StreamFetcherTest.aNonHttpThumbnailUrlIsSkippedNotThrown`). Also seen, not fixed: picking the
+  same option twice while the first runs queues a duplicate; a job whose cache-dir parts the system
+  deletes sits at "Finishing..." forever.
+
+### Debug props (`setprop`, clear with `''`)
+| prop | builds | effect |
+|---|---|---|
+| `debug.arc.keep_codec 0` | debug, benchmark | no foreground mode (r3b's A/B used a separate release build) |
+| `debug.arc.codec_warmup off` | debug, benchmark | no codec-list warm-up |
+| `debug.arc.touch_prefetch_ms 60` | debug, benchmark | touch-down `/player` after N ms of still finger |
+| `debug.arc.next_media_preload 1` | debug, benchmark | media3 next-item media preload |
+| `debug.arc.resume_snap 0` | debug, benchmark | resume seeks stay exact |
+| `debug.arc.opus_preroll 0` | debug, benchmark | stock audio renderer (no Opus pre-roll skip) |
+| `debug.arc.home_prefetch 0` / `lazy_home 0` | debug | first `/browse` from Home / eager 7-page walk |
+| `debug.arc.botwall anon\|all\|<CLIENTS>\|reset\|none` | debug | inject LOGIN_REQUIRED (`anon`: requests without the account); `reset` clears wall memory, saved copy, bot-check block |
+| `debug.arc.player_client TV_TIZEN` | debug | force the head client |
+| `debug.arc.blackhole_via\|_host\|_scope` | debug, benchmark | dead googlevideo host (§30) |
+
+With `botwall anon` a signed-in walk has one anonymous hit (VISIONOS -> TV_TIZEN), so
+`anon-challenged` needs `all`.
+
+### What was learned
+- **Keep-codec was not what made r3a's Wi-Fi hops slow; resumed videos were.** The bench had watched
+  those titles earlier, the app resumed mid-video, and an exact seek makes the decoder decode every
+  frame from the previous keyframe (up to ~1.4 s at 1080p60): chunk done -> first frame 382 ms on
+  resumed hops vs 98 ms on fresh ones. With `--fresh`, keep beat nokeep.
+- **media3 only snaps a DASH seek once the segment index is loaded.** The resume fires while the
+  first request (header + index) is in flight; `DefaultDashChunkSource.getAdjustedSeekPositionUs`
+  returns the position unchanged while `segmentIndex == null`, so the player-wide SeekParameters
+  never applied to it. Hence the second, index-time seek.
+- **A slow resume was the audio decoder, not the network or the snap:** Opus is not "all samples
+  are sync samples" in media3, so a reset mid-segment decodes up to 10 s of audio before READY. Check
+  which renderer is last ready (`renderer-ready`) before blaming the link.
+- **An early `instance()` can freeze a global:** a harmless-looking store injection early in
+  `onCreate` built the shared OkHttp client before a later flag, and every InnerTube call silently
+  fell back to HTTP/1.1 for a day of measurements. Check `protocol=` on the API lines of any build
+  whose launch path changed.
+- **Movistar's stall is per edge and per IP family:** on 09-25 evening, IPv6 ping to
+  `rr4---sn-uxax4vopj5xn-cjol` lost 100 % while IPv4 to the same host and IPv6 to a `-cjoe` edge
+  answered in 11-71 ms. The verdict's recheck and explore probes (6 s timeouts) agreed.
+- **The Pixel's cell network id changes on every Wi-Fi <-> LTE switch** (cell:108, 110 ... 123 in
+  one day; stable only within one LTE session): anything keyed by the `NetPath` network id forgets
+  LTE on each Wi-Fi visit. Hence carrier-scoped cellular verdicts.
+- **Debug and release share app data** (same signing key): a verdict or wall learnt under
+  `blackhole_*`/`botwall` in a debug build carries into the release build installed next. Reset
+  (`botwall reset`, toggle the network, let the verdict lapse) before timing.
+- **The install-time ART profile needs `pm.dexopt.install=speed-profile`** (AOSP's default for a
+  no-`.dm` install is `verify`, and then the embedded profile does nothing at install). The Pixel has
+  it (`install-bulk` too): a sideloaded update landed `[status=speed-profile] [reason=install]` in
+  `pm art dump`, with a 12 s install (debug 3.8 s).
+- **A brand-new cell network reports `downKbps=14`**, a placeholder; trusting it set the 8 s budget
+  that made the first LTE open after Wi-Fi 13.2 s.
+- **End of the 09-25 morning wall:** every anonymous client, Web ones with a PO token and a fresh
+  visitor included, was challenged; WEB_EMBED answers error 152-18 on every network (yt-dlp too); TV
+  7.x signed in is SABR-only and its SABR 403s; TV_DOWNGRADED dies on the `+001` timestamp suffix.
+- **Android freezes an idle media process:** without the hold a Quick Settings play hit the frozen
+  process and got it killed; `Handler.postDelayed`/`uptimeMillis` stop in deep sleep. On Android 11+
+  a swiped paused player is only hidden (the app is never told); SystemUI hides it after 10 min.
+- **The link router has its own task** (`IntentRouterActivity`, `taskAffinity ":router"`): starting
+  it leaves a playing player with auto-enter PiP armed, so the system enters PiP first.
+- **Harness incidents on the owner's phone (three).** A heads-up can reach y~650, so a scripted tap there opens
+  WhatsApp through SystemUI and later taps land inside it; BACK at NewTube's task root hands the
+  screen to the previous app. The harness now checks before every tap, swipe or key that NewTube
+  has focus and no `StatusBar`/`NotificationShade` input window reaches below y=180 (`dumpsys
+  input`), waits otherwise, never sends BACK at our root or HOME (launcher by intent), collapses an
+  idle shade, checks `mCallState` before each open, and only dumps/screenshots with NewTube in front.
+  Third, 20:13 (r3e): an incoming call arrived mid-run; the guard checked focus and banners only,
+  so once the call banner left it tapped the mini X and turned **mobile data and Wi-Fi off for ~30 s
+  during the call** (the call held; it ended normally at 20:32). Every input, intent and network
+  toggle now waits while `mCallState != 0`; `cmd media_session dispatch` is ignored during a call
+  anyway (telecom holds the global priority session).
+
+### Bench harness (session-local)
+`$SP/round3/bench/` (`$SP` = that session's scratchpad: it does not outlive the session, copy it out
+first). `pbench.py --suite launch|chain|autoplay|mini|jank|deeplink|botcheck|compare --label X`
+writes `runs/<label>/<suite>-<net>-<stamp>.jsonl` + raw logcat; `runall.sh <label> [suites]` runs
+them human-paced; `psum.py runs/base runs/<label>` gives median/p90 and deltas; `headline.py`,
+`anatomy.py` (phases), `launch_anatomy.py`, `hoptable.py` (per hop: chunk done -> first frame, first
+frame -> READY, and whether the title was opened before, i.e. a resume); `benchlib.py` holds the
+device helpers and the input guard. r3d checks: `r3dlte.py`, `resume.py`; wall: `botwall_pixel.py`.
+```bash
+px install -r 'C:\Temp\newtube\<dir>\<apk>'; px shell cmd package compile -m speed-profile -f io.github.aleixrodriala.arc
+./runall.sh candA; python3 pbench.py --suite chain --label candA --hops 16 --fresh     # Wi-Fi
+px shell svc wifi disable; ./runall.sh candA; px shell svc wifi enable                 # LTE
+python3 psum.py runs/base runs/candA
+```
+
+### Still open
+- Carrier-scoped verdict restore was seen on the device in r3e (learnt with the blackhole on
+  cell:102, restored on cell:104 in a new process: `restored=y`, no `transport-failover`, 2.7 s vs
+  9.8 s), but probe-driven CLEARING was not: the real Movistar stall kept every probe stalled.
+- The early first `/browse` got slower (1018 -> 1262 ms Wi-Fi, 1082 -> 1623 ms LTE) when sent at
+  +130 ms beside `accounts_list`, before `preconnected www.youtube.com`: likely a second connection
+  or contention. Also: ~0.5-1 s PiP shrink on a second share link (router out of its own task); a
+  light/dark switch re-opens the video on main (fixed on the UX branch).
+- Mini: a killed-and-restored full player still shows the old empty 00:00 page; ordinary paused
+  background sessions can still be frozen (the hold could cover every pause).
+- Review leftover: `DirectMpd` redoes the work as XML for an emoji caption name (accepted: rare, and
+  the fallback is correct). §26 should point here for the rotation decision. (Astra's
+  `nextVisitorCookie` finding is fixed: only `VISITOR_INFO1_LIVE` is carried over when a response
+  omits it; the server's other cookies always replace the stored ones.)
+- SABR fallback under a real wall; TV_TIZEN as signed-in head; WEB_EMBED in the walk.

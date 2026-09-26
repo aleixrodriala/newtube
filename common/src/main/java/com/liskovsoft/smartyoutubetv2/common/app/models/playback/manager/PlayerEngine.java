@@ -27,6 +27,19 @@ public interface PlayerEngine extends PlayerConstants {
     void openMerged(InputStream dashManifest, String hlsPlaylistUrl);
     long getPositionMs();
     void setPositionMs(long positionMs);
+    /**
+     * NEWTUBE(resume-seek): the automatic history ("continue watching") position of a new open.
+     * An engine may start at the keyframe at or before it instead of decoding up to the exact
+     * frame (the mobile media3 engine does). Every other seek - user scrubs, SponsorBlock, chapters,
+     * link timestamps - goes through {@link #setPositionMs} and stays exact. Default: exact.
+     */
+    default void setResumePositionMs(long positionMs) { setPositionMs(positionMs); }
+    /**
+     * NEWTUBE(resume-seek): the position to store as history/resume state. Equal to
+     * {@link #getPositionMs()} except right after a snapped resume: until playback has passed the
+     * original resume target again, the target itself (leaving at once must not lose progress).
+     */
+    default long getHistoryPositionMs() { return getPositionMs(); }
     long getDurationMs();
     void setPlayWhenReady(boolean play);
     boolean getPlayWhenReady();

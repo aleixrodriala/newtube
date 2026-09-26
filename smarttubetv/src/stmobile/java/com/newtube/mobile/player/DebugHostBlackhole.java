@@ -38,6 +38,12 @@ import java.util.Map;
  * <p>Scope "episode" re-arms whenever the host property VALUE changes (alternate {@code any} and
  * {@code googlevideo}); the default keeps the automatic recovery reload clean so the whole
  * dead-host episode can be read in one pass. Release builds never construct this class.</p>
+ *
+ * <p>NEWTUBE(media-path): {@code via cronet} + {@code scope always} is a Cronet-only TLS stall on
+ * any network (the Movistar symptom): the first open learns the persisted {@code cronet-stall}
+ * verdict for the current network, and the verdict's background Cronet re-probe hits the same
+ * tarpit ({@link #probeAuthority}) until the host property is cleared - then the next due probe
+ * answers and drops the verdict.</p>
  */
 @UnstableApi
 final class DebugHostBlackhole implements DataSource {
@@ -114,6 +120,28 @@ final class DebugHostBlackhole implements DataSource {
         }
         Uri tarpit = dataSpec.uri.buildUpon().encodedAuthority("127.0.0.1:" + port).build();
         return dataSpec.withUri(tarpit);
+    }
+
+    /**
+     * NEWTUBE(media-path): where a background re-probe of {@code host} must go so it sees the same
+     * dead host the legs see - the tarpit's {@code 127.0.0.1:port}, or null for the real host.
+     * Only with scope {@code always}: an "episode" blackhole is gone by the time a probe runs.
+     */
+    @Nullable
+    static String probeAuthority(String host, boolean cronetLeg) {
+        String configured = DebugMediaShaper.prop(PROP_HOST);
+        if (configured.isEmpty() || "none".equalsIgnoreCase(configured)
+                || !"always".equalsIgnoreCase(DebugMediaShaper.prop(PROP_SCOPE))
+                || (!cronetLeg && "cronet".equalsIgnoreCase(DebugMediaShaper.prop(PROP_VIA)))
+                || !host.endsWith(".googlevideo.com")
+                || !("any".equalsIgnoreCase(configured) || host.contains(configured))) {
+            return null;
+        }
+        int port;
+        synchronized (DebugHostBlackhole.class) {
+            port = tarpitPort();
+        }
+        return port > 0 ? "127.0.0.1:" + port : null;
     }
 
     /** Lazily binds the loopback tarpit; its accept thread holds connections open, silent. */

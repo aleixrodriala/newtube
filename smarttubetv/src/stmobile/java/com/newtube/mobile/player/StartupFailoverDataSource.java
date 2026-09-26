@@ -84,12 +84,15 @@ final class StartupFailoverDataSource implements DataSource {
                 @Nullable IOException cause);
 
         /**
-         * The primary transport got no headers for a request the fallback then served: the only
-         * evidence against the primary transport itself (as opposed to the host). Never called
-         * when the fallback was silent too - that is a dead host. {@code decision.networkKey} is
-         * the network the primary stalled on; a fault is only pinned if nothing changed since.
+         * The primary transport got no headers for a request the fallback then got an HTTP answer
+         * for (served it, or any status): the only evidence against the primary transport itself
+         * (as opposed to the host). Never called when the fallback was silent too - that is a dead
+         * host. {@code decision.networkKey} is the network the primary stalled on; a fault is only
+         * pinned if nothing changed since. {@code primaryFailure} is how the primary gave up (for
+         * Cronet it carries the phase it was stuck in).
          */
-        void onPrimaryTransportFault(DataSpec dataSpec, StartupDeadlinePolicy.Decision decision);
+        void onPrimaryTransportFault(DataSpec dataSpec, StartupDeadlinePolicy.Decision decision,
+                IOException primaryFailure);
     }
 
     /** The fallback leg always gets at least this long, even if the primary overran its budget. */
@@ -191,12 +194,13 @@ final class StartupFailoverDataSource implements DataSource {
                 throw startupTimeout(dataSpec, waitedMs, e, false);
             }
             mUseFallback = true;
-            return openFallbackLeg(leg, dataSpec, earlyDecision, startMs, waitedMs);
+            return openFallbackLeg(leg, dataSpec, earlyDecision, startMs, waitedMs, e);
         }
     }
 
     private long openFallbackLeg(AbortableLeg leg, DataSpec dataSpec,
-            StartupDeadlinePolicy.Decision decision, long startMs, long waitedMs) throws IOException {
+            StartupDeadlinePolicy.Decision decision, long startMs, long waitedMs,
+            IOException primaryFailure) throws IOException {
         DataSource source = withListeners(leg.source());
         mCurrent = source;
         long legBudgetMs = Math.max(MIN_FALLBACK_LEG_MS, mLongBudgetMs - waitedMs);
@@ -219,6 +223,14 @@ final class StartupFailoverDataSource implements DataSource {
             mCallbacks.onFallbackResult(dataSpec, decision, false, expired, legMs, totalMs, e);
             // An aborted leg cancels every call it makes from now on; a retry needs a fresh one.
             mStickyFallback = null;
+            if (!noResponse && responseCode(e) > 0) {
+                // NEWTUBE(media-path): the fallback got an HTTP answer where the primary got no
+                // headers at all - the same evidence against the primary transport as a 200.
+                // Measured (Pixel 9, LTE): a signed-in head's 403 reached OkHttp after Cronet's
+                // TLS stall, no fault was recorded, and the recovery reload paid the stall again.
+                // The error itself still surfaces unchanged (a 403 is fatal for the source).
+                mCallbacks.onPrimaryTransportFault(dataSpec, decision, primaryFailure);
+            }
             throw noResponse ? startupTimeout(dataSpec, totalMs, e, true) : e;
         }
         if (!state.compareAndSet(LEG_PENDING, LEG_DONE)) {
@@ -238,7 +250,7 @@ final class StartupFailoverDataSource implements DataSource {
         // its timing describes that host/path (e.g. an IPv6 handshake stall), not the link.
         mCallbacks.onFallbackResult(dataSpec, decision, true, false, legMs,
                 mClock.getAsLong() - startMs, null);
-        mCallbacks.onPrimaryTransportFault(dataSpec, decision);
+        mCallbacks.onPrimaryTransportFault(dataSpec, decision, primaryFailure);
         return length;
     }
 
@@ -355,6 +367,20 @@ final class StartupFailoverDataSource implements DataSource {
             }
         }
         return timeout;
+    }
+
+    /** The HTTP status somewhere in {@code error}'s chain, or -1 when no response arrived. */
+    static int responseCode(@Nullable Throwable error) {
+        Throwable cause = error;
+        for (int depth = 0; cause != null && depth < 12; cause = cause.getCause(), depth++) {
+            if (cause instanceof HttpDataSource.InvalidResponseCodeException) {
+                return ((HttpDataSource.InvalidResponseCodeException) cause).responseCode;
+            }
+            if (cause.getCause() == cause) {
+                break;
+            }
+        }
+        return -1;
     }
 
     /**

@@ -11,6 +11,9 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.AppPrefs;
 import com.liskovsoft.smartyoutubetv2.common.prefs.AppPrefs.ProfileChangeListener;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 
 public class VideoStateService implements ProfileChangeListener {
@@ -23,6 +26,7 @@ public class VideoStateService implements ProfileChangeListener {
     // As one video might correspond to multiple Video objects.
     //private final Map<String, State> mStates = Helpers.createLRUMap(MAX_PERSISTENT_STATE_SIZE);
     private final List<State> mStates;
+    private final int mMaxStates;
     private final AppPrefs mPrefs;
     private static final String DELIM = "&si;";
     private boolean mIsHistoryBroken;
@@ -38,8 +42,8 @@ public class VideoStateService implements ProfileChangeListener {
     private VideoStateService(Context context) {
         mPrefs = AppPrefs.instance(context);
         mPrefs.addListener(this);
-        mStates = Helpers.createSafeLRUList(
-                Utils.isEnoughRam() ? HIGH_RAM_STATE_MAX_SIZE : LOW_RAM_STATE_MAX_SIZE);
+        mMaxStates = Utils.isEnoughRam() ? HIGH_RAM_STATE_MAX_SIZE : LOW_RAM_STATE_MAX_SIZE;
+        mStates = Helpers.createSafeLRUList(mMaxStates);
         restoreState();
     }
 
@@ -214,14 +218,62 @@ public class VideoStateService implements ProfileChangeListener {
         if (data != null) {
             String[] split = Helpers.split(data, DELIM);
 
+            List<State> parsed = new ArrayList<>(split.length);
+
             for (String spec : split) {
                 State state = State.from(spec);
 
                 if (state != null) {
-                    mStates.add(state);
+                    parsed.add(state);
                 }
             }
+
+            // NEWTUBE(perf): this restore runs on the main thread inside SplashActivity.onCreate on
+            // every cold start. Adding the ~300 persisted states one by one through the LRU list is
+            // quadratic twice over: each add() scans the list with State.equals (two Video.hashCode
+            // computations per comparison) and then copies the whole CopyOnWriteArrayList. Collapse
+            // the history in one pass instead and append it with a single copy - same contents,
+            // same order, same size cap (restoreState always starts from an empty list).
+            mStates.addAll(collapseLru(parsed, mMaxStates));
         }
+    }
+
+    /**
+     * The list that add()-ing {@code states} one by one into an empty
+     * {@link Helpers#createSafeLRUList}{@code (maxEntries)} would produce, computed in O(n):
+     * a repeated state replaces its earlier occurrence at the end, and the oldest entry is
+     * dropped whenever the list already holds more than {@code maxEntries} before an add.
+     */
+    static List<State> collapseLru(List<State> states, int maxEntries) {
+        LinkedHashMap<Object, State> byIdentity = new LinkedHashMap<>();
+
+        for (State state : states) {
+            Object key = identityOf(state);
+            byIdentity.remove(key);
+
+            if (byIdentity.size() > maxEntries) {
+                Iterator<Object> eldest = byIdentity.keySet().iterator();
+                eldest.next();
+                eldest.remove();
+            }
+
+            byIdentity.put(key, state);
+        }
+
+        return new ArrayList<>(byIdentity.values());
+    }
+
+    private static final Object NULL_VIDEO_KEY = new Object();
+
+    /** {@link State#equals}: Helpers.equals on the videos, i.e. Video.equals = same hashCode and same isMix. */
+    private static Object identityOf(State state) {
+        Video video = state.video;
+
+        if (video == null) {
+            return NULL_VIDEO_KEY;
+        }
+
+        return ((long) video.hashCode() << 1) | (video.isMix() ? 1 : 0);
     }
 
     private String getStateData() {
