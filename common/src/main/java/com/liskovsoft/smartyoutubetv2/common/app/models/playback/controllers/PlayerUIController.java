@@ -34,6 +34,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.VideoMe
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.AutoFrameRateSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.SubtitleTrack;
+import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.ScreensaverManager;
@@ -708,17 +709,24 @@ public class PlayerUIController extends BasePlayerController {
             return;
         }
         Observable<Void> call = callable.call(video.mediaItem != null ? video.mediaItem : video.toMediaItem());
-        mRatingWriter.write(video.videoId, before, after, call, this::rollBackRating);
+        PlaybackView from = getPlayer();
+        mRatingWriter.write(video.videoId, before, after, call, (videoId, rating) -> rollBackRating(from, videoId, rating));
     }
 
-    private void rollBackRating(String videoId, int rating) {
+    /**
+     * Only on the live screen the tap came from, still showing that video. getPlayer() keeps
+     * returning a destroyed watch page, and its "not saved" would then land over whatever screen
+     * is in front now. A newer watch page loads the real rating with its own metadata.
+     */
+    void rollBackRating(PlaybackView from, String videoId, int rating) {
+        PlaybackView player = getPlayer();
         Video video = getVideo();
-        if (getPlayer() == null || video == null || !videoId.equals(video.videoId)) {
-            return; // another video by now: nothing on screen to correct
+        if (player == null || player != from || !isPlayerAlive() || video == null || !videoId.equals(video.videoId)) {
+            return;
         }
-        getPlayer().setButtonState(R.id.action_thumbs_up, rating == RatingWriter.LIKE ? PlayerUI.BUTTON_ON : PlayerUI.BUTTON_OFF);
-        getPlayer().setButtonState(R.id.action_thumbs_down, rating == RatingWriter.DISLIKE ? PlayerUI.BUTTON_ON : PlayerUI.BUTTON_OFF);
-        getPlayer().onRatingNotSaved();
+        player.setButtonState(R.id.action_thumbs_up, rating == RatingWriter.LIKE ? PlayerUI.BUTTON_ON : PlayerUI.BUTTON_OFF);
+        player.setButtonState(R.id.action_thumbs_down, rating == RatingWriter.DISLIKE ? PlayerUI.BUTTON_ON : PlayerUI.BUTTON_OFF);
+        player.onRatingNotSaved();
     }
 
     private void callMediaItemObservable(MediaItemObservable callable) {
