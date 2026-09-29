@@ -231,6 +231,15 @@ public class MobileMainApplication extends MainApplication {
         // pre-roll time. Rollback in debug and benchmark builds: setprop debug.arc.hls_vod 0.
         com.liskovsoft.youtubeapi.videoinfo.models.VodDelivery.setHlsEnabled(true);
 
+        // KIDS CHANNEL MEMORY (mobile-only): a channel one of whose videos VISIONOS refused and
+        // TV_TIZEN served (made for kids: issue #5) is remembered for the process, and its next
+        // video opened from a card or the next-video slot asks TV_TIZEN first: one /player
+        // instead of two, ~0.25 s of first frame on the Pixel 9. A benched TV_TIZEN, a recovery
+        // walk or a bot wall ignores it; any answer but a serve from TV_TIZEN drops the channel
+        // (NetPath kids-channel lines). Rollback in debug and benchmark builds: setprop
+        // debug.arc.kids_channel 0.
+        VideoInfoService.setKidsChannelHintEnabled(true);
+
         // SIGNATURE-SOLVER RUNTIME (mobile-only): the solver disposed its V8 runtime after EVERY
         // solve, so each open rebuilt the heap and re-evaluated the solver lib on the critical path
         // -- and the existing async warmup was undone by the very first video. Keep it alive and
@@ -346,6 +355,15 @@ public class MobileMainApplication extends MainApplication {
             if ("0".equals(getDebugSystemProperty("debug.arc.player_js_gate"))) {
                 VideoInfoService.setPlayerJsGateEnabled(false);
                 android.util.Log.w("NetPath", "player-js gate disabled (debug)");
+            }
+
+            // KIDS CHANNEL ROLLBACK: "0" turns the kids channel memory off: nothing is remembered
+            // and every open walks the lane's order as before (see
+            // VideoInfoService.setKidsChannelHintEnabled). On, the second video of a kids channel
+            // logs kids-channel hint and asks one /player.
+            if ("0".equals(getDebugSystemProperty("debug.arc.kids_channel"))) {
+                VideoInfoService.setKidsChannelHintEnabled(false);
+                android.util.Log.w("NetPath", "kids channel memory disabled (debug)");
             }
 
             // PLAYER-POT PLAYGROUND: "1" attests ANDROID_VR's /player request. Opt-IN, because

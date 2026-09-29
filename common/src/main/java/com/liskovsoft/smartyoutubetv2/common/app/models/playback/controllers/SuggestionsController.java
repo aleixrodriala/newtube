@@ -606,6 +606,9 @@ public class SuggestionsController extends BasePlayerController {
         }
 
         video.sync(mediaItemMetadata);
+        // NEWTUBE(kids-channel): /next names the channel of a video opened by its id alone (a
+        // share link), for a kids-channel proof whose /player answers named none.
+        MediaServiceManager.noteChannel(video);
         // NEWTUBE(ryd-cache): sync(metadata) just replaced the counts with /next's estimate; put
         // this video's cached RYD counts back BEFORE painting, so a live refresh neither flickers
         // nor re-asks the third-party host.

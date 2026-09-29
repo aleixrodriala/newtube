@@ -479,6 +479,8 @@ public class VideoLoaderController extends BasePlayerController {
             return;
         }
 
+        // NEWTUBE(kids-channel): the channel the card or the next-video slot carries.
+        MediaServiceManager.noteChannel(video);
         MediaItemService mediaItemManager = getMediaItemService();
         mFormatInfoAction = mediaItemManager.getFormatInfoObserve(video.videoId)
                 .subscribe(this::processFormatInfo,
