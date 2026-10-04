@@ -159,6 +159,7 @@ public class MobileChannelActivity extends MobileActivity
     private void setupGrid() {
         mLayoutManager = new GridLayoutManager(this, computeSpanCount());
         mAdapter = new VideoCardAdapter(this::onVideoClicked, this::onVideoLongClicked);
+        mAdapter.setFeedLayout(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.instance(this).getMobileFeedLayout());
         mLoadMoreFooter = new LoadMoreFailureAdapter(this::retryLoadMore);
 
         // Channel rows (rare here) span the whole grid width in multi-column layouts, and so does
@@ -498,7 +499,7 @@ public class MobileChannelActivity extends MobileActivity
 
         if (mLayoutManager != null) {
             mLayoutManager.setSpanCount(
-                    com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(newConfig));
+                    com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(this, newConfig));
         }
     }
 

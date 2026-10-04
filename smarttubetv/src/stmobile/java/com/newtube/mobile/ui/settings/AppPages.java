@@ -177,6 +177,14 @@ final class AppPages {
                 }));
 
         // On the phone these change what the feed holds, not its layout (both work): kept as choices.
+        rows.add(SettingsRow.<Integer>choice(context.getString(R.string.mobile_settings_feed_layout))
+                .option(context.getString(R.string.mobile_settings_feed_layout_list), MainUIData.MOBILE_FEED_LAYOUT_LIST)
+                .option(context.getString(R.string.mobile_settings_feed_layout_grid), MainUIData.MOBILE_FEED_LAYOUT_GRID)
+                .option(context.getString(R.string.mobile_settings_feed_layout_compact), MainUIData.MOBILE_FEED_LAYOUT_COMPACT)
+                .bind(mainUIData::getMobileFeedLayout, layout -> {
+                    mainUIData.setMobileFeedLayout(layout);
+                    BrowsePresenter.instance(context).updatePlaylistsStyle();
+                }).needsRestart());
         rows.add(SettingsRow.<Boolean>choice(context.getString(R.string.mobile_settings_pinned_channels))
                 .option(context.getString(R.string.mobile_settings_pinned_channels_all), true)
                 .option(context.getString(R.string.mobile_settings_pinned_channels_uploads), false)

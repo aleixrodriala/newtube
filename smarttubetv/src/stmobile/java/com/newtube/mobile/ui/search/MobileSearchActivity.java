@@ -173,6 +173,7 @@ public class MobileSearchActivity extends MobileActivity
         // NEWTUBE(mini-inset): the last row can scroll clear of the docked mini-player card.
         com.newtube.mobile.ui.playback.MiniPlayerListInset.attach(findViewById(R.id.mobile_mini_player), mGrid);
         mSkeleton = findViewById(R.id.mobile_feed_skeleton);
+        com.newtube.mobile.ui.common.MobileGrid.setupFeedSkeleton(this, (android.view.ViewGroup) mSkeleton);
         installImeInsets((View) mGrid.getParent());
         mSearchMessage = findViewById(R.id.mobile_search_message);
         mLoadState = new SearchLoadState(mSearchMessage, () -> {
@@ -245,6 +246,7 @@ public class MobileSearchActivity extends MobileActivity
     private void setupGrid() {
         mLayoutManager = new GridLayoutManager(this, computeSpanCount());
         mAdapter = new VideoCardAdapter(this::onVideoClicked, this::onVideoLongClicked);
+        mAdapter.setFeedLayout(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.instance(this).getMobileFeedLayout());
 
         // Channel results render as full-width rows even when landscape/tablet uses 2+ columns.
         mLayoutManager.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
@@ -662,7 +664,7 @@ public class MobileSearchActivity extends MobileActivity
 
         if (mLayoutManager != null) {
             mLayoutManager.setSpanCount(
-                    com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(newConfig));
+                    com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(this, newConfig));
         }
     }
 

@@ -283,6 +283,7 @@ public class MobileBrowseActivity extends MobileActivity
         mContentGrid = findViewById(R.id.mobile_content_grid);
         mContentSwipe = findViewById(R.id.mobile_content_swipe);
         mFeedSkeleton = findViewById(R.id.mobile_feed_skeleton);
+        com.newtube.mobile.ui.common.MobileGrid.setupFeedSkeleton(this, (android.view.ViewGroup) mFeedSkeleton);
         setupSwipeRefresh();
         mBottomNav = findViewById(R.id.mobile_bottom_nav);
         mYouPanel = findViewById(R.id.mobile_you_panel);
@@ -738,6 +739,7 @@ public class MobileBrowseActivity extends MobileActivity
     private void setupContentGrid() {
         mLayoutManager = new GridLayoutManager(this, computeSpanCount());
         mAdapter = new VideoCardAdapter(this::onVideoClicked, this::onVideoLongClicked);
+        mAdapter.setFeedLayout(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.instance(this).getMobileFeedLayout());
 
         // Channel rows (rare on Home, possible in some sections) span the whole grid width
         // when landscape/tablet layouts use 2+ columns.
@@ -1902,7 +1904,7 @@ public class MobileBrowseActivity extends MobileActivity
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
 
-        updateGridSpanCount(com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(newConfig));
+        updateGridSpanCount(com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(this, newConfig));
     }
 
     // NEWTUBE(ui-mode): a recreated Browse (any config change the manifest doesn't absorb, or

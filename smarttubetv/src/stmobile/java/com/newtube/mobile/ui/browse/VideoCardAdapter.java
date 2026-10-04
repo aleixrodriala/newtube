@@ -37,6 +37,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
     private static final int VIEW_TYPE_VIDEO = 0;
     /** Channel result row (round avatar + name + subs) — e.g. channels in search results. */
     private static final int VIEW_TYPE_CHANNEL = 1;
+    private static final int VIEW_TYPE_COMPACT_VIDEO = 2;
 
     public interface OnVideoClickListener {
         void onVideoClick(Video video);
@@ -53,9 +54,14 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
 
     private final OnVideoClickListener mClickListener;
     private final OnVideoLongClickListener mLongClickListener;
+    private int mFeedLayout = 0;
 
     public VideoCardAdapter(OnVideoClickListener clickListener) {
         this(clickListener, null);
+    }
+
+    public void setFeedLayout(int layout) {
+        mFeedLayout = layout;
     }
 
     public VideoCardAdapter(OnVideoClickListener clickListener, OnVideoLongClickListener longClickListener) {
@@ -86,7 +92,10 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
         // (videoId/playlistId null + a VL... channelId — the standard shape of the user
         // Playlists section): those must stay thumbnail cards, not round-avatar channel rows.
         Video item = getItem(position);
-        return item.isChannel() && !item.isPlaylistAsChannel() ? VIEW_TYPE_CHANNEL : VIEW_TYPE_VIDEO;
+        if (item.isChannel() && !item.isPlaylistAsChannel()) {
+            return VIEW_TYPE_CHANNEL;
+        }
+        return mFeedLayout == com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.MOBILE_FEED_LAYOUT_COMPACT ? VIEW_TYPE_COMPACT_VIDEO : VIEW_TYPE_VIDEO;
     }
 
     /** Full-span rows (channel results) for the grid's SpanSizeLookup in multi-column layouts. */
@@ -98,7 +107,9 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
     @Override
     public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         LayoutInflater inflater = LayoutInflater.from(parent.getContext());
-        if (viewType == VIEW_TYPE_CHANNEL) {
+        if (viewType == VIEW_TYPE_COMPACT_VIDEO) {
+            return new CompactViewHolder(inflater.inflate(R.layout.item_mobile_related_video, parent, false), mClickListener);
+        } else if (viewType == VIEW_TYPE_CHANNEL) {
             return new ChannelViewHolder(inflater.inflate(R.layout.item_mobile_channel_card, parent, false), mClickListener);
         }
         return new VideoViewHolder(inflater.inflate(R.layout.item_video_card, parent, false), mClickListener);
@@ -108,6 +119,8 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
     public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
         if (holder instanceof ChannelViewHolder) {
             ((ChannelViewHolder) holder).bind(getItem(position), mLongClickListener);
+        } else if (holder instanceof CompactViewHolder) {
+            ((CompactViewHolder) holder).bind(getItem(position));
         } else {
             ((VideoViewHolder) holder).bind(getItem(position), mLongClickListener);
         }
@@ -120,6 +133,8 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             ((VideoViewHolder) holder).unbind();
         } else if (holder instanceof ChannelViewHolder) {
             ((ChannelViewHolder) holder).unbind();
+        } else if (holder instanceof CompactViewHolder) {
+            ((CompactViewHolder) holder).unbind();
         }
     }
 
@@ -158,6 +173,8 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             @NonNull java.util.List<Object> payloads) {
         if (!payloads.isEmpty() && holder instanceof VideoViewHolder) {
             ((VideoViewHolder) holder).bindPartial(getItem(position));
+        } else if (!payloads.isEmpty() && holder instanceof CompactViewHolder) {
+            ((CompactViewHolder) holder).bind(getItem(position));
         } else {
             super.onBindViewHolder(holder, position, payloads);
         }
@@ -466,6 +483,103 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
         void unbind() {
             mVideo = null;
             Glide.with(itemView.getContext().getApplicationContext()).clear(mAvatar);
+        }
+    }
+    static class CompactViewHolder extends RecyclerView.ViewHolder {
+        private final ImageView mThumbnail;
+        private final TextView mBadge;
+        private final ProgressBar mWatchProgress;
+        private final TextView mTitle;
+        private final TextView mSubtitle;
+        private Video mVideo;
+
+        CompactViewHolder(@NonNull View itemView, OnVideoClickListener clickListener) {
+            super(itemView);
+            mThumbnail = itemView.findViewById(R.id.related_thumbnail);
+            mBadge = itemView.findViewById(R.id.related_badge);
+            mWatchProgress = itemView.findViewById(R.id.related_watch_progress);
+            mTitle = itemView.findViewById(R.id.related_title);
+            mSubtitle = itemView.findViewById(R.id.related_subtitle);
+
+            itemView.setOnClickListener(v -> {
+                if (mVideo != null && clickListener != null) {
+                    clickListener.onVideoClick(mVideo);
+                }
+            });
+        }
+
+        void bind(Video video) {
+            mVideo = video;
+            Context context = itemView.getContext();
+            mTitle.setText(video.getTitle());
+
+            CharSequence subtitle = video.getSecondTitle();
+            if (subtitle == null || subtitle.length() == 0) {
+                subtitle = video.getAuthor();
+            }
+            if (subtitle != null && subtitle.length() > 0) {
+                mSubtitle.setText(subtitle);
+                mSubtitle.setVisibility(View.VISIBLE);
+            } else {
+                mSubtitle.setVisibility(View.GONE);
+            }
+
+            bindBadge(video);
+            bindProgress(video);
+            bindThumbnail(context, video);
+        }
+
+        private void bindBadge(Video video) {
+            String badgeText;
+            if (video.isLive) {
+                badgeText = itemView.getContext().getString(R.string.badge_live);
+            } else {
+                badgeText = video.badge;
+            }
+
+            if (badgeText == null || badgeText.isEmpty()) {
+                mBadge.setVisibility(View.GONE);
+            } else {
+                mBadge.setText(badgeText);
+                mBadge.setVisibility(View.VISIBLE);
+            }
+        }
+
+        private void bindProgress(Video video) {
+            int progress = video.percentWatched > 0 && video.percentWatched < 1 ? 1 : Math.round(video.percentWatched);
+            if (progress > 0 && progress <= 100) {
+                mWatchProgress.setProgress(progress);
+                mWatchProgress.setVisibility(View.VISIBLE);
+            } else {
+                mWatchProgress.setVisibility(View.GONE);
+            }
+        }
+
+        private void bindThumbnail(Context context, Video video) {
+            int thumbQuality = com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.instance(context).getThumbQuality();
+            String thumbnailUrl = com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover.updateThumbnail(video, thumbQuality);
+            thumbnailUrl = com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover.fitThumbnail(thumbnailUrl, context.getResources().getDimensionPixelSize(R.dimen.mobile_watch_related_thumb_width));
+
+            com.bumptech.glide.RequestBuilder<android.graphics.drawable.Drawable> request = Glide.with(context)
+                    .load(thumbnailUrl)
+                    .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.ALL)
+                    .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+                    .centerCrop()
+                    .transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.withCrossFade(150));
+
+            String fallbackUrl = video.getCardImageUrl();
+            if (fallbackUrl != null && !fallbackUrl.equals(thumbnailUrl)) {
+                request = request.error(Glide.with(context)
+                        .load(fallbackUrl)
+                        .format(com.bumptech.glide.load.DecodeFormat.PREFER_RGB_565)
+                        .centerCrop());
+            }
+            request.into(mThumbnail);
+        }
+
+        void unbind() {
+            mVideo = null;
+            Glide.with(itemView.getContext().getApplicationContext()).clear(mThumbnail);
         }
     }
 }

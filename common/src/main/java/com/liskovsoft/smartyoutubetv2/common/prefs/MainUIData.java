@@ -29,6 +29,9 @@ public class MainUIData extends DataChangeBase implements ProfileChangeListener 
     public static final int CHANNEL_SORTING_NAME2 = 4;
     public static final int PLAYLISTS_STYLE_GRID = 0;
     public static final int PLAYLISTS_STYLE_ROWS = 1;
+    public static final int MOBILE_FEED_LAYOUT_LIST = 0;
+    public static final int MOBILE_FEED_LAYOUT_GRID = 1;
+    public static final int MOBILE_FEED_LAYOUT_COMPACT = 2;
     public static final long MENU_ITEM_RECENT_PLAYLIST = 1;
     public static final long MENU_ITEM_ADD_TO_QUEUE = 1 << 1;
     public static final long MENU_ITEM_PIN_TO_SIDEBAR = 1 << 2;
@@ -110,6 +113,7 @@ public class MainUIData extends DataChangeBase implements ProfileChangeListener 
     private int mColorSchemeIndex;
     private int mChannelCategorySorting;
     private int mPlaylistsStyle;
+    private int mMobileFeedLayout;
     private boolean mIsUploadsOldLookEnabled;
     private boolean mIsUploadsAutoLoadEnabled;
     private float mCardTextScrollSpeed;
@@ -235,6 +239,15 @@ public class MainUIData extends DataChangeBase implements ProfileChangeListener 
 
     public void setPlaylistsStyle(int type) {
         mPlaylistsStyle = type;
+        persistState();
+    }
+
+    public int getMobileFeedLayout() {
+        return mMobileFeedLayout;
+    }
+
+    public void setMobileFeedLayout(int type) {
+        mMobileFeedLayout = type;
         persistState();
     }
 
@@ -492,6 +505,7 @@ public class MainUIData extends DataChangeBase implements ProfileChangeListener 
         mCardPreviewType = Helpers.parseInt(split, 21, CARD_PREVIEW_DISABLED);
         mIsUnlocalizedTitlesEnabled = Helpers.parseBoolean(split, 22, false);
         mUiTweaks = Helpers.parseLong(split, 23, UI_TWEAK_DEFAULT);
+        mMobileFeedLayout = Helpers.parseInt(split, 24, MOBILE_FEED_LAYOUT_LIST);
 
         int idx = -1;
         for (Long menuItem : MENU_ITEM_DEFAULT_ORDER) {
@@ -539,7 +553,7 @@ public class MainUIData extends DataChangeBase implements ProfileChangeListener 
                 mIsUploadsOldLookEnabled, mIsUploadsAutoLoadEnabled, mCardTextScrollSpeed, mMenuItems, mTopButtons,
                 null, mThumbQuality, mIsCardMultilineSubtitleEnabled, Helpers.mergeList(mMenuItemsOrdered),
                 mIsChannelsFilterEnabled, mIsChannelSearchBarEnabled, mIsPinnedChannelRowsEnabled, mCardPreviewType,
-                mIsUnlocalizedTitlesEnabled, mUiTweaks));
+                mIsUnlocalizedTitlesEnabled, mUiTweaks, mMobileFeedLayout));
     }
 
     public static class ColorScheme {
