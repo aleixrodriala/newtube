@@ -290,4 +290,8 @@
     <!-- About -->
     <string name="mobile_settings_version">Version</string>
     <string name="mobile_settings_update_notify_summary">Tells you when a new version is out</string>
+    <string name="mobile_settings_feed_layout">Feed layout</string>
+    <string name="mobile_settings_feed_layout_list">List</string>
+    <string name="mobile_settings_feed_layout_grid">Grid</string>
+    <string name="mobile_settings_feed_layout_compact">Compact</string>
 </resources>

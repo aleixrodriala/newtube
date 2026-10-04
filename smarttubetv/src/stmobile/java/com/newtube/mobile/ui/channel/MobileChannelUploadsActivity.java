@@ -210,6 +210,7 @@ public class MobileChannelUploadsActivity extends MobileActivity
         int spanCount = computeSpanCount();
         mLayoutManager = new GridLayoutManager(this, spanCount);
         mAdapter = new VideoCardAdapter(this::onVideoClicked, this::onVideoLongClicked);
+        mAdapter.setFeedLayout(com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData.instance(this).getMobileFeedLayout());
         mHeaderAdapter = new PlaylistHeaderAdapter(new PlaylistHeaderAdapter.Callbacks() {
             @Override
             public void onPlayAll() {
@@ -563,7 +564,7 @@ public class MobileChannelUploadsActivity extends MobileActivity
 
         if (mLayoutManager != null) {
             mLayoutManager.setSpanCount(
-                    com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(newConfig));
+                    com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(this, newConfig));
         }
     }
 
