@@ -23,6 +23,7 @@ import android.graphics.drawable.Icon;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Rational;
 import android.util.SparseIntArray;
@@ -89,6 +90,7 @@ import com.liskovsoft.mediaserviceinterfaces.data.PlaylistInfo;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.QueuePlaybackMode;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.SleepTimer;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerConstants;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.service.VideoStateService;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.service.VideoStateService.State;
@@ -131,6 +133,7 @@ import com.newtube.mobile.ui.common.FrameGate;
 import com.newtube.mobile.ui.common.Haptics;
 import com.newtube.mobile.ui.common.MagneticDrag;
 import com.newtube.mobile.ui.common.MobileActivity;
+import com.newtube.mobile.ui.common.MobileSnackbar;
 import com.newtube.mobile.ui.common.Motion;
 import com.newtube.mobile.ui.common.ThemeMode;
 import com.newtube.mobile.ui.common.ThemeRefresh;
@@ -514,6 +517,9 @@ public class MobilePlaybackActivity extends MobileActivity
         mPresenter.onViewInitialized();
 
         createPlayerObjects();
+
+        SleepTimer.setPlayer(this);
+        SleepTimer.setListener(this::onSleepTimerTriggered);
 
         registerPipReceiver();
 
@@ -1672,6 +1678,9 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     protected void onDestroy() {
+        SleepTimer.setPlayer(null);
+        SleepTimer.setListener(null);
+        SleepTimer.cancel();
         DownloadRegistry.instance(this).removeListener(mDownloadsListener);
         cancelAutoHide();
         mOrientationHandBack.disarm();
@@ -3931,6 +3940,9 @@ public class MobilePlaybackActivity extends MobileActivity
         // Speed: the native preset sheet; the exhaustive TV dialog nests behind its "More speeds".
         addMenuRow(content, sheet, R.drawable.ic_player_speed, R.string.mobile_player_speed,
                 currentSpeedLabel(), true, this::showSpeedSheet);
+        // Sleep timer, like YouTube: preset durations or pause at the end of the video.
+        addMenuRow(content, sheet, R.drawable.ic_player_sleep_timer, R.string.mobile_player_sleep_timer,
+                currentSleepTimerLabel(), true, this::showSleepTimerSheet);
         if (Helpers.isPictureInPictureSupported(this)) {
             addMenuRow(content, sheet, R.drawable.ic_player_pip, R.string.mobile_player_pip,
                     null, false, this::enterPipFromMenu);
@@ -7297,6 +7309,66 @@ public class MobilePlaybackActivity extends MobileActivity
 
         dialog.setOnDismissListener(d -> armAutoHide());
         showPlayerSheet(dialog);
+    }
+
+    private String currentSleepTimerLabel() {
+        int option = SleepTimer.getSelectedOption();
+        if (option == SleepTimer.OPTION_END_OF_VIDEO) {
+            return getString(R.string.mobile_sleep_timer_end_of_video);
+        }
+        if (option > 0) {
+            long remainingMs = SleepTimer.getTargetRealtimeMs() - SystemClock.elapsedRealtime();
+            if (remainingMs > 0) {
+                int minutes = (int) Math.max(1, Math.ceil(remainingMs / 60000.0));
+                return getResources().getQuantityString(R.plurals.mobile_settings_minutes, minutes, minutes);
+            }
+        }
+        return getString(R.string.mobile_menu_off);
+    }
+
+    private void showSleepTimerSheet() {
+        cancelAutoHide();
+
+        BottomSheetDialog dialog = new BottomSheetDialog(this);
+        View content = getLayoutInflater().inflate(R.layout.sheet_mobile_sleep_timer, null);
+        dialog.setContentView(content);
+
+        LinearLayout list = content.findViewById(R.id.sleep_timer_sheet_list);
+        int currentOption = SleepTimer.getSelectedOption();
+
+        addQualityRow(list, getString(R.string.mobile_menu_off), currentOption == SleepTimer.OPTION_OFF, () -> {
+            SleepTimer.cancel();
+            dialog.dismiss();
+            MobileSnackbar.show(this, R.string.mobile_sleep_timer_turned_off);
+        });
+
+        for (int minutes : SleepTimer.PRESETS_MINUTES) {
+            String label = getResources().getQuantityString(R.plurals.mobile_settings_minutes, minutes, minutes);
+            addQualityRow(list, label, currentOption == minutes, () -> {
+                SleepTimer.arm(minutes);
+                dialog.dismiss();
+                MobileSnackbar.show(this, getString(R.string.mobile_sleep_timer_set, label), null, null);
+            });
+        }
+
+        addQualityRow(list, getString(R.string.mobile_sleep_timer_end_of_video), currentOption == SleepTimer.OPTION_END_OF_VIDEO, () -> {
+            SleepTimer.armEndOfVideo();
+            dialog.dismiss();
+            MobileSnackbar.show(this, R.string.mobile_sleep_timer_set_end_of_video);
+        });
+
+        dialog.setOnDismissListener(d -> armAutoHide());
+        showPlayerSheet(dialog);
+    }
+
+    private void onSleepTimerTriggered() {
+        if (mExoPlayerController != null) {
+            mExoPlayerController.setPlayWhenReady(false);
+        }
+        if (mPresenter != null) {
+            mPresenter.onPauseClicked();
+        }
+        MobileSnackbar.show(this, R.string.mobile_sleep_timer_paused);
     }
 
     /**

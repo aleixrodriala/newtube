@@ -19,6 +19,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.BasePlayerController;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.QueuePlaybackMode;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.SleepTimer;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerConstants;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
@@ -279,6 +280,12 @@ public class VideoLoaderController extends BasePlayerController {
         stopPlayedClock();
         Utils.removeCallbacks(mNextPrefetchDue);
         if (getPlayer() == null) {
+            return;
+        }
+
+        if (SleepTimer.isEndOfVideoArmed()) {
+            SleepTimer.onEndOfVideoReached();
+            stopPlayback();
             return;
         }
 

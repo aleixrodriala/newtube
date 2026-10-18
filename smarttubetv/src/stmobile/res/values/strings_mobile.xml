@@ -468,4 +468,11 @@
     <!-- Experimental SABR playback (was strings_sabr.xml) -->
     <string name="sabr_vod_option">Prefer SABR even when links work (experimental; next VOD)</string>
     <string name="sabr_vod_stopped">Experimental SABR playback stopped. Tap play to retry, or disable SABR in Settings.</string>
+    <!-- NEWTUBE(sleep-timer): Player gear menu sleep timer (issues #47, #77). -->
+    <string name="mobile_player_sleep_timer">Sleep timer</string>
+    <string name="mobile_sleep_timer_end_of_video">End of video</string>
+    <string name="mobile_sleep_timer_set">Sleep timer set for %1$s</string>
+    <string name="mobile_sleep_timer_set_end_of_video">Sleep timer set for end of video</string>
+    <string name="mobile_sleep_timer_turned_off">Sleep timer turned off</string>
+    <string name="mobile_sleep_timer_paused">Sleep timer paused playback</string>
 </resources>
