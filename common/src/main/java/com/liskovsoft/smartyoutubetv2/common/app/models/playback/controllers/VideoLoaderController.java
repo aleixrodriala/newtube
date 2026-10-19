@@ -797,6 +797,11 @@ public class VideoLoaderController extends BasePlayerController {
         return RxHelper.isAnyActionRunning(mFormatInfoAction);
     }
 
+    public void suppressPendingRecovery() {
+        mPreMediaRetry.clear();
+        disposeActions();
+    }
+
     private void disposeActions() {
         MediaServiceManager.instance().disposeActions();
         RxHelper.disposeActions(mFormatInfoAction);
@@ -1013,7 +1018,7 @@ public class VideoLoaderController extends BasePlayerController {
      * ({@link QueuePlaybackMode} - the playlist page's Shuffle button no longer flips the app-wide
      * setting), and then the two per-video specials that outrank both.
      */
-    private int getPlaybackMode() {
+    protected int getPlaybackMode() {
         Video video = getVideo();
         int playbackMode = QueuePlaybackMode.apply(video, getPlayerData().getPlaybackMode());
 

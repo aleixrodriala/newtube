@@ -1442,6 +1442,7 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     protected void onResume() {
         super.onResume();
+        SleepTimer.checkOverdue();
 
         PlayerTransitionBridge.LaunchSnapshot launch = PlayerTransitionBridge.take();
 
@@ -1680,7 +1681,9 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onDestroy() {
         SleepTimer.setPlayer(null);
         SleepTimer.setListener(null);
-        SleepTimer.cancel();
+        if (isFinishing()) {
+            SleepTimer.cancel();
+        }
         DownloadRegistry.instance(this).removeListener(mDownloadsListener);
         cancelAutoHide();
         mOrientationHandBack.disarm();
@@ -7312,6 +7315,7 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     private String currentSleepTimerLabel() {
+        SleepTimer.checkOverdue();
         int option = SleepTimer.getSelectedOption();
         if (option == SleepTimer.OPTION_END_OF_VIDEO) {
             return getString(R.string.mobile_sleep_timer_end_of_video);
@@ -7321,6 +7325,8 @@ public class MobilePlaybackActivity extends MobileActivity
             if (remainingMs > 0) {
                 int minutes = (int) Math.max(1, Math.ceil(remainingMs / 60000.0));
                 return getResources().getQuantityString(R.plurals.mobile_settings_minutes, minutes, minutes);
+            } else {
+                SleepTimer.checkOverdue();
             }
         }
         return getString(R.string.mobile_menu_off);
@@ -7328,6 +7334,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private void showSleepTimerSheet() {
         cancelAutoHide();
+        SleepTimer.checkOverdue();
 
         BottomSheetDialog dialog = new BottomSheetDialog(this);
         View content = getLayoutInflater().inflate(R.layout.sheet_mobile_sleep_timer, null);
@@ -7366,8 +7373,9 @@ public class MobilePlaybackActivity extends MobileActivity
             mExoPlayerController.setPlayWhenReady(false);
         }
         if (mPresenter != null) {
-            mPresenter.onPauseClicked();
+            mPresenter.suppressPendingRecovery();
         }
+        updatePlayPauseIcon();
         MobileSnackbar.show(this, R.string.mobile_sleep_timer_paused);
     }
 

@@ -32,17 +32,33 @@ public final class SleepTimer {
     private static final Handler sHandler = new Handler(Looper.getMainLooper());
     private static PlayerManager sPlayer;
     private static Listener sListener;
+    private static boolean sPendingTrigger = false;
 
-    private static final Runnable sRunnable = () -> {
+    private static final Runnable sRunnable = SleepTimer::onTimerTick;
+
+    private static void onTimerTick() {
         if (sSelectedOption > 0) {
-            trigger();
+            long remainingMs = sTargetRealtimeMs - SystemClock.elapsedRealtime();
+            if (remainingMs <= 0) {
+                trigger();
+            } else {
+                sHandler.postDelayed(sRunnable, remainingMs);
+            }
         }
-    };
+    }
 
     private SleepTimer() {}
 
     public static void setPlayer(@Nullable PlayerManager player) {
         sPlayer = player;
+        if (player != null) {
+            if (sPendingTrigger) {
+                sPendingTrigger = false;
+                trigger();
+            } else {
+                checkOverdue();
+            }
+        }
     }
 
     public static void setListener(@Nullable Listener listener) {
@@ -65,6 +81,12 @@ public final class SleepTimer {
         return sSelectedOption == OPTION_END_OF_VIDEO;
     }
 
+    public static void checkOverdue() {
+        if (sSelectedOption > 0 && sTargetRealtimeMs > 0 && SystemClock.elapsedRealtime() >= sTargetRealtimeMs) {
+            trigger();
+        }
+    }
+
     public static void arm(int minutes) {
         cancel();
         sSelectedOption = minutes;
@@ -82,6 +104,7 @@ public final class SleepTimer {
     public static void cancel() {
         sSelectedOption = OPTION_OFF;
         sTargetRealtimeMs = 0;
+        sPendingTrigger = false;
         sHandler.removeCallbacks(sRunnable);
     }
 
@@ -95,6 +118,8 @@ public final class SleepTimer {
         cancel();
         if (sPlayer != null) {
             sPlayer.setPlayWhenReady(false);
+        } else {
+            sPendingTrigger = true;
         }
         if (sListener != null) {
             sListener.onSleepTimerTriggered();
