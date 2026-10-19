@@ -248,6 +248,17 @@ public class PlaybackPresenter extends BasePresenter<PlaybackView> implements Pl
         return null;
     }
 
+    public void suppressPendingRecovery() {
+        VideoLoaderController loader = getController(VideoLoaderController.class);
+        if (loader != null) {
+            loader.suppressPendingRecovery();
+        }
+        ErrorFixerController fixer = getController(ErrorFixerController.class);
+        if (fixer != null) {
+            fixer.suppressPendingRecovery();
+        }
+    }
+
     // Core events
 
     @Override

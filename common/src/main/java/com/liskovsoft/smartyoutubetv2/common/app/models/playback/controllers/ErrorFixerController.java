@@ -1290,6 +1290,10 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         }
     }
 
+    public void suppressPendingRecovery() {
+        disarmAutoRetry();
+    }
+
     private void disarmAutoRetry() {
         if (mLivenessProbe != null) {
             mLivenessProbe.stop();
