@@ -5,6 +5,22 @@
   <string name="header_subscriptions">Suscripciones</string>
   <string name="header_history">Historial</string>
   <string name="header_downloads">Descargas</string>
+  <string name="header_watch_later">Ver más tarde</string>
+  <string name="remove_video_from_watch_later">Quitar de Ver más tarde</string>
+  <string name="saved_to_watch_later">Guardado en Ver más tarde</string>
+  <string name="removed_from_watch_later">Quitado de Ver más tarde</string>
+  <!-- NEWTUBE(playlists): listas guardadas en el teléfono sin cuenta. -->
+  <plurals name="local_playlist_videos">
+    <item quantity="one">%1$d vídeo</item>
+    <item quantity="many">%1$d vídeos</item>
+    <item quantity="other">%1$d vídeos</item>
+  </plurals>
+  <string name="local_playlist_play_all">Reproducir todo</string>
+  <string name="local_playlist_shuffle">Aleatorio</string>
+  <string name="local_playlist_delete">Eliminar lista</string>
+  <string name="local_playlist_delete_confirm">¿Eliminar %1$s?</string>
+  <string name="local_playlist_deleted">%1$s eliminada</string>
+  <string name="saved_to_playlist_fmt">Guardado en %1$s</string>
   <string name="header_music">Música</string>
   <string name="header_news">Noticias</string>
   <string name="header_gaming">Videojuegos</string>

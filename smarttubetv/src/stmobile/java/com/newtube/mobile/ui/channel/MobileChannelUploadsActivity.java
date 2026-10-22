@@ -22,6 +22,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.QueuePlaybackMode;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.ChannelUploadsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelUploadsView;
+import com.liskovsoft.smartyoutubetv2.common.misc.LocalPlaylists;
 import com.liskovsoft.smartyoutubetv2.common.utils.LoadFailure;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.browse.VideoCardAdapter;
@@ -83,6 +84,8 @@ public class MobileChannelUploadsActivity extends MobileActivity
 
     /** Playlist header row (absent for plain channel uploads) - see {@link PlaylistHeaderAdapter}. */
     private PlaylistHeaderAdapter mHeaderAdapter;
+    /** NEWTUBE(playlists): onResume after the first one, when a phone playlist is read again. */
+    private boolean mResumedOnce;
     /** "Couldn't load more" row after the cards when a next page failed. */
     private LoadMoreFailureAdapter mLoadMoreFooter;
     private SwipeRefreshLayout mSwipe;
@@ -306,9 +309,20 @@ public class MobileChannelUploadsActivity extends MobileActivity
     }
 
     private void onVideoClicked(Video video) {
+        // NEWTUBE(playlists): in a phone playlist, a tap plays the list on from that video.
+        if (isLocalPlaylist() && video != null && video.hasVideo()) {
+            LocalPlaylists.play(this, mVideos, video, false);
+            return;
+        }
         if (mPresenter != null) {
             mPresenter.onVideoItemClicked(video);
         }
+    }
+
+    /** NEWTUBE(playlists): this screen shows a playlist kept on the phone (LocalPlaylists). */
+    private boolean isLocalPlaylist() {
+        Video opener = mPresenter != null ? mPresenter.getChannel() : null;
+        return opener != null && LocalPlaylists.isLocalId(opener.getPlaylistId());
     }
 
     private boolean onVideoLongClicked(Video video) {
@@ -322,6 +336,10 @@ public class MobileChannelUploadsActivity extends MobileActivity
 
     /** Start from the first playable item, carrying this destination's playlist context. */
     private void playAll() {
+        if (isLocalPlaylist()) {
+            LocalPlaylists.play(this, mVideos, null, false);
+            return;
+        }
         Video first = findFirstPlayableVideo();
 
         if (first != null) {
@@ -376,6 +394,10 @@ public class MobileChannelUploadsActivity extends MobileActivity
      * opens in the same breath and takes this screen with it.</p>
      */
     private void shuffle() {
+        if (isLocalPlaylist()) {
+            LocalPlaylists.play(this, mVideos, null, true);
+            return;
+        }
         Video random = findRandomPlayableVideo();
 
         if (random == null) {
@@ -492,7 +514,12 @@ public class MobileChannelUploadsActivity extends MobileActivity
 
         if (mPresenter != null) {
             mPresenter.onViewResumed();
+            // NEWTUBE(playlists): a phone playlist may have changed from another screen meanwhile.
+            if (isLocalPlaylist() && mResumedOnce) {
+                mPresenter.reload(false);
+            }
         }
+        mResumedOnce = true;
         // Last-resumed host wins: a video opened from this list minimizes back onto it.
         MiniPlayerBridge.registerMiniHost(this);
         if (mMiniPlayer != null) {

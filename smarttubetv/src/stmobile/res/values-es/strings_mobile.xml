@@ -365,6 +365,31 @@
     <string name="mobile_download_file_missing">El archivo descargado ya no está en este dispositivo</string>
     <string name="mobile_download_pill_downloaded">Descargado</string>
     <string name="mobile_downloads_empty">Los vídeos que descargues aparecerán aquí.\nUsa Descargar en el menú de un vídeo o en la página de reproducción.</string>
+    <string name="mobile_watch_later_empty">Los vídeos que guardes para más tarde aparecerán aquí.\nUsa Guardar en Ver más tarde en el menú de un vídeo, o Guardar en la página de reproducción.</string>
+    <!-- NEWTUBE(playlists): Listas sin sesión, y la oferta de copiarlas a la cuenta. -->
+    <string name="mobile_playlists_empty">Las listas que crees aparecerán aquí.\nUsa Guardar en el menú de un vídeo y luego Nueva lista.</string>
+    <string name="mobile_copy_offer_title">¿Copiar a tu cuenta de YouTube?</string>
+    <string name="mobile_copy_offer_body">Guardaste %1$s en este teléfono sin iniciar sesión. ¿Copiarlos a tu cuenta? Se quedan en el teléfono igualmente.</string>
+    <string name="mobile_copy_offer_both">%1$s y %2$s</string>
+    <plurals name="mobile_copy_offer_playlists">
+        <item quantity="one">%1$d lista</item>
+        <item quantity="many">%1$d listas</item>
+        <item quantity="other">%1$d listas</item>
+    </plurals>
+    <plurals name="mobile_copy_offer_videos">
+        <item quantity="one">%1$d vídeo nuevo</item>
+        <item quantity="many">%1$d vídeos nuevos</item>
+        <item quantity="other">%1$d vídeos nuevos</item>
+    </plurals>
+    <string name="mobile_copy_offer_copy">Copiar</string>
+    <string name="mobile_copy_offer_keep">Dejar en el teléfono</string>
+    <string name="mobile_copy_working">Copiando a tu cuenta…</string>
+    <string name="mobile_copy_done">Copiado a tu cuenta</string>
+    <plurals name="mobile_copy_done_failed">
+        <item quantity="one">Copiado, pero YouTube no aceptó %1$d vídeo</item>
+        <item quantity="many">Copiado, pero YouTube no aceptó %1$d vídeos</item>
+        <item quantity="other">Copiado, pero YouTube no aceptó %1$d vídeos</item>
+    </plurals>
     <string name="mobile_download_badge_queued">En cola</string>
     <string name="mobile_download_badge_downloading">Descargando</string>
     <string name="mobile_download_badge_failed">Error</string>

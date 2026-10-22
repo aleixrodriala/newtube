@@ -51,8 +51,10 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.YTSignInPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.AccountSettingsPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
+import com.liskovsoft.smartyoutubetv2.common.utils.LocalPlaylistSheet;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import com.liskovsoft.smartyoutubetv2.common.misc.LocalWatchLater;
 import com.liskovsoft.smartyoutubetv2.common.misc.VideoDownloads;
 import com.newtube.mobile.downloads.DownloadItem;
 import com.newtube.mobile.downloads.DownloadMenu;
@@ -1036,6 +1038,7 @@ public class MobileBrowseActivity extends MobileActivity
      */
     private static boolean isPersonalSection(int sectionId) {
         switch (sectionId) {
+            case LocalWatchLater.SECTION_ID:
             case MediaGroup.TYPE_USER_PLAYLISTS:
             case MediaGroup.TYPE_MY_VIDEOS:
             case MediaGroup.TYPE_CHANNEL_UPLOADS:
@@ -1297,7 +1300,7 @@ public class MobileBrowseActivity extends MobileActivity
         // Falls back to the persisted snapshot on the process's first paint of this section,
         // so even a cold start shows cards instead of the skeleton (display-only until the
         // refetch replaces it — see FeedCache class doc).
-        List<Video> cached = sectionId == VideoDownloads.SECTION_ID ? null : FeedCache.getOrRestore(sectionId);
+        List<Video> cached = isLocalSection(sectionId) ? null : FeedCache.getOrRestore(sectionId);
         // NEWTUBE(motion): last session's cards wait behind the skeleton (FeedCache
         // .isFromLastSession) - only a failed first load shows them (showError).
         mLastSessionFallback = null;
@@ -1525,7 +1528,7 @@ public class MobileBrowseActivity extends MobileActivity
     private boolean mRunwayCheckPosted;
     private final Runnable mRunwayCheck = () -> {
         mRunwayCheckPosted = false;
-        if (isDestroyed() || mPresenter == null || mYouShowing || isDownloadsSectionShowing()) {
+        if (isDestroyed() || mPresenter == null || mYouShowing || isLocalSectionShowing()) {
             return;
         }
         // Before the new list is laid out this is the old layout's last card (or NO_POSITION = -1
@@ -1631,6 +1634,24 @@ public class MobileBrowseActivity extends MobileActivity
     }
 
     /**
+     * NEWTUBE(watch-later): a section listed from the phone itself (Downloads, the signed-out Watch
+     * later): nothing to page, no skeleton while it loads, and no snapshot in FeedCache.
+     */
+    private static boolean isLocalSection(int sectionId) {
+        return sectionId == VideoDownloads.SECTION_ID || sectionId == LocalWatchLater.SECTION_ID
+                // NEWTUBE(playlists): signed out, Playlists lists the phone's own.
+                || (sectionId == MediaGroup.TYPE_USER_PLAYLISTS && LocalPlaylistSheet.applies());
+    }
+
+    /** NEWTUBE(playlists): a sign-in finished while this screen is in front. */
+    private final MediaServiceManager.AccountChangeListener mCopyOfferListener =
+            account -> runOnUiThread(() -> LocalCopyOffer.maybeShow(this));
+
+    private boolean isLocalSectionShowing() {
+        return isLocalSection(mCurrentSectionId) && !mYouShowing;
+    }
+
+    /**
      * Registry change while the Downloads grid is on screen. Progress on the cards already
      * shown is an in-place sync (payloaded partial rebind, no thumbnail reload, no blink); a
      * download appearing or leaving the list needs the presenter to rebuild the grid.
@@ -1668,7 +1689,9 @@ public class MobileBrowseActivity extends MobileActivity
         mErrorContainer.setVisibility(View.VISIBLE);
         mErrorIcon.setVisibility(View.VISIBLE);
         mErrorMessage.setText(mCurrentSectionId == MediaGroup.TYPE_SUBSCRIPTIONS
-                ? R.string.mobile_empty_subscriptions : R.string.mobile_empty_generic);
+                ? R.string.mobile_empty_subscriptions
+                : mCurrentSectionId == LocalWatchLater.SECTION_ID
+                ? R.string.mobile_watch_later_empty : R.string.mobile_empty_generic);
         mErrorAction.setVisibility(View.GONE);
         mErrorAction.setTag(null);
     }
@@ -1679,7 +1702,10 @@ public class MobileBrowseActivity extends MobileActivity
         mContentGrid.setVisibility(View.GONE);
         mErrorContainer.setVisibility(View.VISIBLE);
         mErrorIcon.setVisibility(View.VISIBLE);
-        mErrorMessage.setText(R.string.mobile_downloads_empty);
+        mErrorMessage.setText(mCurrentSectionId == LocalWatchLater.SECTION_ID
+                ? R.string.mobile_watch_later_empty
+                : mCurrentSectionId == MediaGroup.TYPE_USER_PLAYLISTS
+                ? R.string.mobile_playlists_empty : R.string.mobile_downloads_empty);
         mErrorAction.setVisibility(View.GONE);
         mErrorAction.setTag(null);
     }
@@ -1854,6 +1880,9 @@ public class MobileBrowseActivity extends MobileActivity
         }
 
         updateAccountRow();
+        // NEWTUBE(playlists): just signed in with things saved on the phone: offer to copy them.
+        MediaServiceManager.instance().addAccountListener(mCopyOfferListener);
+        LocalCopyOffer.maybeShow(this);
         getWindow().getDecorView().postDelayed(mUpdateCheckIfDue, UPDATE_CHECK_DELAY_MS);
         // Cheap re-sync; listener callbacks already cover changes while resumed.
         updateCastIconTint();
@@ -1934,6 +1963,7 @@ public class MobileBrowseActivity extends MobileActivity
     @Override
     protected void onPause() {
         super.onPause();
+        MediaServiceManager.instance().removeAccountListener(mCopyOfferListener);
 
         if (mPresenter != null) {
             mPresenter.onViewPaused();
@@ -2246,7 +2276,7 @@ public class MobileBrowseActivity extends MobileActivity
             submitFeed(staleSwap);
             checkFeedRunway();
 
-            if (isDownloadsSectionShowing()) {
+            if (isLocalSectionShowing()) {
                 // Local cards carry their file and registry entry - not something a persisted
                 // snapshot can restore, so the section never goes through FeedCache.
                 if (mCurrentVideos.isEmpty()) {
@@ -2562,7 +2592,7 @@ public class MobileBrowseActivity extends MobileActivity
      * takes the pull indicator's place until the fresh cards arrive.
      */
     private void showReloadSkeleton() {
-        if (!mProgressShowing || !mCurrentVideos.isEmpty() || isDownloadsSectionShowing()
+        if (!mProgressShowing || !mCurrentVideos.isEmpty() || isLocalSectionShowing()
                 || mErrorContainer.getVisibility() == View.VISIBLE) {
             return;
         }

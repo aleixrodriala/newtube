@@ -54,6 +54,11 @@ public final class Video {
     public String videoId;
     public String playlistId;
     public String remotePlaylistId;
+    /**
+     * NEWTUBE(playlists): the phone playlist this card is listed in (LocalPlaylists), so its menu
+     * can offer "Remove from"; null elsewhere. Not persisted: it describes where the card is shown.
+     */
+    public transient String localPlaylistId;
     public int playlistIndex = -1;
     public String playlistParams;
     public String reloadPageKey;

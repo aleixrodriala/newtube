@@ -64,6 +64,8 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
+import com.liskovsoft.smartyoutubetv2.common.misc.LocalPlaylists;
+import com.liskovsoft.smartyoutubetv2.common.misc.LocalWatchLater;
 import com.liskovsoft.smartyoutubetv2.tv.BuildConfig;
 import com.liskovsoft.mediaserviceinterfaces.LiveChatService;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemMetadata;
@@ -119,9 +121,11 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
 import com.liskovsoft.smartyoutubetv2.common.utils.AppDialogUtil;
 import com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover;
+import com.liskovsoft.smartyoutubetv2.common.utils.LocalPlaylistSheet;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.liskovsoft.smartyoutubetv2.common.misc.VideoDownloads;
+import com.liskovsoft.youtubeapi.service.YouTubeSignInService;
 import com.newtube.mobile.downloads.DownloadItem;
 import com.newtube.mobile.downloads.DownloadMenu;
 import com.newtube.mobile.downloads.DownloadOption;
@@ -1046,9 +1050,12 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchSubscribe.setOnClickListener(v -> onSubscribeTapped());
         mWatchShare.setOnClickListener(v -> shareCurrentVideo());
         // Save opens the same add/remove-from-playlist sheet as gear -> More -> Save to playlist.
+        // NEWTUBE(playlists): signed out, Save opens the phone's Save sheet.
         mWatchSave.setOnClickListener(v -> {
-            if (!WatchActionFeedback.blockIfSignedOut(this, R.string.msg_sign_in_to_save)) {
+            if (YouTubeSignInService.instance().isSigned()) {
                 openPlayerOption(R.id.action_playlist_add, false);
+            } else {
+                openLocalSaveSheet();
             }
         });
         // Download: the quality picker, or the download's own menu once it is on the device.
@@ -7739,6 +7746,34 @@ public class MobilePlaybackActivity extends MobileActivity
      * additionally resets the header, scrolls back to the top and kicks off a metadata load for the
      * bits not stored on the Video (channel avatar, clean view-count / date line).
      */
+    /**
+     * NEWTUBE(watch-later): signed out, the Save pill says whether this video is saved on the phone
+     * (Watch later or a phone playlist); signed in, the shared controller sets it from the
+     * account's playlists.
+     */
+    /** Saved on the phone (signed-out use): the state the Save pill shows while signed out. */
+    private boolean isSavedLocally(String videoId) {
+        return LocalWatchLater.instance(this).contains(videoId)
+                || LocalPlaylists.instance(this).containsAnywhere(videoId);
+    }
+
+    private void updateLocalSaveState() {
+        if (YouTubeSignInService.instance().isSigned() || mWatchVideo == null) {
+            return;
+        }
+        updateButtonVisual(R.id.action_playlist_add, isSavedLocally(mWatchVideo.videoId) ? BUTTON_ON : BUTTON_OFF);
+    }
+
+    /**
+     * NEWTUBE(playlists): signed out, Save opens the phone's Save sheet (Watch later and the phone's
+     * playlists); the pill reads Saved again when it closes.
+     */
+    private void openLocalSaveSheet() {
+        if (LocalWatchLater.canSave(mWatchVideo)) {
+            LocalPlaylistSheet.show(this, mWatchVideo, null, () -> runOnUiThread(this::updateLocalSaveState));
+        }
+    }
+
     private void bindWatchVideo(Video item) {
         if (item == null || mWatchTitle == null) {
             return;
@@ -7772,6 +7807,7 @@ public class MobilePlaybackActivity extends MobileActivity
             mWatchTitle.setText(item.getTitleFull());
         }
         updateDownloadPill();
+        updateLocalSaveState();
         // Channel name has the same bare-reload-Video blanking problem as the title above.
         if (isNewVideo || !TextUtils.isEmpty(item.getAuthor())) {
             mWatchChannelName.setText(item.getAuthor());
@@ -8143,6 +8179,13 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     private void updateButtonVisual(int buttonId, int buttonState) {
+        // NEWTUBE(watch-later): signed out, the shared controller still reports "in no playlist" once
+        // the video's data arrives (it asks the account, which has none) and would turn Saved back
+        // into Save. The phone's own lists decide the pill then.
+        if (buttonId == R.id.action_playlist_add && mWatchVideo != null
+                && !YouTubeSignInService.instance().isSigned()) {
+            buttonState = isSavedLocally(mWatchVideo.videoId) ? BUTTON_ON : BUTTON_OFF;
+        }
         boolean on = buttonState == BUTTON_ON;
 
         if (buttonId == R.id.action_thumbs_up && mWatchLikeIcon != null) {
