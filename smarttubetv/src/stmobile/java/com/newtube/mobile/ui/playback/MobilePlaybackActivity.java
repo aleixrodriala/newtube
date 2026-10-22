@@ -85,7 +85,9 @@ import androidx.media3.ui.TimeBar;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.mediaserviceinterfaces.data.ChatItem;
+import com.liskovsoft.mediaserviceinterfaces.data.MediaGroup;
 import com.liskovsoft.mediaserviceinterfaces.data.PlaylistInfo;
+import com.liskovsoft.smartyoutubetv2.common.app.models.data.Playlist;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.QueuePlaybackMode;
@@ -340,6 +342,8 @@ public class MobilePlaybackActivity extends MobileActivity
     private ImageView mQueueChevron;
     private MaxHeightRecyclerView mQueueList;
     private RelatedVideoAdapter mQueueAdapter;
+    /** NEWTUBE(queue): the queue card's edit button, shown while the card lists the playback queue. */
+    @Nullable private View mQueueEdit;
     /** Collapsed by default, like YouTube's queue. Survives video changes within a session. */
     private boolean mQueueExpanded;
     private final List<Video> mQueueVideos = new ArrayList<>();
@@ -1024,6 +1028,10 @@ public class MobilePlaybackActivity extends MobileActivity
         mQueueList.setAdapter(mQueueAdapter);
         mQueueList.setMaxHeight(Math.round(getResources().getDisplayMetrics().heightPixels * 0.5f));
         mQueueHeader.setOnClickListener(v -> toggleQueueExpanded());
+        mQueueEdit = findViewById(R.id.mobile_watch_queue_edit);
+        if (mQueueEdit != null) {
+            mQueueEdit.setOnClickListener(v -> openQueueSheet());
+        }
 
         // Expandable description (tap the views/date row or chevron).
         mWatchMetaRow.setOnClickListener(v -> toggleDescription());
@@ -4054,6 +4062,14 @@ public class MobilePlaybackActivity extends MobileActivity
             addMenuRow(content, sheet, R.drawable.ic_player_pip, R.string.mobile_player_pip,
                     null, false, this::enterPipFromMenu);
         }
+        // NEWTUBE(queue): the queue up here while there is one, with its size; it used to sit
+        // under More as the TV's text list.
+        int queued = Playlist.instance().getAll().size();
+        if (queued > 1) {
+            addMenuRow(content, sheet, R.drawable.ic_player_queue, R.string.mobile_queue_title,
+                    getResources().getQuantityString(R.plurals.mobile_queue_count, queued, queued),
+                    true, this::openQueueSheet);
+        }
         addMenuRow(content, sheet, R.drawable.ic_mobile_settings, R.string.mobile_menu_more,
                 null, true, this::openPlayerMoreMenu);
 
@@ -4103,7 +4119,7 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         // Playback queue.
         addMenuRow(content, sheet, R.drawable.ic_player_queue, R.string.mobile_menu_queue,
-                null, true, () -> openPlayerOption(R.id.action_playback_queue, false));
+                null, true, this::openQueueSheet);
         // Stats for nerds (debug overlay) toggle.
         addMenuRow(content, sheet, R.drawable.ic_player_stats, R.string.mobile_menu_stats,
                 stateLabel(statsOn), false, () -> openPlayerOption(R.id.action_video_stats, false));
@@ -8363,6 +8379,58 @@ public class MobilePlaybackActivity extends MobileActivity
         mPresenter.onScrollEnd(last);
     }
 
+    // ---------------------------------------------------------------------------------
+    // NEWTUBE(queue): the queue sheet
+    // ---------------------------------------------------------------------------------
+
+    private void openQueueSheet() {
+        cancelAutoHide();
+        if (Playlist.instance().getAll().isEmpty()) {
+            com.google.android.material.snackbar.Snackbar.make(findViewById(android.R.id.content),
+                    R.string.mobile_queue_empty, com.google.android.material.snackbar.Snackbar.LENGTH_SHORT).show();
+            return;
+        }
+        QueueSheet.show(this, new QueueSheet.Host() {
+            @Override
+            public void playFromQueue(Video video) {
+                onRelatedClicked(video);
+            }
+
+            @Override
+            public void onQueueChanged() {
+                refreshQueueSuggestions();
+            }
+
+            @Override
+            public void showQueueSheet(BottomSheetDialog dialog) {
+                showPlayerSheet(dialog);
+            }
+        });
+    }
+
+    /**
+     * The watch page's "Playback queue" list after an edit in the sheet: the videos after the
+     * playing one, in their new order - the same group SuggestionsController builds.
+     */
+    private void refreshQueueSuggestions() {
+        String title = getString(R.string.action_playback_queue);
+        int id = title.hashCode();
+        // null, not empty, when the playing video is the last one (Playlist.getAllAfterCurrent).
+        List<Video> next = Playlist.instance().getAllAfterCurrent();
+        if (next == null || next.isEmpty()) {
+            mSuggestionVideos.remove(id);
+            mSuggestionGroups.remove(id);
+            rebuildRelatedList();
+            return;
+        }
+        VideoGroup group = VideoGroup.from(new ArrayList<>(next));
+        group.setTitle(title);
+        group.setId(id);
+        group.setType(MediaGroup.TYPE_PLAYBACK_QUEUE);
+        group.setAction(VideoGroup.ACTION_REPLACE);
+        updateSuggestions(group);
+    }
+
     private void rebuildRelatedList() {
         mRelatedVideos.clear();
         mQueueVideos.clear();
@@ -8581,6 +8649,10 @@ public class MobilePlaybackActivity extends MobileActivity
         mQueueAdapter.setCurrentVideoId(currentId);
         mQueueAdapter.submitList(new ArrayList<>(mQueueVideos));
         mQueueCard.setVisibility(View.VISIBLE);
+        if (mQueueEdit != null) {
+            mQueueEdit.setVisibility(queueGroup != null && queueGroup.getType() == MediaGroup.TYPE_PLAYBACK_QUEUE
+                    ? View.VISIBLE : View.GONE);
+        }
         applyQueueExpanded();
     }
 

@@ -142,6 +142,40 @@ public class Playlist {
         }
     }
 
+    /**
+     * NEWTUBE(queue): moves the video at {@code from} to {@code to} (both indexes into
+     * {@link #getAll()}), keeping the playing one current wherever it ends up.
+     */
+    public void move(int from, int to) {
+        int size = mPlaylist.size();
+        if (from < 0 || from >= size || to < 0 || to >= size || from == to) {
+            return;
+        }
+
+        Video current = getCurrent();
+        Video moved = mPlaylist.remove(from);
+        mPlaylist.add(to, moved);
+
+        if (current != null) {
+            mCurrentIndex = indexOfInstance(current);
+        }
+    }
+
+    /** By identity: {@code Video.equals} is a composite that two rows of one video can share. */
+    private int indexOfInstance(Video video) {
+        for (int i = 0; i < mPlaylist.size(); i++) {
+            if (mPlaylist.get(i) == video) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** NEWTUBE(queue): the index of the playing video in {@link #getAll()}, or -1. */
+    public int getCurrentIndex() {
+        return mCurrentIndex < mPlaylist.size() ? mCurrentIndex : -1;
+    }
+
     public boolean contains(Video video) {
         if (Video.isEmpty(video)) {
             return false;

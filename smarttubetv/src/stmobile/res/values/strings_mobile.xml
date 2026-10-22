@@ -73,6 +73,18 @@
     <string name="mobile_watch_queue_position" translatable="false">%1$d / %2$d</string>
     <string name="mobile_watch_queue_fallback">queue</string>
     <string name="mobile_watch_queue_now_playing">Now playing</string>
+    <!-- NEWTUBE(queue): the queue sheet (QueueSheet). -->
+    <string name="mobile_queue_title">Queue</string>
+    <string name="mobile_queue_clear">Clear</string>
+    <string name="mobile_queue_edit">Edit queue</string>
+    <string name="mobile_queue_count_position">%1$d of %2$d</string>
+    <plurals name="mobile_queue_count">
+        <item quantity="one">%1$d video</item>
+        <item quantity="other">%1$d videos</item>
+    </plurals>
+    <string name="mobile_queue_move_up">Move up</string>
+    <string name="mobile_queue_move_down">Move down</string>
+    <string name="mobile_queue_empty">The queue is empty. Use Add to queue in a video\'s menu.</string>
     <string name="mobile_watch_description">Description</string>
     <string name="mobile_watch_count_placeholder" translatable="false">&#8211;</string>
     <string name="mobile_watch_share_subject">Watch this video</string>

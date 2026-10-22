@@ -1147,6 +1147,19 @@
 
                         </LinearLayout>
 
+                        <!-- NEWTUBE(queue): edits the playback queue (QueueSheet); only on that queue. -->
+                        <ImageButton
+                            android:id="@+id/mobile_watch_queue_edit"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:layout_marginEnd="4dp"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:contentDescription="@string/mobile_queue_edit"
+                            android:padding="8dp"
+                            android:scaleType="fitCenter"
+                            android:src="@drawable/ic_queue_drag"
+                            android:visibility="gone" />
+
                         <ImageView
                             android:id="@+id/mobile_watch_queue_chevron"
                             android:layout_width="24dp"
