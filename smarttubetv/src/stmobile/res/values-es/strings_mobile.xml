@@ -122,8 +122,12 @@
     <string name="pin_unpin_from_sidebar">Fijar en Tú</string>
     <string name="mobile_settings_experimental">Experimental</string>
     <string name="mobile_settings_gestures">Gestos</string>
-    <string name="mobile_settings_gesture_levels">Deslizar para el brillo y el volumen</string>
-    <string name="mobile_settings_gesture_levels_summary">Arriba y abajo a la izquierda o a la derecha del vídeo a pantalla completa</string>
+    <string name="mobile_settings_gesture_brightness">Deslizar para el brillo</string>
+    <string name="mobile_settings_gesture_volume">Deslizar para el volumen</string>
+    <string name="mobile_settings_gesture_brightness_summary">Arriba y abajo a la izquierda del vídeo a pantalla completa, o a cualquier lado sin el deslizamiento de volumen</string>
+    <string name="mobile_settings_gesture_volume_summary">Arriba y abajo a la derecha del vídeo a pantalla completa, o a cualquier lado sin el deslizamiento de brillo</string>
+    <string name="mobile_settings_gesture_levels" tools:ignore="UnusedResources">Deslizar para el brillo y el volumen</string>
+    <string name="mobile_settings_gesture_levels_summary" tools:ignore="UnusedResources">Arriba y abajo a la izquierda o a la derecha del vídeo a pantalla completa</string>
     <string name="mobile_settings_gesture_seek">Deslizar para avanzar o retroceder</string>
     <string name="mobile_settings_gesture_seek_summary">De lado sobre el vídeo</string>
     <string name="subscribed_to_channel">Suscripción añadida</string>

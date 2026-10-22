@@ -150,10 +150,14 @@ final class PlayerPages {
         // NEWTUBE(gestures): the optional player swipes (#12), on by default (PlayerGesturePrefs);
         // the fullscreen and minimize swipes are always on.
         rows.add(SettingsRow.header(context.getString(R.string.mobile_settings_gestures)));
-        rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_gesture_levels),
-                context.getString(R.string.mobile_settings_gesture_levels_summary),
-                () -> PlayerGesturePrefs.isLevelSwipesOn(context),
-                on -> PlayerGesturePrefs.setLevelSwipesOn(context, on)));
+        rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_gesture_brightness),
+                context.getString(R.string.mobile_settings_gesture_brightness_summary),
+                () -> PlayerGesturePrefs.isBrightnessSwipeOn(context),
+                on -> PlayerGesturePrefs.setBrightnessSwipeOn(context, on)));
+        rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_gesture_volume),
+                context.getString(R.string.mobile_settings_gesture_volume_summary),
+                () -> PlayerGesturePrefs.isVolumeSwipeOn(context),
+                on -> PlayerGesturePrefs.setVolumeSwipeOn(context, on)));
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_gesture_seek),
                 context.getString(R.string.mobile_settings_gesture_seek_summary),
                 () -> PlayerGesturePrefs.isSeekSwipeOn(context),

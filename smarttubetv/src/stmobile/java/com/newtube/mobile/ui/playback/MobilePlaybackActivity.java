@@ -5435,17 +5435,24 @@ public class MobilePlaybackActivity extends MobileActivity
 
     /** Fullscreen: SWIPE_BRIGHTNESS / SWIPE_VOLUME for a swipe that began at {@code rawX}, if any. */
     private int levelSwipeAt(float rawX) {
-        if (!PlayerGesturePrefs.isLevelSwipesOn(this) || isCastOverlayShown()) {
+        if (isCastOverlayShown()) {
             return PlayerContainerLayout.SWIPE_NONE;
         }
         int[] at = new int[2];
         mContainer.getLocationOnScreen(at);
         float width = Math.max(1, mContainer.getWidth());
         float x = (rawX - at[0]) / width;
-        if (x < LEVEL_ZONE && mSwipeLevels.canSwipe(SwipeLevels.BRIGHTNESS)) {
+        boolean left = x < LEVEL_ZONE;
+        if (!left && x <= 1f - LEVEL_ZONE) {
+            return PlayerContainerLayout.SWIPE_NONE; // the middle is for seeking and taps
+        }
+        // Both on: brightness left, volume right. Only one on: that one on either side.
+        int side = PlayerGesturePrefs.sideSwipe(left,
+                PlayerGesturePrefs.isBrightnessSwipeOn(this), PlayerGesturePrefs.isVolumeSwipeOn(this));
+        if (side == PlayerGesturePrefs.SIDE_BRIGHTNESS && mSwipeLevels.canSwipe(SwipeLevels.BRIGHTNESS)) {
             return SWIPE_BRIGHTNESS;
         }
-        if (x > 1f - LEVEL_ZONE && mSwipeLevels.canSwipe(SwipeLevels.VOLUME)) {
+        if (side == PlayerGesturePrefs.SIDE_VOLUME && mSwipeLevels.canSwipe(SwipeLevels.VOLUME)) {
             return SWIPE_VOLUME;
         }
         return PlayerContainerLayout.SWIPE_NONE;
