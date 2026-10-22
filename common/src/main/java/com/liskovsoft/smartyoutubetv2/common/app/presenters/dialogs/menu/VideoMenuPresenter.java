@@ -195,12 +195,12 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
             return;
         }
 
-        appendReturnToBackgroundVideoButton();
+        runWithIcon("return_background", this::appendReturnToBackgroundVideoButton);
 
         for (Long menuItem : MainUIData.instance(getContext()).getMenuItemsOrdered()) {
             MenuAction menuAction = mMenuMapping.get(menuItem);
             if (menuAction != null) {
-                menuAction.run();
+                runWithIcon(MENU_ICONS.get(menuItem), menuAction::run);
             }
         }
 
@@ -216,18 +216,76 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
             return;
         }
 
-        appendReturnToBackgroundVideoButton();
+        runWithIcon("return_background", this::appendReturnToBackgroundVideoButton);
 
         for (Long menuItem : MainUIData.instance(getContext()).getMenuItemsOrdered()) {
             MenuAction menuAction = mMenuMapping.get(menuItem);
             if (menuAction != null && !menuAction.isAuth()) {
-                menuAction.run();
+                runWithIcon(MENU_ICONS.get(menuItem), menuAction::run);
             }
         }
 
         if (!mDialogPresenter.isEmpty()) {
             String title = mVideo != null ? mVideo.getTitle() : null;
             mDialogPresenter.showDialog(title);
+        }
+    }
+
+    /**
+     * NEWTUBE(menu-icons): the kind of row each menu item appends ({@code OptionCategory.iconKey});
+     * the phone draws an icon for each. Kept apart from {@code mMenuMapping} so neither has to know
+     * about the other.
+     */
+    private static final java.util.Map<Long, String> MENU_ICONS = new java.util.HashMap<>();
+
+    static {
+        MENU_ICONS.put(MainUIData.MENU_ITEM_PLAY_VIDEO, "play_video");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_PLAY_VIDEO_INCOGNITO, "play_incognito");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_PLAY_FROM_START, "play_from_start");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_REMOVE_FROM_HISTORY, "remove_from_history");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_STREAM_REMINDER, "stream_reminder");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_RECENT_PLAYLIST, "recent_playlist");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_ADD_TO_WATCH_LATER, "watch_later");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_ADD_TO_PLAYLIST, "add_to_playlist");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_DOWNLOAD, "download");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_CREATE_PLAYLIST, "create_playlist");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_RENAME_PLAYLIST, "rename_playlist");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_ADD_TO_NEW_PLAYLIST, "new_playlist");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_NOT_INTERESTED, "not_interested");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_NOT_RECOMMEND_CHANNEL, "not_recommend_channel");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_REMOVE_FROM_SUBSCRIPTIONS, "remove_from_subscriptions");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_BLOCK_CHANNEL, "block_channel");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_MARK_AS_WATCHED, "mark_watched");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_PLAYLIST_ORDER, "playlist_order");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_ADD_TO_QUEUE, "add_to_queue");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_PLAY_NEXT, "play_next");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_SHOW_QUEUE, "show_queue");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_OPEN_CHANNEL, "open_channel");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_OPEN_PLAYLIST, "open_playlist");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_SUBSCRIBE, "subscribe");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_EXCLUDE_FROM_CONTENT_BLOCK, "content_block");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_PIN_TO_SIDEBAR, "pin_sidebar");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_SAVE_REMOVE_PLAYLIST, "save_playlist");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_OPEN_DESCRIPTION, "open_description");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_SHARE_LINK, "share");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_SHARE_QR_LINK, "share_qr");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_SHARE_EMBED_LINK, "share_embed");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_SELECT_ACCOUNT, "select_account");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_TOGGLE_HISTORY, "toggle_history");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_CLEAR_HISTORY, "clear_history");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_OPEN_COMMENTS, "open_comments");
+    }
+
+    /**
+     * NEWTUBE(menu-icons): the buttons {@code append} adds are {@code iconKey} rows (the phone draws
+     * an icon for each). Nests: an action that appends two kinds of row wraps the second.
+     */
+    private void runWithIcon(String iconKey, Runnable append) {
+        String previous = mDialogPresenter.setIconKey(iconKey);
+        try {
+            append.run();
+        } finally {
+            mDialogPresenter.setIconKey(previous);
         }
     }
 
@@ -277,9 +335,9 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
         String playlistId = own.getPlaylistId();
         String playlistTitle = own.getTitle();
 
-        mDialogPresenter.appendSingleButton(
+        runWithIcon("remove_from_playlist", () -> mDialogPresenter.appendSingleButton(
                 UiOptionItem.from(getContext().getString(R.string.dialog_remove_from, playlistTitle),
-                        optionItem -> removeFromOwnPlaylist(playlistId, playlistTitle)));
+                        optionItem -> removeFromOwnPlaylist(playlistId, playlistTitle))));
     }
 
     private void removeFromOwnPlaylist(String playlistId, String playlistTitle) {
@@ -920,6 +978,10 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
 
         mVideo.isSubscribed = mVideo.isSubscribed || mVideo.belongsToSubscriptions() || mVideo.belongsToChannelUploads();
 
+        // NEWTUBE(menu-icons): an Unsubscribe row shows the remove-person icon, not the add one.
+        if (mVideo.isSubscribed) {
+            mDialogPresenter.setIconKey("remove_from_subscriptions");
+        }
         mDialogPresenter.appendSingleButton(
                 UiOptionItem.from(getContext().getString(
                         mVideo.isSynced || mVideo.isSubscribed || (!getSignInService().isSigned() && mVideo.channelId != null) ? mVideo.isSubscribed ?
@@ -990,6 +1052,8 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
             return;
         }
 
+        // NEWTUBE(menu-icons): shares the Add-to-queue action, so it names its own row.
+        mDialogPresenter.setIconKey("remove_from_queue");
         mDialogPresenter.appendSingleButton(
                 UiOptionItem.from(
                         getContext().getString(R.string.remove_from_playback_queue),

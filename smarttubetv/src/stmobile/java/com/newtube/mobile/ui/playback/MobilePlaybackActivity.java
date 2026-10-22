@@ -1006,6 +1006,7 @@ public class MobilePlaybackActivity extends MobileActivity
         long touchPrefetchMs = com.newtube.mobile.player.SwitchExperiments.touchPrefetchStillMs();
         mRelatedAdapter = new RelatedVideoAdapter(this::onRelatedClicked,
                 touchPrefetchMs > 0 ? this::onRelatedPressed : null, touchPrefetchMs);
+        mRelatedAdapter.setOnLongClickListener(this::onRelatedLongClicked);
         mWatchRelated.setLayoutManager(new LinearLayoutManager(this));
         mWatchRelated.setNestedScrollingEnabled(false);
         mWatchRelated.setHasFixedSize(false);
@@ -1019,6 +1020,7 @@ public class MobilePlaybackActivity extends MobileActivity
         // card (nested scrolling on + a max height) so a long playlist can't push the rest of the
         // watch page off the bottom. Rows are re-bound on every video change, so no fixed size.
         mQueueAdapter = new RelatedVideoAdapter(this::onRelatedClicked);
+        mQueueAdapter.setOnLongClickListener(this::onRelatedLongClicked);
         mQueueList.setLayoutManager(new LinearLayoutManager(this));
         mQueueList.setHasFixedSize(false);
         mQueueList.setAdapter(mQueueAdapter);
@@ -6480,9 +6482,30 @@ public class MobilePlaybackActivity extends MobileActivity
             return;
         }
 
+        // NEWTUBE(menu): the shared controller hands over the ONE video a menu action took out of a
+        // list (Not interested, Remove from queue...), so only that video goes, matched by id; the
+        // list itself goes once nothing is left in it. Dropping the whole list by its id emptied
+        // Up next after one long-press action.
         runOnUiThread(() -> {
-            mSuggestionVideos.remove(group.getId());
-            mSuggestionGroups.remove(group.getId());
+            int id = group.getId();
+            List<Video> existing = mSuggestionVideos.get(id);
+            if (existing != null && group.getVideos() != null) {
+                for (Video gone : group.getVideos()) {
+                    if (gone == null || gone.videoId == null) {
+                        continue;
+                    }
+                    for (java.util.Iterator<Video> it = existing.iterator(); it.hasNext(); ) {
+                        Video video = it.next();
+                        if (video != null && gone.videoId.equals(video.videoId)) {
+                            it.remove();
+                        }
+                    }
+                }
+            }
+            if (existing == null || existing.isEmpty()) {
+                mSuggestionVideos.remove(id);
+                mSuggestionGroups.remove(id);
+            }
             rebuildRelatedList();
         });
     }
@@ -8316,6 +8339,17 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mPresenter != null && video != null) {
             // Loads + plays the tapped video in this same player (VideoLoaderController.openVideoInt).
             mPresenter.onSuggestionItemClicked(video);
+        }
+    }
+
+    /**
+     * NEWTUBE(menu): long press on an Up next or queue row = its card menu, like a feed card's.
+     * {@code PlayerUIController.onSuggestionItemLongClicked} shows it and keeps these lists in step
+     * with what the menu does (removed from the queue, played next...).
+     */
+    private void onRelatedLongClicked(Video video) {
+        if (mPresenter != null && video != null) {
+            mPresenter.onSuggestionItemLongClicked(video);
         }
     }
 
