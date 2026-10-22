@@ -150,6 +150,20 @@
     <string name="mobile_settings_auto_backup">Automatic backup</string>
     <string name="mobile_settings_auto_backup_off">Never</string>
     <string name="mobile_settings_backup_note">A backup holds everything you set up in NewTube. What belongs to your YouTube account, like subscriptions and history, stays there.</string>
+    <!-- NEWTUBE(import): Settings > Backup > Import subscriptions (SubscriptionImport). -->
+    <string name="mobile_settings_import_header">Import</string>
+    <string name="mobile_settings_import">Import subscriptions</string>
+    <string name="mobile_settings_import_summary">From NewPipe, PipePipe, GrayJay or PocketTube: a subscriptions export or a backup .zip</string>
+    <string name="mobile_settings_import_working">Importing subscriptions…</string>
+    <plurals name="mobile_settings_import_done">
+        <item quantity="one">%1$d channel added to Subscriptions</item>
+        <item quantity="other">%1$d channels added to Subscriptions</item>
+    </plurals>
+    <string name="mobile_settings_import_done_groups">Subscriptions imported</string>
+    <string name="mobile_settings_import_done_signed_in">%1$s. You\'re signed in, so you\'ll see them when you sign out.</string>
+    <string name="mobile_settings_import_nothing">No YouTube channels found in that file</string>
+    <string name="mobile_settings_import_not_newpipe">That backup isn\'t from NewPipe or PipePipe</string>
+    <string name="mobile_settings_import_failed">Couldn\'t import that file</string>
 
     <!-- Playback -->
     <string name="mobile_settings_video_ends">When a video ends</string>

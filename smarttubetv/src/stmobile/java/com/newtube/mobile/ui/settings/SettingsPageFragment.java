@@ -15,6 +15,8 @@ import android.widget.BaseAdapter;
 import android.widget.RadioButton;
 import android.widget.TextView;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
@@ -49,6 +51,11 @@ public final class SettingsPageFragment extends Fragment implements SettingsAdap
     private TextView mTitle;
     @Nullable private AlertDialog mDialog;
     @Nullable private String mHighlight;
+    /**
+     * NEWTUBE(import): Android's file picker, for rows that read a file (Backup > Import). The
+     * system picker needs no storage permission, unlike the TV's file browser it replaces.
+     */
+    private ActivityResultLauncher<String[]> mImportPicker;
 
     public static SettingsPageFragment newInstance(@NonNull String pageId) {
         return newInstance(pageId, null);
@@ -77,6 +84,19 @@ public final class SettingsPageFragment extends Fragment implements SettingsAdap
         mHighlight = requireArguments().getString(ARG_HIGHLIGHT);
         // Once: coming back to this page later (or after a recreation) shouldn't glow again.
         requireArguments().remove(ARG_HIGHLIGHT);
+        mImportPicker = registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
+            if (uri != null) {
+                SubscriptionImport.importFrom(requireContext(), uri);
+            }
+        });
+    }
+
+    /**
+     * NEWTUBE(import): picks the file to import subscriptions from. Any type: NewPipe's backup is a
+     * .zip, its subscriptions a .json, and some file managers label either one as anything.
+     */
+    public void pickSubscriptionsFile() {
+        mImportPicker.launch(new String[] {"*/*"});
     }
 
     @Nullable

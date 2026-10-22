@@ -148,6 +148,21 @@
     <string name="mobile_settings_auto_backup">Copia automática</string>
     <string name="mobile_settings_auto_backup_off">Nunca</string>
     <string name="mobile_settings_backup_note">Una copia guarda todo lo que has configurado en NewTube. Lo que es de tu cuenta de YouTube, como suscripciones e historial, se queda allí.</string>
+    <!-- NEWTUBE(import): Ajustes > Copia de seguridad > Importar suscripciones. -->
+    <string name="mobile_settings_import_header">Importar</string>
+    <string name="mobile_settings_import">Importar suscripciones</string>
+    <string name="mobile_settings_import_summary">De NewPipe, PipePipe, GrayJay o PocketTube: una exportación de suscripciones o una copia .zip</string>
+    <string name="mobile_settings_import_working">Importando suscripciones…</string>
+    <plurals name="mobile_settings_import_done">
+        <item quantity="one">%1$d canal añadido a Suscripciones</item>
+        <item quantity="many">%1$d canales añadidos a Suscripciones</item>
+        <item quantity="other">%1$d canales añadidos a Suscripciones</item>
+    </plurals>
+    <string name="mobile_settings_import_done_groups">Suscripciones importadas</string>
+    <string name="mobile_settings_import_done_signed_in">%1$s. Has iniciado sesión: los verás cuando la cierres.</string>
+    <string name="mobile_settings_import_nothing">No hay canales de YouTube en ese archivo</string>
+    <string name="mobile_settings_import_not_newpipe">Esa copia no es de NewPipe ni de PipePipe</string>
+    <string name="mobile_settings_import_failed">No se ha podido importar ese archivo</string>
 
     <!-- Playback -->
     <string name="mobile_settings_video_ends">Al terminar un vídeo</string>

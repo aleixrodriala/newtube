@@ -94,6 +94,7 @@ final class SettingsSearch {
             {R.string.content_block_provider, R.string.mobile_settings_search_kw_sponsorblock},
             {R.string.dearrow_provider, R.string.mobile_settings_search_kw_dearrow},
             {R.string.mobile_settings_backup, R.string.mobile_settings_search_kw_backup},
+            {R.string.mobile_settings_import, R.string.mobile_settings_search_kw_import},
             {R.string.mobile_settings_video_format, R.string.mobile_settings_search_kw_video_format},
             {R.string.mobile_settings_buffer, R.string.mobile_settings_search_kw_buffer},
             {R.string.mobile_settings_dns, R.string.mobile_settings_search_kw_dns},

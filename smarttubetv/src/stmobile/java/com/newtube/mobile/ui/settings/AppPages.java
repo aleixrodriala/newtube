@@ -513,6 +513,12 @@ final class AppPages {
 
         rows.add(SettingsRow.note(context.getString(R.string.mobile_settings_backup_note)));
 
+        // NEWTUBE(import): subscriptions from NewPipe, PipePipe, GrayJay or PocketTube (SubscriptionImport).
+        rows.add(SettingsRow.header(context.getString(R.string.mobile_settings_import_header)));
+        rows.add(SettingsRow.action(context.getString(R.string.mobile_settings_import),
+                context.getString(R.string.mobile_settings_import_summary),
+                SettingsPageFragment::pickSubscriptionsFile));
+
         return new SettingsPages.Page(context.getString(R.string.mobile_settings_backup), rows);
     }
 
