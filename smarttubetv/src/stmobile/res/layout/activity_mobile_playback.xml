@@ -118,7 +118,8 @@
 
                 <!-- paddingEnd must clear the full top-right options row (mobile_player_options):
                      3 icon buttons * 48dp (no end margin) = 144dp. Otherwise the wrapped
-                     title runs under the leftmost option (cast) icon. -->
+                     title runs under the leftmost option (cast) icon. In fullscreen the clock
+                     widens that row, and MobilePlaybackActivity grows this padding to match. -->
                 <TextView
                     android:id="@+id/mobile_player_title"
                     android:layout_width="match_parent"
@@ -150,6 +151,26 @@
                     android:layout_marginTop="4dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
+
+                    <!-- NEWTUBE(clock): the time, in fullscreen only, where the status bar and its
+                         clock are hidden. Follows the phone's 12/24-hour setting. -->
+                    <TextClock
+                        android:id="@+id/mobile_player_clock"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:format12Hour="h:mm"
+                        android:format24Hour="H:mm"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:shadowColor="#80000000"
+                        android:shadowDx="0"
+                        android:shadowDy="1"
+                        android:shadowRadius="3"
+                        android:textColor="@android:color/white"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:visibility="gone"
+                        tools:visibility="visible" />
 
                     <!-- Cast picker (casting wave): lists DIAL-discovered TVs + paired screens.
                          Route B only for now; see com.newtube.mobile.casting. -->

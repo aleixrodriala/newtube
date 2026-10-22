@@ -265,6 +265,8 @@
     <string name="mobile_settings_gesture_levels_summary">Up and down on the left or right of the fullscreen video</string>
     <string name="mobile_settings_gesture_seek">Swipe to seek</string>
     <string name="mobile_settings_gesture_seek_summary">Sideways on the video</string>
+    <string name="mobile_settings_clock">Clock in fullscreen</string>
+    <string name="mobile_settings_clock_summary">The time beside the title when you tap a fullscreen video</string>
     <!-- Default-locale twins of the values-es overrides below (lint ExtraTranslation). -->
     <string name="subscribed_to_channel">Subscribed</string>
     <string name="unsubscribed_from_channel">Unsubscribed</string>

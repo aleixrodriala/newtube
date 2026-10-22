@@ -30,6 +30,7 @@ import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.liskovsoft.youtubeapi.service.internal.MediaServiceData;
 import com.newtube.mobile.player.SabrSourcePreference;
+import com.newtube.mobile.ui.playback.PlayerClockPrefs;
 import com.newtube.mobile.ui.playback.PlayerGesturePrefs;
 import com.newtube.mobile.ui.common.MobileSnackbar;
 
@@ -160,6 +161,11 @@ final class PlayerPages {
                 on -> PlayerGesturePrefs.setSeekSwipeOn(context, on)));
 
         rows.add(SettingsRow.header(context.getString(R.string.mobile_settings_watch_page)));
+        // NEWTUBE(clock): the time beside the title in fullscreen, where the status bar is hidden.
+        rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_clock),
+                context.getString(R.string.mobile_settings_clock_summary),
+                () -> PlayerClockPrefs.isClockOn(context),
+                on -> PlayerClockPrefs.setClockOn(context, on)));
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_hide_related),
                 context.getString(R.string.mobile_settings_hide_related_summary),
                 tweaks::isSuggestionsDisabled, tweaks::setSuggestionsDisabled));
