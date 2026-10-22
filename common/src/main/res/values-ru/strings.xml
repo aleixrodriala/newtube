@@ -748,4 +748,35 @@
         <item quantity="many">%s секунд</item>
         <item quantity="other">%s секунды</item>
     </plurals>
+    <string name="header_downloads">Загрузки</string>
+    <string name="dialog_download">Загрузить</string>
+    <string name="msg_sign_in_to_save">Войдите, что бы сохранять видео в плейлист</string>
+    <string name="about_app">О приложении %1$s</string>
+    <string name="about_source_code">Исходный код</string>
+    <string name="about_license">Лицензия</string>
+    <string name="diagnostic_log_send">Отправить диагностические логи</string>
+    <string name="diagnostic_log_send_desc">Для баг репортов. Включает видео и каналы которые вы открывали; пароли и токены удалены из лога</string>
+    <string name="diagnostic_log_failed">Не удалось создать диагностический лог</string>
+    <string name="signed_in_success">Вошли в аккаунт</string>
+    <string name="feedback_failed">Не удалось отправить запрос на YouTube. Попробуйте снова</string>
+    <string name="subscribed_to_channel_name">Вы подписались на %1$s</string>
+    <string name="unsubscribed_from_channel_name">Вы отписались от %1$s</string>
+    <string name="subscribe_failed">Не удалось подписаться. Попробуйте снова</string>
+    <string name="unsubscribe_failed">Не удалось отписаться. Попробуйте снова</string>
+    <string name="action_undo">Отменить</string>
+    <string name="msg_player_no_connection_retry">Нету подключения. Повтор будет при повторном подключении, или нажмите \"Воспроизвести\" для повтора.</string>
+    <string name="msg_player_no_connection_short">Нету подключения, повторяем попытку…</string>
+    <string name="msg_player_no_connection_tap">Нету подключения, нажмите \"Воспроизвести\" для повтора попытки</string>
+    <string name="auto_frame_rate_sec">%s сек</string>
+    <string name="ui_hide_timeout_sec">%s сек</string>
+    <string name="screen_dimming_timeout_min">%s минут</string>
+    <string name="msg_quality_pin_fallback">Не удалось выбрать качество %1$s, качество изменено на Авто</string>
+    <string name="msg_audio_pin_fallback">Не удалось воспроизвести текущую аудиодорожку, используется стандартная аудиодорожка для этого видео</string>
+    <string name="update_check_failed">Не удалось проверить на обновления. Попробуйте позже.</string>
+    <string name="playlist_name_hint">Название плейлиста</string>
+    <string name="player_return_youtube_dislike">Количество дизлайков (Return YouTube Dislike)</string>
+    <string name="header_live">Прямой эфир</string>
+    <string name="install_bridge">Установить мост ATV/Amazon</string>
+    <string name="fix_empty_subs_and_channels">Починить пустые вкладки для \"Подписки\" и \"Каналы\"</string>
+    <string name="diagnostic_log_subject">%1$s %2$s диагностический лог</string>
 </resources>
