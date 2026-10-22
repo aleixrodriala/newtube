@@ -39,6 +39,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.interfaces.SectionPr
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.interfaces.VideoGroupPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.misc.AppDataSourceManager;
+import com.liskovsoft.smartyoutubetv2.common.misc.LocalWatchLater;
 import com.liskovsoft.smartyoutubetv2.common.misc.VideoDownloads;
 import com.liskovsoft.smartyoutubetv2.common.misc.BrowseProcessorManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
@@ -338,6 +339,8 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         mSectionsMapping.put(MediaGroup.TYPE_PLAYBACK_QUEUE, new BrowseSection(MediaGroup.TYPE_PLAYBACK_QUEUE, getContext().getString(R.string.playback_queue_category_title), BrowseSection.TYPE_GRID, R.drawable.icon_queue, false));
         // NEWTUBE(downloads): a plain local grid; the phone installs the source (VideoDownloads).
         mSectionsMapping.put(VideoDownloads.SECTION_ID, new BrowseSection(VideoDownloads.SECTION_ID, getContext().getString(R.string.header_downloads), BrowseSection.TYPE_GRID, R.drawable.icon_downloads, false));
+        // NEWTUBE(watch-later): the signed-out Watch later, kept on the phone (LocalWatchLater).
+        mSectionsMapping.put(LocalWatchLater.SECTION_ID, new BrowseSection(LocalWatchLater.SECTION_ID, getContext().getString(R.string.header_watch_later), BrowseSection.TYPE_GRID, R.drawable.icon_watch_later, false));
 
         if (getSidebarService().isSettingsSectionEnabled()) {
             mSectionsMapping.put(MediaGroup.TYPE_SETTINGS, new BrowseSection(MediaGroup.TYPE_SETTINGS, getContext().getString(R.string.header_settings), BrowseSection.TYPE_SETTINGS_GRID, R.drawable.icon_settings));
@@ -402,6 +405,7 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         mLocalGridMappings.put(MediaGroup.TYPE_PLAYBACK_QUEUE, () -> Playlist.instance().getAllReversed());
         mLocalGridMappings.put(MediaGroup.TYPE_BLOCKED_CHANNELS, this::getBlockedChannels);
         mLocalGridMappings.put(VideoDownloads.SECTION_ID, VideoDownloads::listSectionVideos);
+        mLocalGridMappings.put(LocalWatchLater.SECTION_ID, () -> LocalWatchLater.instance(getContext()).list());
     }
 
     private List<Video> getBlockedChannels() {
@@ -449,7 +453,10 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
                 section.setEnabled(true);
             }
 
-            if (section.isEnabled()) {
+            // NEWTUBE(watch-later): signed in, Watch later is the account's playlist, so the one
+            // kept on the phone for signed-out use stays out of the way (its videos are kept).
+            if (section.isEnabled() && !(section.getId() == LocalWatchLater.SECTION_ID
+                    && getSignInService().isSigned())) {
                 if (section.getId() == bootSectionId) {
                     mBootSectionIndex = index;
                 }

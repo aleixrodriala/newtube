@@ -31,6 +31,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.provide
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelUploadsView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
+import com.liskovsoft.smartyoutubetv2.common.misc.LocalWatchLater;
 import com.liskovsoft.smartyoutubetv2.common.misc.PhoneUi;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.VideoDownloads;
@@ -240,6 +241,11 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
             return;
         }
 
+        if (PhoneUi.isEnabled() && !getSignInService().isSigned()) {
+            appendLocalWatchLaterButton();
+            return;
+        }
+
         mDialogPresenter.appendSingleButton(
                 UiOptionItem.from(
                         getContext().getString(R.string.add_video_to_watch_later),
@@ -266,6 +272,40 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
 
     private PlaylistInfo findOwnPlaylist() {
         return isOwnPlaylistCandidate() ? OwnPlaylistMatch.find(mVideo.getPlaylistId(), mPlaylistInfos) : null;
+    }
+
+    /**
+     * NEWTUBE(watch-later): signed out, Watch later is kept on the phone (LocalWatchLater):
+     * "Save to Watch later", or "Remove from Watch later" once the video is in it.
+     */
+    private void appendLocalWatchLaterButton() {
+        Video video = mVideo;
+        if (!LocalWatchLater.canSave(video)) {
+            return;
+        }
+
+        LocalWatchLater watchLater = LocalWatchLater.instance(getContext());
+        boolean saved = watchLater.contains(video.videoId);
+        VideoMenuCallback callback = mCallback;
+
+        mDialogPresenter.appendSingleButton(
+                UiOptionItem.from(
+                        getContext().getString(saved ? R.string.remove_video_from_watch_later : R.string.add_video_to_watch_later),
+                        optionItem -> {
+                            if (saved) {
+                                watchLater.remove(video.videoId);
+                                // Only the Watch later grid itself loses the card.
+                                if (callback != null && video.sectionId == LocalWatchLater.SECTION_ID) {
+                                    callback.onItemAction(video, VideoMenuCallback.ACTION_REMOVE_FROM_PLAYLIST);
+                                }
+                            } else {
+                                watchLater.add(video);
+                            }
+                            mDialogPresenter.closeDialog();
+                            MessageHelpers.showMessage(getContext(),
+                                    saved ? R.string.removed_from_watch_later : R.string.saved_to_watch_later);
+                        }
+                ));
     }
 
     private void appendRemoveFromOwnPlaylistButton() {
@@ -1297,7 +1337,8 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
         mMenuMapping.put(MainUIData.MENU_ITEM_REMOVE_FROM_HISTORY, new MenuAction(this::appendRemoveFromHistoryButton, false));
         mMenuMapping.put(MainUIData.MENU_ITEM_STREAM_REMINDER, new MenuAction(this::appendStreamReminderButton, false));
         mMenuMapping.put(MainUIData.MENU_ITEM_RECENT_PLAYLIST, new MenuAction(this::appendAddToRecentPlaylistButton, false));
-        mMenuMapping.put(MainUIData.MENU_ITEM_ADD_TO_WATCH_LATER, new MenuAction(this::appendAddToWatchLaterButton, true));
+        // NEWTUBE(watch-later): not auth-only on the phone - signed out it saves to LocalWatchLater.
+        mMenuMapping.put(MainUIData.MENU_ITEM_ADD_TO_WATCH_LATER, new MenuAction(this::appendAddToWatchLaterButton, !PhoneUi.isEnabled()));
         mMenuMapping.put(MainUIData.MENU_ITEM_ADD_TO_PLAYLIST, new MenuAction(() -> { appendRemoveFromOwnPlaylistButton(); appendAddToPlaylistButton(); }, false));
         mMenuMapping.put(MainUIData.MENU_ITEM_DOWNLOAD, new MenuAction(this::appendDownloadButton, false));
         mMenuMapping.put(MainUIData.MENU_ITEM_CREATE_PLAYLIST, new MenuAction(this::appendCreatePlaylistButton, false));

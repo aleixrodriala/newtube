@@ -5,6 +5,10 @@
     <string name="header_subscriptions">Subscriptions</string>
     <string name="header_history">History</string>
     <string name="header_downloads">Downloads</string>
+    <string name="header_watch_later">Watch later</string>
+    <string name="remove_video_from_watch_later">Remove from Watch later</string>
+    <string name="saved_to_watch_later">Saved to Watch later</string>
+    <string name="removed_from_watch_later">Removed from Watch later</string>
     <string name="header_music">Music</string>
     <string name="header_news">News</string>
     <string name="header_gaming">Gaming</string>

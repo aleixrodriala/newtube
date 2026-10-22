@@ -258,6 +258,14 @@ public class MobileMainApplication extends MainApplication {
             migrations.edit().putBoolean("downloads_section", true).apply();
         }
 
+        // WATCH LATER SECTION (mobile-only, one-shot): same as Downloads above, for the signed-out
+        // Watch later kept on the phone (LocalWatchLater). Signed in, BrowsePresenter hides it.
+        if (!migrations.getBoolean("local_watch_later_section", false)) {
+            com.liskovsoft.smartyoutubetv2.common.app.presenters.service.SidebarService.instance(this)
+                    .enableSection(com.liskovsoft.smartyoutubetv2.common.misc.LocalWatchLater.SECTION_ID, true);
+            migrations.edit().putBoolean("local_watch_later_section", true).apply();
+        }
+
         // TV RECEIVER ROLES OFF (mobile-only, one-shot): Auto Frame Rate reprograms the display's
         // refresh mode per video, and "Remote control" keeps a foreground service listening so
         // other devices can drive this one - both TV roles. Their Settings rows are gone on the
