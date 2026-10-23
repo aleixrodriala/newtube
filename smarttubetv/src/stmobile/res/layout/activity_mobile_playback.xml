@@ -118,7 +118,8 @@
 
                 <!-- paddingEnd must clear the full top-right options row (mobile_player_options):
                      3 icon buttons * 48dp (no end margin) = 144dp. Otherwise the wrapped
-                     title runs under the leftmost option (cast) icon. -->
+                     title runs under the leftmost option (cast) icon. In fullscreen the clock
+                     widens that row, and MobilePlaybackActivity grows this padding to match. -->
                 <TextView
                     android:id="@+id/mobile_player_title"
                     android:layout_width="match_parent"
@@ -150,6 +151,59 @@
                     android:layout_marginTop="4dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
+
+                    <!-- NEWTUBE(clock): the time, in fullscreen only, where the status bar and its
+                         clock are hidden. Follows the phone's 12/24-hour setting. -->
+                    <TextClock
+                        android:id="@+id/mobile_player_clock"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:format12Hour="h:mm"
+                        android:format24Hour="H:mm"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:shadowColor="#80000000"
+                        android:shadowDx="0"
+                        android:shadowDy="1"
+                        android:shadowRadius="3"
+                        android:textColor="@android:color/white"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:visibility="gone"
+                        tools:visibility="visible" />
+
+                    <!-- NEWTUBE(autoplay): YouTube's Autoplay switch (AutoplaySwitch). Off = a video
+                         on its own stops at its end; playlists and the queue still play on. -->
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/mobile_player_autoplay"
+                        android:layout_width="wrap_content"
+                        android:layout_height="@dimen/mobile_player_icon_button"
+                        android:contentDescription="@string/mobile_player_autoplay"
+                        android:minWidth="0dp"
+                        android:paddingStart="4dp"
+                        android:paddingEnd="4dp"
+                        android:scaleX="0.85"
+                        android:scaleY="0.85" />
+
+                    <!-- NEWTUBE(speed): the current speed ("1x", "1.5x"); a tap opens the speed sheet. -->
+                    <TextView
+                        android:id="@+id/mobile_player_speed_chip"
+                        android:layout_width="wrap_content"
+                        android:layout_height="@dimen/mobile_player_icon_button"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_player_speed"
+                        android:gravity="center"
+                        android:minWidth="@dimen/mobile_player_icon_button"
+                        android:paddingStart="6dp"
+                        android:paddingEnd="6dp"
+                        android:shadowColor="#80000000"
+                        android:shadowDx="0"
+                        android:shadowDy="1"
+                        android:shadowRadius="3"
+                        android:textColor="@android:color/white"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        tools:text="1.5x" />
 
                     <!-- Cast picker (casting wave): lists DIAL-discovered TVs + paired screens.
                          Route B only for now; see com.newtube.mobile.casting. -->

@@ -59,6 +59,9 @@
     <string name="mobile_player_release_to_cancel">Suelta para cancelar</string>
     <!-- Speed sheet -->
     <string name="mobile_player_speed">Velocidad de reproducción</string>
+    <string name="mobile_player_autoplay">Reproducción automática</string>
+    <string name="mobile_autoplay_on">La reproducción automática está activada</string>
+    <string name="mobile_autoplay_off">La reproducción automática está desactivada</string>
     <string name="mobile_speed_normal">Normal</string>
     <string name="mobile_speed_more">Más velocidades</string>
     <string name="mobile_speed_toast">Velocidad de reproducción: %1$s</string>
@@ -126,6 +129,8 @@
     <string name="mobile_settings_gesture_levels_summary">Arriba y abajo a la izquierda o a la derecha del vídeo a pantalla completa</string>
     <string name="mobile_settings_gesture_seek">Deslizar para avanzar o retroceder</string>
     <string name="mobile_settings_gesture_seek_summary">De lado sobre el vídeo</string>
+    <string name="mobile_settings_clock">Reloj a pantalla completa</string>
+    <string name="mobile_settings_clock_summary">La hora junto al título al tocar un vídeo a pantalla completa</string>
     <string name="subscribed_to_channel">Suscripción añadida</string>
     <string name="unsubscribed_from_channel">Suscripción cancelada</string>
     <string name="mobile_player_settings">Ajustes</string>
