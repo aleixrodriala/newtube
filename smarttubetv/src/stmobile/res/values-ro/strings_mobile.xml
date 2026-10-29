@@ -360,4 +360,7 @@
     <string name="unpinned_from_sidebar">A fost eliminat din secțiunea „Tu”</string>
     <string name="pin_unpin_from_sidebar">Fixează în secțiunea „Tu”</string>
     <string name="mobile_settings_gesture_seek_summary">Într-o parte pe videoclip</string>
+    <string name="mobile_card_go_to_channel">Accesează canalul %1$s</string>
+    <string name="mobile_theme_pure_black">Negru pur</string>
+    <string name="mobile_theme_pure_black_summary">Negru în loc de gri închis atunci când aplicația este în modul întunecat. Economisește bateria pe ecranele OLED</string>
 </resources>
