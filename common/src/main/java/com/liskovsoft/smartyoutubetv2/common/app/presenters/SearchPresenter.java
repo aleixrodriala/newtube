@@ -326,7 +326,7 @@ public class SearchPresenter extends BasePresenter<SearchView> implements VideoG
         appendFilterByFeatureCategory(settingsPresenter);
         appendSortByCategory(settingsPresenter);
 
-        settingsPresenter.showDialog(getContext().getString(R.string.settings_search));
+        settingsPresenter.showDialog(getContext().getString(R.string.search_filters));
     }
 
     private void appendFilterByDateCategory(AppDialogPresenter settingsPresenter) {

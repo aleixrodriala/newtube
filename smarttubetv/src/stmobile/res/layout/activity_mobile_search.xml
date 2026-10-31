@@ -81,6 +81,15 @@
             android:padding="12dp"
             android:src="@drawable/ic_mobile_mic" />
 
+        <ImageButton
+            android:id="@+id/mobile_search_filter"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/mobile_search_filter"
+            android:padding="12dp"
+            android:src="@drawable/ic_mobile_filter" />
+
     </LinearLayout>
 
     <FrameLayout

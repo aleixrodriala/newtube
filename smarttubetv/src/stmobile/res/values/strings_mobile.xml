@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!-- NewTube branding: override SmartTube's app_name for the mobile flavor only -->
     <string name="app_name" translatable="false">NewTube</string>
     <string name="mobile_player_back">Back</string>
@@ -142,6 +142,7 @@
     <!-- The NW arrow on a suggestion row: puts the text into the field without searching. -->
     <string name="mobile_search_insert">Refine this search</string>
     <string name="mobile_search_clear">Clear search</string>
+    <string name="mobile_search_filter" tools:ignore="MissingTranslation">Search filters</string>
     <!-- Zero-result / failed search (the two are indistinguishable at this seam); tap = retry. -->
     <!-- SearchLoadState: an honest empty answer (no retry), and a failed search. -->
     <string name="mobile_search_no_results">No results for “%1$s”</string>

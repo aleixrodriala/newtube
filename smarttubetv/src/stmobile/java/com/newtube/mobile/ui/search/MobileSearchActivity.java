@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.text.Editable;
@@ -33,13 +34,18 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.search.vineyard.Tag;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.SearchPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SearchView;
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
+import com.liskovsoft.smartyoutubetv2.common.prefs.SearchData;
+import com.liskovsoft.smartyoutubetv2.common.utils.LoadFailure;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.browse.VideoCardAdapter;
+import com.newtube.mobile.ui.common.FeedThumbnailPreloader;
 import com.newtube.mobile.ui.common.FilteredPageTopUp;
 import com.newtube.mobile.ui.common.MobileActivity;
+import com.newtube.mobile.ui.common.MobileGrid;
 import com.newtube.mobile.ui.common.ShortsFilter;
 import com.newtube.mobile.ui.common.SkeletonReveal;
 import com.newtube.mobile.ui.playback.MiniPlayerBridge;
+import com.newtube.mobile.ui.playback.MiniPlayerListInset;
 import com.newtube.mobile.ui.playback.MobileMiniPlayerController;
 
 import java.util.ArrayList;
@@ -92,6 +98,7 @@ public class MobileSearchActivity extends MobileActivity
     private ImageButton mBackButton;
     private ImageButton mClearButton;
     private ImageButton mMicButton;
+    private ImageButton mFilterButton;
     private RecyclerView mSuggestions;
     private SearchTagAdapter mTagAdapter;
     private RecyclerView mGrid;
@@ -151,6 +158,13 @@ public class MobileSearchActivity extends MobileActivity
 
         mBackButton.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
         mMicButton.setOnClickListener(v -> startVoiceRecognition());
+        if (mFilterButton != null) {
+            mFilterButton.setOnClickListener(v -> {
+                if (mPresenter != null) {
+                    mPresenter.onSearchSettingsClicked();
+                }
+            });
+        }
         // Clear the query, keep editing: focus stays, history rows replace the suggestions.
         mClearButton.setOnClickListener(v -> {
             setQueryText("");
@@ -158,9 +172,18 @@ public class MobileSearchActivity extends MobileActivity
             loadSearchTags("");
         });
 
+        updateFilterButtonVisibility();
+
         mPresenter = SearchPresenter.instance(this);
         mPresenter.setView(this);
         mPresenter.onViewInitialized();
+    }
+
+    private void updateFilterButtonVisibility() {
+        if (mFilterButton != null) {
+            boolean enabled = SearchData.instance(this).isSearchFiltersEnabled();
+            mFilterButton.setVisibility(enabled ? View.VISIBLE : View.GONE);
+        }
     }
 
     private void bindViews() {
@@ -168,10 +191,11 @@ public class MobileSearchActivity extends MobileActivity
         mBackButton = findViewById(R.id.mobile_search_back);
         mClearButton = findViewById(R.id.mobile_search_clear);
         mMicButton = findViewById(R.id.mobile_search_mic);
+        mFilterButton = findViewById(R.id.mobile_search_filter);
         mSuggestions = findViewById(R.id.mobile_search_suggestions);
         mGrid = findViewById(R.id.mobile_search_grid);
         // NEWTUBE(mini-inset): the last row can scroll clear of the docked mini-player card.
-        com.newtube.mobile.ui.playback.MiniPlayerListInset.attach(findViewById(R.id.mobile_mini_player), mGrid);
+        MiniPlayerListInset.attach(findViewById(R.id.mobile_mini_player), mGrid);
         mSkeleton = findViewById(R.id.mobile_feed_skeleton);
         installImeInsets((View) mGrid.getParent());
         mSearchMessage = findViewById(R.id.mobile_search_message);
@@ -211,7 +235,7 @@ public class MobileSearchActivity extends MobileActivity
                     @NonNull
                     @Override
                     public WindowInsetsCompat onProgress(@NonNull WindowInsetsCompat insets,
-                            @NonNull java.util.List<WindowInsetsAnimationCompat> running) {
+                            @NonNull List<WindowInsetsAnimationCompat> running) {
                         if (mImeAnimating) {
                             applyImePadding(area, insets);
                         }
@@ -259,7 +283,7 @@ public class MobileSearchActivity extends MobileActivity
         mGrid.setLayoutManager(mLayoutManager);
         mGrid.setAdapter(mAdapter);
         // Next cards' thumbnails decoded before they scroll in (no grey card + fade on a fling).
-        com.newtube.mobile.ui.common.FeedThumbnailPreloader.attach(mGrid, mAdapter);
+        FeedThumbnailPreloader.attach(mGrid, mAdapter);
         mGrid.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
@@ -416,7 +440,7 @@ public class MobileSearchActivity extends MobileActivity
             return;
         }
 
-        long now = android.os.SystemClock.uptimeMillis();
+        long now = SystemClock.uptimeMillis();
         if (normalized.equals(mLastSubmitText) && now - mLastSubmitAtMs < 750) {
             NetPath.log("search-submit deduped source=" + source
                     + " chars=" + normalized.length());
@@ -550,7 +574,7 @@ public class MobileSearchActivity extends MobileActivity
     }
 
     private int computeSpanCount() {
-        return com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(this);
+        return MobileGrid.computeSpanCount(this);
     }
 
     // ---------------------------------------------------------------------------------
@@ -579,6 +603,8 @@ public class MobileSearchActivity extends MobileActivity
     @Override
     protected void onResume() {
         super.onResume();
+
+        updateFilterButtonVisibility();
 
         if (mPresenter != null) {
             mPresenter.onViewResumed();
@@ -662,7 +688,7 @@ public class MobileSearchActivity extends MobileActivity
 
         if (mLayoutManager != null) {
             mLayoutManager.setSpanCount(
-                    com.newtube.mobile.ui.common.MobileGrid.computeSpanCount(newConfig));
+                    MobileGrid.computeSpanCount(newConfig));
         }
     }
 
@@ -902,7 +928,7 @@ public class MobileSearchActivity extends MobileActivity
                 // into a cause-free error (a 503 surfaces that way) classifies as EMPTY too.
                 boolean failed = mPendingFailure >= 0;
                 mLoadState.show(failed ? mPendingFailure
-                        : com.liskovsoft.smartyoutubetv2.common.utils.LoadFailure.classify(this, null),
+                        : LoadFailure.classify(this, null),
                         mSubmittedQuery, !failed);
             }
         });

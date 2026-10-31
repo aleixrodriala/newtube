@@ -1,15 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Section header row for an OptionCategory.title (radio/checkbox/string-list categories). -->
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/dialog_header_title"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:paddingStart="16dp"
-    android:paddingTop="16dp"
-    android:paddingEnd="16dp"
-    android:paddingBottom="8dp"
-    android:textColor="@color/mobile_color_on_surface_secondary"
-    android:textSize="14sp"
-    android:textStyle="bold"
-    tools:text="Video quality" />
+    android:orientation="vertical">
+
+    <View
+        android:id="@+id/dialog_header_divider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp"
+        android:background="@color/mobile_color_divider" />
+
+    <TextView
+        android:id="@+id/dialog_header_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="8dp"
+        android:textColor="@color/mobile_color_on_surface_secondary"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        tools:text="Video quality" />
+
+</LinearLayout>

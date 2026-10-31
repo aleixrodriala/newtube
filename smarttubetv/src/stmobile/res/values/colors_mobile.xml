@@ -25,7 +25,7 @@
     <color name="mobile_color_skeleton_highlight">#F6F6F6</color>
     <color name="mobile_color_link">#065FD4</color>
     <color name="mobile_color_qr_bg">#FFFFFF</color>
-    <color name="mobile_color_divider">#1A000000</color>
+    <color name="mobile_color_divider">#33000000</color>
     <color name="mobile_color_pill">#0D000000</color>
     <!-- Opaque equivalent of the translucent pill over #0F0F0F. MaterialButton flattens a
          translucent background tint onto its white base, which made white "Subscribed" text

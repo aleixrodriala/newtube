@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Phone Settings (issue #2): titles and one-line summaries of the settings tree
      (com.newtube.mobile.ui.settings). Spanish in values-es. -->
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Shared -->
     <string name="mobile_settings_restart_needed">Restart NewTube to apply this change</string>
     <string name="mobile_settings_restart">Restart</string>
@@ -60,6 +60,8 @@
     <string name="mobile_settings_interface_size">Interface size</string>
     <string name="mobile_settings_voice_search">Search by voice right away</string>
     <string name="mobile_settings_voice_search_summary">Opening Search starts listening</string>
+    <string name="mobile_settings_search_filters" tools:ignore="MissingTranslation">Enable search filters</string>
+    <string name="mobile_settings_search_filters_summary" tools:ignore="MissingTranslation">Show filter button in search bar</string>
     <string name="mobile_settings_24_hour">Use 24-hour time</string>
     <string name="mobile_settings_24_hour_summary">For the start times of premieres and live streams</string>
 
