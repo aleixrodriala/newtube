@@ -79,6 +79,10 @@ final class AppPages {
                 context.getString(R.string.mobile_settings_voice_search_summary),
                 searchData::isInstantVoiceSearchEnabled, searchData::setInstantVoiceSearchEnabled));
 
+        rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_search_filters),
+                context.getString(R.string.mobile_settings_search_filters_summary),
+                searchData::isSearchFiltersEnabled, searchData::setSearchFiltersEnabled));
+
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_24_hour),
                 context.getString(R.string.mobile_settings_24_hour_summary),
                 generalData::is24HourLocaleEnabled, generalData::set24HourLocaleEnabled).needsRestart());

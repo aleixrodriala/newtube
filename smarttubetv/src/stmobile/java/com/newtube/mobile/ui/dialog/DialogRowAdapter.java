@@ -1,6 +1,9 @@
 package com.newtube.mobile.ui.dialog;
 
 import android.content.Context;
+import android.graphics.drawable.Drawable;
+import android.text.Spanned;
+import android.text.style.ImageSpan;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -215,12 +218,21 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return new RowViewHolder(inflater.inflate(R.layout.item_mobile_dialog_row, parent, false));
     }
 
+    private boolean isFirstHeader(int position) {
+        for (int i = 0; i < position; i++) {
+            if (mRows.get(i).viewType == TYPE_HEADER) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     @Override
     public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
         Row row = mRows.get(position);
 
         if (holder instanceof HeaderViewHolder) {
-            ((HeaderViewHolder) holder).bind(row);
+            ((HeaderViewHolder) holder).bind(row, isFirstHeader(position));
         } else if (holder instanceof RowViewHolder) {
             ((RowViewHolder) holder).bind(row, mListener);
         }
@@ -233,14 +245,19 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private static class HeaderViewHolder extends RecyclerView.ViewHolder {
         private final TextView title;
+        private final View divider;
 
         HeaderViewHolder(@NonNull View itemView) {
             super(itemView);
             title = itemView.findViewById(R.id.dialog_header_title);
+            divider = itemView.findViewById(R.id.dialog_header_divider);
         }
 
-        void bind(Row row) {
+        void bind(Row row, boolean isFirstHeader) {
             title.setText(row.title);
+            if (divider != null) {
+                divider.setVisibility(isFirstHeader ? View.GONE : View.VISIBLE);
+            }
         }
     }
 
@@ -252,20 +269,20 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * Leanback (which sizes icons itself), so this stays a mobile-renderer concern.
      */
     private static CharSequence sizeInlineIcons(CharSequence text, TextView target) {
-        if (!(text instanceof android.text.Spanned)) {
+        if (!(text instanceof Spanned)) {
             return text;
         }
 
-        android.text.Spanned spanned = (android.text.Spanned) text;
-        android.text.style.ImageSpan[] spans =
-                spanned.getSpans(0, spanned.length(), android.text.style.ImageSpan.class);
+        Spanned spanned = (Spanned) text;
+        ImageSpan[] spans =
+                spanned.getSpans(0, spanned.length(), ImageSpan.class);
         if (spans.length == 0) {
             return text;
         }
 
         int size = Math.round(target.getTextSize() * 1.4f);
-        for (android.text.style.ImageSpan span : spans) {
-            android.graphics.drawable.Drawable drawable = span.getDrawable();
+        for (ImageSpan span : spans) {
+            Drawable drawable = span.getDrawable();
             if (drawable != null) {
                 drawable.setBounds(0, 0, size, size);
             }

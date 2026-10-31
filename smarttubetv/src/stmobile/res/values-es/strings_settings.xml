@@ -58,6 +58,8 @@
     <string name="mobile_settings_interface_size">Tamaño de la interfaz</string>
     <string name="mobile_settings_voice_search">Buscar por voz al instante</string>
     <string name="mobile_settings_voice_search_summary">Al abrir Buscar empieza a escuchar</string>
+    <string name="mobile_settings_search_filters">Activar filtros de búsqueda</string>
+    <string name="mobile_settings_search_filters_summary">Mostrar botón de filtro en la barra de búsqueda</string>
     <string name="mobile_settings_24_hour">Usar formato de 24 horas</string>
     <string name="mobile_settings_24_hour_summary">Para la hora de inicio de estrenos y directos</string>
 

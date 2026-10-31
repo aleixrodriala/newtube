@@ -24,6 +24,7 @@ public class SearchData {
     private boolean mIsPopularSearchesDisabled;
     private boolean mIsKeyboardFixEnabled;
     private boolean mIsTypingCorrectionDisabled;
+    private boolean mIsSearchFiltersEnabled = true;
 
     private SearchData(Context context) {
         mAppPrefs = AppPrefs.instance(context);
@@ -145,6 +146,15 @@ public class SearchData {
         persistData();
     }
 
+    public boolean isSearchFiltersEnabled() {
+        return mIsSearchFiltersEnabled;
+    }
+
+    public void setSearchFiltersEnabled(boolean enabled) {
+        mIsSearchFiltersEnabled = enabled;
+        persistData();
+    }
+
     private void restoreData() {
         String data = mAppPrefs.getData(SEARCH_DATA);
 
@@ -165,6 +175,7 @@ public class SearchData {
         mIsPopularSearchesDisabled = Helpers.parseBoolean(split, 9, false);
         mIsKeyboardFixEnabled = Helpers.parseBoolean(split, 10, false);
         mIsTypingCorrectionDisabled = Helpers.parseBoolean(split, 11, false);
+        mIsSearchFiltersEnabled = Helpers.parseBoolean(split, 12, true);
     }
 
     private void persistData() {
@@ -172,6 +183,6 @@ public class SearchData {
                 Helpers.mergeData(mIsInstantVoiceSearchEnabled, mSearchOptions, mIsFocusOnResultsEnabled,
                         mIsKeyboardAutoShowEnabled, mIsTempBackgroundModeEnabled, null, mSpeechRecognizerType,
                         mIsTrendingSearchesEnabled, mIsSearchHistoryDisabled, mIsPopularSearchesDisabled,
-                        mIsKeyboardFixEnabled, mIsTypingCorrectionDisabled));
+                        mIsKeyboardFixEnabled, mIsTypingCorrectionDisabled, mIsSearchFiltersEnabled));
     }
 }
