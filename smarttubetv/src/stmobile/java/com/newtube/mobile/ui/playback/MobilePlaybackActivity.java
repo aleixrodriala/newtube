@@ -193,6 +193,7 @@ public class MobilePlaybackActivity extends MobileActivity
     private TextView mTitleView;
     private ImageButton mBackButton;
     private ImageButton mPlayPauseButton;
+    private QueueBarView mQueueBar;
     private ImageButton mFullscreenButton;
     private TextView mPositionView;
     private TextView mDurationView;
@@ -685,6 +686,8 @@ public class MobilePlaybackActivity extends MobileActivity
         mTitleView = findViewById(R.id.mobile_player_title);
         mBackButton = findViewById(R.id.mobile_player_back);
         mPlayPauseButton = findViewById(R.id.mobile_player_play_pause);
+        mQueueBar = findViewById(R.id.mobile_queue_bar);
+        mQueueBar.bind(this, this::openQueueSheet);
         mFullscreenButton = findViewById(R.id.mobile_player_fullscreen);
         mPositionView = findViewById(R.id.mobile_player_position);
         mDurationView = findViewById(R.id.mobile_player_duration);
@@ -1105,6 +1108,10 @@ public class MobilePlaybackActivity extends MobileActivity
      * Landscape: hide the content and let the video fill the whole screen (PLAYER POLISH immersive).
      */
     private void applyWatchLayoutForOrientation(int orientation) {
+        if (mQueueBar != null) {
+            mQueueBar.setAvailable(orientation != Configuration.ORIENTATION_LANDSCAPE
+                    && !isInPictureInPictureMode());
+        }
         if (mVideoArea == null) {
             return;
         }
@@ -1572,6 +1579,8 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mPresenter != null) {
             mPresenter.onViewResumed();
         }
+        // Edits made while browsing must be reflected on return, without background UI work.
+        if (getVideo() != null) refreshQueueSuggestions();
 
         // Foreground recovery: if a background startForeground was rejected (API 31+, see
         // MobilePlaybackService.onNotificationPosted), re-run the promotion now that we're visible.
@@ -1900,6 +1909,9 @@ public class MobilePlaybackActivity extends MobileActivity
         int scrollY = mWatchScroll != null ? mWatchScroll.getScrollY() : 0;
         View fresh = getLayoutInflater().inflate(R.layout.activity_mobile_playback, new FrameLayout(this), false);
         View freshArea = fresh.findViewById(R.id.mobile_watch_area);
+        if (mQueueBar != null) {
+            ThemeRefresh.copyColors(mQueueBar, fresh.findViewById(R.id.mobile_queue_bar), new ArrayList<>());
+        }
         List<RecyclerView> lists = new ArrayList<>();
         int skipped = freshArea != null ? ThemeRefresh.copyColors(liveArea, freshArea, lists) : 1;
         if (mCommentsPanel != null) {
@@ -2610,6 +2622,7 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mWatchScroll != null) {
             mWatchScroll.setVisibility(View.GONE);
         }
+        if (mQueueBar != null) mQueueBar.setAvailable(false);
         if (mCommentsPanel != null) {
             mCommentsPanel.setSuspended(true);
         }
@@ -8418,11 +8431,12 @@ public class MobilePlaybackActivity extends MobileActivity
         // null, not empty, when the playing video is the last one (Playlist.getAllAfterCurrent).
         List<Video> next = Playlist.instance().getAllAfterCurrent();
         if (next == null || next.isEmpty()) {
-            mSuggestionVideos.remove(id);
+            boolean removed = mSuggestionVideos.remove(id) != null;
             mSuggestionGroups.remove(id);
-            rebuildRelatedList();
+            if (removed) rebuildRelatedList();
             return;
         }
+        if (QueueCardPolicy.sameItems(mSuggestionVideos.get(id), next)) return;
         VideoGroup group = VideoGroup.from(new ArrayList<>(next));
         group.setTitle(title);
         group.setId(id);
@@ -8452,6 +8466,13 @@ public class MobilePlaybackActivity extends MobileActivity
             List<Video> vids = entry.getValue();
             if (vids == null) {
                 continue;
+            }
+            VideoGroup group = mSuggestionGroups.get(entry.getKey());
+            if (group != null && group.getType() == MediaGroup.TYPE_PLAYBACK_QUEUE) {
+                // The controller's queue row contains only upcoming videos. Read the same live
+                // store as the sheet so the card includes the current video and never old rows.
+                if (isQueueRow) mQueueVideos.addAll(Playlist.instance().getAll());
+                continue; // never present an obsolete local queue as recommendations
             }
             for (Video v : vids) {
                 if (v == null || com.newtube.mobile.ui.common.ShortsFilter.isShort(v)) {
@@ -8539,11 +8560,14 @@ public class MobilePlaybackActivity extends MobileActivity
     private Integer findQueueGroupId(Video current) {
         String currentId = current != null ? current.videoId : null;
 
-        if (currentId == null || !isChosenPlaylist(current)) {
-            return null;
-        }
+        if (currentId == null) return null;
+        Integer localQueue = QueueCardPolicy.localGroupId(current, mSuggestionGroups);
+        if (localQueue != null) return localQueue;
+        if (!isChosenPlaylist(current)) return null;
 
         for (Map.Entry<Integer, List<Video>> entry : mSuggestionVideos.entrySet()) {
+            VideoGroup group = mSuggestionGroups.get(entry.getKey());
+            if (group != null && group.getType() == MediaGroup.TYPE_PLAYBACK_QUEUE) continue;
             List<Video> vids = entry.getValue();
             if (vids == null) {
                 continue;
@@ -8620,6 +8644,9 @@ public class MobilePlaybackActivity extends MobileActivity
         PlaylistInfo info = !isSectionQueue || namesSameList ? currentInfo : null;
 
         VideoGroup queueGroup = queueId != null ? mSuggestionGroups.get(queueId) : null;
+        if (queueGroup != null && queueGroup.getType() == MediaGroup.TYPE_PLAYBACK_QUEUE) {
+            info = null; // remote playlist counters do not describe a locally edited queue
+        }
         // Prefer the title of the group whose videos are on screen, so the name always describes
         // the list under it.
         String name = queueGroup != null ? queueGroup.getTitle() : null;

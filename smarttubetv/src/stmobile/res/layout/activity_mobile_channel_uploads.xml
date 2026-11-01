@@ -12,11 +12,17 @@
   {@code item_mobile_playlist_header.xml}. Channel uploads have no playlist behind them, so
   they show no header and keep the compact "Play all" button in the toolbar instead.
 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="0dp"
+    android:layout_weight="1">
 
 <LinearLayout
     android:id="@+id/mobile_channel_uploads_root"
@@ -129,3 +135,10 @@
     <include layout="@layout/mobile_mini_player_overlay" />
 
 </FrameLayout>
+
+    <!-- Keep both results and the floating mini-player above the queue entry point. -->
+    <com.newtube.mobile.ui.playback.QueueBarView
+        android:id="@+id/mobile_queue_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+</LinearLayout>

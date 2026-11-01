@@ -484,4 +484,13 @@
     <!-- Experimental SABR playback (was strings_sabr.xml) -->
     <string name="sabr_vod_option">Prefer SABR even when links work (experimental; next VOD)</string>
     <string name="sabr_vod_stopped">Experimental SABR playback stopped. Tap play to retry, or disable SABR in Settings.</string>
+    <string name="mobile_queue_bar_next">%1$s · %2$s</string>
+    <string name="mobile_queue_bar_end">Queue finished · tap to view</string>
+    <string name="mobile_queue_bar_open">Open playback queue. %1$s</string>
+    <plurals name="mobile_queue_bar_remaining">
+        <item quantity="one">%d video remaining</item>
+        <item quantity="other">%d videos remaining</item>
+    </plurals>
+    <string name="mobile_queue_untitled_video">Untitled video</string>
+    <string name="add_to_playback_queue">Add to queue</string>
 </resources>

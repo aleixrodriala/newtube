@@ -80,6 +80,7 @@ final class PhoneOnlyPrefs implements AppPrefs.ProfileChangeListener {
         }
 
         MainUIData ui = MainUIData.instance(mContext);
+        CardMenuMigration.enableQueueActionsOnce(ui, AppPrefs.instance(mContext));
         if (ui.isUploadsOldLookEnabled()) {
             ui.setUploadsOldLookEnabled(false);
         }

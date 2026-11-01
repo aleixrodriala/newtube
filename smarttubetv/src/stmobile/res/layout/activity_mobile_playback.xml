@@ -1211,6 +1211,13 @@
 
         </FrameLayout>
 
+        <com.newtube.mobile.ui.playback.QueueBarView
+            android:id="@+id/mobile_queue_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/newtubeColorBackground"
+            android:visibility="gone" />
+
     </com.newtube.mobile.ui.playback.WatchRootLayout>
 
 </com.newtube.mobile.ui.playback.PlayerContainerLayout>

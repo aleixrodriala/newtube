@@ -17,6 +17,23 @@ public class Playlist {
     private final List<Video> mSyncedItems;
     private int mCurrentIndex;
     private static Playlist sInstance;
+    private final java.util.concurrent.CopyOnWriteArrayList<Runnable> mListeners =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /** Structural/current-item changes only; never playback-position ticks. */
+    public void addListener(Runnable listener) {
+        mListeners.addIfAbsent(listener);
+    }
+
+    public void removeListener(Runnable listener) {
+        mListeners.remove(listener);
+    }
+
+    private void notifyChanged() {
+        for (Runnable listener : mListeners) {
+            listener.run();
+        }
+    }
 
     private Playlist() {
         mPlaylist = new ArrayList<>();
@@ -39,10 +56,25 @@ public class Playlist {
     public void clear() {
         mPlaylist.clear();
         mCurrentIndex = -1;
+        notifyChanged();
+    }
+
+    /** Clears the queue in one pass and emits one complete state, preserving the playing object. */
+    public void clearExceptCurrent() {
+        Video current = getCurrent();
+        if (mPlaylist.isEmpty() || (mPlaylist.size() == 1 && current != null)) return;
+        for (Video video : mPlaylist) {
+            if (video != null && video != current) video.fromQueue = false;
+        }
+        mPlaylist.clear();
+        if (current != null) mPlaylist.add(current);
+        mCurrentIndex = current != null ? 0 : -1;
+        notifyChanged();
     }
 
     public void clearPosition() {
         mCurrentIndex = -1;
+        notifyChanged();
     }
 
     /**
@@ -51,6 +83,7 @@ public class Playlist {
     public void addAll(List<Video> videos) {
         mPlaylist.removeAll(videos);
         mPlaylist.addAll(videos);
+        notifyChanged();
     }
 
     /**
@@ -87,6 +120,7 @@ public class Playlist {
         // In this case remove all next items.
         trimPlaylist();
         stripPrevItem();
+        notifyChanged();
     }
 
     public void next(Video video) {
@@ -109,6 +143,7 @@ public class Playlist {
         // In this case remove all next items.
         trimPlaylist();
         stripPrevItem();
+        notifyChanged();
     }
 
     public void remove(Video video) {
@@ -139,6 +174,7 @@ public class Playlist {
             if (mCurrentIndex >= mPlaylist.size()) {
                 mCurrentIndex = mPlaylist.size() - 1;
             }
+            notifyChanged();
         }
     }
 
@@ -159,6 +195,7 @@ public class Playlist {
         if (current != null) {
             mCurrentIndex = indexOfInstance(current);
         }
+        notifyChanged();
     }
 
     /** By identity: {@code Video.equals} is a composite that two rows of one video can share. */
@@ -255,6 +292,7 @@ public class Playlist {
             add(video);
             mCurrentIndex = mPlaylist.size() - 1;
         }
+        notifyChanged();
     }
 
     public Video getCurrent() {
@@ -309,6 +347,7 @@ public class Playlist {
         if (fromIndex > 0 && fromIndex < size) {
             //mPlaylist = mPlaylist.subList(0, fromIndex);
             mPlaylist.subList(fromIndex, size).clear();
+            notifyChanged();
         }
     }
 
@@ -351,6 +390,7 @@ public class Playlist {
 
         if (index != -1) {
             mPlaylist.set(index, newItem);
+            notifyChanged();
         }
     }
 
