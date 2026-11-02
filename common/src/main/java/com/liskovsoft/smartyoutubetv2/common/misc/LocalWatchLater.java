@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.liskovsoft.smartyoutubetv2.common.R;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 
 import org.json.JSONArray;
@@ -31,10 +32,12 @@ public final class LocalWatchLater {
 
     private static final String PREFS_NAME = "newtube_watch_later";
     private static final String KEY_VIDEOS = "videos";
+    /** The last saved list that couldn't be read in full, as it was (see {@link #videos()}). */
+    private static final String KEY_DAMAGED = "videos_damaged";
     /** Saved since the last offer to copy the phone's lists to an account (LocalPlaylistsCopy). */
     private static final String KEY_COPY_OFFER = "copy_offer_pending";
     /** Far more than anyone keeps; the oldest go first past it, so the file stays small. */
-    private static final int MAX_VIDEOS = 2000;
+    public static final int MAX_VIDEOS = 2000;
 
     private static volatile LocalWatchLater sInstance;
 
@@ -73,10 +76,15 @@ public final class LocalWatchLater {
         return videoId != null && indexOf(videoId) >= 0;
     }
 
-    /** Saves {@code video} at the top (moving it there if it was already saved). */
-    public synchronized void add(@NonNull Video video) {
+    /**
+     * Saves {@code video} at the top (moving it there if it was already saved).
+     *
+     * @return true when the oldest video went to make room ({@link #MAX_VIDEOS}), which the person
+     *         should hear about ({@link #savedMessage})
+     */
+    public synchronized boolean add(@NonNull Video video) {
         if (!canSave(video)) {
-            return;
+            return false;
         }
         List<Video> videos = videos();
         int index = indexOf(video.videoId);
@@ -84,11 +92,21 @@ public final class LocalWatchLater {
             videos.remove(index);
         }
         videos.add(0, entryFor(video));
+        boolean madeRoom = false;
         while (videos.size() > MAX_VIDEOS) {
             videos.remove(videos.size() - 1);
+            madeRoom = true;
         }
         persist();
         mPrefs.edit().putBoolean(KEY_COPY_OFFER, true).apply();
+        return madeRoom;
+    }
+
+    /** What to say after {@link #add}: saved, and that the oldest video went if it had to. */
+    @NonNull
+    public static String savedMessage(@NonNull Context context, boolean madeRoom) {
+        return madeRoom ? context.getString(R.string.saved_to_watch_later_full, MAX_VIDEOS)
+                : context.getString(R.string.saved_to_watch_later);
     }
 
     public synchronized void remove(@Nullable String videoId) {
@@ -169,22 +187,38 @@ public final class LocalWatchLater {
         if (mVideos == null) {
             mVideos = new ArrayList<>();
             String json = mPrefs.getString(KEY_VIDEOS, null);
-            if (json != null) {
-                try {
-                    JSONArray specs = new JSONArray(json);
-                    for (int i = 0; i < specs.length(); i++) {
-                        Video video = Video.fromString(specs.optString(i, null));
-                        if (video != null && video.videoId != null) {
-                            mVideos.add(video);
-                        }
-                    }
-                } catch (JSONException | RuntimeException e) {
-                    // A damaged file starts over rather than taking the app down with it.
-                    mVideos.clear();
-                }
+            if (json != null && !parse(json, mVideos)) {
+                // What couldn't be read is put aside before the next save writes over it: a bad
+                // entry costs only itself, and a damaged file is still there to be recovered.
+                mPrefs.edit().putString(KEY_DAMAGED, json).apply();
             }
         }
         return mVideos;
+    }
+
+    /** Reads the saved specs into {@code videos}, one by one; false when any of it couldn't be read. */
+    private static boolean parse(@NonNull String json, @NonNull List<Video> videos) {
+        JSONArray specs;
+        try {
+            specs = new JSONArray(json);
+        } catch (JSONException e) {
+            return false;
+        }
+        boolean intact = true;
+        for (int i = 0; i < specs.length(); i++) {
+            Video video;
+            try {
+                video = Video.fromString(specs.optString(i, null));
+            } catch (RuntimeException e) {
+                video = null;
+            }
+            if (video != null && video.videoId != null) {
+                videos.add(video);
+            } else {
+                intact = false;
+            }
+        }
+        return intact;
     }
 
     private void persist() {

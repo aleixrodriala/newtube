@@ -8,6 +8,7 @@
     <string name="header_watch_later">Watch later</string>
     <string name="remove_video_from_watch_later">Remove from Watch later</string>
     <string name="saved_to_watch_later">Saved to Watch later</string>
+    <string name="saved_to_watch_later_full">Saved to Watch later. It keeps %1$d videos, so the oldest one was removed.</string>
     <string name="removed_from_watch_later">Removed from Watch later</string>
     <!-- NEWTUBE(playlists): playlists kept on the phone while signed out (LocalPlaylists). -->
     <plurals name="local_playlist_videos">

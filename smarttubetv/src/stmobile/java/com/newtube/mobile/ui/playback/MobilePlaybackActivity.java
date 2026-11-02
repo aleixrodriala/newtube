@@ -7746,34 +7746,6 @@ public class MobilePlaybackActivity extends MobileActivity
      * additionally resets the header, scrolls back to the top and kicks off a metadata load for the
      * bits not stored on the Video (channel avatar, clean view-count / date line).
      */
-    /**
-     * NEWTUBE(watch-later): signed out, the Save pill says whether this video is saved on the phone
-     * (Watch later or a phone playlist); signed in, the shared controller sets it from the
-     * account's playlists.
-     */
-    /** Saved on the phone (signed-out use): the state the Save pill shows while signed out. */
-    private boolean isSavedLocally(String videoId) {
-        return LocalWatchLater.instance(this).contains(videoId)
-                || LocalPlaylists.instance(this).containsAnywhere(videoId);
-    }
-
-    private void updateLocalSaveState() {
-        if (YouTubeSignInService.instance().isSigned() || mWatchVideo == null) {
-            return;
-        }
-        updateButtonVisual(R.id.action_playlist_add, isSavedLocally(mWatchVideo.videoId) ? BUTTON_ON : BUTTON_OFF);
-    }
-
-    /**
-     * NEWTUBE(playlists): signed out, Save opens the phone's Save sheet (Watch later and the phone's
-     * playlists); the pill reads Saved again when it closes.
-     */
-    private void openLocalSaveSheet() {
-        if (LocalWatchLater.canSave(mWatchVideo)) {
-            LocalPlaylistSheet.show(this, mWatchVideo, null, () -> runOnUiThread(this::updateLocalSaveState));
-        }
-    }
-
     private void bindWatchVideo(Video item) {
         if (item == null || mWatchTitle == null) {
             return;
@@ -7845,6 +7817,34 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         if (!TextUtils.isEmpty(item.description)) {
             mWatchDescription.setText(item.description);
+        }
+    }
+
+    /** Saved on the phone (signed-out use): the state the Save pill shows while signed out. */
+    private boolean isSavedLocally(String videoId) {
+        return LocalWatchLater.instance(this).contains(videoId)
+                || LocalPlaylists.instance(this).containsAnywhere(videoId);
+    }
+
+    /**
+     * NEWTUBE(watch-later): signed out, the Save pill says whether this video is saved on the phone
+     * (Watch later or a phone playlist); signed in, the shared controller sets it from the
+     * account's playlists.
+     */
+    private void updateLocalSaveState() {
+        if (YouTubeSignInService.instance().isSigned() || mWatchVideo == null) {
+            return;
+        }
+        updateButtonVisual(R.id.action_playlist_add, isSavedLocally(mWatchVideo.videoId) ? BUTTON_ON : BUTTON_OFF);
+    }
+
+    /**
+     * NEWTUBE(playlists): signed out, Save opens the phone's Save sheet (Watch later and the phone's
+     * playlists); the pill reads Saved again when it closes.
+     */
+    private void openLocalSaveSheet() {
+        if (LocalWatchLater.canSave(mWatchVideo)) {
+            LocalPlaylistSheet.show(this, mWatchVideo, null, () -> runOnUiThread(this::updateLocalSaveState));
         }
     }
 
