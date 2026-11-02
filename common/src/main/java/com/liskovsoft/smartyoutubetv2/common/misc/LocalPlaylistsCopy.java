@@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.core.Completable;
+import io.reactivex.rxjava3.core.Single;
 import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 
@@ -40,18 +41,52 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * <p>Only what this account hasn't been given yet is copied ({@link Copied}, kept per account): a
  * second sign-in after saving one more video copies that one video, not every playlist again.</p>
  *
- * <p>YouTube's "create playlist" answers with no id, so each new playlist is found again by its
- * title among the playlists that now hold its first video ({@link #findCreated}), and the rest are
- * added to it. Playlists are made one at a time, so two with the same name can't be confused.</p>
+ * <p>YouTube's "create playlist" answers with no id, so each new playlist is found again among the
+ * playlists that now hold its first video: the one with its title that wasn't there before
+ * ({@link #findCreated}), and the rest are added to it.</p>
+ *
+ * <p>MediaServiceCore drops YouTube's answer to an add, so a video YouTube refuses (a full or
+ * deleted playlist, a private video, too many requests) looks added. Only what YouTube's own list of
+ * a video's playlists shows ({@link #holds}) counts as copied; the rest stays to copy.</p>
  */
 public final class LocalPlaylistsCopy {
     private static final String TAG = LocalPlaylistsCopy.class.getSimpleName();
     private static final String PREFS_NAME = "newtube_playlist_copies";
     private static final String WATCH_LATER = "wl";
+    /** The account's Watch later: first in every video's "add to playlist" list from YouTube. */
+    private static final String YOUTUBE_WATCH_LATER = "WL";
 
     public interface Callback {
-        /** On the main thread. {@code failed}: items YouTube didn't take (they stay on the phone). */
-        void onDone(int playlists, int videos, int failed);
+        /** On the main thread. */
+        void onDone(@NonNull Outcome outcome);
+    }
+
+    /** What a copy did. Filled in as it goes: its steps run one after another, on more than one thread. */
+    public static final class Outcome {
+        final AtomicInteger playlists = new AtomicInteger();
+        final AtomicInteger videos = new AtomicInteger();
+        final AtomicInteger failedPlaylists = new AtomicInteger();
+        final AtomicInteger failedVideos = new AtomicInteger();
+
+        /** Playlists made on the account. */
+        public int playlists() {
+            return playlists.get();
+        }
+
+        /** Videos the account was given (Watch later and playlists) and shows. */
+        public int videos() {
+            return videos.get();
+        }
+
+        /** Playlists that couldn't be made, or found once made: they stay to copy. */
+        public int failedPlaylists() {
+            return failedPlaylists.get();
+        }
+
+        /** Videos YouTube didn't take, or doesn't show: they stay to copy. */
+        public int failedVideos() {
+            return failedVideos.get();
+        }
     }
 
     private LocalPlaylistsCopy() {
@@ -86,157 +121,159 @@ public final class LocalPlaylistsCopy {
 
     @NonNull
     public static Disposable copyToAccount(@NonNull Context context, @NonNull Callback callback) {
-        Context app = context.getApplicationContext();
-        MediaItemService service = YouTubeMediaItemService.instance();
-        Copied copied = Copied.load(app, accountKey());
-        LocalPlaylists store = LocalPlaylists.instance(app);
-        List<LocalPlaylists.LocalPlaylist> playlists = store.playlists();
-
-        AtomicInteger copiedPlaylists = new AtomicInteger();
-        AtomicInteger copiedVideos = new AtomicInteger();
-        AtomicInteger failed = new AtomicInteger();
-
-        List<Completable> steps = new ArrayList<>();
-        List<Video> watchLater = notCopied(copied, WATCH_LATER, LocalWatchLater.instance(app).oldestFirst());
-        if (!watchLater.isEmpty()) {
-            steps.add(copyWatchLater(service, watchLater, copied, copiedVideos, failed));
-        }
-        // The list is newest first; making the oldest first keeps the account's order the same.
-        for (int i = playlists.size() - 1; i >= 0; i--) {
-            LocalPlaylists.LocalPlaylist playlist = playlists.get(i);
-            List<Video> videos = notCopied(copied, playlist.id, store.videos(playlist.id));
-            if (!copied.hasPlaylist(playlist.id)) {
-                steps.add(copyPlaylist(service, playlist, videos, copied, copiedPlaylists, copiedVideos, failed));
-            } else if (!videos.isEmpty()) {
-                steps.add(addToCopied(service, playlist, videos, copied, copiedVideos, failed));
-            }
-        }
-
-        return Completable.concat(steps)
-                .doFinally(copied::save)
+        Outcome outcome = new Outcome();
+        return copy(context.getApplicationContext(), YouTubeMediaItemService.instance(), accountKey(), outcome)
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(
-                        () -> callback.onDone(copiedPlaylists.get(), copiedVideos.get(), failed.get()),
-                        error -> { // each step swallows its own errors; this is a safety net
+                        () -> callback.onDone(outcome),
+                        error -> { // each step handles its own errors; this is a safety net
                             Log.e(TAG, "Copy failed: %s", error.getMessage());
-                            callback.onDone(copiedPlaylists.get(), copiedVideos.get(), failed.get() + 1);
+                            outcome.failedVideos.incrementAndGet();
+                            callback.onDone(outcome);
                         });
     }
 
-    /** Watch later is the first entry of any video's "add to playlist" list, as on YouTube. */
-    private static Completable copyWatchLater(MediaItemService service, List<Video> videos, Copied copied,
-                                              AtomicInteger copiedVideos, AtomicInteger failed) {
-        return service.getPlaylistsInfoObserve(videos.get(0).videoId)
-                .firstOrError()
-                .flatMapCompletable(infos -> {
-                    if (infos.isEmpty()) {
-                        failed.addAndGet(videos.size());
-                        return Completable.complete();
-                    }
-                    return addAll(service, infos.get(0).getPlaylistId(), WATCH_LATER, videos, copied, copiedVideos, failed);
-                })
-                .onErrorComplete(error -> {
-                    Log.e(TAG, "Watch later: %s", error.getMessage());
-                    failed.addAndGet(videos.size());
-                    return true;
-                });
+    /** The copy to {@code account}: Watch later, then the playlists, oldest first. */
+    @NonNull
+    @VisibleForTesting
+    static Completable copy(@NonNull Context app, @NonNull MediaItemService service, @NonNull String account,
+                            @NonNull Outcome outcome) {
+        return Completable.defer(() -> {
+            Copied copied = Copied.load(app, account);
+            LocalPlaylists store = LocalPlaylists.instance(app);
+            List<LocalPlaylists.LocalPlaylist> playlists = store.playlists();
+
+            List<Completable> steps = new ArrayList<>();
+            List<Video> watchLater = notCopied(copied, WATCH_LATER, LocalWatchLater.instance(app).oldestFirst());
+            if (!watchLater.isEmpty()) {
+                steps.add(addAll(service, YOUTUBE_WATCH_LATER, WATCH_LATER, watchLater, copied, outcome));
+            }
+            // The list is newest first; making the oldest first keeps the account's order the same.
+            for (int i = playlists.size() - 1; i >= 0; i--) {
+                LocalPlaylists.LocalPlaylist playlist = playlists.get(i);
+                List<Video> videos = notCopied(copied, playlist.id, store.videos(playlist.id));
+                if (!copied.hasPlaylist(playlist.id)) {
+                    steps.add(copyPlaylist(service, playlist, videos, copied, outcome));
+                } else if (!videos.isEmpty()) {
+                    steps.add(addToCopied(service, playlist, videos, copied, outcome));
+                }
+            }
+            return Completable.concat(steps).doFinally(copied::save);
+        });
     }
 
-    /** A playlist this account doesn't have yet: create it, find its id, add the rest. */
+    /**
+     * A playlist this account doesn't have yet: note the account's playlists, make it with its first
+     * video, find its id (the one with its name that wasn't there before), add the rest.
+     */
     private static Completable copyPlaylist(MediaItemService service, LocalPlaylists.LocalPlaylist playlist,
-                                            List<Video> videos, Copied copied, AtomicInteger copiedPlaylists,
-                                            AtomicInteger copiedVideos, AtomicInteger failed) {
+                                            List<Video> videos, Copied copied, Outcome outcome) {
         String title = playlist.title;
         if (videos.isEmpty()) {
             return service.createPlaylistObserve(title, (com.liskovsoft.mediaserviceinterfaces.data.MediaItem) null)
                     .ignoreElements()
                     .doOnComplete(() -> {
-                        copiedPlaylists.incrementAndGet();
+                        outcome.playlists.incrementAndGet();
                         copied.putPlaylist(playlist.id, null); // its id is found when it gets a video
                     })
                     .onErrorComplete(error -> {
                         Log.e(TAG, "Create %s: %s", title, error.getMessage());
-                        failed.incrementAndGet();
+                        outcome.failedPlaylists.incrementAndGet();
                         return true;
                     });
         }
 
         Video first = videos.get(0);
         List<Video> rest = videos.subList(1, videos.size());
-        return service.createPlaylistObserve(title, first.videoId)
-                .ignoreElements()
-                .andThen(Completable.defer(() -> {
-                    copiedPlaylists.incrementAndGet();
-                    copiedVideos.incrementAndGet();
-                    copied.putVideo(playlist.id, first.videoId);
-                    return service.getPlaylistsInfoObserve(first.videoId)
-                            .firstOrError()
-                            .flatMapCompletable(infos -> {
-                                String id = findCreated(infos, title);
-                                copied.putPlaylist(playlist.id, id);
-                                if (rest.isEmpty()) {
-                                    return Completable.complete();
-                                }
+        return playlistsOf(service, first.videoId)
+                .flatMapCompletable(before -> {
+                    if (!answered(before)) {
+                        Log.e(TAG, "Copy %s: no answer from YouTube", title);
+                        outcome.failedPlaylists.incrementAndGet();
+                        return Completable.complete();
+                    }
+                    return service.createPlaylistObserve(title, first.videoId)
+                            .ignoreElements()
+                            .andThen(playlistsOf(service, first.videoId))
+                            .flatMapCompletable(after -> {
+                                String id = findCreated(after, title, before);
                                 if (id == null) {
+                                    // MediaServiceCore reports no refusal: not in YouTube's list is not made.
                                     Log.e(TAG, "Created %s but can't find it", title);
-                                    failed.addAndGet(rest.size());
+                                    outcome.failedPlaylists.incrementAndGet();
                                     return Completable.complete();
                                 }
-                                return addAll(service, id, playlist.id, rest, copied, copiedVideos, failed);
+                                outcome.playlists.incrementAndGet();
+                                outcome.videos.incrementAndGet();
+                                copied.putPlaylist(playlist.id, id);
+                                copied.putVideo(playlist.id, first.videoId);
+                                return addAll(service, id, playlist.id, rest, copied, outcome);
                             });
-                }))
+                })
                 .onErrorComplete(error -> {
                     Log.e(TAG, "Copy %s: %s", title, error.getMessage());
-                    failed.addAndGet(videos.size());
+                    outcome.failedPlaylists.incrementAndGet();
                     return true;
                 });
     }
 
     /** A playlist copied before: just the videos it got since. */
     private static Completable addToCopied(MediaItemService service, LocalPlaylists.LocalPlaylist playlist,
-                                           List<Video> videos, Copied copied, AtomicInteger copiedVideos,
-                                           AtomicInteger failed) {
+                                           List<Video> videos, Copied copied, Outcome outcome) {
         String known = copied.remoteId(playlist.id);
         if (known != null) {
-            return addAll(service, known, playlist.id, videos, copied, copiedVideos, failed);
+            return addAll(service, known, playlist.id, videos, copied, outcome);
         }
         // Copied while empty, so its id was never seen: find it by name among this video's list.
-        return service.getPlaylistsInfoObserve(videos.get(0).videoId)
-                .firstOrError()
+        return playlistsOf(service, videos.get(0).videoId)
                 .flatMapCompletable(infos -> {
                     String id = findByTitle(infos, playlist.title);
                     if (id == null) {
-                        failed.addAndGet(videos.size());
+                        outcome.failedVideos.addAndGet(videos.size());
                         return Completable.complete();
                     }
                     copied.putPlaylist(playlist.id, id);
-                    return addAll(service, id, playlist.id, videos, copied, copiedVideos, failed);
+                    return addAll(service, id, playlist.id, videos, copied, outcome);
                 })
                 .onErrorComplete(error -> {
                     Log.e(TAG, "Add to %s: %s", playlist.title, error.getMessage());
-                    failed.addAndGet(videos.size());
+                    outcome.failedVideos.addAndGet(videos.size());
                     return true;
                 });
     }
 
-    /** One video at a time, in order; one YouTube refuses is counted and the rest still go. */
+    /**
+     * One video at a time, in order. Each counts as copied once YouTube's own list of the video's
+     * playlists shows it in {@code playlistId}; one that isn't is counted and the rest still go.
+     */
     private static Completable addAll(MediaItemService service, String playlistId, String localId, List<Video> videos,
-                                      Copied copied, AtomicInteger copiedVideos, AtomicInteger failed) {
+                                      Copied copied, Outcome outcome) {
         List<Completable> adds = new ArrayList<>();
         for (Video video : videos) {
-            adds.add(service.addToPlaylistObserve(playlistId, video.videoId)
+            adds.add(Completable.defer(() -> service.addToPlaylistObserve(playlistId, video.videoId)
                     .ignoreElements()
-                    .doOnComplete(() -> {
-                        copiedVideos.incrementAndGet();
-                        copied.putVideo(localId, video.videoId);
+                    .andThen(playlistsOf(service, video.videoId))
+                    .flatMapCompletable(infos -> {
+                        if (holds(infos, playlistId)) {
+                            outcome.videos.incrementAndGet();
+                            copied.putVideo(localId, video.videoId);
+                        } else {
+                            outcome.failedVideos.incrementAndGet();
+                        }
+                        return Completable.complete();
                     })
                     .onErrorComplete(error -> {
-                        failed.incrementAndGet();
+                        outcome.failedVideos.incrementAndGet();
                         return true;
-                    }));
+                    })));
         }
         return Completable.concat(adds);
+    }
+
+    /** YouTube's "add to playlist" list for a video: the account's playlists, each saying if it holds it. */
+    private static Single<List<PlaylistInfo>> playlistsOf(MediaItemService service, String videoId) {
+        return service.getPlaylistsInfoObserve(videoId).firstOrError();
     }
 
     @NonNull
@@ -251,38 +288,94 @@ public final class LocalPlaylistsCopy {
     }
 
     /**
-     * The id of the playlist just created as {@code title}: among the playlists holding its first
-     * video, the one with that name. Watch later (the first entry) is never it. More than one match
-     * means the account already had a playlist of that name holding this video; either is a fair
-     * home for the rest, and the last one is taken.
+     * True for an answer that came from YouTube. MediaServiceCore's PlaylistServiceWrapper mixes its
+     * own phone-side copies of playlists into the list, and when YouTube's answer fails it answers
+     * with those alone, each "holding" what it was last told to add. YouTube's own answer starts with
+     * Watch later; that list starts with the playlist touched last.
+     */
+    @VisibleForTesting
+    static boolean answered(@Nullable List<PlaylistInfo> infos) {
+        return infos != null && !infos.isEmpty() && infos.get(0) != null
+                && YOUTUBE_WATCH_LATER.equals(infos.get(0).getPlaylistId());
+    }
+
+    /** True when YouTube's answer for a video shows it in {@code playlistId}. */
+    @VisibleForTesting
+    static boolean holds(@Nullable List<PlaylistInfo> infos, @NonNull String playlistId) {
+        if (!answered(infos)) {
+            return false;
+        }
+        for (PlaylistInfo info : infos) {
+            if (info != null && playlistId.equals(info.getPlaylistId())) {
+                return info.isSelected();
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The id of the playlist just made as {@code title}: in YouTube's answer for its first video, the
+     * one with that name, holding the video, that wasn't among the playlists {@code before} it was
+     * made. Not the order: an older playlist of the same name may hold the same video, and the list
+     * puts no promise on which comes first.
      */
     @Nullable
     @VisibleForTesting
-    static String findCreated(@Nullable List<PlaylistInfo> infos, @NonNull String title) {
-        return find(infos, title, true);
+    static String findCreated(@Nullable List<PlaylistInfo> infos, @NonNull String title,
+                              @Nullable List<PlaylistInfo> before) {
+        if (!answered(infos)) {
+            return null;
+        }
+        Set<String> known = new HashSet<>();
+        for (int i = 0; before != null && i < before.size(); i++) {
+            if (before.get(i) != null) {
+                known.add(before.get(i).getPlaylistId());
+            }
+        }
+        for (PlaylistInfo info : infos) {
+            if (info != null && info.isSelected() && isAccountPlaylistId(info.getPlaylistId())
+                    && !known.contains(info.getPlaylistId()) && hasTitle(info, title)) {
+                return info.getPlaylistId();
+            }
+        }
+        return null;
     }
 
-    /** By name alone, for a playlist copied while it was empty (it holds none of these videos). */
+    /**
+     * By name, for a playlist copied while it was empty: one holding the video if there is one,
+     * else the first of that name.
+     */
     @Nullable
     @VisibleForTesting
     static String findByTitle(@Nullable List<PlaylistInfo> infos, @NonNull String title) {
-        return find(infos, title, false);
-    }
-
-    @Nullable
-    private static String find(@Nullable List<PlaylistInfo> infos, @NonNull String title, boolean mustHoldVideo) {
-        if (infos == null) {
+        if (!answered(infos)) {
             return null;
         }
         String found = null;
-        for (int i = 1; i < infos.size(); i++) {
-            PlaylistInfo info = infos.get(i);
-            if (info != null && (!mustHoldVideo || info.isSelected())
-                    && title.trim().equals(info.getTitle() != null ? info.getTitle().trim() : null)) {
-                found = info.getPlaylistId();
+        for (PlaylistInfo info : infos) {
+            if (info != null && isAccountPlaylistId(info.getPlaylistId()) && hasTitle(info, title)) {
+                if (info.isSelected()) {
+                    return info.getPlaylistId();
+                }
+                if (found == null) {
+                    found = info.getPlaylistId();
+                }
             }
         }
         return found;
+    }
+
+    private static boolean hasTitle(@NonNull PlaylistInfo info, @NonNull String title) {
+        return title.trim().equals(info.getTitle() != null ? info.getTitle().trim() : null);
+    }
+
+    /**
+     * A playlist someone made on YouTube: its id starts with "PL" (18 or 34 characters). The
+     * wrapper's phone-side copy of a playlist YouTube refused to make has a made-up 12-character id,
+     * and must never be taken for the one just made.
+     */
+    private static boolean isAccountPlaylistId(@Nullable String id) {
+        return id != null && id.startsWith("PL") && id.length() > 12;
     }
 
     /** Which account the copy is for: the same phone lists may go to two accounts, once each. */

@@ -84,9 +84,10 @@ final class LocalCopyOffer {
         clearPending(app);
         sCopying = true;
         MobileSnackbar.show(app, R.string.mobile_copy_working);
-        LocalPlaylistsCopy.copyToAccount(app, (playlists, videos, failed) -> {
+        LocalPlaylistsCopy.copyToAccount(app, outcome -> {
             sCopying = false;
             BrowsePresenter.instance(app).onPlaylistEdited();
+            int failed = outcome.failedPlaylists() + outcome.failedVideos();
             MobileSnackbar.show(app, failed > 0
                     ? app.getResources().getQuantityString(R.plurals.mobile_copy_done_failed, failed, failed)
                     : app.getString(R.string.mobile_copy_done), null, null);
