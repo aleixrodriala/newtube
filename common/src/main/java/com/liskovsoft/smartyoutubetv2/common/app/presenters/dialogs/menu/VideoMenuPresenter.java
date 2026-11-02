@@ -292,18 +292,19 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
                 UiOptionItem.from(
                         getContext().getString(saved ? R.string.remove_video_from_watch_later : R.string.add_video_to_watch_later),
                         optionItem -> {
+                            String message;
                             if (saved) {
                                 watchLater.remove(video.videoId);
                                 // Only the Watch later grid itself loses the card.
                                 if (callback != null && video.sectionId == LocalWatchLater.SECTION_ID) {
                                     callback.onItemAction(video, VideoMenuCallback.ACTION_REMOVE_FROM_PLAYLIST);
                                 }
+                                message = getContext().getString(R.string.removed_from_watch_later);
                             } else {
-                                watchLater.add(video);
+                                message = LocalWatchLater.savedMessage(getContext(), watchLater.add(video));
                             }
                             mDialogPresenter.closeDialog();
-                            MessageHelpers.showMessage(getContext(),
-                                    saved ? R.string.removed_from_watch_later : R.string.saved_to_watch_later);
+                            MessageHelpers.showMessage(getContext(), message);
                         }
                 ));
     }

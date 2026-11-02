@@ -99,6 +99,24 @@ public class LocalWatchLaterTest {
     }
 
     @Test
+    public void aFullListSaysTheOldestWent() {
+        JSONArray specs = new JSONArray();
+        for (int i = 0; i < LocalWatchLater.MAX_VIDEOS; i++) {
+            specs.put(video(String.format("v%010d", i), "V" + i).toString()); // newest first
+        }
+        mContext.getSharedPreferences("newtube_watch_later", Context.MODE_PRIVATE).edit()
+                .putString("videos", specs.toString()).commit();
+        LocalWatchLater watchLater = LocalWatchLater.instance(mContext);
+
+        assertFalse(watchLater.add(video("v0000000000", "V0"))); // already in it: nothing goes
+        assertTrue(watchLater.add(video("aaaaaaaaaaa", "A")));
+
+        assertEquals(LocalWatchLater.MAX_VIDEOS, watchLater.size());
+        assertFalse(watchLater.contains(String.format("v%010d", LocalWatchLater.MAX_VIDEOS - 1)));
+        assertTrue(LocalWatchLater.savedMessage(mContext, true).contains(String.valueOf(LocalWatchLater.MAX_VIDEOS)));
+    }
+
+    @Test
     public void aDamagedFileIsPutAsideNotWrittenOver() {
         SharedPreferences prefs = mContext.getSharedPreferences("newtube_watch_later", Context.MODE_PRIVATE);
         prefs.edit().putString("videos", "[\"truncat").commit();

@@ -7843,21 +7843,22 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         LocalWatchLater watchLater = LocalWatchLater.instance(this);
         boolean save = !watchLater.contains(video.videoId);
+        String message;
         if (save) {
-            watchLater.add(video);
+            message = LocalWatchLater.savedMessage(this, watchLater.add(video));
         } else {
             watchLater.remove(video.videoId);
+            message = getString(R.string.removed_from_watch_later);
         }
         updateLocalSaveState();
-        MobileSnackbar.show(this, getString(save ? R.string.saved_to_watch_later : R.string.removed_from_watch_later),
-                getString(R.string.mobile_undo), () -> {
-                    if (save) {
-                        watchLater.remove(video.videoId);
-                    } else {
-                        watchLater.add(video);
-                    }
-                    updateLocalSaveState();
-                });
+        MobileSnackbar.show(this, message, getString(R.string.mobile_undo), () -> {
+            if (save) {
+                watchLater.remove(video.videoId);
+            } else {
+                watchLater.add(video);
+            }
+            updateLocalSaveState();
+        });
     }
 
     private void resetWatchHeader() {
