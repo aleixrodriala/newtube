@@ -1024,7 +1024,8 @@ public class AppDialogUtil {
         return activity;
     }
 
-    private static void pinGroups(Context context, @NonNull List<ItemGroup> newGroups) {
+    // NEWTUBE(import): public for the phone's Settings > Backup > Import (SubscriptionImport).
+    public static void pinGroups(Context context, @NonNull List<ItemGroup> newGroups) {
         if (newGroups.isEmpty()) {
             // Already added to Subscriptions section
             MessageHelpers.showMessage(context, context.getString(R.string.msg_done));

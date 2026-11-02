@@ -30,6 +30,7 @@
     <string name="mobile_settings_search_kw_sponsorblock">skip sponsors ads segments intros</string>
     <string name="mobile_settings_search_kw_dearrow">clickbait titles thumbnails</string>
     <string name="mobile_settings_search_kw_backup">export import save settings</string>
+    <string name="mobile_settings_search_kw_import">import subscriptions channels newpipe pipepipe grayjay pockettube</string>
     <string name="mobile_settings_search_kw_video_format">codec vp9 av1 h264 avc hdr 60fps</string>
     <string name="mobile_settings_search_kw_buffer">buffering cache memory</string>
     <string name="mobile_settings_search_kw_dns">dns ipv4 ipv6 servers</string>

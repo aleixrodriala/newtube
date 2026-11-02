@@ -150,6 +150,24 @@
     <string name="mobile_settings_auto_backup">Automatic backup</string>
     <string name="mobile_settings_auto_backup_off">Never</string>
     <string name="mobile_settings_backup_note">A backup holds everything you set up in NewTube. What belongs to your YouTube account, like subscriptions and history, stays there.</string>
+    <!-- NEWTUBE(import): Settings > Backup > Import subscriptions (SubscriptionImport). -->
+    <string name="mobile_settings_import_header">Import</string>
+    <string name="mobile_settings_import">Import subscriptions</string>
+    <string name="mobile_settings_import_summary">A NewPipe or PipePipe subscriptions export or backup .zip, or a GrayJay or PocketTube groups file</string>
+    <string name="mobile_settings_import_working">Importing subscriptions…</string>
+    <plurals name="mobile_settings_import_done">
+        <item quantity="one">%1$d channel added to Subscriptions</item>
+        <item quantity="other">%1$d channels added to Subscriptions</item>
+    </plurals>
+    <string name="mobile_settings_import_done_groups">Subscriptions imported</string>
+    <string name="mobile_settings_import_none_new">Those channels were already in Subscriptions</string>
+    <string name="mobile_settings_import_sign_out_first">You\'re signed in. Imported channels join the Subscriptions you follow signed out: sign out, then import again.</string>
+    <string name="mobile_settings_import_nothing">No YouTube channels found in that file</string>
+    <string name="mobile_settings_import_not_newpipe">That backup isn\'t from NewPipe or PipePipe</string>
+    <string name="mobile_settings_import_not_export">That file isn\'t a subscriptions export</string>
+    <string name="mobile_settings_import_failed">Couldn\'t import that file</string>
+    <string name="mobile_settings_import_offline">Couldn\'t import: check your connection and try again</string>
+    <string name="mobile_settings_import_no_picker">There\'s no app on this phone to pick a file with</string>
 
     <!-- Playback -->
     <string name="mobile_settings_video_ends">When a video ends</string>

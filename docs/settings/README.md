@@ -144,7 +144,8 @@ Per-row evidence (what each pref does on the phone, with file:line) is in
   layouts, but on the phone they change what the feed holds, and both work (Tabs and feeds).
 - **Removed features:** Google Drive backup (broken on the phone: its sign-in step opens the YouTube
   sign-in screen and never reaches Google), the
-  GrayJay/PocketTube/NewPipe import, "Protect all settings with password" (nothing enforced it),
+  GrayJay/PocketTube/NewPipe import (back since, as a Backup row with Android's file picker, see
+  below), "Protect all settings with password" (nothing enforced it),
   child mode and the start-up and account passwords (child mode does not block search or lock
   Settings as it claimed; anyone in Settings could clear the start-up password, and the accounts
   sheet switches account or signs out without the account's). A first version kept a turn-off row
@@ -172,3 +173,26 @@ Labels: every row has its own phone string in `strings_settings.xml` (English an
 locales fall back to English until Weblate catches up; the upstream TV strings were not reused
 where their wording was the problem ("Use Web Proxy", "Enable Conscrypt", the SponsorBlock
 descriptions written for a remote).
+
+## Import subscriptions (Backup)
+
+The TV's import went with the TV Settings because its file browser needs the storage permission,
+which Android 13+ always refuses at this targetSdk (AUDIT-app.md). It is back as a Backup row,
+**Import subscriptions**, on Android's own file picker (`ActivityResultContracts.OpenDocument`, no
+permission). `SubscriptionImport` reads:
+
+- NewPipe and PipePipe **Export subscriptions** (JSON) and **Export database** (the backup zip: its
+  `newpipe.db` and that file's `subscriptions` table). Both apps share the format. Only YouTube
+  channels are kept (judged by the `/channel/UC…` URL), each once; they join the Subscriptions kept
+  on the phone, the ones followed signed out, through the engine's own NewPipe importer. The count
+  it reports is what the engine really added (the Subscriptions' channel ids after minus before),
+  not what the file held. Signed in, it asks to sign out first: the engine keeps that list per
+  account (`<account>_channel_group_data`, MediaServicePrefs), so an import then landed in the
+  account's copy, which signed out never shows.
+- GrayJay and PocketTube exports, passed to the engine unchanged; their groups are pinned, as on TV.
+  GrayJay's is its `subscription_groups` file; its backup .zip is not read.
+
+Anything that is not a zip must start like JSON and stay under 16 MB (it is read whole), so a video
+picked by mistake gets "That file isn't a subscriptions export" instead of filling the memory. One
+import runs at a time, in the cache folder `subscription-import`, which each import clears first.
+

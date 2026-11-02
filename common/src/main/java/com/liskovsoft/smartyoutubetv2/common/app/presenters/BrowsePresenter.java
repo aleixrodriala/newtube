@@ -871,6 +871,16 @@ public class BrowsePresenter extends BasePresenter<BrowseView> implements Sectio
         mSectionFetchTimeMs.keySet().removeIf(id -> id == MediaGroup.TYPE_USER_PLAYLISTS || isPinnedId(id));
     }
 
+    /**
+     * NEWTUBE(import): channels were added to the subscriptions kept on this phone (Settings >
+     * Backup > Import): the Subscriptions sections refetch on their next visit, like
+     * {@link #onPlaylistEdited()}.
+     */
+    public void onSubscriptionsEdited() {
+        mSectionFetchTimeMs.keySet().removeIf(id -> id == MediaGroup.TYPE_SUBSCRIPTIONS
+                || id == MediaGroup.TYPE_CHANNEL_UPLOADS);
+    }
+
     private void markSectionFetched(int sectionId) {
         mSectionFetchTimeMs.put(sectionId, System.currentTimeMillis());
 

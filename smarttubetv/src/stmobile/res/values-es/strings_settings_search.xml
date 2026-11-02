@@ -27,6 +27,7 @@
     <string name="mobile_settings_search_kw_sponsorblock">saltar patrocinadores anuncios segmentos intros</string>
     <string name="mobile_settings_search_kw_dearrow">clickbait títulos miniaturas</string>
     <string name="mobile_settings_search_kw_backup">copia de seguridad exportar importar guardar ajustes</string>
+    <string name="mobile_settings_search_kw_import">importar suscripciones canales newpipe pipepipe grayjay pockettube</string>
     <string name="mobile_settings_search_kw_video_format">códec vp9 av1 h264 avc hdr 60fps</string>
     <string name="mobile_settings_search_kw_buffer">carga búfer caché memoria</string>
     <string name="mobile_settings_search_kw_dns">dns ipv4 ipv6 servidores</string>

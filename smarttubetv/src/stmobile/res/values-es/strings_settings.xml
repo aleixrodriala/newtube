@@ -148,6 +148,25 @@
     <string name="mobile_settings_auto_backup">Copia automática</string>
     <string name="mobile_settings_auto_backup_off">Nunca</string>
     <string name="mobile_settings_backup_note">Una copia guarda todo lo que has configurado en NewTube. Lo que es de tu cuenta de YouTube, como suscripciones e historial, se queda allí.</string>
+    <!-- NEWTUBE(import): Ajustes > Copia de seguridad > Importar suscripciones. -->
+    <string name="mobile_settings_import_header">Importar</string>
+    <string name="mobile_settings_import">Importar suscripciones</string>
+    <string name="mobile_settings_import_summary">Una exportación de suscripciones o una copia .zip de NewPipe o PipePipe, o un archivo de grupos de GrayJay o PocketTube</string>
+    <string name="mobile_settings_import_working">Importando suscripciones…</string>
+    <plurals name="mobile_settings_import_done">
+        <item quantity="one">%1$d canal añadido a Suscripciones</item>
+        <item quantity="many">%1$d canales añadidos a Suscripciones</item>
+        <item quantity="other">%1$d canales añadidos a Suscripciones</item>
+    </plurals>
+    <string name="mobile_settings_import_done_groups">Suscripciones importadas</string>
+    <string name="mobile_settings_import_none_new">Esos canales ya estaban en Suscripciones</string>
+    <string name="mobile_settings_import_sign_out_first">Has iniciado sesión. Los canales importados van a las Suscripciones que sigues sin sesión: ciérrala y vuelve a importar.</string>
+    <string name="mobile_settings_import_nothing">No hay canales de YouTube en ese archivo</string>
+    <string name="mobile_settings_import_not_newpipe">Esa copia no es de NewPipe ni de PipePipe</string>
+    <string name="mobile_settings_import_not_export">Ese archivo no es una exportación de suscripciones</string>
+    <string name="mobile_settings_import_failed">No se ha podido importar ese archivo</string>
+    <string name="mobile_settings_import_offline">No se ha podido importar: comprueba tu conexión y vuelve a intentarlo</string>
+    <string name="mobile_settings_import_no_picker">No hay ninguna app en este teléfono para elegir un archivo</string>
 
     <!-- Playback -->
     <string name="mobile_settings_video_ends">Al terminar un vídeo</string>
