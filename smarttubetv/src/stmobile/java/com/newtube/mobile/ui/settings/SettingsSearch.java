@@ -80,6 +80,7 @@ final class SettingsSearch {
             {R.string.mobile_settings_watch_history, R.string.mobile_settings_search_kw_watch_history},
             {R.string.mobile_settings_gesture_levels, R.string.mobile_settings_search_kw_gesture_levels},
             {R.string.mobile_settings_gesture_seek, R.string.mobile_settings_search_kw_gesture_seek},
+            {R.string.mobile_settings_clock, R.string.mobile_settings_search_kw_clock},
             {R.string.mobile_settings_video_ends, R.string.mobile_settings_search_kw_video_ends},
             {R.string.mobile_settings_background, R.string.mobile_settings_search_kw_background},
             {R.string.mobile_settings_natural_voice, R.string.mobile_settings_search_kw_natural_voice},

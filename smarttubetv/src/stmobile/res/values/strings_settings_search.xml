@@ -39,4 +39,5 @@
     <string name="mobile_settings_search_kw_diagnostic_log">bug report logs debug</string>
     <string name="mobile_settings_search_kw_gesture_levels">gestures brightness volume</string>
     <string name="mobile_settings_search_kw_gesture_seek">gestures scrub skip forward rewind</string>
+    <string name="mobile_settings_search_kw_clock">clock time hour fullscreen</string>
 </resources>
