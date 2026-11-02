@@ -35,7 +35,7 @@ Settings
                                 Clear search history
   Video and audio
     Playback                    When a video ends · When you leave the app · speed · sleep timer ·
-                                audio focus · Resume · Under the video
+                                audio focus · Resume · Fullscreen · Under the video
     Video quality               Default quality (Auto or a cap: 2160p…360p) · loudness · volume
     Captions                    Style · Size · Distance from the bottom · per channel · Android's settings
     SponsorBlock                on/off · what to do per kind of part · Marks on the seek bar › · More
