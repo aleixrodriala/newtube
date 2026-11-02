@@ -39,6 +39,8 @@ public final class LocalPlaylists {
 
     private static final String PREFS_NAME = "newtube_playlists";
     private static final String KEY_PLAYLISTS = "playlists";
+    /** The last saved playlists that couldn't be read in full, as they were (see {@link #playlistsInt()}). */
+    private static final String KEY_DAMAGED = "playlists_damaged";
     private static final String KEY_COPY_OFFER = "copy_offer_pending";
     /** Per playlist, so a mistaken paste can't grow the file without end. */
     private static final int MAX_VIDEOS = 5000;
@@ -303,32 +305,49 @@ public final class LocalPlaylists {
         if (mPlaylists == null) {
             mPlaylists = new ArrayList<>();
             String json = mPrefs.getString(KEY_PLAYLISTS, null);
-            if (json != null) {
-                try {
-                    JSONArray array = new JSONArray(json);
-                    for (int i = 0; i < array.length(); i++) {
-                        JSONObject object = array.optJSONObject(i);
-                        String id = object != null ? object.optString("id", null) : null;
-                        if (!isLocalId(id)) {
-                            continue;
-                        }
-                        LocalPlaylist playlist = new LocalPlaylist(id, object.optString("title", ""));
-                        JSONArray videos = object.optJSONArray("videos");
-                        for (int j = 0; videos != null && j < videos.length(); j++) {
-                            Video video = Video.fromString(videos.optString(j, null));
-                            if (video != null && video.videoId != null) {
-                                playlist.videos.add(video);
-                            }
-                        }
-                        mPlaylists.add(playlist);
-                    }
-                } catch (JSONException | RuntimeException e) {
-                    // A damaged file starts over rather than taking the app down with it.
-                    mPlaylists.clear();
-                }
+            if (json != null && !parse(json, mPlaylists)) {
+                // What couldn't be read is put aside before the next save writes over it: a bad
+                // entry costs only itself, and a damaged file is still there to be recovered.
+                mPrefs.edit().putString(KEY_DAMAGED, json).apply();
             }
         }
         return mPlaylists;
+    }
+
+    /** Reads the saved playlists into {@code playlists}, one by one; false when any of it couldn't be read. */
+    private static boolean parse(@NonNull String json, @NonNull List<LocalPlaylist> playlists) {
+        JSONArray array;
+        try {
+            array = new JSONArray(json);
+        } catch (JSONException e) {
+            return false;
+        }
+        boolean intact = true;
+        for (int i = 0; i < array.length(); i++) {
+            JSONObject object = array.optJSONObject(i);
+            String id = object != null ? object.optString("id", null) : null;
+            if (!isLocalId(id)) {
+                intact = false;
+                continue;
+            }
+            LocalPlaylist playlist = new LocalPlaylist(id, object.optString("title", ""));
+            JSONArray videos = object.optJSONArray("videos");
+            for (int j = 0; videos != null && j < videos.length(); j++) {
+                Video video;
+                try {
+                    video = Video.fromString(videos.optString(j, null));
+                } catch (RuntimeException e) {
+                    video = null;
+                }
+                if (video != null && video.videoId != null) {
+                    playlist.videos.add(video);
+                } else {
+                    intact = false;
+                }
+            }
+            playlists.add(playlist);
+        }
+        return intact;
     }
 
     /** @param added something new was saved: offer to copy it to the account at the next sign-in */

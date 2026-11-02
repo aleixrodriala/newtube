@@ -7,10 +7,13 @@ import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
 import android.content.Context;
+import android.content.SharedPreferences;
 
 import com.liskovsoft.mediaserviceinterfaces.data.PlaylistInfo;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -121,6 +124,41 @@ public class LocalPlaylistsTest {
 
         playlists.add(id, video("aaaaaaaaaaa"));
         assertTrue(playlists.isCopyOfferPending());
+    }
+
+    @Test
+    public void aDamagedFileIsPutAsideNotWrittenOver() {
+        SharedPreferences prefs = mContext.getSharedPreferences("newtube_playlists", Context.MODE_PRIVATE);
+        prefs.edit().putString("playlists", "[{\"id\":\"NTLOCAL:a\",\"tit").commit();
+
+        LocalPlaylists playlists = LocalPlaylists.instance(mContext);
+        assertEquals(0, playlists.playlists().size());
+        playlists.create("New", null); // the next save writes the list over...
+
+        assertEquals("[{\"id\":\"NTLOCAL:a\",\"tit", prefs.getString("playlists_damaged", null)); // ...not over what it was
+    }
+
+    @Test
+    public void oneBadEntryCostsOnlyItself() throws Exception {
+        JSONArray videos = new JSONArray();
+        videos.put(video("aaaaaaaaaaa").toString());
+        videos.put("not a video");
+        videos.put(video("bbbbbbbbbbb").toString());
+        JSONObject good = new JSONObject();
+        good.put("id", LocalPlaylists.ID_PREFIX + "good");
+        good.put("title", "Good");
+        good.put("videos", videos);
+        JSONArray array = new JSONArray();
+        array.put("not a playlist");
+        array.put(good);
+        SharedPreferences prefs = mContext.getSharedPreferences("newtube_playlists", Context.MODE_PRIVATE);
+        prefs.edit().putString("playlists", array.toString()).commit();
+
+        LocalPlaylists playlists = LocalPlaylists.instance(mContext);
+
+        assertEquals(1, playlists.playlists().size());
+        assertEquals(2, playlists.videos(LocalPlaylists.ID_PREFIX + "good").size());
+        assertEquals(array.toString(), prefs.getString("playlists_damaged", null));
     }
 
     @Test
