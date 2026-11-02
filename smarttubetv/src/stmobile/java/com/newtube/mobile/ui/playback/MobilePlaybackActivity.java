@@ -134,6 +134,7 @@ import com.newtube.mobile.ui.common.Haptics;
 import com.newtube.mobile.ui.common.MagneticDrag;
 import com.newtube.mobile.ui.common.MobileActivity;
 import com.newtube.mobile.ui.common.MobileSheets;
+import com.newtube.mobile.ui.common.MobileSnackbar;
 import com.newtube.mobile.ui.common.Motion;
 import com.newtube.mobile.ui.common.ThemeMode;
 import com.newtube.mobile.ui.common.ThemeRefresh;
@@ -344,6 +345,8 @@ public class MobilePlaybackActivity extends MobileActivity
     private RelatedVideoAdapter mQueueAdapter;
     /** NEWTUBE(queue): the queue card's edit button, shown while the card lists the playback queue. */
     @Nullable private View mQueueEdit;
+    /** NEWTUBE(queue): the open queue sheet, which follows the video that plays (setVideo). */
+    @Nullable private java.lang.ref.WeakReference<QueueSheet> mQueueSheet;
     /** Collapsed by default, like YouTube's queue. Survives video changes within a session. */
     private boolean mQueueExpanded;
     private final List<Video> mQueueVideos = new ArrayList<>();
@@ -4064,8 +4067,8 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         // NEWTUBE(queue): the queue up here while there is one, with its size; it used to sit
         // under More as the TV's text list.
-        int queued = Playlist.instance().getAll().size();
-        if (queued > 1) {
+        int queued = queuedAfterCurrent();
+        if (queued > 0) {
             addMenuRow(content, sheet, R.drawable.ic_player_queue, R.string.mobile_queue_title,
                     getResources().getQuantityString(R.plurals.mobile_queue_count, queued, queued),
                     true, this::openQueueSheet);
@@ -8383,14 +8386,25 @@ public class MobilePlaybackActivity extends MobileActivity
     // NEWTUBE(queue): the queue sheet
     // ---------------------------------------------------------------------------------
 
+    /**
+     * How many videos are queued after the playing one. Not Playlist's size: every open lands in
+     * Playlist (VideoLoaderController.onNewVideo), so it is the session's history as well, and one
+     * tap on a related video made it "a queue" of two.
+     */
+    private static int queuedAfterCurrent() {
+        Playlist playlist = Playlist.instance();
+        // getAllAfterCurrent is the whole list when nothing is current; hasNext isn't.
+        List<Video> next = playlist.hasNext() ? playlist.getAllAfterCurrent() : null;
+        return next != null ? next.size() : 0;
+    }
+
     private void openQueueSheet() {
         cancelAutoHide();
-        if (Playlist.instance().getAll().isEmpty()) {
-            com.google.android.material.snackbar.Snackbar.make(findViewById(android.R.id.content),
-                    R.string.mobile_queue_empty, com.google.android.material.snackbar.Snackbar.LENGTH_SHORT).show();
+        if (queuedAfterCurrent() == 0) {
+            MobileSnackbar.show(this, R.string.mobile_queue_empty);
             return;
         }
-        QueueSheet.show(this, new QueueSheet.Host() {
+        QueueSheet sheet = QueueSheet.show(this, new QueueSheet.Host() {
             @Override
             public void playFromQueue(Video video) {
                 onRelatedClicked(video);
@@ -8406,6 +8420,15 @@ public class MobilePlaybackActivity extends MobileActivity
                 showPlayerSheet(dialog);
             }
         });
+        mQueueSheet = new java.lang.ref.WeakReference<>(sheet);
+    }
+
+    /** Playlist moved on under an open queue sheet (autoplay, Next, a new open): it follows. */
+    private void refreshQueueSheet() {
+        QueueSheet sheet = mQueueSheet != null ? mQueueSheet.get() : null;
+        if (sheet != null) {
+            sheet.onPlaylistChanged();
+        }
     }
 
     /**
@@ -8535,23 +8558,38 @@ public class MobilePlaybackActivity extends MobileActivity
      * only pushes the row a video was opened from when that row really is a playlist, so an
      * ordinary feed/search/subscriptions open delivers no section row. And here, the video must
      * be playing from a playlist a person chose - see {@link #isChosenPlaylist}.</p>
+     *
+     * <p>NEWTUBE(queue): failing that, the playback queue's own row. It is only what comes AFTER
+     * the playing video (SuggestionsController.appendPlaybackQueueIfNeeded), so the test above
+     * never picked it, and the card's edit button (shown only on that row) never appeared. It is
+     * a list a person built, so the card lists it.</p>
      */
     private Integer findQueueGroupId(Video current) {
         String currentId = current != null ? current.videoId : null;
 
-        if (currentId == null || !isChosenPlaylist(current)) {
+        if (currentId == null) {
             return null;
         }
 
-        for (Map.Entry<Integer, List<Video>> entry : mSuggestionVideos.entrySet()) {
-            List<Video> vids = entry.getValue();
-            if (vids == null) {
-                continue;
-            }
-            for (Video v : vids) {
-                if (v != null && currentId.equals(v.videoId)) {
-                    return entry.getKey();
+        if (isChosenPlaylist(current)) {
+            for (Map.Entry<Integer, List<Video>> entry : mSuggestionVideos.entrySet()) {
+                List<Video> vids = entry.getValue();
+                if (vids == null) {
+                    continue;
                 }
+                for (Video v : vids) {
+                    if (v != null && currentId.equals(v.videoId)) {
+                        return entry.getKey();
+                    }
+                }
+            }
+        }
+
+        for (Map.Entry<Integer, VideoGroup> entry : mSuggestionGroups.entrySet()) {
+            VideoGroup group = entry.getValue();
+            List<Video> vids = mSuggestionVideos.get(entry.getKey());
+            if (group != null && group.getType() == MediaGroup.TYPE_PLAYBACK_QUEUE && vids != null && !vids.isEmpty()) {
+                return entry.getKey();
             }
         }
 
@@ -9067,6 +9105,9 @@ public class MobilePlaybackActivity extends MobileActivity
         if (item != null && mRelatedVideos.isEmpty()) {
             runOnUiThread(this::showRelatedSkeleton);
         }
+
+        // NEWTUBE(queue): Playlist's current video was set just before this (VideoLoaderController).
+        runOnUiThread(this::refreshQueueSheet);
 
         // CASTING: an active session claims every newly selected video (see maybeRouteVideoToCast).
         if (item != null && item.videoId != null) {

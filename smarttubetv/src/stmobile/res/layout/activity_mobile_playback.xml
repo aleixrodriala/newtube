@@ -1147,15 +1147,17 @@
 
                         </LinearLayout>
 
-                        <!-- NEWTUBE(queue): edits the playback queue (QueueSheet); only on that queue. -->
+                        <!-- NEWTUBE(queue): edits the playback queue (QueueSheet); only on that queue.
+                             A 48dp target; the negative margins keep the header its usual height. -->
                         <ImageButton
                             android:id="@+id/mobile_watch_queue_edit"
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
-                            android:layout_marginEnd="4dp"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:layout_marginTop="-6dp"
+                            android:layout_marginBottom="-6dp"
                             android:background="?attr/selectableItemBackgroundBorderless"
                             android:contentDescription="@string/mobile_queue_edit"
-                            android:padding="8dp"
+                            android:padding="12dp"
                             android:scaleType="fitCenter"
                             android:src="@drawable/ic_queue_drag"
                             android:visibility="gone" />

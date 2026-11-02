@@ -143,22 +143,62 @@ public class Playlist {
     }
 
     /**
-     * NEWTUBE(queue): moves the video at {@code from} to {@code to} (both indexes into
-     * {@link #getAll()}), keeping the playing one current wherever it ends up.
+     * NEWTUBE(queue): moves this very video to {@code to} (an index into {@link #getAll()}),
+     * keeping the playing one current wherever it ends up. By identity, not by index: the list
+     * changes under a caller's copy of it (autoplay, a new open trimming the front), and an index
+     * from that copy then pointed at some other video. False when the video isn't in the playlist
+     * any more or {@code to} is out of range.
      */
-    public void move(int from, int to) {
-        int size = mPlaylist.size();
-        if (from < 0 || from >= size || to < 0 || to >= size || from == to) {
-            return;
+    public boolean move(Video video, int to) {
+        int from = indexOfInstance(video);
+        if (from < 0 || to < 0 || to >= mPlaylist.size()) {
+            return false;
+        }
+
+        if (from == to) {
+            return true;
         }
 
         Video current = getCurrent();
-        Video moved = mPlaylist.remove(from);
-        mPlaylist.add(to, moved);
+        mPlaylist.add(to, mPlaylist.remove(from));
 
         if (current != null) {
             mCurrentIndex = indexOfInstance(current);
         }
+
+        return true;
+    }
+
+    /**
+     * NEWTUBE(queue): removes this very video (by identity, like {@link #move}) when it comes after
+     * the playing one. False otherwise: the playing video and the ones before it are the session's
+     * history, which Previous walks, not the queue.
+     */
+    public boolean removeAfterCurrent(Video video) {
+        int index = indexOfInstance(video);
+        if (index < 0 || index <= mCurrentIndex) {
+            return false;
+        }
+
+        mPlaylist.remove(index);
+
+        return true;
+    }
+
+    /**
+     * NEWTUBE(queue): puts these videos back right after the playing one, in their order (Undo of
+     * the queue sheet's Clear). One that is in the playlist again by now keeps its place there.
+     */
+    public void addAllAfterCurrent(List<Video> videos) {
+        int at = Math.min(mCurrentIndex + 1, mPlaylist.size());
+        for (Video video : videos) {
+            if (Video.isEmpty(video) || mPlaylist.contains(video)) {
+                continue;
+            }
+            mPlaylist.add(at++, video);
+        }
+
+        trimPlaylist();
     }
 
     /** By identity: {@code Video.equals} is a composite that two rows of one video can share. */
