@@ -81,4 +81,16 @@ public class SubscriptionImportParserTest {
         assertFalse(SubscriptionImportParser.isZip("{\"su".getBytes(StandardCharsets.UTF_8)));
         assertFalse(SubscriptionImportParser.isZip(new byte[] {'P', 'K'}));
     }
+
+    @Test
+    public void onlyJsonLooksLikeAnExport() {
+        assertTrue(SubscriptionImportParser.looksLikeJson("{\"subscriptions\"".getBytes(StandardCharsets.UTF_8)));
+        assertTrue(SubscriptionImportParser.looksLikeJson(" \r\n\t[\"{".getBytes(StandardCharsets.UTF_8)));
+        assertTrue(SubscriptionImportParser.looksLikeJson(new byte[] {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF, '{'}));
+        // A video picked by mistake (an MP4's "ftyp" box), plain text, nothing.
+        assertFalse(SubscriptionImportParser.looksLikeJson(new byte[] {0, 0, 0, 0x18, 'f', 't', 'y', 'p'}));
+        assertFalse(SubscriptionImportParser.looksLikeJson("hello {".getBytes(StandardCharsets.UTF_8)));
+        assertFalse(SubscriptionImportParser.looksLikeJson("   ".getBytes(StandardCharsets.UTF_8)));
+        assertFalse(SubscriptionImportParser.looksLikeJson(new byte[0]));
+    }
 }

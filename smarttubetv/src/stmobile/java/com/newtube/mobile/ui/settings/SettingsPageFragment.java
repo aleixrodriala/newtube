@@ -5,6 +5,7 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.Keyframe;
 import android.animation.ObjectAnimator;
 import android.animation.PropertyValuesHolder;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
@@ -96,7 +97,12 @@ public final class SettingsPageFragment extends Fragment implements SettingsAdap
      * .zip, its subscriptions a .json, and some file managers label either one as anything.
      */
     public void pickSubscriptionsFile() {
-        mImportPicker.launch(new String[] {"*/*"});
+        try {
+            mImportPicker.launch(new String[] {"*/*"});
+        } catch (ActivityNotFoundException e) {
+            // A ROM without Android's file picker (DocumentsUI) on it.
+            MobileSnackbar.show(requireContext(), R.string.mobile_settings_import_no_picker);
+        }
     }
 
     @Nullable

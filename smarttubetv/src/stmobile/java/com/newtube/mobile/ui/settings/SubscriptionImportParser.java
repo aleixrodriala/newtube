@@ -47,6 +47,26 @@ final class SubscriptionImportParser {
     }
 
     /**
+     * True when {@code head}, the start of a file, can be the start of JSON: '{' or '[' after any
+     * whitespace (and a UTF-8 byte order mark). Every export read here is JSON or a zip, so anything
+     * else, a video picked by mistake, is turned away before it is read into memory.
+     */
+    static boolean looksLikeJson(@NonNull byte[] head) {
+        int i = head.length >= 3 && (head[0] & 0xFF) == 0xEF && (head[1] & 0xFF) == 0xBB
+                && (head[2] & 0xFF) == 0xBF ? 3 : 0;
+        for (; i < head.length; i++) {
+            byte b = head[i];
+            if (b == '{' || b == '[') {
+                return true;
+            }
+            if (b != ' ' && b != '\t' && b != '\n' && b != '\r') {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /**
      * The YouTube channels of a NewPipe/PipePipe subscriptions JSON, or null when {@code json} is not
      * one (GrayJay and PocketTube files: the engine reads those as they are).
      */
