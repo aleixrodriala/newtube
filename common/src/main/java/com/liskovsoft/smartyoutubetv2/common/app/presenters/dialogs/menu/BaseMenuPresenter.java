@@ -234,6 +234,10 @@ public abstract class BaseMenuPresenter extends BasePresenter<Void> {
             return;
         }
 
+        // NEWTUBE(menu-icons): the Remove row shows the bookmark coming off, not the save one.
+        if (original.belongsToUserPlaylists()) {
+            getDialogPresenter().setIconKey("remove_playlist");
+        }
         getDialogPresenter().appendSingleButton(
                 UiOptionItem.from(
                         getContext().getString(original.belongsToUserPlaylists()? R.string.remove_playlist : R.string.save_playlist),

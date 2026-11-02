@@ -419,6 +419,9 @@ public class PlayerUIController extends BasePlayerController {
                     getPlayer().updateSuggestions(group);
                     getPlayer().setNextTitle(mSuggestionsController.getNext());
                 }
+            } else if (action == VideoMenuCallback.ACTION_OPEN_CHANNEL) {
+                // NEWTUBE(menu): as the watch page's own channel row, so the video docks in the channel.
+                getPlayer().prepareChannelNavigation();
             }
         });
     }

@@ -72,4 +72,10 @@ public class OptionCategory {
     public final int type;
     public final CharSequence title;
     public final List<OptionItem> options;
+    /**
+     * NEWTUBE(menu-icons): what the row is ("download", "share"...), for a renderer that draws an
+     * icon next to it; null for none. Set by {@code AppDialogPresenter.setIconKey()} while a menu
+     * builds, so the menu code that appends a button need not know about icons.
+     */
+    public String iconKey;
 }

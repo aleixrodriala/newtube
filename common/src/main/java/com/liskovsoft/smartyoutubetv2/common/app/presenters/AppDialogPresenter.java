@@ -30,6 +30,8 @@ public class AppDialogPresenter extends BasePresenter<AppDialogView> {
     private List<OptionCategory> mCategories;
     private boolean mIsExpandable = true;
     private int mId;
+    /** NEWTUBE(menu-icons): stamped on each button appended while set, see {@link #setIconKey}. */
+    private String mIconKey;
 
     private CharSequence mBackupTitle;
     private List<OptionCategory> mBackupCategories;
@@ -200,7 +202,19 @@ public class AppDialogPresenter extends BasePresenter<AppDialogView> {
     }
 
     public void appendSingleButton(OptionItem optionItem) {
-        mCategories.add(OptionCategory.singleButton(optionItem));
+        OptionCategory category = OptionCategory.singleButton(optionItem);
+        category.iconKey = mIconKey;
+        mCategories.add(category);
+    }
+
+    /**
+     * NEWTUBE(menu-icons): the buttons appended from now on are this kind of row
+     * ({@link OptionCategory#iconKey}); null stops it. Returns the previous key, to restore.
+     */
+    public String setIconKey(String iconKey) {
+        String previous = mIconKey;
+        mIconKey = iconKey;
+        return previous;
     }
 
     public void showDialogMessage(String dialogTitle, Runnable onClose, int timeoutMs) {

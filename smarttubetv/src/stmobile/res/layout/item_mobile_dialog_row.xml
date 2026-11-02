@@ -17,6 +17,17 @@
     android:paddingStart="16dp"
     android:paddingEnd="16dp">
 
+    <!-- NEWTUBE(menu-icons): a card-menu row's icon (MenuIcons); gone in sheets without icons. -->
+    <ImageView
+        android:id="@+id/dialog_row_icon"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginEnd="16dp"
+        android:importantForAccessibility="no"
+        android:visibility="gone"
+        tools:src="@drawable/ic_menu_download"
+        tools:visibility="visible" />
+
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"

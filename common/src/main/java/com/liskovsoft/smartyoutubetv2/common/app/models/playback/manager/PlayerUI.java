@@ -31,6 +31,9 @@ public interface PlayerUI {
     /** NEWTUBE(phone): a like/dislike did not reach YouTube; the thumbs were already put back. */
     default void onRatingNotSaved() {
     }
+    /** NEWTUBE(menu): a menu over the player is about to open a channel screen. */
+    default void prepareChannelNavigation() {
+    }
     void setChannelIcon(String iconUrl);
     void setSeekPreviewTitle(String title);
     void setNextTitle(Video nextVideo);

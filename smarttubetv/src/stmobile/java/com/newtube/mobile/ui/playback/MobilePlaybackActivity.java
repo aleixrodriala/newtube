@@ -1006,6 +1006,7 @@ public class MobilePlaybackActivity extends MobileActivity
         long touchPrefetchMs = com.newtube.mobile.player.SwitchExperiments.touchPrefetchStillMs();
         mRelatedAdapter = new RelatedVideoAdapter(this::onRelatedClicked,
                 touchPrefetchMs > 0 ? this::onRelatedPressed : null, touchPrefetchMs);
+        mRelatedAdapter.setOnLongClickListener(this::onRelatedLongClicked);
         mWatchRelated.setLayoutManager(new LinearLayoutManager(this));
         mWatchRelated.setNestedScrollingEnabled(false);
         mWatchRelated.setHasFixedSize(false);
@@ -1019,6 +1020,7 @@ public class MobilePlaybackActivity extends MobileActivity
         // card (nested scrolling on + a max height) so a long playlist can't push the rest of the
         // watch page off the bottom. Rows are re-bound on every video change, so no fixed size.
         mQueueAdapter = new RelatedVideoAdapter(this::onRelatedClicked);
+        mQueueAdapter.setOnLongClickListener(this::onRelatedLongClicked);
         mQueueList.setLayoutManager(new LinearLayoutManager(this));
         mQueueList.setHasFixedSize(false);
         mQueueList.setAdapter(mQueueAdapter);
@@ -6453,6 +6455,19 @@ public class MobilePlaybackActivity extends MobileActivity
                     }
                     break;
                 }
+                case VideoGroup.ACTION_PREPEND: {
+                    // NEWTUBE(menu): Play next from a card menu goes to the head of the queue row;
+                    // a video already in it moves there. It used to fall through to the append.
+                    List<Video> existing = mSuggestionVideos.get(id);
+                    if (existing == null) {
+                        mSuggestionVideos.put(id, new ArrayList<>(incoming));
+                    } else {
+                        removeByVideoId(existing, incoming);
+                        existing.addAll(0, incoming);
+                    }
+                    mSuggestionGroups.put(id, group);
+                    break;
+                }
                 case VideoGroup.ACTION_APPEND:
                 default: {
                     List<Video> existing = mSuggestionVideos.get(id);
@@ -6470,8 +6485,52 @@ public class MobilePlaybackActivity extends MobileActivity
                 }
             }
 
+            // NEWTUBE(menu): the playback queue leads Up next, as when a video opens (the controller
+            // delivers it first). One that a card menu started mid-video went last, often past the
+            // rows the list shows.
+            if (group.getType() == com.liskovsoft.mediaserviceinterfaces.data.MediaGroup.TYPE_PLAYBACK_QUEUE
+                    && mSuggestionVideos.containsKey(id)) {
+                moveRowToFront(id);
+            }
+
             rebuildRelatedList();
         });
+    }
+
+    /** Takes out of {@code videos} every video of {@code gone}, matched by videoId. */
+    private static void removeByVideoId(List<Video> videos, List<Video> gone) {
+        for (Video video : gone) {
+            if (video == null || video.videoId == null) {
+                continue;
+            }
+            for (java.util.Iterator<Video> it = videos.iterator(); it.hasNext(); ) {
+                Video v = it.next();
+                if (v != null && video.videoId.equals(v.videoId)) {
+                    it.remove();
+                }
+            }
+        }
+    }
+
+    /** Puts row {@code id} first in both suggestion maps, keeping the others' order. */
+    private void moveRowToFront(int id) {
+        if (mSuggestionVideos.keySet().iterator().next() == id) {
+            return;
+        }
+        LinkedHashMap<Integer, List<Video>> videos = new LinkedHashMap<>();
+        videos.put(id, mSuggestionVideos.remove(id));
+        videos.putAll(mSuggestionVideos);
+        mSuggestionVideos.clear();
+        mSuggestionVideos.putAll(videos);
+
+        VideoGroup row = mSuggestionGroups.remove(id);
+        if (row != null) {
+            LinkedHashMap<Integer, VideoGroup> groups = new LinkedHashMap<>();
+            groups.put(id, row);
+            groups.putAll(mSuggestionGroups);
+            mSuggestionGroups.clear();
+            mSuggestionGroups.putAll(groups);
+        }
     }
 
     @Override
@@ -6480,9 +6539,20 @@ public class MobilePlaybackActivity extends MobileActivity
             return;
         }
 
+        // NEWTUBE(menu): the shared controller hands over the ONE video a menu action took out of a
+        // list (Not interested, Remove from queue...), so only that video goes, matched by id; the
+        // list itself goes once nothing is left in it. Dropping the whole list by its id emptied
+        // Up next after one long-press action.
         runOnUiThread(() -> {
-            mSuggestionVideos.remove(group.getId());
-            mSuggestionGroups.remove(group.getId());
+            int id = group.getId();
+            List<Video> existing = mSuggestionVideos.get(id);
+            if (existing != null && group.getVideos() != null) {
+                removeByVideoId(existing, group.getVideos());
+            }
+            if (existing == null || existing.isEmpty()) {
+                mSuggestionVideos.remove(id);
+                mSuggestionGroups.remove(id);
+            }
             rebuildRelatedList();
         });
     }
@@ -8319,6 +8389,17 @@ public class MobilePlaybackActivity extends MobileActivity
         }
     }
 
+    /**
+     * NEWTUBE(menu): long press on an Up next or queue row = its card menu, like a feed card's.
+     * {@code PlayerUIController.onSuggestionItemLongClicked} shows it and keeps these lists in step
+     * with what the menu does (removed from the queue, played next...).
+     */
+    private void onRelatedLongClicked(Video video) {
+        if (mPresenter != null && video != null) {
+            mPresenter.onSuggestionItemLongClicked(video);
+        }
+    }
+
     /** Watch-page channel row tap → the mobile channel screen. Same routing as the card menu's
      *  "Open channel" entry; playback stays alive behind the channel screen (the pending-view
      *  flag in onUserLeaveHint keeps auto-PiP from hijacking the in-app navigation). */
@@ -8332,6 +8413,21 @@ public class MobilePlaybackActivity extends MobileActivity
         // the watch page untouched.
         MiniPlayerBridge.prepareNavigation(this);
         MediaServiceManager.chooseChannelPresenter(this, video);
+    }
+
+    /**
+     * NEWTUBE(menu): Open channel in an Up next row's menu (PlayerUIController) marks the route as
+     * the channel row does ({@link #openCurrentChannel}), so the video docks in the channel's mini
+     * player. Only while this page is on screen under that menu: VideoMenuPresenter keeps its last
+     * callback for menus shown without one (Search, Channel), and a docked player must not dock
+     * again.
+     */
+    @Override
+    public void prepareChannelNavigation() {
+        if (mIsStopped || isFinishing() || MiniPlayerBridge.isActive()) {
+            return;
+        }
+        MiniPlayerBridge.prepareNavigation(this);
     }
 
     private void maybePageSuggestions() {
@@ -8378,6 +8474,9 @@ public class MobilePlaybackActivity extends MobileActivity
         Video current = getVideo();
         String currentId = current != null ? current.videoId : null;
         Integer queueId = findQueueGroupId(current);
+        // NEWTUBE(menu): Up next lists a video once. One queued from its card menu is still in its
+        // related row too; the queue's copy comes first (see updateSuggestions) and is the one kept.
+        java.util.Set<String> listed = new java.util.HashSet<>();
 
         for (Map.Entry<Integer, List<Video>> entry : mSuggestionVideos.entrySet()) {
             boolean isQueueRow = queueId != null && queueId.equals(entry.getKey());
@@ -8391,7 +8490,8 @@ public class MobilePlaybackActivity extends MobileActivity
                 }
                 if (isQueueRow) {
                     mQueueVideos.add(v);
-                } else if (currentId == null || !currentId.equals(v.videoId)) {
+                } else if ((currentId == null || !currentId.equals(v.videoId))
+                        && (v.videoId == null || listed.add(v.videoId))) {
                     // Match by videoId, not Video.equals (unreliable across instances).
                     mRelatedVideos.add(v);
                 }

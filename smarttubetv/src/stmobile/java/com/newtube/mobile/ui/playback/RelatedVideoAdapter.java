@@ -48,7 +48,14 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         void onRelatedPress(Video video);
     }
 
+    /** NEWTUBE(menu): a long press on a row opens the video's menu, as on a feed card. */
+    public interface OnRelatedLongClickListener {
+        void onRelatedLongClick(Video video);
+    }
+
     private final OnRelatedClickListener mClickListener;
+    @androidx.annotation.Nullable
+    private OnRelatedLongClickListener mLongClickListener;
     @androidx.annotation.Nullable
     private final OnRelatedPressListener mPressListener;
     private final long mPressIntentMs;
@@ -69,6 +76,11 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         mClickListener = clickListener;
         mPressListener = pressIntentMs > 0 ? pressListener : null;
         mPressIntentMs = pressIntentMs;
+    }
+
+    /** Set before the list shows its first rows: a row reads the listener when it is created. */
+    public void setOnLongClickListener(@androidx.annotation.Nullable OnRelatedLongClickListener listener) {
+        mLongClickListener = listener;
     }
 
     /**
@@ -105,7 +117,7 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
     public RelatedViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View view = LayoutInflater.from(parent.getContext())
                 .inflate(R.layout.item_mobile_related_video, parent, false);
-        return new RelatedViewHolder(view, mClickListener, mPressListener, mPressIntentMs);
+        return new RelatedViewHolder(view, mClickListener, mLongClickListener, mPressListener, mPressIntentMs);
     }
 
     @Override
@@ -129,9 +141,13 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         private final TextView mTitle;
         private final TextView mSubtitle;
         private Video mVideo;
+        /** NEWTUBE(menu): this row is the playing video, which has no long-press menu. */
+        private boolean mIsCurrent;
+        private final boolean mHasLongClick;
 
         @SuppressLint("ClickableViewAccessibility") // observes only; the row's click still runs
         RelatedViewHolder(@NonNull View itemView, OnRelatedClickListener clickListener,
+                @androidx.annotation.Nullable OnRelatedLongClickListener longClickListener,
                 @androidx.annotation.Nullable OnRelatedPressListener pressListener, long pressIntentMs) {
             super(itemView);
 
@@ -146,6 +162,17 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
                     clickListener.onRelatedClick(mVideo, mThumbnail);
                 }
             });
+
+            mHasLongClick = longClickListener != null;
+            if (longClickListener != null) {
+                itemView.setOnLongClickListener(v -> {
+                    if (mVideo == null || mIsCurrent) {
+                        return false;
+                    }
+                    longClickListener.onRelatedLongClick(mVideo);
+                    return true;
+                });
+            }
 
             if (pressListener != null) {
                 PressIntentDetector detector = new PressIntentDetector(
@@ -173,6 +200,13 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
 
         void bind(Video video, boolean isCurrent) {
             mVideo = video;
+            // NEWTUBE(menu): not on the "Now playing" row. Its menu acts on the playing video: Remove
+            // from <playlist> took it out of the queue row, and the queue card, found by the row
+            // that holds the playing video, disappeared with it.
+            mIsCurrent = isCurrent;
+            if (mHasLongClick) {
+                itemView.setLongClickable(!isCurrent);
+            }
             Context context = itemView.getContext();
 
             mTitle.setText(video.getTitle());
