@@ -159,6 +159,14 @@ final class PlayerPages {
                 () -> PlayerGesturePrefs.isSeekSwipeOn(context),
                 on -> PlayerGesturePrefs.setSeekSwipeOn(context, on)));
 
+        // NEWTUBE(clock): the time beside the title in fullscreen, where the status bar is hidden.
+        // PlayerData's own clock pref (the TV's "Show clock in controls bar", on by default), which
+        // the phone never read until now.
+        rows.add(SettingsRow.header(context.getString(R.string.mobile_settings_fullscreen)));
+        rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_clock),
+                context.getString(R.string.mobile_settings_clock_summary),
+                playerData::isClockEnabled, playerData::setClockEnabled));
+
         rows.add(SettingsRow.header(context.getString(R.string.mobile_settings_watch_page)));
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_hide_related),
                 context.getString(R.string.mobile_settings_hide_related_summary),

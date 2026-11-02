@@ -36,4 +36,5 @@
     <string name="mobile_settings_search_kw_diagnostic_log">error informe registro logs depurar</string>
     <string name="mobile_settings_search_kw_gesture_levels">gestos brillo volumen</string>
     <string name="mobile_settings_search_kw_gesture_seek">gestos adelantar retroceder saltar</string>
+    <string name="mobile_settings_search_kw_clock">reloj hora pantalla completa</string>
 </resources>

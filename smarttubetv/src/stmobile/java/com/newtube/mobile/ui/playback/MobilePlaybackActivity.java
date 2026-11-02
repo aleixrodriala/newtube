@@ -205,6 +205,8 @@ public class MobilePlaybackActivity extends MobileActivity
     /** Previous / play-pause / next, and the top-right options: they step aside while scrubbing. */
     @Nullable private View mTransport;
     @Nullable private View mOptionsRow;
+    /** NEWTUBE(clock): the time in the fullscreen top bar, beside the title. */
+    @Nullable private View mClockView;
     /** Over the top of the video: "Release to cancel" (seek bar). */
     @Nullable private TextView mTopPill;
     /** NEWTUBE(gestures): brightness / volume while a side swipe sets it (SwipeLevels). */
@@ -690,6 +692,21 @@ public class MobilePlaybackActivity extends MobileActivity
         mBottomRow = findViewById(R.id.mobile_player_bottom_row);
         mTransport = findViewById(R.id.mobile_player_transport);
         mOptionsRow = findViewById(R.id.mobile_player_options);
+        mClockView = findViewById(R.id.mobile_player_clock);
+        if (mOptionsRow != null && mTitleView != null) {
+            // NEWTUBE(clock): the title stops before the options row however wide it is (the clock
+            // widens it in fullscreen), never under it; 148dp is the room the three buttons need.
+            int minEnd = Math.round(148 * getResources().getDisplayMetrics().density);
+            int gap = Math.round(4 * getResources().getDisplayMetrics().density);
+            mOptionsRow.addOnLayoutChangeListener((v, left, top, right, bottom,
+                    oldLeft, oldTop, oldRight, oldBottom) -> {
+                int end = Math.max(minEnd, (right - left) + gap);
+                if (mTitleView.getPaddingEnd() != end) {
+                    mTitleView.setPaddingRelative(mTitleView.getPaddingStart(), mTitleView.getPaddingTop(),
+                            end, mTitleView.getPaddingBottom());
+                }
+            });
+        }
         mTopPill = findViewById(R.id.mobile_player_top_pill);
         mLevelPill = findViewById(R.id.mobile_player_level_pill);
         mLevelIcon = findViewById(R.id.mobile_player_level_icon);
@@ -1123,6 +1140,8 @@ public class MobilePlaybackActivity extends MobileActivity
             if (mTitleView != null) {
                 mTitleView.setVisibility(View.VISIBLE);
             }
+            // NEWTUBE(clock): fullscreen hides the status bar, and its clock with it.
+            updateClockVisibility(true);
         } else {
             // Configuration width is already updated when display metrics/window views can still
             // have the previous landscape bounds. The layout listener above then makes this exact
@@ -1147,7 +1166,24 @@ public class MobilePlaybackActivity extends MobileActivity
             if (mTitleView != null) {
                 mTitleView.setVisibility(View.GONE);
             }
+            updateClockVisibility(false);
         }
+    }
+
+    /**
+     * NEWTUBE(clock): the time shows in fullscreen while Settings > Player has it on, unless the
+     * status bar shows its own clock anyway (fullscreen in split screen, bars swiped in).
+     */
+    private void updateClockVisibility(boolean fullscreen) {
+        if (mClockView != null) {
+            boolean show = fullscreen && !isStatusBarShown() && PlayerData.instance(this).isClockEnabled();
+            mClockView.setVisibility(show ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private boolean isStatusBarShown() {
+        WindowInsetsCompat insets = mControlsRoot != null ? ViewCompat.getRootWindowInsets(mControlsRoot) : null;
+        return insets != null && insets.isVisible(WindowInsetsCompat.Type.statusBars());
     }
 
     /**
@@ -1454,6 +1490,8 @@ public class MobilePlaybackActivity extends MobileActivity
         PlayerTransitionBridge.LaunchSnapshot launch = PlayerTransitionBridge.take();
 
         mIsResumed = true;
+        // NEWTUBE(clock): Settings may have turned the fullscreen time on or off meanwhile.
+        updateClockVisibility(mTitleView != null && mTitleView.getVisibility() == View.VISIBLE);
         if (mControlsVisible && !isPlayerSheetShown()) {
             // NEWTUBE(sheet-landscape): back from a picker screen (Repeat, Zoom...) that held the
             // controls up. It only paused this screen, so onStart's countdown does not run.
@@ -2183,6 +2221,7 @@ public class MobilePlaybackActivity extends MobileActivity
         bleedScrim(mTopScrim, left, top, right, 0);
         bleedScrim(mBottomScrim, left, 0, right, bottom);
         applySeekBarLayout(left, top, right, bottom);
+        updateClockVisibility(isLandscape()); // NEWTUBE(clock): the status bar came or went
     }
 
     /**

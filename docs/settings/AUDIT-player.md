@@ -202,7 +202,7 @@ Established for this slice: `PlaybackPresenter.onKeyDown` has no caller, so a re
 | Remember live stream position | PTD#isRememberPositionOfLiveVideosEnabled / #setRememberPositionOfLiveVideosEnabled | true (idx 46) | `ctrl/VideoStateController.java:351` in `resetPositionIfNeeded` (:333) <- `onNewVideo` (:69), which fires on every phone open | LIVE | Reopening a live stream that has a rewindable history (`isFullLive`) resumes where you left off instead of jumping to the live edge. | None. |
 | Remember position of short videos (less than 5 min) | PTD#isRememberPositionOfShortVideosEnabled / #setRememberPositionOfShortVideosEnabled | false (idx 16) | `ctrl/VideoStateController.java:347` in `resetPositionIfNeeded` <- `onNewVideo` (:69) | LIVE | Off (default): videos shorter than 6 minutes always start from the beginning, like music. On: they resume like longer videos. | The label is wrong: the threshold is `MUSIC_VIDEO_MAX_DURATION_MS = 6 * 60 * 1000` (VideoStateController.java:23), not 5 min. |
 | Revert old behavior of the speed button | PTD#isSpeedButtonOldBehaviorEnabled / #setSpeedButtonOldBehaviorEnabled | false (idx 23) | Only `ctrl/VideoStateController.java:295` `onSpeedClicked` <- `onButtonClicked(action_video_speed)` (:266). The phone sends only the long-click (MobilePlaybackActivity:6695), so the plain click never fires. | DEAD | Nothing. On TV it made the speed button open the speed list instead of toggling between 1x and the last speed. | The phone's Speed row opens its own sheet (`showSpeedSheet`). |
-| Show clock in controls bar | PD#isClockEnabled / #setClockEnabled | true (PD idx 5) | None (no reader outside PlayerData and the settings presenter; the TV PlaybackFragment that read it was deleted) | DEAD | Nothing. The phone controls have no clock. | None. |
+| Show clock in controls bar | PD#isClockEnabled / #setClockEnabled | true (PD idx 5) | `mobile/…/ui/playback/MobilePlaybackActivity.java` `updateClockVisibility` (the TV PlaybackFragment that read it was deleted) | LIVE | The time beside the title in fullscreen, hidden while the status bar shows its own. The phone row is Settings > Player > Fullscreen > Clock in fullscreen. | None. |
 | Show quality info in the controls bar | PD#isQualityInfoEnabled / #setQualityInfoEnabled | true (PD idx 28) | None | DEAD | Nothing. The phone shows quality in the gear sheet's Quality row ("Auto (720p)") regardless of this setting. | None. |
 | Add bitrate into the quality info | PTD#isQualityInfoBitrateEnabled / #setQualityInfoBitrateEnabled | false (idx 22) | None | DEAD | Nothing (depends on the dead row above). | None. |
 | Sync focus between player button rows (summary: "This feature affects which player button will receive focus when navigating between player button rows") | PTD#isSyncRowButtonIndexEnabled / #setSyncRowButtonIndexEnabled | true (idx 41) | None | DEAD | Nothing. It is D-pad focus behaviour for the deleted Leanback player bar. | None. |
@@ -404,7 +404,7 @@ No row is KEYBOARD-ONLY. Even a hardware keyboard never reaches the controllers'
 15. Place comments to the left
 16. Seek with number keys
 17. Revert old behavior of the speed button
-18. Show clock in controls bar
+18. ~~Show clock in controls bar~~: live again, as the fullscreen clock (Settings > Player > Fullscreen).
 19. Show quality info in the controls bar
 20. Add bitrate into the quality info
 21. Sync focus between player button rows
