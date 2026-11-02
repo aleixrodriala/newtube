@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!-- NewTube branding: override SmartTube's app_name for the mobile flavor only -->
     <string name="app_name" translatable="false">NewTube</string>
     <string name="mobile_player_back">Back</string>
@@ -261,8 +261,14 @@
     <string name="mobile_settings_experimental">Experimental</string>
     <!-- NEWTUBE(gestures): Settings > Player, the switches for the optional player swipes (#12). -->
     <string name="mobile_settings_gestures">Gestures</string>
-    <string name="mobile_settings_gesture_levels">Swipe for brightness and volume</string>
-    <string name="mobile_settings_gesture_levels_summary">Up and down on the left or right of the fullscreen video</string>
+    <string name="mobile_settings_gesture_brightness">Swipe for brightness</string>
+    <string name="mobile_settings_gesture_volume">Swipe for volume</string>
+    <string name="mobile_settings_gesture_brightness_summary">Up and down on the left of the fullscreen video, or either side with the volume swipe off</string>
+    <string name="mobile_settings_gesture_volume_summary">Up and down on the right of the fullscreen video, or either side with the brightness swipe off</string>
+    <!-- The old combined brightness/volume switch. Unused since each got its own; kept so the
+         Weblate translations of it don't trip ExtraTranslation. Delete once Weblate drops them. -->
+    <string name="mobile_settings_gesture_levels" tools:ignore="UnusedResources">Swipe for brightness and volume</string>
+    <string name="mobile_settings_gesture_levels_summary" tools:ignore="UnusedResources">Up and down on the left or right of the fullscreen video</string>
     <string name="mobile_settings_gesture_seek">Swipe to seek</string>
     <string name="mobile_settings_gesture_seek_summary">Sideways on the video</string>
     <!-- Default-locale twins of the values-es overrides below (lint ExtraTranslation). -->

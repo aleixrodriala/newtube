@@ -26,8 +26,10 @@ this repo's licence, and no code was taken from any of them).
   (sticky immersive delivers those edge swipes to the app too). Seeks don't start in the side
   bands where gesture navigation's Back begins. The seek bar's own touch band keeps its touches
   (it disallows interception), as YouTube's does.
-- Switches: `PlayerGesturePrefs` (brightness and volume together, seek alone), both on by
-  default. The fullscreen and minimize swipes are YouTube's own and always on.
+- Switches: `PlayerGesturePrefs`, one each for brightness, volume and seek, all on by default
+  (the old shared brightness/volume switch is still read as the default of both). With only one
+  of brightness and volume available (its switch off, or a fixed-volume phone), the other works on
+  both sides (`sideSwipe`). The fullscreen and minimize swipes are YouTube's own and always on.
 
 ## Fullscreen in and out
 
