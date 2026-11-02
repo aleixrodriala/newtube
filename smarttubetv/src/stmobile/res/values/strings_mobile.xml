@@ -407,6 +407,7 @@
     <string name="mobile_download_file_missing">The downloaded file is no longer on this device</string>
     <string name="mobile_download_pill_downloaded">Downloaded</string>
     <string name="mobile_downloads_empty">Videos you download appear here.\nUse Download in a video\'s menu or on the watch page.</string>
+    <string name="mobile_watch_later_empty">Videos you save for later appear here.\nUse Save to Watch later in a video\'s menu, or Save on the watch page.</string>
     <string name="mobile_download_badge_queued">Queued</string>
     <string name="mobile_download_badge_downloading">Downloading</string>
     <string name="mobile_download_badge_failed">Failed</string>

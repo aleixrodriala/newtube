@@ -5,6 +5,11 @@
   <string name="header_subscriptions">Suscripciones</string>
   <string name="header_history">Historial</string>
   <string name="header_downloads">Descargas</string>
+  <string name="header_watch_later">Ver más tarde</string>
+  <string name="remove_video_from_watch_later">Quitar de Ver más tarde</string>
+  <string name="saved_to_watch_later">Guardado en Ver más tarde</string>
+  <string name="saved_to_watch_later_full">Guardado en Ver más tarde. Guarda hasta %1$d vídeos, así que se quitó el más antiguo.</string>
+  <string name="removed_from_watch_later">Quitado de Ver más tarde</string>
   <string name="header_music">Música</string>
   <string name="header_news">Noticias</string>
   <string name="header_gaming">Videojuegos</string>
