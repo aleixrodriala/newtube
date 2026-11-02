@@ -66,6 +66,8 @@ public final class LocalPlaylists {
 
     private final SharedPreferences mPrefs;
     private List<LocalPlaylist> mPlaylists;
+    /** Every change in this process ({@link #changes}). */
+    private int mChanges;
 
     public static LocalPlaylists instance(@NonNull Context context) {
         if (sInstance == null) {
@@ -290,6 +292,14 @@ public final class LocalPlaylists {
         return mPrefs.getLong(KEY_SAVES, 0);
     }
 
+    /**
+     * Bumped by every change (made, renamed, deleted, a video added or removed) in this process: a
+     * screen showing a playlist reads it again only when this moved, and keeps its place otherwise.
+     */
+    public synchronized int changes() {
+        return mChanges;
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Storage
     // ---------------------------------------------------------------------------------------------
@@ -358,6 +368,7 @@ public final class LocalPlaylists {
 
     /** @param added something new was saved: offer to copy it to the account at the next sign-in */
     private void persist(boolean added) {
+        mChanges++;
         try {
             JSONArray array = new JSONArray();
             for (LocalPlaylist playlist : playlistsInt()) {

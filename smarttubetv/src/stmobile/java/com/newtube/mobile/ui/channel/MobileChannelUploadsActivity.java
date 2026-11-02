@@ -84,8 +84,8 @@ public class MobileChannelUploadsActivity extends MobileActivity
 
     /** Playlist header row (absent for plain channel uploads) - see {@link PlaylistHeaderAdapter}. */
     private PlaylistHeaderAdapter mHeaderAdapter;
-    /** NEWTUBE(playlists): onResume after the first one, when a phone playlist is read again. */
-    private boolean mResumedOnce;
+    /** NEWTUBE(playlists): LocalPlaylists' change count when this screen left the front; -1 until then. */
+    private int mLocalChanges = -1;
     /** "Couldn't load more" row after the cards when a next page failed. */
     private LoadMoreFailureAdapter mLoadMoreFooter;
     private SwipeRefreshLayout mSwipe;
@@ -515,11 +515,13 @@ public class MobileChannelUploadsActivity extends MobileActivity
         if (mPresenter != null) {
             mPresenter.onViewResumed();
             // NEWTUBE(playlists): a phone playlist may have changed from another screen meanwhile.
-            if (isLocalPlaylist() && mResumedOnce) {
+            // Read again only if it did: a reload starts the list from the top, so doing it on every
+            // return (after each video played from it) lost the person's place.
+            if (isLocalPlaylist() && mLocalChanges >= 0
+                    && mLocalChanges != LocalPlaylists.instance(this).changes()) {
                 mPresenter.reload(false);
             }
         }
-        mResumedOnce = true;
         // Last-resumed host wins: a video opened from this list minimizes back onto it.
         MiniPlayerBridge.registerMiniHost(this);
         if (mMiniPlayer != null) {
@@ -539,6 +541,9 @@ public class MobileChannelUploadsActivity extends MobileActivity
 
         if (mPresenter != null) {
             mPresenter.onViewPaused();
+        }
+        if (isLocalPlaylist()) {
+            mLocalChanges = LocalPlaylists.instance(this).changes();
         }
     }
 

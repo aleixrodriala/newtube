@@ -221,6 +221,24 @@ public class LocalPlaylistsTest {
     }
 
     @Test
+    public void everyChangeMovesTheChangeCountAndReadingDoesNot() {
+        LocalPlaylists playlists = LocalPlaylists.instance(mContext);
+        int start = playlists.changes();
+        String id = playlists.create("Mix", video("aaaaaaaaaaa"));
+        playlists.add(id, video("bbbbbbbbbbb"));
+        playlists.remove(id, "aaaaaaaaaaa");
+        playlists.rename(id, "Mix 2");
+        int changed = playlists.changes();
+
+        playlists.videos(id);
+        playlists.cards(mContext);
+        playlists.add(id, video("bbbbbbbbbbb")); // already in it: no change
+
+        assertEquals(start + 4, changed);
+        assertEquals(changed, playlists.changes());
+    }
+
+    @Test
     public void aYouTubeIdIsNeverLocal() {
         assertFalse(LocalPlaylists.isLocalId("PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf"));
         assertFalse(LocalPlaylists.isLocalId("WL"));
