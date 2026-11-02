@@ -4241,7 +4241,7 @@ public class MobilePlaybackActivity extends MobileActivity
                 : getString(R.string.mobile_quality_auto_short);
     }
 
-    /** Trailing value for the Speed row: "Normal", "1.5x", ... */
+    /** Trailing value for the Speed row and the top bar's speed chip: "1x", "1.5x", ... */
     private String currentSpeedLabel() {
         float speed = mExoPlayerController != null ? mExoPlayerController.getSpeed() : -1;
         return speedLabel(speed <= 0 ? 1f : speed);
