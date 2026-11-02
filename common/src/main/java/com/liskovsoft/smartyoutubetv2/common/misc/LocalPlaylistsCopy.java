@@ -70,6 +70,7 @@ public final class LocalPlaylistsCopy {
         final AtomicInteger videos = new AtomicInteger();
         final AtomicInteger failedPlaylists = new AtomicInteger();
         final AtomicInteger failedVideos = new AtomicInteger();
+        volatile boolean stopped;
 
         /** Playlists made on the account. */
         public int playlists() {
@@ -89,6 +90,11 @@ public final class LocalPlaylistsCopy {
         /** Videos YouTube didn't take, or doesn't show: they stay to copy. */
         public int failedVideos() {
             return failedVideos.get();
+        }
+
+        /** Another account was signed in (or none) partway, so the copy stopped there. */
+        public boolean stopped() {
+            return stopped;
         }
     }
 
@@ -124,17 +130,45 @@ public final class LocalPlaylistsCopy {
 
     @NonNull
     public static Disposable copyToAccount(@NonNull Context context, @NonNull Callback callback) {
+        String account = accountKey();
         Outcome outcome = new Outcome();
-        return copy(context.getApplicationContext(), YouTubeMediaItemService.instance(), accountKey(), outcome)
+        return copy(context.getApplicationContext(), YouTubeMediaItemService.instance(), account, outcome)
+                // Each request goes to whoever is signed in when it is sent: past a switch, the rest
+                // would land on the other account and be recorded as this one's.
+                .ambWith(untilAccountChanges(account))
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(
                         () -> callback.onDone(outcome),
-                        error -> { // each step handles its own errors; this is a safety net
-                            Log.e(TAG, "Copy failed: %s", error.getMessage());
-                            outcome.failedVideos.incrementAndGet();
+                        error -> {
+                            if (error instanceof AccountChanged) {
+                                outcome.stopped = true;
+                            } else { // each step handles its own errors; this is a safety net
+                                Log.e(TAG, "Copy failed: %s", error.getMessage());
+                                outcome.failedVideos.incrementAndGet();
+                            }
                             callback.onDone(outcome);
                         });
+    }
+
+    /** Fails with {@link AccountChanged} once another account, or none, is signed in. */
+    private static Completable untilAccountChanges(@NonNull String account) {
+        return Completable.create(emitter -> {
+            MediaServiceManager.AccountChangeListener listener = changed -> {
+                if (!account.equals(accountKey())) {
+                    emitter.tryOnError(new AccountChanged());
+                }
+            };
+            MediaServiceManager.instance().addAccountListener(listener);
+            emitter.setCancellable(() -> MediaServiceManager.instance().removeAccountListener(listener));
+        });
+    }
+
+    /** The account a copy was for is no longer the signed-in one. */
+    private static final class AccountChanged extends Exception {
+        AccountChanged() {
+            super("The signed-in account changed");
+        }
     }
 
     /** The copy to {@code account}: Watch later, then the playlists, oldest first. */

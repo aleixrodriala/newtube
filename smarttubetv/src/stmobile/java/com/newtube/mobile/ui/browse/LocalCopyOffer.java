@@ -18,6 +18,8 @@ import com.newtube.mobile.ui.common.MobileSnackbar;
 
 import java.lang.ref.WeakReference;
 
+import io.reactivex.rxjava3.disposables.Disposable;
+
 /**
  * NEWTUBE(playlists): after signing in, one question about what was saved on the phone while signed
  * out and isn't on this account yet: copy it, or leave it on the phone. Nothing on the phone is
@@ -27,14 +29,14 @@ import java.lang.ref.WeakReference;
 final class LocalCopyOffer {
     /** The dialog on screen, if any; weak, so a screen recreated under it isn't kept alive. */
     @Nullable private static WeakReference<AlertDialog> sShowing;
-    /** True while a copy runs: one at a time. */
-    private static boolean sCopying;
+    /** The copy running, if any: one at a time. It stops itself if the account changes. */
+    @Nullable private static Disposable sCopy;
 
     private LocalCopyOffer() {
     }
 
     static void maybeShow(@NonNull Activity activity) {
-        if (activity.isFinishing() || activity.isDestroyed() || isShowing() || sCopying
+        if (activity.isFinishing() || activity.isDestroyed() || isShowing() || sCopy != null
                 || !YouTubeSignInService.instance().isSigned()) {
             return;
         }
@@ -82,14 +84,13 @@ final class LocalCopyOffer {
     /** With the app's context: the copy outlives the screen that asked, and needs none of it. */
     private static void copy(@NonNull Context app) {
         clearPending(app);
-        sCopying = true;
         MobileSnackbar.show(app, R.string.mobile_copy_working);
-        LocalPlaylistsCopy.copyToAccount(app, outcome -> {
-            sCopying = false;
+        sCopy = LocalPlaylistsCopy.copyToAccount(app, outcome -> {
+            sCopy = null;
             BrowsePresenter.instance(app).onPlaylistEdited();
             int failed = outcome.failedPlaylists() + outcome.failedVideos();
-            MobileSnackbar.show(app, failed > 0
-                    ? app.getResources().getQuantityString(R.plurals.mobile_copy_done_failed, failed, failed)
+            MobileSnackbar.show(app, outcome.stopped() ? app.getString(R.string.mobile_copy_stopped)
+                    : failed > 0 ? app.getResources().getQuantityString(R.plurals.mobile_copy_done_failed, failed, failed)
                     : app.getString(R.string.mobile_copy_done), null, null);
         });
     }
