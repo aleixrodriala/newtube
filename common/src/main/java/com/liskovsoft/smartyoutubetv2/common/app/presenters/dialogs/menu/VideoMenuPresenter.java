@@ -100,6 +100,8 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
         int ACTION_ADD_TO_QUEUE = 5;
         int ACTION_PLAY_NEXT = 6;
         int ACTION_REMOVE_AUTHOR = 7;
+        /** NEWTUBE(menu): Open channel was picked; sent before the channel screen is asked for. */
+        int ACTION_OPEN_CHANNEL = 8;
         void onItemAction(Video videoItem, int action);
     }
 
@@ -244,7 +246,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
         MENU_ICONS.put(MainUIData.MENU_ITEM_PLAY_FROM_START, "play_from_start");
         MENU_ICONS.put(MainUIData.MENU_ITEM_REMOVE_FROM_HISTORY, "remove_from_history");
         MENU_ICONS.put(MainUIData.MENU_ITEM_STREAM_REMINDER, "stream_reminder");
-        MENU_ICONS.put(MainUIData.MENU_ITEM_RECENT_PLAYLIST, "recent_playlist");
+        MENU_ICONS.put(MainUIData.MENU_ITEM_RECENT_PLAYLIST, "add_to_playlist");
         MENU_ICONS.put(MainUIData.MENU_ITEM_ADD_TO_WATCH_LATER, "watch_later");
         MENU_ICONS.put(MainUIData.MENU_ITEM_ADD_TO_PLAYLIST, "add_to_playlist");
         MENU_ICONS.put(MainUIData.MENU_ITEM_DOWNLOAD, "download");
@@ -450,6 +452,10 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
             }
         }
         boolean add = !isSelected;
+        // NEWTUBE(menu-icons): Add to and Remove from <playlist> show what they do.
+        if (!add) {
+            mDialogPresenter.setIconKey("remove_from_playlist");
+        }
         mDialogPresenter.appendSingleButton(
                 UiOptionItem.from(getContext().getString(
                         add ? R.string.dialog_add_to : R.string.dialog_remove_from, playlistTitle),
@@ -467,10 +473,19 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
             return;
         }
 
+        // NEWTUBE(menu-icons): the row that reads Open playlist shows the playlist icon.
+        if (mVideo.isPlaylistAsChannel()) {
+            mDialogPresenter.setIconKey("open_playlist");
+        }
         // Prepare to special type of channels that work as playlist
         mDialogPresenter.appendSingleButton(
                 UiOptionItem.from(getContext().getString(
                         mVideo.isPlaylistAsChannel() ? R.string.open_playlist : R.string.open_channel), optionItem -> {
+                    // NEWTUBE(menu): the watch page docks its video into the channel's mini player,
+                    // as its own channel row does (MobilePlaybackActivity.prepareChannelNavigation).
+                    if (mCallback != null) {
+                        mCallback.onItemAction(mVideo, VideoMenuCallback.ACTION_OPEN_CHANNEL);
+                    }
                     MediaServiceManager.chooseChannelPresenter(getContext(), mVideo);
                     mDialogPresenter.closeDialog();
                 }));
@@ -980,7 +995,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
 
         // NEWTUBE(menu-icons): an Unsubscribe row shows the remove-person icon, not the add one.
         if (mVideo.isSubscribed) {
-            mDialogPresenter.setIconKey("remove_from_subscriptions");
+            mDialogPresenter.setIconKey("unsubscribe");
         }
         mDialogPresenter.appendSingleButton(
                 UiOptionItem.from(getContext().getString(
@@ -1152,6 +1167,10 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
         StreamReminderService reminderService = StreamReminderService.instance(getContext());
         boolean reminderSet = reminderService.isReminderSet(mVideo);
 
+        // NEWTUBE(menu-icons): Unset shows the bell turned off.
+        if (reminderSet) {
+            mDialogPresenter.setIconKey("stream_reminder_off");
+        }
         mDialogPresenter.appendSingleButton(
                 UiOptionItem.from(getContext().getString(reminderSet ? R.string.unset_stream_reminder : R.string.set_stream_reminder),
                         optionItem -> {

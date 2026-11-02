@@ -24,7 +24,7 @@ final class MenuIcons {
         ICONS.put("play_from_start", R.drawable.ic_menu_play_from_start);
         ICONS.put("remove_from_history", R.drawable.ic_menu_remove_from_history);
         ICONS.put("stream_reminder", R.drawable.ic_menu_stream_reminder);
-        ICONS.put("recent_playlist", R.drawable.ic_menu_recent_playlist);
+        ICONS.put("stream_reminder_off", R.drawable.ic_menu_stream_reminder_off);
         ICONS.put("watch_later", R.drawable.ic_menu_watch_later);
         ICONS.put("add_to_playlist", R.drawable.ic_menu_add_to_playlist);
         ICONS.put("remove_from_playlist", R.drawable.ic_menu_remove_from_playlist);
@@ -35,6 +35,7 @@ final class MenuIcons {
         ICONS.put("not_interested", R.drawable.ic_menu_not_interested);
         ICONS.put("not_recommend_channel", R.drawable.ic_menu_not_recommend_channel);
         ICONS.put("remove_from_subscriptions", R.drawable.ic_menu_remove_from_subscriptions);
+        ICONS.put("unsubscribe", R.drawable.ic_menu_unsubscribe);
         ICONS.put("block_channel", R.drawable.ic_menu_block_channel);
         ICONS.put("mark_watched", R.drawable.ic_menu_mark_watched);
         ICONS.put("playlist_order", R.drawable.ic_menu_playlist_order);
@@ -48,6 +49,7 @@ final class MenuIcons {
         ICONS.put("content_block", R.drawable.ic_menu_content_block);
         ICONS.put("pin_sidebar", R.drawable.ic_menu_pin_sidebar);
         ICONS.put("save_playlist", R.drawable.ic_menu_save_playlist);
+        ICONS.put("remove_playlist", R.drawable.ic_menu_remove_playlist);
         ICONS.put("open_description", R.drawable.ic_menu_open_description);
         ICONS.put("share", R.drawable.ic_menu_share);
         ICONS.put("share_qr", R.drawable.ic_menu_share_qr);
