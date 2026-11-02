@@ -1645,7 +1645,7 @@ public class MobileBrowseActivity extends MobileActivity
 
     /** NEWTUBE(playlists): a sign-in finished while this screen is in front. */
     private final MediaServiceManager.AccountChangeListener mCopyOfferListener =
-            account -> runOnUiThread(() -> LocalCopyOffer.maybeShow(this));
+            account -> runOnUiThread(() -> LocalCopyOffer.onAccountChanged(this));
 
     private boolean isLocalSectionShowing() {
         return isLocalSection(mCurrentSectionId) && !mYouShowing;

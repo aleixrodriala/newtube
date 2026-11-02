@@ -26,7 +26,7 @@ import java.util.UUID;
  * NEWTUBE(playlists): playlists for a signed-out phone, kept on the phone (Watch later has its own
  * store, {@link LocalWatchLater}). Signed in, playlists are the account's and these stay put, for
  * signing out again, or for copying to the account ({@link LocalPlaylistsCopy}), which the phone
- * offers once after signing in ({@link #isCopyOfferPending}).
+ * offers after signing in ({@link LocalPlaylistsCopy#whatToOffer}).
  *
  * <p>Each playlist has an id that can never be a YouTube one ({@link #ID_PREFIX}): its card carries
  * that id as {@code playlistId}, which is how the screens that open a playlist tell a phone
@@ -41,7 +41,8 @@ public final class LocalPlaylists {
     private static final String KEY_PLAYLISTS = "playlists";
     /** The last saved playlists that couldn't be read in full, as they were (see {@link #playlistsInt()}). */
     private static final String KEY_DAMAGED = "playlists_damaged";
-    private static final String KEY_COPY_OFFER = "copy_offer_pending";
+    /** How many times something new was saved, ever ({@link #saves}). */
+    private static final String KEY_SAVES = "saves";
     /** Per playlist, so a mistaken paste can't grow the file without end. */
     private static final int MAX_VIDEOS = 5000;
 
@@ -275,13 +276,12 @@ public final class LocalPlaylists {
     // Copying to an account
     // ---------------------------------------------------------------------------------------------
 
-    /** Something was saved on the phone since the last offer to copy it to an account. */
-    public boolean isCopyOfferPending() {
-        return mPrefs.getBoolean(KEY_COPY_OFFER, false);
-    }
-
-    public void setCopyOfferPending(boolean pending) {
-        mPrefs.edit().putBoolean(KEY_COPY_OFFER, pending).apply();
+    /**
+     * How many times something new was saved (a playlist made, a video added), ever. It only grows,
+     * so "saved anything since?" is a comparison ({@link LocalPlaylistsCopy#whatToOffer}).
+     */
+    public long saves() {
+        return mPrefs.getLong(KEY_SAVES, 0);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -367,7 +367,7 @@ public final class LocalPlaylists {
             }
             SharedPreferences.Editor editor = mPrefs.edit().putString(KEY_PLAYLISTS, array.toString());
             if (added) {
-                editor.putBoolean(KEY_COPY_OFFER, true);
+                editor.putLong(KEY_SAVES, saves() + 1);
             }
             editor.apply();
         } catch (JSONException e) {

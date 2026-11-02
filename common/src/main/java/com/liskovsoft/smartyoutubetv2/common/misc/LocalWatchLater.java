@@ -34,8 +34,8 @@ public final class LocalWatchLater {
     private static final String KEY_VIDEOS = "videos";
     /** The last saved list that couldn't be read in full, as it was (see {@link #videos()}). */
     private static final String KEY_DAMAGED = "videos_damaged";
-    /** Saved since the last offer to copy the phone's lists to an account (LocalPlaylistsCopy). */
-    private static final String KEY_COPY_OFFER = "copy_offer_pending";
+    /** How many times a video was saved, ever ({@link #saves}). */
+    private static final String KEY_SAVES = "saves";
     /** Far more than anyone keeps; the oldest go first past it, so the file stays small. */
     public static final int MAX_VIDEOS = 2000;
 
@@ -98,7 +98,7 @@ public final class LocalWatchLater {
             madeRoom = true;
         }
         persist();
-        mPrefs.edit().putBoolean(KEY_COPY_OFFER, true).apply();
+        mPrefs.edit().putLong(KEY_SAVES, saves() + 1).apply();
         return madeRoom;
     }
 
@@ -146,12 +146,12 @@ public final class LocalWatchLater {
         return result;
     }
 
-    public boolean isCopyOfferPending() {
-        return mPrefs.getBoolean(KEY_COPY_OFFER, false);
-    }
-
-    public void setCopyOfferPending(boolean pending) {
-        mPrefs.edit().putBoolean(KEY_COPY_OFFER, pending).apply();
+    /**
+     * How many times a video was saved, ever. It only grows, so "saved anything since?" is a
+     * comparison ({@link LocalPlaylistsCopy#whatToOffer}).
+     */
+    public long saves() {
+        return mPrefs.getLong(KEY_SAVES, 0);
     }
 
     /**

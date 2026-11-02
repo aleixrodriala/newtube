@@ -58,6 +58,8 @@ public final class LocalPlaylistsCopy {
     private static final String WATCH_LATER = "wl";
     /** The account's Watch later: first in every video's "add to playlist" list from YouTube. */
     private static final String YOUTUBE_WATCH_LATER = "WL";
+    /** Per account: the phone's save count when it last had nothing to be offered ({@link #whatToOffer}). */
+    private static final String KEY_SETTLED = "settled:";
 
     public interface Callback {
         /** On the main thread. */
@@ -126,6 +128,55 @@ public final class LocalPlaylistsCopy {
         }
         videos += notCopied(copied, WATCH_LATER, LocalWatchLater.instance(context).oldestFirst()).size();
         return new int[] {playlists, videos};
+    }
+
+    /**
+     * What to offer the signed-in account ({@link #countNew}), or null when there is nothing to ask:
+     * nothing new for it, or nothing saved on the phone since it last had nothing new or was answered
+     * "Keep on phone" ({@link #keepOnPhone}). Per account: copying to one says nothing about another.
+     * A copy that didn't get everything leaves something new, so it is offered again.
+     */
+    @Nullable
+    public static int[] whatToOffer(@NonNull Context context) {
+        return whatToOffer(context, accountKey());
+    }
+
+    @Nullable
+    @VisibleForTesting
+    static int[] whatToOffer(@NonNull Context context, @NonNull String accountKey) {
+        long saves = saves(context);
+        if (saves <= prefs(context).getLong(KEY_SETTLED + accountKey, 0)) {
+            return null; // the usual answer, and a cheap one: Browse asks on every visit
+        }
+        int[] counts = countNew(context, accountKey);
+        if (counts[0] == 0 && counts[1] == 0) {
+            settle(context, accountKey, saves); // all of it is on this account already
+            return null;
+        }
+        return counts;
+    }
+
+    /** "Keep on phone": this account isn't asked again until something more is saved. */
+    public static void keepOnPhone(@NonNull Context context) {
+        keepOnPhone(context, accountKey());
+    }
+
+    @VisibleForTesting
+    static void keepOnPhone(@NonNull Context context, @NonNull String accountKey) {
+        settle(context, accountKey, saves(context));
+    }
+
+    private static void settle(@NonNull Context context, @NonNull String accountKey, long saves) {
+        prefs(context).edit().putLong(KEY_SETTLED + accountKey, saves).apply();
+    }
+
+    /** Every save on the phone so far, Watch later and playlists: it only grows. */
+    private static long saves(@NonNull Context context) {
+        return LocalPlaylists.instance(context).saves() + LocalWatchLater.instance(context).saves();
+    }
+
+    private static SharedPreferences prefs(@NonNull Context context) {
+        return context.getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
 
     @NonNull
@@ -445,7 +496,7 @@ public final class LocalPlaylistsCopy {
 
     /** Which account the copy is for: the same phone lists may go to two accounts, once each. */
     @NonNull
-    private static String accountKey() {
+    public static String accountKey() {
         Account account = YouTubeSignInService.instance().getSelectedAccount();
         if (account == null) {
             return "none";

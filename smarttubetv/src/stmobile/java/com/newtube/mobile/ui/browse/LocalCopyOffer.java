@@ -9,9 +9,7 @@ import androidx.appcompat.app.AlertDialog;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.BrowsePresenter;
-import com.liskovsoft.smartyoutubetv2.common.misc.LocalPlaylists;
 import com.liskovsoft.smartyoutubetv2.common.misc.LocalPlaylistsCopy;
-import com.liskovsoft.smartyoutubetv2.common.misc.LocalWatchLater;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.liskovsoft.youtubeapi.service.YouTubeSignInService;
 import com.newtube.mobile.ui.common.MobileSnackbar;
@@ -23,14 +21,18 @@ import io.reactivex.rxjava3.disposables.Disposable;
 /**
  * NEWTUBE(playlists): after signing in, one question about what was saved on the phone while signed
  * out and isn't on this account yet: copy it, or leave it on the phone. Nothing on the phone is
- * deleted either way. Asked once per batch: saving more while signed out asks again at the next
- * sign-in, about the new things only.
+ * deleted either way. Each account is asked about what it hasn't got
+ * ({@link LocalPlaylistsCopy#whatToOffer}): "Keep on phone" holds until something more is saved,
+ * Back until the next sign-in here (or the app's next start), and a copy that didn't get everything
+ * is offered again then.
  */
 final class LocalCopyOffer {
     /** The dialog on screen, if any; weak, so a screen recreated under it isn't kept alive. */
     @Nullable private static WeakReference<AlertDialog> sShowing;
     /** The copy running, if any: one at a time. It stops itself if the account changes. */
     @Nullable private static Disposable sCopy;
+    /** The account already asked in this process, whatever the answer: once, not on every return to Browse. */
+    @Nullable private static String sAskedFor;
 
     private LocalCopyOffer() {
     }
@@ -40,18 +42,16 @@ final class LocalCopyOffer {
                 || !YouTubeSignInService.instance().isSigned()) {
             return;
         }
-        LocalPlaylists playlists = LocalPlaylists.instance(activity);
-        LocalWatchLater watchLater = LocalWatchLater.instance(activity);
-        if (!playlists.isCopyOfferPending() && !watchLater.isCopyOfferPending()) {
+        String account = LocalPlaylistsCopy.accountKey();
+        if (account.equals(sAskedFor)) {
             return;
         }
-        int[] counts = LocalPlaylistsCopy.countNew(activity);
+        int[] counts = LocalPlaylistsCopy.whatToOffer(activity);
+        if (counts == null) {
+            return;
+        }
         int playlistCount = counts[0];
         int videoCount = counts[1];
-        if (playlistCount == 0 && videoCount == 0) {
-            clearPending(activity); // all of it is on this account already
-            return;
-        }
 
         String what;
         if (playlistCount > 0 && videoCount > 0) {
@@ -69,11 +69,18 @@ final class LocalCopyOffer {
                 .setTitle(R.string.mobile_copy_offer_title)
                 .setMessage(activity.getString(R.string.mobile_copy_offer_body, what))
                 .setPositiveButton(R.string.mobile_copy_offer_copy, (d, which) -> copy(app))
-                .setNegativeButton(R.string.mobile_copy_offer_keep, (d, which) -> clearPending(app))
-                // Back or a tap outside is "not now": it asks again next time.
+                .setNegativeButton(R.string.mobile_copy_offer_keep, (d, which) -> LocalPlaylistsCopy.keepOnPhone(app))
+                // Back or a tap outside is "not now": asked again at the next sign-in.
                 .setOnDismissListener(d -> sShowing = null)
                 .show();
+        sAskedFor = account;
         sShowing = new WeakReference<>(dialog);
+    }
+
+    /** A sign-in (or a switch) while Browse is in front: whoever is signed in now may be asked. */
+    static void onAccountChanged(@NonNull Activity activity) {
+        sAskedFor = null;
+        maybeShow(activity);
     }
 
     private static boolean isShowing() {
@@ -83,7 +90,6 @@ final class LocalCopyOffer {
 
     /** With the app's context: the copy outlives the screen that asked, and needs none of it. */
     private static void copy(@NonNull Context app) {
-        clearPending(app);
         MobileSnackbar.show(app, R.string.mobile_copy_working);
         sCopy = LocalPlaylistsCopy.copyToAccount(app, outcome -> {
             sCopy = null;
@@ -93,10 +99,5 @@ final class LocalCopyOffer {
                     : failed > 0 ? app.getResources().getQuantityString(R.plurals.mobile_copy_done_failed, failed, failed)
                     : app.getString(R.string.mobile_copy_done), null, null);
         });
-    }
-
-    private static void clearPending(@NonNull Context context) {
-        LocalPlaylists.instance(context).setCopyOfferPending(false);
-        LocalWatchLater.instance(context).setCopyOfferPending(false);
     }
 }

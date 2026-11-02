@@ -1,5 +1,6 @@
 package com.liskovsoft.smartyoutubetv2.common.misc;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
@@ -125,19 +126,42 @@ public class LocalPlaylistsTest {
     }
 
     @Test
-    public void savingMarksACopyOffer() {
+    public void eachAccountIsOfferedWhatItHasntGot() {
+        assertNull(LocalPlaylistsCopy.whatToOffer(mContext, ACCOUNT)); // nothing saved yet
+        LocalPlaylists.instance(mContext).create("Mix", video("aaaaaaaaaaa"));
+        assertArrayEquals(new int[] {1, 0}, LocalPlaylistsCopy.whatToOffer(mContext, ACCOUNT));
+
+        copy(new FakeYouTube()); // all of it, to ACCOUNT
+
+        assertNull(LocalPlaylistsCopy.whatToOffer(mContext, ACCOUNT));
+        assertArrayEquals(new int[] {1, 0}, LocalPlaylistsCopy.whatToOffer(mContext, "other@example.com"));
+    }
+
+    @Test
+    public void keepOnPhoneHoldsUntilSomethingMoreIsSaved() {
         LocalPlaylists playlists = LocalPlaylists.instance(mContext);
-        assertFalse(playlists.isCopyOfferPending());
+        String id = playlists.create("Mix", null);
+        LocalPlaylistsCopy.keepOnPhone(mContext, ACCOUNT);
+        assertNull(LocalPlaylistsCopy.whatToOffer(mContext, ACCOUNT));
 
-        String id = playlists.create("A", null);
-        assertTrue(playlists.isCopyOfferPending());
+        playlists.rename(id, "Mix 2"); // nothing new saved
+        assertNull(LocalPlaylistsCopy.whatToOffer(mContext, ACCOUNT));
 
-        playlists.setCopyOfferPending(false);
-        playlists.rename(id, "B"); // a rename saves nothing new
-        assertFalse(playlists.isCopyOfferPending());
+        LocalWatchLater.instance(mContext).add(video("aaaaaaaaaaa"));
+        assertArrayEquals(new int[] {1, 1}, LocalPlaylistsCopy.whatToOffer(mContext, ACCOUNT));
+    }
 
-        playlists.add(id, video("aaaaaaaaaaa"));
-        assertTrue(playlists.isCopyOfferPending());
+    @Test
+    public void aCopyThatDidntGetEverythingIsOfferedAgain() {
+        LocalPlaylists playlists = LocalPlaylists.instance(mContext);
+        String id = playlists.create("Mix", video("aaaaaaaaaaa"));
+        playlists.add(id, video("bbbbbbbbbbb"));
+        FakeYouTube youTube = new FakeYouTube();
+        youTube.refusedVideos.add("bbbbbbbbbbb");
+
+        copy(youTube);
+
+        assertArrayEquals(new int[] {0, 1}, LocalPlaylistsCopy.whatToOffer(mContext, ACCOUNT));
     }
 
     @Test
