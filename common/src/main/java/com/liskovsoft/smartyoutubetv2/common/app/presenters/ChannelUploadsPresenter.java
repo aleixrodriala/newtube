@@ -22,6 +22,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.VideoMe
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.interfaces.VideoGroupPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelUploadsView;
 import com.liskovsoft.smartyoutubetv2.common.misc.BrowseProcessorManager;
+import com.liskovsoft.smartyoutubetv2.common.misc.LocalPlaylists;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager.OnComplete;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager.OnError;
@@ -264,6 +265,18 @@ public class ChannelUploadsPresenter extends BasePresenter<ChannelUploadsView> i
     }
 
     private void load(Video item, boolean keepContentUntilLoaded) {
+        // NEWTUBE(playlists): a phone playlist is read from the phone (LocalPlaylists), never asked of YouTube.
+        if (LocalPlaylists.isLocalId(item.playlistId)) {
+            if (getView() != null) {
+                getView().clear();
+            }
+            mBaseGroup = null;
+            VideoGroup group = VideoGroup.from(LocalPlaylists.instance(getContext()).videos(item.playlistId));
+            group.setTitle(item.getTitle());
+            update(group);
+            return;
+        }
+
         // Liked music fix - not all videos displayed. The behavior with other playlists is buggy.
         if (Helpers.equals(item.playlistId, Video.PLAYLIST_LIKED_MUSIC)) {
             if (keepContentUntilLoaded && getView() != null) {

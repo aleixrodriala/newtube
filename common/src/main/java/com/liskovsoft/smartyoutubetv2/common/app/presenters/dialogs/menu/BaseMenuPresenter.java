@@ -24,6 +24,7 @@ import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
 import com.liskovsoft.smartyoutubetv2.common.utils.AppDialogUtil;
+import com.liskovsoft.smartyoutubetv2.common.utils.LocalPlaylistSheet;
 import com.liskovsoft.smartyoutubetv2.common.utils.SimpleEditDialog;
 import com.liskovsoft.youtubeapi.service.YouTubeMediaItemService;
 import io.reactivex.rxjava3.core.Observable;
@@ -394,6 +395,11 @@ public abstract class BaseMenuPresenter extends BasePresenter<Void> {
 
     private void showCreatePlaylistDialog(Video video) {
         closeDialog();
+        // NEWTUBE(playlists): signed out, a new playlist is a phone one.
+        if (LocalPlaylistSheet.applies()) {
+            LocalPlaylistSheet.showCreateDialog(getContext(), video.hasVideo() ? video : null);
+            return;
+        }
         SimpleEditDialog.show(
                 getContext(),
                 getContext().getString(R.string.create_playlist),
