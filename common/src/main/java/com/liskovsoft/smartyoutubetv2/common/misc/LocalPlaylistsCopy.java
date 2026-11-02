@@ -48,6 +48,9 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  * <p>MediaServiceCore drops YouTube's answer to an add, so a video YouTube refuses (a full or
  * deleted playlist, a private video, too many requests) looks added. Only what YouTube's own list of
  * a video's playlists shows ({@link #holds}) counts as copied; the rest stays to copy.</p>
+ *
+ * <p>What was copied is saved as it happens, not at the end: a copy cut short (the process killed,
+ * a lookup failed) picks up where it stopped, and never makes a playlist twice.</p>
  */
 public final class LocalPlaylistsCopy {
     private static final String TAG = LocalPlaylistsCopy.class.getSimpleName();
@@ -159,13 +162,15 @@ public final class LocalPlaylistsCopy {
                     steps.add(addToCopied(service, playlist, videos, copied, outcome));
                 }
             }
-            return Completable.concat(steps).doFinally(copied::save);
+            return Completable.concat(steps);
         });
     }
 
     /**
      * A playlist this account doesn't have yet: note the account's playlists, make it with its first
-     * video, find its id (the one with its name that wasn't there before), add the rest.
+     * video, find its id (the one with its name that wasn't there before), add the rest. It is saved
+     * as made the moment the create returns, before the lookup, so a run that stops in between
+     * finds it by name next time ({@link #addToCopied}) instead of making a second one.
      */
     private static Completable copyPlaylist(MediaItemService service, LocalPlaylists.LocalPlaylist playlist,
                                             List<Video> videos, Copied copied, Outcome outcome) {
@@ -176,6 +181,7 @@ public final class LocalPlaylistsCopy {
                     .doOnComplete(() -> {
                         outcome.playlists.incrementAndGet();
                         copied.putPlaylist(playlist.id, null); // its id is found when it gets a video
+                        copied.save();
                     })
                     .onErrorComplete(error -> {
                         Log.e(TAG, "Create %s: %s", title, error.getMessage());
@@ -195,21 +201,30 @@ public final class LocalPlaylistsCopy {
                     }
                     return service.createPlaylistObserve(title, first.videoId)
                             .ignoreElements()
-                            .andThen(playlistsOf(service, first.videoId))
-                            .flatMapCompletable(after -> {
-                                String id = findCreated(after, title, before);
-                                if (id == null) {
-                                    // MediaServiceCore reports no refusal: not in YouTube's list is not made.
-                                    Log.e(TAG, "Created %s but can't find it", title);
-                                    outcome.failedPlaylists.incrementAndGet();
-                                    return Completable.complete();
-                                }
-                                outcome.playlists.incrementAndGet();
-                                outcome.videos.incrementAndGet();
-                                copied.putPlaylist(playlist.id, id);
-                                copied.putVideo(playlist.id, first.videoId);
-                                return addAll(service, id, playlist.id, rest, copied, outcome);
-                            });
+                            .andThen(Completable.defer(() -> {
+                                copied.putPlaylist(playlist.id, null);
+                                copied.save();
+                                return playlistsOf(service, first.videoId).flatMapCompletable(after -> {
+                                    String id = findCreated(after, title, before);
+                                    if (id == null) {
+                                        Log.e(TAG, "Created %s but can't find it", title);
+                                        if (answered(after)) {
+                                            // MediaServiceCore reports no refusal: not in YouTube's
+                                            // own list is not made, so it is made again next time.
+                                            copied.forgetPlaylist(playlist.id);
+                                            copied.save();
+                                        }
+                                        outcome.failedPlaylists.incrementAndGet();
+                                        return Completable.complete();
+                                    }
+                                    outcome.playlists.incrementAndGet();
+                                    outcome.videos.incrementAndGet();
+                                    copied.putPlaylist(playlist.id, id);
+                                    copied.putVideo(playlist.id, first.videoId);
+                                    copied.save();
+                                    return addAll(service, id, playlist.id, rest, copied, outcome);
+                                });
+                            }));
                 })
                 .onErrorComplete(error -> {
                     Log.e(TAG, "Copy %s: %s", title, error.getMessage());
@@ -225,16 +240,31 @@ public final class LocalPlaylistsCopy {
         if (known != null) {
             return addAll(service, known, playlist.id, videos, copied, outcome);
         }
-        // Copied while empty, so its id was never seen: find it by name among this video's list.
-        return playlistsOf(service, videos.get(0).videoId)
+        // Made, but its id never seen (made empty, or the last run stopped before finding it): find
+        // it by name among this video's list.
+        Video first = videos.get(0);
+        return playlistsOf(service, first.videoId)
                 .flatMapCompletable(infos -> {
-                    String id = findByTitle(infos, playlist.title);
-                    if (id == null) {
+                    if (!answered(infos)) {
                         outcome.failedVideos.addAndGet(videos.size());
                         return Completable.complete();
                     }
+                    String id = findByTitle(infos, playlist.title);
+                    if (id == null) {
+                        // Not on the account after all: the create was refused. Made again now.
+                        copied.forgetPlaylist(playlist.id);
+                        copied.save();
+                        return copyPlaylist(service, playlist, videos, copied, outcome);
+                    }
                     copied.putPlaylist(playlist.id, id);
-                    return addAll(service, id, playlist.id, videos, copied, outcome);
+                    List<Video> rest = videos;
+                    if (holds(infos, id)) { // made with it by the run that stopped
+                        outcome.videos.incrementAndGet();
+                        copied.putVideo(playlist.id, first.videoId);
+                        rest = videos.subList(1, videos.size());
+                    }
+                    copied.save();
+                    return addAll(service, id, playlist.id, rest, copied, outcome);
                 })
                 .onErrorComplete(error -> {
                     Log.e(TAG, "Add to %s: %s", playlist.title, error.getMessage());
@@ -258,6 +288,7 @@ public final class LocalPlaylistsCopy {
                         if (holds(infos, playlistId)) {
                             outcome.videos.incrementAndGet();
                             copied.putVideo(localId, video.videoId);
+                            copied.save();
                         } else {
                             outcome.failedVideos.incrementAndGet();
                         }
@@ -442,6 +473,10 @@ public final class LocalPlaylistsCopy {
 
         synchronized void putPlaylist(String localId, @Nullable String remoteId) {
             mPlaylists.put(localId, remoteId != null ? remoteId : "");
+        }
+
+        synchronized void forgetPlaylist(String localId) {
+            mPlaylists.remove(localId);
         }
 
         synchronized boolean hasVideo(String localId, String videoId) {

@@ -284,6 +284,43 @@ public class LocalPlaylistsTest {
     }
 
     @Test
+    public void aCopyCutShortAfterTheCreateNeverMakesItTwice() {
+        LocalPlaylists playlists = LocalPlaylists.instance(mContext);
+        String id = playlists.create("Mix", video("aaaaaaaaaaa"));
+        playlists.add(id, video("bbbbbbbbbbb"));
+        FakeYouTube youTube = new FakeYouTube();
+        youTube.failLookupAfterMake = true; // the create went through, the lookup after it didn't
+
+        assertEquals(1, copy(youTube).failedPlaylists());
+        LocalPlaylistsCopy.Outcome again = copy(youTube);
+
+        assertEquals(1, youTube.made);
+        assertEquals(2, again.videos()); // the first one found in it, the second one added
+        assertTrue(youTube.contents.get(youTube.order.get(1)).containsAll(Arrays.asList("aaaaaaaaaaa", "bbbbbbbbbbb")));
+        assertEquals(0, LocalPlaylistsCopy.countNew(mContext, ACCOUNT)[1]);
+    }
+
+    @Test
+    public void aCreateThatNeverHappenedIsMadeAgain() {
+        LocalPlaylists playlists = LocalPlaylists.instance(mContext);
+        String id = playlists.create("Mix", video("aaaaaaaaaaa"));
+        playlists.add(id, video("bbbbbbbbbbb"));
+        FakeYouTube youTube = new FakeYouTube();
+        youTube.refuseMakes = true;
+        youTube.failLookupAfterMake = true; // so this run can't tell it was refused
+
+        copy(youTube);
+        youTube.refuseMakes = false;
+        LocalPlaylistsCopy.Outcome again = copy(youTube);
+
+        assertEquals(1, again.playlists());
+        assertEquals(2, again.videos());
+        assertEquals(2, youTube.order.size()); // Watch later and the one Mix
+        assertEquals(0, LocalPlaylistsCopy.countNew(mContext, ACCOUNT)[0]);
+        assertEquals(0, LocalPlaylistsCopy.countNew(mContext, ACCOUNT)[1]);
+    }
+
+    @Test
     public void watchLaterIsCopiedVideoByVideo() {
         LocalWatchLater watchLater = LocalWatchLater.instance(mContext);
         watchLater.add(video("aaaaaaaaaaa"));
@@ -359,6 +396,9 @@ public class LocalPlaylistsTest {
         final Map<String, String> standIns = new LinkedHashMap<>();
         final Set<String> refusedVideos = new HashSet<>();
         boolean refuseMakes;
+        /** The lookup after the next create fails (too many requests, say). */
+        boolean failLookupAfterMake;
+        private boolean mFailNextLookup;
         /** YouTube's answer fails, so the wrapper answers from its stand-ins alone. */
         boolean standInAnswers;
         int made;
@@ -387,6 +427,10 @@ public class LocalPlaylistsTest {
         public Object invoke(Object proxy, Method method, Object[] args) {
             switch (method.getName()) {
                 case "getPlaylistsInfoObserve":
+                    if (mFailNextLookup) {
+                        mFailNextLookup = false;
+                        return Observable.error(new IllegalStateException("429"));
+                    }
                     return Observable.just(list((String) args[0]));
                 case "addToPlaylistObserve":
                     adds++;
@@ -397,6 +441,8 @@ public class LocalPlaylistsTest {
                     return Observable.empty();
                 case "createPlaylistObserve":
                     made++;
+                    mFailNextLookup = failLookupAfterMake;
+                    failLookupAfterMake = false;
                     String first = args[1] instanceof String ? (String) args[1] : null;
                     if (refuseMakes) {
                         standIns.put(String.format(Locale.US, "Ab3dE6gH9j%02d", made), (String) args[0]);
