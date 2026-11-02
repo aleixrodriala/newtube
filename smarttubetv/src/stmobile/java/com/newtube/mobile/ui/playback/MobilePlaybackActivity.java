@@ -5446,13 +5446,16 @@ public class MobilePlaybackActivity extends MobileActivity
         if (!left && x <= 1f - LEVEL_ZONE) {
             return PlayerContainerLayout.SWIPE_NONE; // the middle is for seeking and taps
         }
-        // Both on: brightness left, volume right. Only one on: that one on either side.
-        int side = PlayerGesturePrefs.sideSwipe(left,
-                PlayerGesturePrefs.isBrightnessSwipeOn(this), PlayerGesturePrefs.isVolumeSwipeOn(this));
-        if (side == PlayerGesturePrefs.SIDE_BRIGHTNESS && mSwipeLevels.canSwipe(SwipeLevels.BRIGHTNESS)) {
+        // Both on: brightness left, volume right. Only one on: that one on either side. "On" is the
+        // switch and the phone: a fixed-volume phone can't swipe volume, so brightness takes both.
+        boolean brightness = PlayerGesturePrefs.isBrightnessSwipeOn(this)
+                && mSwipeLevels.canSwipe(SwipeLevels.BRIGHTNESS);
+        boolean volume = PlayerGesturePrefs.isVolumeSwipeOn(this) && mSwipeLevels.canSwipe(SwipeLevels.VOLUME);
+        int side = PlayerGesturePrefs.sideSwipe(left, brightness, volume);
+        if (side == PlayerGesturePrefs.SIDE_BRIGHTNESS) {
             return SWIPE_BRIGHTNESS;
         }
-        if (side == PlayerGesturePrefs.SIDE_VOLUME && mSwipeLevels.canSwipe(SwipeLevels.VOLUME)) {
+        if (side == PlayerGesturePrefs.SIDE_VOLUME) {
             return SWIPE_VOLUME;
         }
         return PlayerContainerLayout.SWIPE_NONE;
