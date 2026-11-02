@@ -367,9 +367,9 @@
     <string name="mobile_downloads_empty">Los vídeos que descargues aparecerán aquí.\nUsa Descargar en el menú de un vídeo o en la página de reproducción.</string>
     <string name="mobile_watch_later_empty">Los vídeos que guardes para más tarde aparecerán aquí.\nUsa Guardar en Ver más tarde en el menú de un vídeo, o Guardar en la página de reproducción.</string>
     <!-- NEWTUBE(playlists): Listas sin sesión, y la oferta de copiarlas a la cuenta. -->
-    <string name="mobile_playlists_empty">Las listas que crees aparecerán aquí.\nUsa Guardar en el menú de un vídeo y luego Nueva lista.</string>
+    <string name="mobile_playlists_empty">Las listas que crees aparecerán aquí.\nUsa Guardar en una lista en el menú de un vídeo y luego Nueva lista.</string>
     <string name="mobile_copy_offer_title">¿Copiar a tu cuenta de YouTube?</string>
-    <string name="mobile_copy_offer_body">Guardaste %1$s en este teléfono sin iniciar sesión. ¿Copiarlos a tu cuenta? Se quedan en el teléfono igualmente.</string>
+    <string name="mobile_copy_offer_body">Guardaste %1$s en este teléfono sin iniciar sesión. ¿Copiar a tu cuenta? El teléfono conserva su copia igualmente.</string>
     <string name="mobile_copy_offer_both">%1$s y %2$s</string>
     <plurals name="mobile_copy_offer_playlists">
         <item quantity="one">%1$d lista</item>
@@ -386,11 +386,8 @@
     <string name="mobile_copy_working">Copiando a tu cuenta…</string>
     <string name="mobile_copy_done">Copiado a tu cuenta</string>
     <string name="mobile_copy_stopped">La copia se detuvo al cambiar de cuenta. Lo que falta sigue en el teléfono.</string>
-    <plurals name="mobile_copy_done_failed">
-        <item quantity="one">Copiado, pero YouTube no aceptó %1$d vídeo</item>
-        <item quantity="many">Copiado, pero YouTube no aceptó %1$d vídeos</item>
-        <item quantity="other">Copiado, pero YouTube no aceptó %1$d vídeos</item>
-    </plurals>
+    <string name="mobile_copy_done_partly">Copiado, pero YouTube no aceptó %1$s</string>
+    <string name="mobile_copy_failed">No se pudo copiar a tu cuenta. Todo sigue en el teléfono.</string>
     <string name="mobile_download_badge_queued">En cola</string>
     <string name="mobile_download_badge_downloading">Descargando</string>
     <string name="mobile_download_badge_failed">Error</string>

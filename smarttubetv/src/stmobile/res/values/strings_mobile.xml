@@ -409,9 +409,9 @@
     <string name="mobile_downloads_empty">Videos you download appear here.\nUse Download in a video\'s menu or on the watch page.</string>
     <string name="mobile_watch_later_empty">Videos you save for later appear here.\nUse Save to Watch later in a video\'s menu, or Save on the watch page.</string>
     <!-- NEWTUBE(playlists): signed-out Playlists, and the offer to copy to an account (LocalCopyOffer). -->
-    <string name="mobile_playlists_empty">Playlists you make appear here.\nUse Save in a video\'s menu, then New playlist.</string>
+    <string name="mobile_playlists_empty">Playlists you make appear here.\nUse Save to playlist in a video\'s menu, then New playlist.</string>
     <string name="mobile_copy_offer_title">Copy to your YouTube account?</string>
-    <string name="mobile_copy_offer_body">You saved %1$s on this phone while signed out. Copy them to your account? They stay on the phone either way.</string>
+    <string name="mobile_copy_offer_body">You saved %1$s on this phone while signed out. Copy to your account? The phone keeps its own copy either way.</string>
     <string name="mobile_copy_offer_both">%1$s and %2$s</string>
     <plurals name="mobile_copy_offer_playlists">
         <item quantity="one">%1$d playlist</item>
@@ -426,10 +426,9 @@
     <string name="mobile_copy_working">Copying to your account…</string>
     <string name="mobile_copy_done">Copied to your account</string>
     <string name="mobile_copy_stopped">Copying stopped when the account changed. The rest is still on the phone.</string>
-    <plurals name="mobile_copy_done_failed">
-        <item quantity="one">Copied, but YouTube didn\'t take %1$d video</item>
-        <item quantity="other">Copied, but YouTube didn\'t take %1$d videos</item>
-    </plurals>
+    <!-- %1$s: "2 videos", "1 playlist", or both (mobile_copy_offer_both). -->
+    <string name="mobile_copy_done_partly">Copied, but YouTube didn\'t take %1$s</string>
+    <string name="mobile_copy_failed">Couldn\'t copy to your account. It\'s all still on the phone.</string>
     <string name="mobile_download_badge_queued">Queued</string>
     <string name="mobile_download_badge_downloading">Downloading</string>
     <string name="mobile_download_badge_failed">Failed</string>

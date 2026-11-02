@@ -94,10 +94,30 @@ final class LocalCopyOffer {
         sCopy = LocalPlaylistsCopy.copyToAccount(app, outcome -> {
             sCopy = null;
             BrowsePresenter.instance(app).onPlaylistEdited();
-            int failed = outcome.failedPlaylists() + outcome.failedVideos();
-            MobileSnackbar.show(app, outcome.stopped() ? app.getString(R.string.mobile_copy_stopped)
-                    : failed > 0 ? app.getResources().getQuantityString(R.plurals.mobile_copy_done_failed, failed, failed)
-                    : app.getString(R.string.mobile_copy_done), null, null);
+            MobileSnackbar.show(app, doneMessage(app, outcome), null, null);
         });
+    }
+
+    /** Copied; copied but for some playlists or videos (by name); nothing copied; or stopped. */
+    @NonNull
+    private static String doneMessage(@NonNull Context app, @NonNull LocalPlaylistsCopy.Outcome outcome) {
+        if (outcome.stopped()) {
+            return app.getString(R.string.mobile_copy_stopped);
+        }
+        int failedPlaylists = outcome.failedPlaylists();
+        int failedVideos = outcome.failedVideos();
+        if (failedPlaylists == 0 && failedVideos == 0) {
+            return app.getString(R.string.mobile_copy_done);
+        }
+        if (outcome.playlists() == 0 && outcome.videos() == 0) {
+            return app.getString(R.string.mobile_copy_failed);
+        }
+        String playlists = app.getResources().getQuantityString(
+                R.plurals.mobile_copy_offer_playlists, failedPlaylists, failedPlaylists);
+        String videos = app.getResources().getQuantityString(R.plurals.local_playlist_videos, failedVideos, failedVideos);
+        String what = failedVideos == 0 ? playlists
+                : failedPlaylists == 0 ? videos
+                : app.getString(R.string.mobile_copy_offer_both, playlists, videos);
+        return app.getString(R.string.mobile_copy_done_partly, what);
     }
 }
