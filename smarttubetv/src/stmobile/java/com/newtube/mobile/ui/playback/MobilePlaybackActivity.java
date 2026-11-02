@@ -1170,11 +1170,20 @@ public class MobilePlaybackActivity extends MobileActivity
         }
     }
 
-    /** NEWTUBE(clock): the time shows in fullscreen while Settings > Player has it on. */
+    /**
+     * NEWTUBE(clock): the time shows in fullscreen while Settings > Player has it on, unless the
+     * status bar shows its own clock anyway (fullscreen in split screen, bars swiped in).
+     */
     private void updateClockVisibility(boolean fullscreen) {
         if (mClockView != null) {
-            mClockView.setVisibility(fullscreen && PlayerClockPrefs.isClockOn(this) ? View.VISIBLE : View.GONE);
+            boolean show = fullscreen && !isStatusBarShown() && PlayerData.instance(this).isClockEnabled();
+            mClockView.setVisibility(show ? View.VISIBLE : View.GONE);
         }
+    }
+
+    private boolean isStatusBarShown() {
+        WindowInsetsCompat insets = mControlsRoot != null ? ViewCompat.getRootWindowInsets(mControlsRoot) : null;
+        return insets != null && insets.isVisible(WindowInsetsCompat.Type.statusBars());
     }
 
     /**
@@ -2212,6 +2221,7 @@ public class MobilePlaybackActivity extends MobileActivity
         bleedScrim(mTopScrim, left, top, right, 0);
         bleedScrim(mBottomScrim, left, 0, right, bottom);
         applySeekBarLayout(left, top, right, bottom);
+        updateClockVisibility(isLandscape()); // NEWTUBE(clock): the status bar came or went
     }
 
     /**
