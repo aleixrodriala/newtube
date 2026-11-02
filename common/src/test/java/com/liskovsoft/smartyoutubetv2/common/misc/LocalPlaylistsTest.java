@@ -200,6 +200,27 @@ public class LocalPlaylistsTest {
     }
 
     @Test
+    public void aFullPlaylistSaysSo() throws Exception {
+        JSONArray videos = new JSONArray();
+        for (int i = 0; i < LocalPlaylists.MAX_VIDEOS; i++) {
+            videos.put(video(String.format(Locale.US, "v%010d", i)).toString());
+        }
+        JSONObject full = new JSONObject();
+        full.put("id", LocalPlaylists.ID_PREFIX + "full");
+        full.put("title", "Full");
+        full.put("videos", videos);
+        mContext.getSharedPreferences("newtube_playlists", Context.MODE_PRIVATE).edit()
+                .putString("playlists", new JSONArray().put(full).toString()).commit();
+        LocalPlaylists playlists = LocalPlaylists.instance(mContext);
+        String other = playlists.create("Other", null);
+
+        assertTrue(playlists.isFull(LocalPlaylists.ID_PREFIX + "full"));
+        assertFalse(playlists.isFull(other));
+        playlists.add(LocalPlaylists.ID_PREFIX + "full", video("aaaaaaaaaaa"));
+        assertFalse(playlists.contains(LocalPlaylists.ID_PREFIX + "full", "aaaaaaaaaaa"));
+    }
+
+    @Test
     public void aYouTubeIdIsNeverLocal() {
         assertFalse(LocalPlaylists.isLocalId("PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf"));
         assertFalse(LocalPlaylists.isLocalId("WL"));

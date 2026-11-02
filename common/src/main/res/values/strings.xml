@@ -20,6 +20,7 @@
     <string name="local_playlist_delete">Delete playlist</string>
     <string name="local_playlist_delete_confirm">Delete %1$s?</string>
     <string name="local_playlist_deleted">Deleted %1$s</string>
+    <string name="local_playlist_full">%1$s is full: a playlist on the phone holds up to %2$d videos</string>
     <string name="saved_to_playlist_fmt">Saved to %1$s</string>
     <string name="header_music">Music</string>
     <string name="header_news">News</string>

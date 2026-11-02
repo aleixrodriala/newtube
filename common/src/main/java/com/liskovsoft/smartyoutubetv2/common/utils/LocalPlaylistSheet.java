@@ -57,7 +57,9 @@ public final class LocalPlaylistSheet {
                 context.getString(R.string.header_watch_later),
                 item -> {
                     if (item.isSelected()) {
-                        watchLater.add(video);
+                        if (watchLater.add(video)) { // the oldest went to make room
+                            MessageHelpers.showMessage(context, LocalWatchLater.savedMessage(context, true));
+                        }
                     } else {
                         watchLater.remove(video.videoId);
                         onRemoved(video, null, callback);
@@ -69,11 +71,19 @@ public final class LocalPlaylistSheet {
             options.add(UiOptionItem.from(
                     playlist.title,
                     item -> {
+                        if (item.isSelected() && playlists.isFull(playlist.id)) {
+                            MessageHelpers.showMessage(context, context.getString(R.string.local_playlist_full,
+                                    playlist.title, LocalPlaylists.MAX_VIDEOS));
+                            item.onSelect(false); // untick: the sheet shows the tick it reads back
+                            return;
+                        }
                         if (item.isSelected()) {
                             playlists.add(playlist.id, video);
-                        } else {
+                        } else if (playlists.contains(playlist.id, video.videoId)) {
                             playlists.remove(playlist.id, video.videoId);
                             onRemoved(video, playlist.id, callback);
+                        } else {
+                            return; // not in it: the untick of a full playlist, above
                         }
                         BrowsePresenter.instance(context).onPlaylistEdited();
                     },

@@ -21,6 +21,7 @@
   <string name="local_playlist_delete">Eliminar lista</string>
   <string name="local_playlist_delete_confirm">¿Eliminar %1$s?</string>
   <string name="local_playlist_deleted">%1$s eliminada</string>
+  <string name="local_playlist_full">La lista %1$s está llena: una lista del teléfono admite hasta %2$d vídeos</string>
   <string name="saved_to_playlist_fmt">Guardado en %1$s</string>
   <string name="header_music">Música</string>
   <string name="header_news">Noticias</string>

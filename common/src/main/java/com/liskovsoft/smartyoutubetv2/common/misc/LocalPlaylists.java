@@ -43,8 +43,8 @@ public final class LocalPlaylists {
     private static final String KEY_DAMAGED = "playlists_damaged";
     /** How many times something new was saved, ever ({@link #saves}). */
     private static final String KEY_SAVES = "saves";
-    /** Per playlist, so a mistaken paste can't grow the file without end. */
-    private static final int MAX_VIDEOS = 5000;
+    /** Per playlist, so a mistaken paste can't grow the file without end ({@link #isFull}). */
+    public static final int MAX_VIDEOS = 5000;
 
     /** One playlist: its videos in the order they were added. */
     public static final class LocalPlaylist {
@@ -163,7 +163,13 @@ public final class LocalPlaylists {
         return false;
     }
 
-    /** Adds {@code video} at the end, once. */
+    /** True when the playlist holds {@link #MAX_VIDEOS} and {@link #add} would refuse one more. */
+    public synchronized boolean isFull(@Nullable String id) {
+        LocalPlaylist playlist = get(id);
+        return playlist != null && playlist.videos.size() >= MAX_VIDEOS;
+    }
+
+    /** Adds {@code video} at the end, once; not to a full playlist ({@link #isFull}). */
     public synchronized void add(@Nullable String id, @Nullable Video video) {
         LocalPlaylist playlist = get(id);
         if (playlist == null || !LocalWatchLater.canSave(video) || indexOf(playlist, video.videoId) >= 0
