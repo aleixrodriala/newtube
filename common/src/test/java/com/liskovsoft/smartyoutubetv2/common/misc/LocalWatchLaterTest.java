@@ -7,9 +7,11 @@ import static org.junit.Assert.assertTrue;
 
 import android.app.Application;
 import android.content.Context;
+import android.content.SharedPreferences;
 
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 
+import org.json.JSONArray;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -97,9 +99,41 @@ public class LocalWatchLaterTest {
     }
 
     @Test
-    public void aDamagedFileStartsOver() {
-        mContext.getSharedPreferences("newtube_watch_later", Context.MODE_PRIVATE).edit()
-                .putString("videos", "{not json").commit();
-        assertEquals(0, LocalWatchLater.instance(mContext).size());
+    public void aDamagedFileIsPutAsideNotWrittenOver() {
+        SharedPreferences prefs = mContext.getSharedPreferences("newtube_watch_later", Context.MODE_PRIVATE);
+        prefs.edit().putString("videos", "[\"truncat").commit();
+
+        LocalWatchLater watchLater = LocalWatchLater.instance(mContext);
+        assertEquals(0, watchLater.size());
+        watchLater.add(video("aaaaaaaaaaa", "A")); // the next save writes the list over...
+
+        assertEquals("[\"truncat", prefs.getString("videos_damaged", null)); // ...not over what it was
+        assertEquals(1, watchLater.size());
+    }
+
+    @Test
+    public void oneBadEntryCostsOnlyItself() {
+        SharedPreferences prefs = mContext.getSharedPreferences("newtube_watch_later", Context.MODE_PRIVATE);
+        JSONArray specs = new JSONArray();
+        specs.put(video("aaaaaaaaaaa", "A").toString());
+        specs.put("not a video");
+        specs.put(video("bbbbbbbbbbb", "B").toString());
+        prefs.edit().putString("videos", specs.toString()).commit();
+
+        List<Video> list = LocalWatchLater.instance(mContext).list();
+
+        assertEquals(2, list.size());
+        assertEquals("bbbbbbbbbbb", list.get(1).videoId);
+        assertEquals(specs.toString(), prefs.getString("videos_damaged", null));
+    }
+
+    @Test
+    public void anIntactFileIsNotPutAside() {
+        LocalWatchLater.instance(mContext).add(video("aaaaaaaaaaa", "A"));
+        LocalWatchLater.resetForTests();
+
+        assertEquals(1, LocalWatchLater.instance(mContext).size());
+        assertNull(mContext.getSharedPreferences("newtube_watch_later", Context.MODE_PRIVATE)
+                .getString("videos_damaged", null));
     }
 }

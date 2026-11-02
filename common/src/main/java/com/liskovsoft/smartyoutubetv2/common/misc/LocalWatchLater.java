@@ -31,6 +31,8 @@ public final class LocalWatchLater {
 
     private static final String PREFS_NAME = "newtube_watch_later";
     private static final String KEY_VIDEOS = "videos";
+    /** The last saved list that couldn't be read in full, as it was (see {@link #videos()}). */
+    private static final String KEY_DAMAGED = "videos_damaged";
     /** Far more than anyone keeps; the oldest go first past it, so the file stays small. */
     private static final int MAX_VIDEOS = 2000;
 
@@ -148,22 +150,38 @@ public final class LocalWatchLater {
         if (mVideos == null) {
             mVideos = new ArrayList<>();
             String json = mPrefs.getString(KEY_VIDEOS, null);
-            if (json != null) {
-                try {
-                    JSONArray specs = new JSONArray(json);
-                    for (int i = 0; i < specs.length(); i++) {
-                        Video video = Video.fromString(specs.optString(i, null));
-                        if (video != null && video.videoId != null) {
-                            mVideos.add(video);
-                        }
-                    }
-                } catch (JSONException | RuntimeException e) {
-                    // A damaged file starts over rather than taking the app down with it.
-                    mVideos.clear();
-                }
+            if (json != null && !parse(json, mVideos)) {
+                // What couldn't be read is put aside before the next save writes over it: a bad
+                // entry costs only itself, and a damaged file is still there to be recovered.
+                mPrefs.edit().putString(KEY_DAMAGED, json).apply();
             }
         }
         return mVideos;
+    }
+
+    /** Reads the saved specs into {@code videos}, one by one; false when any of it couldn't be read. */
+    private static boolean parse(@NonNull String json, @NonNull List<Video> videos) {
+        JSONArray specs;
+        try {
+            specs = new JSONArray(json);
+        } catch (JSONException e) {
+            return false;
+        }
+        boolean intact = true;
+        for (int i = 0; i < specs.length(); i++) {
+            Video video;
+            try {
+                video = Video.fromString(specs.optString(i, null));
+            } catch (RuntimeException e) {
+                video = null;
+            }
+            if (video != null && video.videoId != null) {
+                videos.add(video);
+            } else {
+                intact = false;
+            }
+        }
+        return intact;
     }
 
     private void persist() {
