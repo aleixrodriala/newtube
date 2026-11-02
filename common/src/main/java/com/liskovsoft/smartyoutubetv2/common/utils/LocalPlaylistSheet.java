@@ -48,8 +48,9 @@ public final class LocalPlaylistSheet {
         dialog.appendSingleButton(UiOptionItem.from(
                 context.getString(R.string.add_video_to_new_playlist),
                 optionItem -> {
+                    // Closing runs onFinish now, before the playlist exists: it runs again once made.
                     dialog.closeDialog();
-                    showCreateDialog(context, video);
+                    showCreateDialog(context, video, onFinish);
                 }));
 
         List<OptionItem> options = new ArrayList<>();
@@ -96,6 +97,11 @@ public final class LocalPlaylistSheet {
 
     /** Asks for a name, makes a phone playlist holding {@code video} (none: an empty playlist). */
     public static void showCreateDialog(@NonNull Context context, @Nullable Video video) {
+        showCreateDialog(context, video, null);
+    }
+
+    /** {@link #showCreateDialog(Context, Video)}, then {@code onCreated} once the playlist is made. */
+    public static void showCreateDialog(@NonNull Context context, @Nullable Video video, @Nullable Runnable onCreated) {
         SimpleEditDialog.show(
                 context,
                 context.getString(R.string.create_playlist),
@@ -108,6 +114,9 @@ public final class LocalPlaylistSheet {
                     LocalPlaylists.instance(context).create(newValue, video);
                     BrowsePresenter.instance(context).onPlaylistEdited();
                     MessageHelpers.showMessage(context, context.getString(R.string.saved_to_playlist_fmt, newValue.trim()));
+                    if (onCreated != null) {
+                        onCreated.run();
+                    }
                     return true;
                 });
     }
