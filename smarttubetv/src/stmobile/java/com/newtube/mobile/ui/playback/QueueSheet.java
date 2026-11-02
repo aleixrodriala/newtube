@@ -323,6 +323,8 @@ final class QueueSheet {
             holder.badge.setText(badge);
             holder.badge.setVisibility(badge != null && !badge.isEmpty() ? View.VISIBLE : View.GONE);
 
+            // A video opened from a link has no image of its own (the Now playing row was grey).
+            com.newtube.mobile.ui.common.LocalThumbnails.fill(video);
             Glide.with(holder.thumbnail)
                     .load(video.getCardImageUrl())
                     .format(DecodeFormat.PREFER_RGB_565)
