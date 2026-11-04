@@ -26,7 +26,7 @@ Meaningful UI differences need to be explicit before submission:
 - This branch's tested Clear removes every non-playing entry, including earlier entries. The latest original PR clears only upcoming entries, preserves Previous history and provides Undo.
 - Adopting the original PR's newer UI/Clear policy would be a new implementation/testing step; the current phone results apply to the existing R10 policy.
 
-The proposed PR description is [prepared locally](queue-pr-draft.md). It is not a published PR and is not a claim that the newer original PR's behaviour has been incorporated. Decide how to coordinate with the original contribution before publishing a competing or overlapping proposal. Preserve attribution.
+The successor description for the existing [PR #124](https://github.com/aleixrodriala/newtube/pull/124) is [prepared locally](queue-pr-draft.md). Read-only discovery confirmed that PR belongs to the owner and previously pointed to `mmifsud:submission/queue-improvements` at `d75ea5c2`, an ancestor of this verified branch. The owner explicitly authorized updating that same PR and making clear that this successor should be applied instead of its earlier version. The newer original PR #102 behaviour remains an explicit integration difference; attribution is preserved.
 
 ## Remaining acceptance
 
@@ -36,4 +36,4 @@ In the requested A → B → C phone check, the owner reported that B, the secon
 
 Controlled battery/wake-up measurement remains unperformed. Existing feedback covers ordinary idle/screen-off use; it is not a controlled comparison. No broad battery optimisation is included in this submission.
 
-No maintainer repository, PR, review or comment was changed. Publication requires the owner's explicit approval.
+The final source reviews made no maintainer mutations. The owner subsequently authorized the PR #124 update: fast-forward its head branch on the personal fork, replace its title/description with the successor version, and add an update notice. The maintainer's main branch and PR #102 are outside this authorization.
