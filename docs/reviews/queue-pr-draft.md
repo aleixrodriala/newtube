@@ -26,8 +26,8 @@ No added permissions, dependencies, wake locks, services, scheduled jobs or peri
 - **Before:** the in-memory queue was shared across account selections and could not restore account-specific state after a stopped process.
   **After:** signed-out use and each account restore their own queue. Rapid switching, pending/failed writes, corrupt storage and account identity hydration are covered by tests.
 - **Automated:** 325 targeted cases passed: 223 phone/UI and 102 common/player/queue; zero failures, errors or skips. Persistence/privacy coverage includes simulated API 24, 28 and 35. Reproduction command and limits: [queue validation](https://github.com/mmifsud/newtube/blob/7f3cd59dc0da56ee9591435d01df21254aaab9bc/docs/reviews/queue-validation.md).
-- **Device:** owner-performed checks confirmed in-place queue retention, reordering, duplicate prevention, Play next, Clear/restart, private-entry/progress exclusion, switching between two signed-in accounts, and restoration after force-stop.
-- **Review:** independent Standards and Spec reviews of the full `6f96a1b4...7f3cd59d` diff found zero actionable findings. Stale-menu timing remains a manual device check; controlled battery/wake-up measurements have not been performed.
+- **Device:** owner-performed checks confirmed in-place queue retention, reordering, duplicate prevention, Play next, Clear/restart, private-entry/progress exclusion, switching between two signed-in accounts, restoration after force-stop, protecting the playing entry from removal, and Clear leaving only that entry while playback continues.
+- **Review:** independent Standards and Spec reviews of the full `6f96a1b4...7f3cd59d` diff found zero actionable findings. Stale-menu timing is covered by automated regressions; the owner confirmed the playing-entry protection and Clear outcomes on the phone. Controlled battery/wake-up measurements have not been performed.
 
 ## Merge Danger
 

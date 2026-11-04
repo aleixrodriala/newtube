@@ -32,7 +32,7 @@ The proposed PR description is [prepared locally](queue-pr-draft.md). It is not 
 
 Owner-confirmed: R10 queue separation/restoration between two signed-in accounts and restoration after force-stop; earlier queue edits, restart, upgrade retention and R9 incognito checks are recorded in the validation document.
 
-Still unconfirmed on the phone: open a pending entry's menu, allow playback to advance to it, then invoke Remove; the new playing entry must remain. Clear must preserve the live playing item. Automated regressions cover these boundaries. A small test queue is recommended for the manual check.
+In the requested A → B → C phone check, the owner reported that B, the second queued video, could not be removed while it was playing. After Clear, B continued playing and was the only remaining entry. Record these observed current-item protection and Clear outcomes as passed. Automated regressions separately exercise stale-menu timing and replaced entries.
 
 Controlled battery/wake-up measurement remains unperformed. Existing feedback covers ordinary idle/screen-off use; it is not a controlled comparison. No broad battery optimisation is included in this submission.
 
