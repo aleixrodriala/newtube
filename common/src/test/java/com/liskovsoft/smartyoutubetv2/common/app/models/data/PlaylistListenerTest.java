@@ -163,4 +163,43 @@ public class PlaylistListenerTest {
         assertEquals(1, queue.getAll().size());
         assertSame(a, queue.getCurrent());
     }
+
+    @Test public void appendingAnEqualDuplicateMovesOnlyTheSelectedOccurrence() {
+        Video otherA = video(a.videoId);
+        queue.restoreQueue(Arrays.asList(a, otherA, b), 0);
+        queue.setCurrent(a);
+        queue.add(otherA);
+        assertEquals(3, queue.getAll().size());
+        assertSame(a, queue.getAll().get(0));
+        assertSame(b, queue.getAll().get(1));
+        assertSame(otherA, queue.getAll().get(2));
+        assertSame(a, queue.getCurrent());
+    }
+
+    @Test public void appendingTheLastPendingItemDoesNotAdvancePlayback() {
+        queue.add(b);
+        assertSame(a, queue.getCurrent());
+        assertSame(b, queue.getNext());
+        assertEquals(0, queue.getCurrentIndex());
+    }
+
+    @Test public void replacingCurrentWithACloneDoesNotReplaceAnEarlierDuplicate() {
+        Video otherA = video(a.videoId);
+        queue.restoreQueue(Arrays.asList(a, b, otherA), 2);
+        queue.setCurrent(otherA);
+        Video replacement = video(a.videoId);
+        queue.add(replacement);
+        assertSame(a, queue.getAll().get(0));
+        assertSame(replacement, queue.getCurrent());
+        assertEquals(2, queue.getCurrentIndex());
+    }
+
+    @Test public void restoredLastCursorIsAlreadyTheNextPendingItem() {
+        queue.restoreQueue(Arrays.asList(a, b, c), 2);
+        queue.next(c);
+        assertTrue(queue.isRestoredQueue());
+        assertEquals(Arrays.asList(a, b, c), queue.getAll());
+        assertSame(c, queue.getCurrent());
+        assertEquals(2, queue.getCurrentIndex());
+    }
 }

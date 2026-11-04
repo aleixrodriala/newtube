@@ -114,27 +114,12 @@ public class Playlist {
             return;
         }
 
-        Video current = getCurrent();
-
-        // Skip add currently playing item
-        // And replace to correct position sync in fragments
-        if (video.equals(current)) {
-            if (video.fromQueue) mHasExplicitQueue = true;
-            replace(current, video);
-            return;
-        }
-
-        boolean isLastElement = !mPlaylist.isEmpty() && video.equals(mPlaylist.get(mPlaylist.size() - 1));
+        if (replaceCurrentIfMatching(video)) return;
 
         removeInternal(video);
         if (video.fromQueue) mHasExplicitQueue = true;
 
         mPlaylist.add(video);
-
-        // Replacing last element? Increase index then.
-        if (isLastElement) {
-            mCurrentIndex++;
-        }
 
         // Video opened from the browser or suggestions.
         // In this case remove all next items.
@@ -148,10 +133,14 @@ public class Playlist {
             return;
         }
 
+        if (mRestoredQueue && video == getCurrent()) return; // already the next pending item
+        if (replaceCurrentIfMatching(video)) return;
+
         removeInternal(video);
         if (video.fromQueue) mHasExplicitQueue = true;
 
-        int nextIdx = mPlaylist.size() > mCurrentIndex ? mCurrentIndex + 1 : mPlaylist.size() - 1;
+        int nextIdx = mRestoredQueue && mCurrentIndex >= 0 ? mCurrentIndex
+                : mPlaylist.size() > mCurrentIndex ? mCurrentIndex + 1 : mPlaylist.size() - 1;
 
         // IndexOutOfBoundsException fix
         if (nextIdx < 0) {
@@ -173,8 +162,14 @@ public class Playlist {
 
     /** User edits preserve the playing occurrence; a restored cursor is not active playback. */
     public boolean canRemoveQueuedItem(Video video) {
-        int index = indexOfVideo(video);
+        int index = Video.isEmpty(video) ? -1 : indexOfInstance(video);
         return index >= 0 && (mRestoredQueue || index != mCurrentIndex);
+    }
+
+    /** Resolve a card/clone once when opening a menu; retain this occurrence for its action. */
+    public Video getQueuedItem(Video video) {
+        int index = indexOfVideo(video);
+        return index >= 0 ? mPlaylist.get(index) : null;
     }
 
     /** Recheck at execution time: playback may advance while a menu is open. */
@@ -188,6 +183,18 @@ public class Playlist {
         if (Video.isEmpty(video)) return -1;
         int index = indexOfInstance(video);
         return index >= 0 ? index : mPlaylist.indexOf(video);
+    }
+
+    private boolean replaceCurrentIfMatching(Video video) {
+        Video current = getCurrent();
+        if (mRestoredQueue && video == current) return false; // saved selection is not playing
+        // A distinct occurrence already in the list must move independently, even when equal.
+        // A fresh playback clone can still replace its current occurrence for metadata sync.
+        if (current == null || (video != current
+                && (indexOfInstance(video) >= 0 || !video.equals(current)))) return false;
+        if (video.fromQueue) mHasExplicitQueue = true;
+        replace(current, video);
+        return true;
     }
 
     // Compound add/next operations publish only their completed state. In particular, a
@@ -454,7 +461,7 @@ public class Playlist {
     }
 
     private void replace(Video origin, Video newItem) {
-        int index = mPlaylist.indexOf(origin);
+        int index = indexOfVideo(origin);
 
         if (index != -1) {
             mPlaylist.set(index, newItem);

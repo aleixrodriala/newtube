@@ -4,9 +4,9 @@ Extends the queue sheet introduced in [PR #102](https://github.com/aleixrodriala
 
 ## Intended behaviour
 
-- Append adds at the end; Play next inserts after the selected item, or first before playback starts. Adding an item does not start playback.
+- Append moves pending entries to the end. During playback, Play next inserts after the playing entry; before playback, it inserts at the restored pending cursor, or first when there is no cursor. Requeuing the playing occurrence preserves playback. Adding an item never starts playback.
 - The sheet supports selection, reordering, removal, Clear and accessible move/remove actions. Moving the playing row preserves playback. Removal and Clear preserve the playing occurrence, including when playback advances while a menu is open. Restored cursors are editable because restoration does not start playback.
-- Row actions validate the live snapshot before editing. Duplicate IDs refer to their intended occurrence; internal callers using equivalent clones retain their existing logical-match behaviour.
+- Sheet actions validate the live snapshot before editing. Queue menu actions retain the resolved occurrence and reject a target that disappears, is replaced, or becomes the playing item while the menu is open. Distinct equal duplicates can be appended/moved independently; internal playback callers using equivalent clones retain their existing logical-match behaviour.
 - The explicit queue remains reachable at its final item and while recommendations refresh. Queue-card and related rows expose the existing long-press menu.
 - Structural/current-item changes save order, selection, validated video IDs and bounded display metadata to `mobile-queue-v1.json` in private no-backup storage. Restoration never starts playback automatically. Only queues already saved by this version can survive a later process restart or in-place update; unsaved process memory cannot be migrated.
 - Queue storage remains shared within the installation, matching the original in-memory model. It does not add account-specific queues, seek-position checkpoints or cross-device sync.
@@ -24,7 +24,9 @@ Extends the queue sheet introduced in [PR #102](https://github.com/aleixrodriala
 
 The extraction is tested separately from the personal test branch. Results below apply to this queue-only submission source, with the existing project toolchain and unchanged submodule revisions.
 
-**214 targeted cases passed: 146 phone/UI and 68 common/player/queue, with zero failures, errors or skips.** The lower count than the personal test branch reflects its unrelated recovery tests being absent here. All queue regressions remain included.
+**232 targeted cases passed: 160 phone/UI and 72 common/player/queue, with zero failures, errors or skips.** This is the final queue-only extraction with the full-diff review fixes. Its test selection excludes unrelated recovery tests and includes all queue regressions.
+
+The initial extraction passed 214 existing cases. Independent review then exposed further current-item, duplicate, stale-menu and restored-cursor boundaries; 10 additional regression cases were demonstrated failing before fixes. Those cases and eight compatibility/control cases now pass. Final Standards review: zero actionable findings. Final Spec review: zero actionable findings. Both reviews used the complete diff from fork point `6f96a1b4` and checked the follow-up fixes.
 
 Automated checks cover append/order/current selection, complete-state notifications, duplicate removal, stale menus and sheet edits, Clear, visibility/lifecycle cleanup, image cancellation, local persistence, interrupted writes, invalid files and private-entry requeuing. Privacy/persistence coverage includes simulated API 24, 28 and 35.
 
