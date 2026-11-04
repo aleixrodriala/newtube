@@ -11,6 +11,7 @@ import java.io.File;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -22,11 +23,13 @@ public final class QueuePersistence {
     private final Handler main;
     private final Executor writer;
     private final BooleanSupplier privateMode;
+    private final Supplier<String> privateVideoId;
     private final Runnable changed = this::onChanged;
     private final Runnable save = this::saveNow;
     private boolean pending;
     private boolean started;
     private final Set<String> privateIds = new HashSet<>();
+    private final Set<String> knownIds = new HashSet<>();
     private byte[] latest;
     private boolean writing;
 
@@ -38,14 +41,15 @@ public final class QueuePersistence {
                 new QueueSnapshotStore(new File(directory, "mobile-queue-v1.json")),
                 new Handler(Looper.getMainLooper()), Executors.newSingleThreadExecutor(task -> {
                     Thread thread = new Thread(task, "queue-storage"); thread.setDaemon(true); return thread;
-                }), PlaybackPresenter::isIncognitoPlayback);
+                }), PlaybackPresenter::isIncognitoPlayback, PlaybackPresenter::getIncognitoVideoId);
         instance.start();
     }
 
     QueuePersistence(Playlist queue, QueueSnapshotStore store, Handler main, Executor writer,
-            BooleanSupplier privateMode) {
+            BooleanSupplier privateMode, Supplier<String> privateVideoId) {
         this.queue = queue; this.store = store; this.main = main;
         this.writer = writer; this.privateMode = privateMode;
+        this.privateVideoId = privateVideoId;
     }
 
     void start() {
@@ -56,18 +60,28 @@ public final class QueuePersistence {
             QueueSnapshot snapshot = store.read();
             if (snapshot != null && !snapshot.videos.isEmpty()) queue.restoreQueue(snapshot.videos, snapshot.current);
         }
+        knownIds.clear();
+        for (Video video : queue.getAll()) if (video != null) knownIds.add(video.videoId);
         started = true; queue.addListener(changed);
         if (alreadySelected) onChanged();
     }
 
     private void onChanged() {
         boolean isPrivate = privateMode.getAsBoolean();
+        String currentPrivateId = isPrivate ? privateVideoId.get() : null;
         Set<String> liveIds = new HashSet<>();
         for (Video video : queue.getAll()) {
             if (video == null) continue;
             liveIds.add(video.videoId);
-            if (isPrivate || video.incognito) privateIds.add(video.videoId);
+            // Untouched normal rows are not private merely because they remain in the list.
+            // Exclude the private open itself and entries newly queued during that session.
+            if (video.incognito || (isPrivate && (!knownIds.contains(video.videoId)
+                    || (video.videoId != null && video.videoId.equals(currentPrivateId))))) {
+                privateIds.add(video.videoId);
+            }
         }
+        knownIds.clear();
+        knownIds.addAll(liveIds);
         // Bound remembered private IDs to the current in-memory list. Incognito consumes its
         // routing flag, so retain these exclusions after the private player has finished too.
         privateIds.retainAll(liveIds);

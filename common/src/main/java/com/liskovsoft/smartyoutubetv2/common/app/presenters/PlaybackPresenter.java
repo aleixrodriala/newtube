@@ -160,6 +160,11 @@ public class PlaybackPresenter extends BasePresenter<PlaybackView> implements Pl
         return sInstance != null && sInstance.getController(VideoStateController.class).isIncognitoSession();
     }
 
+    /** The current private open, published by VideoStateController before queue mutations. */
+    public static String getIncognitoVideoId() {
+        return sInstance != null ? sInstance.getController(VideoStateController.class).getIncognitoVideoId() : null;
+    }
+
     public boolean isRunningInBackground() {
         return getView() != null &&
                 getView().isEngineBlocked() &&

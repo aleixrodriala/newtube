@@ -3,13 +3,17 @@ package com.newtube.mobile.ui.playback;
 import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
 import android.app.Application;
+import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.AtomicFile;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Playlist;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.controllers.VideoStateController;
+import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -17,10 +21,12 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.*;
 
 @RunWith(RobolectricTestRunner.class)
@@ -34,12 +40,14 @@ public class QueuePersistenceTest {
     private QueueSnapshotStore store;
     private QueuePersistence manager;
     private final AtomicBoolean privateMode = new AtomicBoolean();
+    private final AtomicReference<String> privateVideoId = new AtomicReference<>();
     private final List<Runnable> writes = new ArrayList<>();
     private final Executor writer = writes::add;
     private Video a, b, c;
     private static Video video(String id) { Video v = Video.from(id); v.title = id; return v; }
     private void start() {
-        manager = new QueuePersistence(queue, store, new Handler(Looper.getMainLooper()), writer, privateMode::get);
+        manager = new QueuePersistence(queue, store, new Handler(Looper.getMainLooper()), writer,
+                privateMode::get, privateVideoId::get);
         manager.start();
     }
     private void settle() {
@@ -101,7 +109,7 @@ public class QueuePersistenceTest {
         assertArrayEquals(normal, Files.readAllBytes(path.toPath()));
         privateMode.set(false);
         Video publicVideo = video("ppppppppppp"); publicVideo.fromQueue = true; queue.add(publicVideo); settle();
-        assertEquals(Arrays.asList(publicVideo.videoId), ids(store.read().videos));
+        assertEquals(Arrays.asList(a.videoId, b.videoId, c.videoId, publicVideo.videoId), ids(store.read().videos));
         assertEquals(-1, store.read().current);
         queue.clear(); settle(); assertTrue(store.read().videos.isEmpty());
     }
@@ -115,6 +123,7 @@ public class QueuePersistenceTest {
         seed();
         privateMode.set(true);
         Video secret = video("sssssssssss");
+        privateVideoId.set(secret.videoId);
         secret.fromQueue = true;
         secret.incognito = true;
         queue.add(secret);
@@ -176,5 +185,108 @@ public class QueuePersistenceTest {
         seed(); manager.stop(); queue.clear(); queue.add(c); queue.setCurrent(c); start();
         assertEquals(Arrays.asList(c.videoId), ids(queue.getAll())); assertSame(c, queue.getCurrent());
         assertFalse(queue.isRestoredQueue());
+    }
+
+    @Test public void normalQueueSurvivesPrivatePlaybackAndARealProcessRestart() {
+        seed();
+        privateMode.set(true);
+        Video secret = video("sssssssssss");
+        privateVideoId.set(secret.videoId);
+        queue.add(secret);
+        queue.setCurrent(secret);
+        settle();
+        privateMode.set(false); // The private player was closed with X.
+        queue.add(b);
+        queue.setCurrent(b); // B is played normally after the private player closes.
+        secret.fromQueue = true;
+        queue.next(secret);
+        settle();
+        assertTrue("Normal B must be saved after the private session ends", ids(store.read().videos).contains(b.videoId));
+        assertFalse(ids(store.read().videos).contains(secret.videoId));
+        manager.stop();
+        queue.clear();
+        start();
+        assertTrue("Force-stop style restart must restore normal B", ids(queue.getAll()).contains(b.videoId));
+        assertFalse(ids(queue.getAll()).contains(secret.videoId));
+    }
+
+    @Test public void playingAnExistingItemPrivatelyDoesNotExcludeOtherNormalRows() {
+        seed();
+        privateMode.set(true);
+        privateVideoId.set(a.videoId);
+        queue.setCurrent(a); // An existing queued video is selected for private playback.
+        settle();
+        privateMode.set(false);
+        queue.setCurrent(b);
+        settle();
+        assertEquals(Arrays.asList(b.videoId, c.videoId), ids(store.read().videos));
+        assertEquals(0, store.read().current);
+    }
+
+    @Test public void newlyQueuedPrivateRowsAreExcludedWithoutExcludingUntouchedNormalRows() {
+        seed();
+        privateMode.set(true);
+        privateVideoId.set(a.videoId);
+        queue.setCurrent(a);
+        Video secret = video("sssssssssss");
+        secret.fromQueue = true;
+        queue.add(secret); // Queued in private mode, but never selected for playback.
+        settle();
+        privateMode.set(false);
+        queue.setCurrent(b);
+        settle();
+        assertEquals(Arrays.asList(b.videoId, c.videoId), ids(store.read().videos));
+    }
+
+    @Test public void realPrivatePlayerCloseAndNormalOpenPreserveTheNormalQueue() throws Exception {
+        seed();
+        byte[] normal = Files.readAllBytes(path.toPath());
+        manager.stop();
+        Context context = RuntimeEnvironment.getApplication();
+        PlaybackView player = (PlaybackView) Proxy.newProxyInstance(
+                        getClass().getClassLoader(), new Class<?>[] {PlaybackView.class},
+                        (proxy, method, args) -> {
+                            if (method.getName().equals("getVideo")) return queue.getCurrent();
+                            Class<?> type = method.getReturnType();
+                            if (type == boolean.class) return false;
+                            if (type == int.class) return 0;
+                            if (type == long.class) return 0L;
+                            if (type == float.class) return 0f;
+                            return null;
+                        });
+        VideoStateController state = new VideoStateController() {
+                    @Override public Context getContext() { return context; }
+                    @Override public PlaybackView getPlayer() { return player; }
+                    @Override public Video getVideo() { return queue.getCurrent(); }
+                };
+        manager = new QueuePersistence(queue, store, new Handler(Looper.getMainLooper()), writer,
+                state::isIncognitoSession, state::getIncognitoVideoId);
+        manager.start();
+        settle();
+        Video secret = video("sssssssssss");
+        secret.incognito = true;
+        state.onNewVideo(secret); // State controller runs before VideoLoader adds/selects it.
+        assertFalse(secret.incognito);
+        assertEquals(secret.videoId, state.getIncognitoVideoId());
+        queue.add(secret);
+        queue.setCurrent(secret);
+        settle();
+        assertArrayEquals(normal, Files.readAllBytes(path.toPath()));
+        state.onFinish(); // The mini-player X ends private mode before a normal open.
+        assertFalse(state.isIncognitoSession());
+        assertNull(state.getIncognitoVideoId());
+        state.onNewVideo(b);
+        b.fromQueue = false; // VideoLoader consumes the routing flag for this existing queued row.
+        queue.setCurrent(b);
+        secret.fromQueue = true;
+        queue.next(secret);
+        settle();
+        assertTrue(ids(store.read().videos).contains(b.videoId));
+        assertFalse(ids(store.read().videos).contains(secret.videoId));
+        manager.stop();
+        queue.clear();
+        start();
+        assertTrue(ids(queue.getAll()).contains(b.videoId));
+        assertFalse(ids(queue.getAll()).contains(secret.videoId));
     }
 }
