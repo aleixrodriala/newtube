@@ -35,8 +35,12 @@ public class VideoStateController extends BasePlayerController {
     private boolean mIsPlayBlocked;
     private int mTickleLeft;
     public boolean isIncognitoSession() { return mIncognito; }
+    public String getIncognitoVideoId() { return mIncognito ? mIncognitoVideoId : null; }
 
     private boolean mIncognito;
+    // Retained through onFinish: Activity destruction can flush the old engine afterwards.
+    private String mIncognitoVideoId;
+    private boolean mResetPrivatePosition;
     private final Runnable mUpdateHistory = this::saveState;
     private long mNewVideoTimeMs;
     private final PreviousRestartGate mPrevGate = new PreviousRestartGate();
@@ -403,7 +407,8 @@ public class VideoStateController extends BasePlayerController {
         }
 
         if (isShort || isVideoEnded || isLive) {
-            resetPosition(item);
+            if (isPrivateVideo(item)) mResetPrivatePosition = true;
+            else resetPosition(item);
         }
     }
 
@@ -414,7 +419,7 @@ public class VideoStateController extends BasePlayerController {
     }
 
     private void resetPosition(Video video) {
-        if (video == null) {
+        if (video == null || isPrivateVideo(video)) {
             return;
         }
 
@@ -434,6 +439,7 @@ public class VideoStateController extends BasePlayerController {
         if (item == null) {
             return;
         }
+        mResetPrivatePosition = false;
 
         // Enable incognito per session
         // Reset to default when player finished
@@ -441,6 +447,7 @@ public class VideoStateController extends BasePlayerController {
             mIncognito = true;
             item.incognito = false;
         }
+        mIncognitoVideoId = mIncognito ? item.videoId : null;
     }
 
     private void restoreVideoFormat() {
@@ -492,7 +499,7 @@ public class VideoStateController extends BasePlayerController {
 
     private void saveState() {
         // Skip mini player, but don't save for the previews (mute enabled)
-        if (isMutedEmbed()) {
+        if (isPrivateVideo(getVideo()) || isMutedEmbed()) {
             return;
         }
 
@@ -502,6 +509,11 @@ public class VideoStateController extends BasePlayerController {
             updateHistory();
             syncWithPlaylists();
         }
+    }
+
+    private boolean isPrivateVideo(Video video) {
+        return mIncognito || (mIncognitoVideoId != null && video != null
+                && mIncognitoVideoId.equals(video.videoId));
     }
 
     private void restoreState() {
@@ -564,9 +576,12 @@ public class VideoStateController extends BasePlayerController {
             return;
         }
 
-        State state = getStateService().getByVideoId(item.videoId);
+        // Restart privately without rewriting the normal bookmark or reusing its completed
+        // position. Live's existing edge fallback and explicit pending timestamps still apply.
+        boolean resetPrivatePosition = mResetPrivatePosition && isPrivateVideo(item);
+        State state = resetPrivatePosition ? null : getStateService().getByVideoId(item.videoId);
 
-        boolean stateIsOutdated = isStateOutdated(state, item);
+        boolean stateIsOutdated = !resetPrivatePosition && isStateOutdated(state, item);
         if (stateIsOutdated) { // check that the user logged in
             // Web state is buggy on short videos (e.g. video clips)
             boolean isLongVideo = getPlayer().getDurationMs() > MUSIC_VIDEO_MAX_DURATION_MS;
