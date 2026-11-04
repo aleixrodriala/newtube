@@ -19,7 +19,9 @@ import java.util.Set;
 public final class QueuePersistence {
     private static QueuePersistence instance;
     private final Playlist queue;
-    private final QueueSnapshotStore store;
+    private final QueueStorage store;
+    private String scope;
+    private boolean switching;
     private final Handler main;
     private final Executor writer;
     private final BooleanSupplier privateMode;
@@ -30,26 +32,100 @@ public final class QueuePersistence {
     private boolean started;
     private final Set<String> privateIds = new HashSet<>();
     private final Set<String> knownIds = new HashSet<>();
-    private byte[] latest;
+    private final java.util.LinkedHashMap<String, byte[]> latest = new java.util.LinkedHashMap<>();
     private boolean writing;
+    private final java.util.Map<String, byte[]> failed = new java.util.HashMap<>();
 
     public static void install(Context context) {
         if (instance != null) return;
         File directory = context.getNoBackupFilesDir();
-        if (directory == null) { Log.w("QueuePersistence", "Private queue storage unavailable"); return; }
-        instance = new QueuePersistence(Playlist.instance(),
-                new QueueSnapshotStore(new File(directory, "mobile-queue-v1.json")),
-                new Handler(Looper.getMainLooper()), Executors.newSingleThreadExecutor(task -> {
-                    Thread thread = new Thread(task, "queue-storage"); thread.setDaemon(true); return thread;
-                }), PlaybackPresenter::isIncognitoPlayback, PlaybackPresenter::getIncognitoVideoId);
-        instance.start();
+        try {
+            QueueAccountIdentity identity = new QueueAccountIdentity(directory);
+            String initialScope = identity.initialScope(context);
+            QueueStorage storage;
+            try {
+                if (directory == null) throw new java.io.IOException("Private storage unavailable");
+                storage = new QueueAccountStorage(directory, initialScope);
+            } catch (java.io.IOException | RuntimeException unavailable) {
+                Log.w("QueuePersistence", "Queue storage unavailable; using session isolation");
+                storage = new QueueStorage() {
+                    private final java.util.Map<String, byte[]> memory = new java.util.HashMap<>();
+                    public synchronized QueueSnapshot read(String scope) {
+                        byte[] bytes = memory.get(scope);
+                        return bytes != null ? QueueSnapshot.decode(bytes) : null;
+                    }
+                    public synchronized void write(String scope, byte[] bytes) { memory.put(scope, bytes); }
+                };
+            }
+            instance = new QueuePersistence(Playlist.instance(), storage, initialScope,
+                    new Handler(Looper.getMainLooper()), Executors.newSingleThreadExecutor(task -> {
+                        Thread thread = new Thread(task, "queue-storage"); thread.setDaemon(true); return thread;
+                    }), PlaybackPresenter::isIncognitoPlayback, PlaybackPresenter::getIncognitoVideoId);
+            instance.start();
+            com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager.instance()
+                    .addAccountListener(account -> {
+                        // Service notifications are posted through an IO scheduler and may arrive late.
+                        // Resolve the live selection on main, never a captured outgoing notification.
+                        Runnable switchAccount = () -> instance.switchScope(identity.scope(
+                                com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager.instance().getSelectedAccount()),
+                                QueuePersistence::closePlayback);
+                        if (Looper.myLooper() == Looper.getMainLooper()) switchAccount.run();
+                        else instance.main.post(switchAccount);
+                    });
+        } catch (RuntimeException error) {
+            Log.w("QueuePersistence", "Account queue storage unavailable");
+        }
+    }
+
+    private static void closePlayback() {
+        PlaybackPresenter.prepareQueueAccountChange();
+        com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView view = PlaybackPresenter.getExistingPlaybackView();
+        if (view instanceof MobilePlaybackActivity) ((MobilePlaybackActivity) view).closeForAccountChange();
+        PlaybackPresenter.clearQueueSession();
+        com.liskovsoft.smartyoutubetv2.common.app.models.playback.QueuePlaybackMode.clear();
     }
 
     QueuePersistence(Playlist queue, QueueSnapshotStore store, Handler main, Executor writer,
             BooleanSupplier privateMode, Supplier<String> privateVideoId) {
-        this.queue = queue; this.store = store; this.main = main;
-        this.writer = writer; this.privateMode = privateMode;
-        this.privateVideoId = privateVideoId;
+        this(queue, new QueueStorage() {
+            public QueueSnapshot read(String scope) { return store.read(); }
+            public void write(String scope, byte[] bytes) throws java.io.IOException { store.write(bytes); }
+        }, "test", main, writer, privateMode, privateVideoId);
+    }
+
+    QueuePersistence(Playlist queue, QueueStorage store, String scope, Handler main, Executor writer,
+            BooleanSupplier privateMode, Supplier<String> privateVideoId) {
+        this.queue = queue; this.store = store; this.scope = scope; this.main = main;
+        this.writer = writer; this.privateMode = privateMode; this.privateVideoId = privateVideoId;
+    }
+
+    /** Main-thread boundary: persist outgoing state before retiring playback and replacing the list. */
+    void switchScope(String next, Runnable closePlayback) {
+        if (!started || scope.equals(next)) return;
+        main.removeCallbacks(save); pending = false;
+        saveNow(); // private sessions leave their last normal snapshot intact
+        switching = true;
+        try {
+            closePlayback.run(); // cancel old engine/network callbacks before exposing the next account
+            scope = next;
+            privateIds.clear(); knownIds.clear();
+            queue.clear();
+            QueueSnapshot snapshot = readScope();
+            if (snapshot != null && !snapshot.videos.isEmpty()) queue.restoreQueue(snapshot.videos, snapshot.current);
+            rememberIds();
+        } finally { switching = false; }
+    }
+
+    private QueueSnapshot readScope() {
+        byte[] bytes;
+        synchronized (this) { bytes = latest.containsKey(scope) ? latest.get(scope) : failed.get(scope); }
+        // Includes an in-flight write. A -> B -> A cannot reload stale disk contents.
+        return bytes != null ? QueueSnapshot.decode(bytes) : store.read(scope);
+    }
+
+    private void rememberIds() {
+        knownIds.clear();
+        for (Video video : queue.getAll()) if (video != null) knownIds.add(video.videoId);
     }
 
     void start() {
@@ -57,16 +133,16 @@ public final class QueuePersistence {
         boolean alreadySelected = !queue.getAll().isEmpty();
         // Load once before the first Activity. Never replace a selection already made in memory.
         if (queue.getAll().isEmpty()) {
-            QueueSnapshot snapshot = store.read();
+            QueueSnapshot snapshot = readScope();
             if (snapshot != null && !snapshot.videos.isEmpty()) queue.restoreQueue(snapshot.videos, snapshot.current);
         }
-        knownIds.clear();
-        for (Video video : queue.getAll()) if (video != null) knownIds.add(video.videoId);
+        rememberIds();
         started = true; queue.addListener(changed);
         if (alreadySelected) onChanged();
     }
 
     private void onChanged() {
+        if (switching) return;
         boolean isPrivate = privateMode.getAsBoolean();
         String currentPrivateId = isPrivate ? privateVideoId.get() : null;
         Set<String> liveIds = new HashSet<>();
@@ -95,7 +171,7 @@ public final class QueuePersistence {
         try {
             byte[] bytes = QueueSnapshot.capture(queue, privateIds).encode();
             synchronized (this) {
-                latest = bytes; // one pending snapshot, even if storage is temporarily slow
+                latest.put(scope, bytes); // one pending snapshot per account, one worker overall
                 if (writing) return;
                 writing = true;
             }
@@ -112,13 +188,21 @@ public final class QueuePersistence {
     private void drain() {
         while (true) {
             byte[] bytes;
+            String target;
             synchronized (this) {
-                bytes = latest; latest = null;
-                if (bytes == null) { writing = false; return; }
+                if (latest.isEmpty()) { writing = false; return; }
+                java.util.Map.Entry<String, byte[]> entry = latest.entrySet().iterator().next();
+                target = entry.getKey(); bytes = entry.getValue();
             }
-            try { store.write(bytes); }
+            boolean saved = false;
+            try { store.write(target, bytes); saved = true; }
             catch (java.io.IOException | RuntimeException error) {
                 Log.w("QueuePersistence", "Could not save queue; previous complete snapshot retained");
+            }
+            synchronized (this) {
+                if (saved) failed.remove(target);
+                else failed.put(target, bytes); // preserve session state even when storage is full
+                if (latest.get(target) == bytes) latest.remove(target);
             }
         }
     }

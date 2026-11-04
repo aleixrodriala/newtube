@@ -166,6 +166,14 @@ public class VideoLoaderController extends BasePlayerController {
         mPendingVideo = null;
     }
 
+    /** Account boundaries must not replay an open waiting for an engine. */
+    public void clearPendingVideo() {
+        mPendingVideo = null;
+        mPlaybackGeneration++;
+        mPreMediaRetry.clear();
+        disposeActions();
+    }
+
     @Override
     public void onEngineReleased() {
         mPlaybackGeneration++;

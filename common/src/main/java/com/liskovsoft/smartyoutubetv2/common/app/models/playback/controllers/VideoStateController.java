@@ -37,6 +37,10 @@ public class VideoStateController extends BasePlayerController {
     public boolean isIncognitoSession() { return mIncognito; }
     public String getIncognitoVideoId() { return mIncognito ? mIncognitoVideoId : null; }
 
+    /** Authentication/profile already changed; the retiring player still belongs to the old one. */
+    public void suppressAccountExitWrites() { mSuppressAccountExitWrites = true; }
+    private boolean mSuppressAccountExitWrites;
+
     private boolean mIncognito;
     // Retained through onFinish: Activity destruction can flush the old engine afterwards.
     private String mIncognitoVideoId;
@@ -62,6 +66,8 @@ public class VideoStateController extends BasePlayerController {
             // In case video opened from phone and other stuff.
             saveState();
         }
+
+        mSuppressAccountExitWrites = false;
 
         if (!item.equals(getVideo())) {
             mNewVideoTimeMs = System.currentTimeMillis();
@@ -499,7 +505,7 @@ public class VideoStateController extends BasePlayerController {
 
     private void saveState() {
         // Skip mini player, but don't save for the previews (mute enabled)
-        if (isPrivateVideo(getVideo()) || isMutedEmbed()) {
+        if (mSuppressAccountExitWrites || isPrivateVideo(getVideo()) || isMutedEmbed()) {
             return;
         }
 

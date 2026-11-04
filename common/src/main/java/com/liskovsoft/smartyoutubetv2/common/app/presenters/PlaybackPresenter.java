@@ -155,6 +155,22 @@ public class PlaybackPresenter extends BasePresenter<PlaybackView> implements Pl
         return mVideo != null ? mVideo.get() : null;
     }
 
+    /** Inspect an existing session without constructing playback during an account switch. */
+    public static PlaybackView getExistingPlaybackView() {
+        return sInstance != null ? sInstance.getView() : null;
+    }
+
+    public static void prepareQueueAccountChange() {
+        if (sInstance != null) sInstance.getController(VideoStateController.class).suppressAccountExitWrites();
+    }
+
+    /** Retire the old account's pending open as well as its visible player. */
+    public static void clearQueueSession() {
+        if (sInstance == null) return;
+        sInstance.getController(VideoLoaderController.class).clearPendingVideo();
+        sInstance.mVideo = null;
+    }
+
     /** Persistence must inspect privacy without creating a presenter or player. */
     public static boolean isIncognitoPlayback() {
         return sInstance != null && sInstance.getController(VideoStateController.class).isIncognitoSession();

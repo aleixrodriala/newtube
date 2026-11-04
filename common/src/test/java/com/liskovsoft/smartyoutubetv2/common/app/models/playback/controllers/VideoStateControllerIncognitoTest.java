@@ -94,6 +94,21 @@ public class VideoStateControllerIncognitoTest {
         assertFalse(current.incognito); // The routing flag has been consumed.
     }
 
+    @Test public void retiringOldAccountCannotWriteItsPositionIntoNewAccount() {
+        controller.onNewVideo(current);
+        containsMedia = true;
+        controller.suppressAccountExitWrites();
+        controller.onFinish();
+        controller.onEngineReleased();
+        assertNull("Old-account final flush must not save using the incoming account", states.getByVideoId(current.videoId));
+        current = Video.from("bbbbbbbbbbb");
+        containsMedia = false;
+        controller.onNewVideo(current);
+        containsMedia = true;
+        controller.onEngineReleased();
+        assertNotNull("New account playback still saves normally", states.getByVideoId(current.videoId));
+    }
+
     @Test public void privatePlaybackDoesNotSaveLocalProgress() {
         enterPrivate();
         controller.onEngineReleased();

@@ -6304,6 +6304,15 @@ public class MobilePlaybackActivity extends MobileActivity
         return true;
     }
 
+    /** Stop old-account playback synchronously before its queue is replaced. */
+    void closeForAccountChange() {
+        if (mPresenter != null) mPresenter.onFinish();
+        destroyPlayerObjects();
+        if (mPresenter != null && mPresenter.getView() == this) mPresenter.setView(null);
+        MiniPlayerBridge.deactivate();
+        finishReally();
+    }
+
     /** X tapped on the Browse mini bar: stop playback and quietly retire this hidden activity. */
     void closeFromMiniPlayer() {
         if (mPresenter != null) {
