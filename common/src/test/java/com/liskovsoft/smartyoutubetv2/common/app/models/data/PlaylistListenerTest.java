@@ -80,6 +80,38 @@ public class PlaylistListenerTest {
         }
         assertEquals(0, changes.get());
     }
+    @Test public void restoredSnapshotIsOneStateAndSelectedDuplicateUsesItsActualPosition() {
+        Video otherA = video(a.videoId);
+        changes.set(0); queue.restoreQueue(Arrays.asList(a, b, otherA), 2);
+        assertEquals(1, changes.get()); assertTrue(queue.isRestoredQueue());
+        assertSame(otherA, queue.getCurrent());
+        queue.setCurrent(otherA);
+        assertEquals(2, queue.getCurrentIndex()); assertFalse(queue.isRestoredQueue());
+    }
+
+    @Test public void explicitQueueSurvivesConsumedRoutingFlagsAndClearResetsIt() {
+        assertFalse(queue.hasExplicitQueue());
+        c.fromQueue = true; queue.next(c);
+        c.fromQueue = false; queue.setCurrent(c);
+        assertTrue(queue.hasExplicitQueue());
+        queue.clearExceptCurrent();
+        assertFalse(queue.hasExplicitQueue());
+        assertSame(c, queue.getCurrent());
+        b.fromQueue = true; queue.add(b);
+        b.fromQueue = false; queue.setCurrent(b);
+        assertTrue(queue.hasExplicitQueue());
+        queue.clear(); assertFalse(queue.hasExplicitQueue());
+    }
+
+    @Test public void removingAllPendingItemsDoesNotTurnLaterHistoryIntoAQueue() {
+        queue.clear();
+        c.fromQueue = true; queue.add(c);
+        assertTrue(queue.hasExplicitQueue());
+        queue.remove(c);
+        queue.add(a); queue.setCurrent(a);
+        queue.add(b); queue.setCurrent(b);
+        assertFalse(queue.hasExplicitQueue());
+    }
 
     @Test public void listenerMayUnregisterDuringNotification() {
         Runnable[] once = new Runnable[1];
@@ -87,5 +119,48 @@ public class PlaylistListenerTest {
         queue.addListener(once[0]);
         queue.clear(); queue.clear();
         assertEquals(2, changes.get());
+    }
+
+    @Test public void requeuingPublishesOnlyOneCompleteState() {
+        queue.add(c);
+        changes.set(0);
+        java.util.List<java.util.List<Video>> states = new java.util.ArrayList<>();
+        Runnable snapshot = () -> states.add(new java.util.ArrayList<>(queue.getAll()));
+        queue.addListener(snapshot);
+        try {
+            queue.add(b);
+            assertEquals(1, changes.get());
+            assertEquals(1, states.size());
+            assertEquals(Arrays.asList(a, c, b), states.get(0));
+            assertSame(a, queue.getCurrent());
+            changes.set(0);
+            states.clear();
+            queue.next(b);
+            assertEquals(1, changes.get());
+            assertEquals(1, states.size());
+            assertEquals(Arrays.asList(a, b, c), states.get(0));
+            assertSame(a, queue.getCurrent());
+        } finally {
+            queue.removeListener(snapshot);
+        }
+    }
+
+    @Test public void userRemovalProtectsOnlyThePlayingOccurrence() {
+        Video otherA = video(a.videoId);
+        queue.restoreQueue(Arrays.asList(a, otherA, b), 0);
+        queue.setCurrent(a);
+        assertFalse(queue.canRemoveQueuedItem(a));
+        assertFalse(queue.removeQueuedItem(a));
+        assertTrue(queue.canRemoveQueuedItem(otherA));
+        assertTrue(queue.removeQueuedItem(otherA));
+        assertSame(a, queue.getCurrent());
+        assertSame(b, queue.getNext());
+        assertEquals(2, queue.getAll().size());
+    }
+
+    @Test public void internalRemovalStillAcceptsAnEquivalentClone() {
+        queue.remove(video(b.videoId));
+        assertEquals(1, queue.getAll().size());
+        assertSame(a, queue.getCurrent());
     }
 }

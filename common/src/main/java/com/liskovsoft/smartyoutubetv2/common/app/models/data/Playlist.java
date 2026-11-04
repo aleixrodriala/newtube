@@ -16,6 +16,10 @@ public class Playlist {
     private final List<Video> mPlaylist;
     private final List<Video> mSyncedItems;
     private int mCurrentIndex;
+    // fromQueue is a one-open routing flag consumed by VideoLoaderController. It cannot tell
+    // UI whether this session still contains a queue the user explicitly built.
+    private boolean mHasExplicitQueue;
+    private boolean mRestoredQueue;
     private static Playlist sInstance;
     private final java.util.concurrent.CopyOnWriteArrayList<Runnable> mListeners =
             new java.util.concurrent.CopyOnWriteArrayList<>();
@@ -56,13 +60,24 @@ public class Playlist {
     public void clear() {
         mPlaylist.clear();
         mCurrentIndex = -1;
+        mHasExplicitQueue = false;
+        mRestoredQueue = false;
         notifyChanged();
     }
 
     /** Clears the queue in one pass and emits one complete state, preserving the playing object. */
     public void clearExceptCurrent() {
+        if (mRestoredQueue) {
+            clear(); // there is a saved cursor, but no playing item to preserve
+            return;
+        }
         Video current = getCurrent();
-        if (mPlaylist.isEmpty() || (mPlaylist.size() == 1 && current != null)) return;
+        boolean hadExplicitQueue = mHasExplicitQueue;
+        mHasExplicitQueue = false;
+        if (mPlaylist.isEmpty() || (mPlaylist.size() == 1 && current != null)) {
+            if (hadExplicitQueue) notifyChanged();
+            return;
+        }
         for (Video video : mPlaylist) {
             if (video != null && video != current) video.fromQueue = false;
         }
@@ -81,6 +96,9 @@ public class Playlist {
      * Used to sync list with remotely added items
      */
     public void addAll(List<Video> videos) {
+        for (Video video : videos) {
+            if (video != null && video.fromQueue) mHasExplicitQueue = true;
+        }
         mPlaylist.removeAll(videos);
         mPlaylist.addAll(videos);
         notifyChanged();
@@ -101,13 +119,15 @@ public class Playlist {
         // Skip add currently playing item
         // And replace to correct position sync in fragments
         if (video.equals(current)) {
+            if (video.fromQueue) mHasExplicitQueue = true;
             replace(current, video);
             return;
         }
 
         boolean isLastElement = !mPlaylist.isEmpty() && video.equals(mPlaylist.get(mPlaylist.size() - 1));
 
-        remove(video);
+        removeInternal(video);
+        if (video.fromQueue) mHasExplicitQueue = true;
 
         mPlaylist.add(video);
 
@@ -128,7 +148,8 @@ public class Playlist {
             return;
         }
 
-        remove(video);
+        removeInternal(video);
+        if (video.fromQueue) mHasExplicitQueue = true;
 
         int nextIdx = mPlaylist.size() > mCurrentIndex ? mCurrentIndex + 1 : mPlaylist.size() - 1;
 
@@ -147,20 +168,41 @@ public class Playlist {
     }
 
     public void remove(Video video) {
+        if (removeInternal(video)) notifyChanged();
+    }
+
+    /** User edits preserve the playing occurrence; a restored cursor is not active playback. */
+    public boolean canRemoveQueuedItem(Video video) {
+        int index = indexOfVideo(video);
+        return index >= 0 && (mRestoredQueue || index != mCurrentIndex);
+    }
+
+    /** Recheck at execution time: playback may advance while a menu is open. */
+    public boolean removeQueuedItem(Video video) {
+        if (!canRemoveQueuedItem(video)) return false;
+        remove(video);
+        return true;
+    }
+
+    private int indexOfVideo(Video video) {
+        if (Video.isEmpty(video)) return -1;
+        int index = indexOfInstance(video);
+        return index >= 0 ? index : mPlaylist.indexOf(video);
+    }
+
+    // Compound add/next operations publish only their completed state. In particular, a
+    // temporary removal must not make persistence forget a requeued item's private status.
+    private boolean removeInternal(Video video) {
         if (Video.isEmpty(video)) {
-            return;
+            return false;
         }
 
-        // Skip remove currently playing item
-        //if (video.equals(getCurrent())) {
-        //    return;
-        //}
-
-        int index = mPlaylist.indexOf(video);
+        int index = indexOfVideo(video);
 
         // If contains
         if (index >= 0) {
-            mPlaylist.remove(video);
+            mPlaylist.remove(index);
+            if (mPlaylist.isEmpty()) mHasExplicitQueue = false;
 
             // Shift video stack index if needed
             // Don't remove current index. Except this is the last element.
@@ -174,8 +216,9 @@ public class Playlist {
             if (mCurrentIndex >= mPlaylist.size()) {
                 mCurrentIndex = mPlaylist.size() - 1;
             }
-            notifyChanged();
+            return true;
         }
+        return false;
     }
 
     /**
@@ -283,8 +326,10 @@ public class Playlist {
         if (Video.isEmpty(video)) {
             return;
         }
+        mRestoredQueue = false;
 
-        int currentPosition = mPlaylist.indexOf(video);
+        int currentPosition = indexOfInstance(video);
+        if (currentPosition < 0) currentPosition = mPlaylist.indexOf(video);
 
         if (currentPosition >= 0) {
             mCurrentIndex = currentPosition;
@@ -322,6 +367,29 @@ public class Playlist {
 
     public boolean hasNext() {
         return getNext() != null;
+    }
+
+    /** Retain access to a user-built queue after its final item starts, until it is cleared. */
+    public boolean hasExplicitQueue() {
+        return mHasExplicitQueue;
+    }
+
+    /** A saved cursor is selectable; restoring it never starts a player. */
+    public boolean isRestoredQueue() {
+        return mRestoredQueue;
+    }
+
+    /** Restore one complete bounded snapshot, without add/next routing side effects. */
+    public void restoreQueue(List<Video> videos, int currentIndex) {
+        if (videos == null || videos.isEmpty() || videos.size() > mPlaylistMaxSize
+                || currentIndex < -1 || currentIndex >= videos.size()) return;
+        for (Video video : videos) if (Video.isEmpty(video)) return;
+        mPlaylist.clear();
+        mPlaylist.addAll(videos);
+        mCurrentIndex = currentIndex;
+        mHasExplicitQueue = true;
+        mRestoredQueue = true;
+        notifyChanged();
     }
 
     public List<Video> getAllAfterCurrent() {

@@ -155,6 +155,11 @@ public class PlaybackPresenter extends BasePresenter<PlaybackView> implements Pl
         return mVideo != null ? mVideo.get() : null;
     }
 
+    /** Persistence must inspect privacy without creating a presenter or player. */
+    public static boolean isIncognitoPlayback() {
+        return sInstance != null && sInstance.getController(VideoStateController.class).isIncognitoSession();
+    }
+
     public boolean isRunningInBackground() {
         return getView() != null &&
                 getView().isEngineBlocked() &&

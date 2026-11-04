@@ -20,11 +20,20 @@ final class QueueCardPolicy {
         Playlist queue = Playlist.instance();
         Video playing = queue.getCurrent();
         if (current == null || current.videoId == null || playing == null
-                || !current.videoId.equals(playing.videoId) || !queue.hasNext()) return null;
+                || !current.videoId.equals(playing.videoId)
+                || (!queue.hasNext() && !keepsExplicitQueue(current))) return null;
         for (Map.Entry<Integer, VideoGroup> entry : groups.entrySet()) {
             VideoGroup group = entry.getValue();
             if (group != null && group.getType() == MediaGroup.TYPE_PLAYBACK_QUEUE) return entry.getKey();
         }
         return null;
+    }
+
+    static boolean keepsExplicitQueue(Video current) {
+        Playlist queue = Playlist.instance();
+        Video playing = queue.getCurrent();
+        return queue.hasExplicitQueue() && !queue.getAll().isEmpty() && current != null
+                && current.videoId != null && playing != null
+                && current.videoId.equals(playing.videoId);
     }
 }

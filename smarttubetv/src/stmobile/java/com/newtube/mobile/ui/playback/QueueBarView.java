@@ -159,19 +159,17 @@ public final class QueueBarView extends LinearLayout implements DefaultLifecycle
         Playlist queue = Playlist.instance();
         int current = queue.getCurrentIndex();
         int size = queue.getAll().size();
-        int remaining = current >= 0 ? size - current - 1 : size;
+        boolean restored = queue.isRestoredQueue();
+        int remaining = current >= 0 ? size - current - (restored ? 0 : 1) : size;
         Video playing = queue.getCurrent();
-        // Playlist also retains playback history. Do not show a queue merely for past videos.
-        boolean manuallyQueued = playing != null && playing.fromQueue;
-        if (remaining == 0 && !manuallyQueued) {
-            for (Video item : queue.getAll()) {
-                if (item != null && item.fromQueue) { manuallyQueued = true; break; }
-            }
-        }
+        // Playback consumes Video.fromQueue on every open. The model remembers an explicit
+        // queue independently, including after the last video advances while this view is stopped.
+        boolean manuallyQueued = queue.hasExplicitQueue();
         boolean visible = mAvailable && size > 0
-                && (playing == null || (size > 1 && (remaining > 0 || manuallyQueued)));
+                && (playing == null || remaining > 0 || manuallyQueued);
         if (visible) {
-            Video next = playing == null ? queue.getAll().get(0) : queue.getNext();
+            Video next = restored && playing != null ? playing
+                    : playing == null ? queue.getAll().get(0) : queue.getNext();
             String count = getResources().getQuantityString(
                     R.plurals.mobile_queue_bar_remaining, remaining, remaining);
             String nextTitle = next != null ? next.getTitle() : null;

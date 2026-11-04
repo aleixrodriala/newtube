@@ -127,6 +127,34 @@ public class QueueBarViewTest implements LifecycleOwner {
         shadowOf(Looper.getMainLooper()).idle();
         assertEquals(View.GONE, bar.getVisibility());
     }
+    @Test public void restoredCursorIsShownAsTheNextSelectableVideoRatherThanSkipped() {
+        queue.restoreQueue(Arrays.asList(a, b, c), 1);
+        shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(View.VISIBLE, bar.getVisibility());
+        assertTrue(label().contains(b.title));
+        assertTrue(label().contains("2 videos remaining"));
+        assertTrue(queue.isRestoredQueue());
+        queue.clearExceptCurrent(); shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(View.GONE, bar.getVisibility()); assertTrue(queue.getAll().isEmpty());
+    }
+    @Test public void lastQueuedVideoKeepsBarAfterBackgroundAdvanceConsumesLaunchFlag() {
+        queue.add(a); queue.setCurrent(a);
+        b.fromQueue = true; queue.next(b);
+        shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(View.VISIBLE, bar.getVisibility());
+        lifecycle.setCurrentState(Lifecycle.State.CREATED);
+        // VideoLoaderController consumes this routing flag before setting the playing item.
+        b.fromQueue = false; queue.setCurrent(b);
+        shadowOf(Looper.getMainLooper()).idle();
+        lifecycle.setCurrentState(Lifecycle.State.STARTED);
+        assertEquals(View.VISIBLE, bar.getVisibility());
+        assertTrue(label().contains("Queue finished"));
+        bar.performClick(); assertEquals(1, opened.get());
+        queue.remove(a); shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(View.VISIBLE, bar.getVisibility()); // an explicit queue may contain only current
+        queue.clearExceptCurrent(); shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(View.GONE, bar.getVisibility());
+    }
     @Test public void hiddenWhileFullscreenOrPipAndRestoredWithoutPolling() {
         queue.addAll(Arrays.asList(a, b)); queue.setCurrent(a);
         shadowOf(Looper.getMainLooper()).idle();

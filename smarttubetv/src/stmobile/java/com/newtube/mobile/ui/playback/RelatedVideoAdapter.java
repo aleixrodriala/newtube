@@ -32,6 +32,8 @@ import com.liskovsoft.smartyoutubetv2.tv.R;
  * <p>Tapping a row routes the tapped {@link Video} to
  * {@code PlaybackPresenter.onSuggestionItemClicked(Video)} (via the click listener) which both
  * marks queue state and loads/plays the video in the same player.</p>
+ * <p>Holding a row opens its existing suggestion menu. Every caller must supply that callback;
+ * the same rows are used for both recommendations and the expanded playback queue.</p>
  */
 public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.RelatedViewHolder> {
 
@@ -48,6 +50,11 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         void onRelatedPress(Video video);
     }
 
+    public interface OnRelatedLongClickListener {
+        boolean onRelatedLongClick(Video video);
+    }
+
+    private final OnRelatedLongClickListener mLongClickListener;
     private final OnRelatedClickListener mClickListener;
     @androidx.annotation.Nullable
     private final OnRelatedPressListener mPressListener;
@@ -58,14 +65,17 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
      */
     private String mCurrentVideoId;
 
-    public RelatedVideoAdapter(OnRelatedClickListener clickListener) {
-        this(clickListener, null, 0);
+    public RelatedVideoAdapter(OnRelatedClickListener clickListener,
+            OnRelatedLongClickListener longClickListener) {
+        this(clickListener, longClickListener, null, 0);
     }
 
-    /** {@code pressListener} fires after {@code pressIntentMs} of a still finger; null/0 = off. */
+    /** Long-press opens the menu; optional press intent only prefetches and never consumes touch. */
     public RelatedVideoAdapter(OnRelatedClickListener clickListener,
+            OnRelatedLongClickListener longClickListener,
             @androidx.annotation.Nullable OnRelatedPressListener pressListener, long pressIntentMs) {
         super(DIFF_CALLBACK);
+        mLongClickListener = java.util.Objects.requireNonNull(longClickListener);
         mClickListener = clickListener;
         mPressListener = pressIntentMs > 0 ? pressListener : null;
         mPressIntentMs = pressIntentMs;
@@ -105,7 +115,7 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
     public RelatedViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View view = LayoutInflater.from(parent.getContext())
                 .inflate(R.layout.item_mobile_related_video, parent, false);
-        return new RelatedViewHolder(view, mClickListener, mPressListener, mPressIntentMs);
+        return new RelatedViewHolder(view, mClickListener, mLongClickListener, mPressListener, mPressIntentMs);
     }
 
     @Override
@@ -132,6 +142,7 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
 
         @SuppressLint("ClickableViewAccessibility") // observes only; the row's click still runs
         RelatedViewHolder(@NonNull View itemView, OnRelatedClickListener clickListener,
+                OnRelatedLongClickListener longClickListener,
                 @androidx.annotation.Nullable OnRelatedPressListener pressListener, long pressIntentMs) {
             super(itemView);
 
@@ -146,6 +157,9 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
                     clickListener.onRelatedClick(mVideo, mThumbnail);
                 }
             });
+
+            itemView.setOnLongClickListener(v -> mVideo != null && longClickListener != null
+                    && longClickListener.onRelatedLongClick(mVideo));
 
             if (pressListener != null) {
                 PressIntentDetector detector = new PressIntentDetector(

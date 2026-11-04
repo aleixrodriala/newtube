@@ -112,4 +112,34 @@ public class QueueSheetConsistencyTest {
         assertSame(a, queue.getCurrent()); assertSame(c, queue.getNext());
         assertTrue(adapter.matchesLiveQueue());
     }
+    @Test public void restoredCurrentIsSelectableWithoutPretendingPlaybackAlreadyStarted() {
+        queue.restoreQueue(Arrays.asList(a, b, c), 1); adapter.reload();
+        assertTrue(queue.isRestoredQueue()); assertNull(played);
+        assertEquals(-1, adapter.currentIndex());
+        assertTrue(adapter.matchesLiveQueue()); assertTrue(adapter.canRemove(1));
+        assertTrue(adapter.play(1)); assertSame(b, played);
+    }
+
+    @Test public void removingRestoredDuplicateDeletesTheChosenOccurrence() {
+        Video secondA = video(a.videoId);
+        queue.restoreQueue(Arrays.asList(a, b, secondA), -1);
+        adapter.reload();
+        adapter.remove(2);
+        assertEquals(2, queue.getAll().size());
+        assertSame("The first occurrence must remain", a, queue.getAll().get(0));
+        assertSame(b, queue.getAll().get(1));
+        assertTrue(adapter.matchesLiveQueue());
+    }
+
+    @Test public void removingEqualDuplicateCannotRemoveThePlayingOccurrence() {
+        Video secondA = video(a.videoId);
+        queue.restoreQueue(Arrays.asList(a, secondA, b), 0);
+        queue.setCurrent(a);
+        adapter.reload();
+        adapter.remove(1);
+        assertSame("Playback must keep its selected object", a, queue.getCurrent());
+        assertSame(b, queue.getNext());
+        assertEquals(2, queue.getAll().size());
+        assertTrue(adapter.matchesLiveQueue());
+    }
 }

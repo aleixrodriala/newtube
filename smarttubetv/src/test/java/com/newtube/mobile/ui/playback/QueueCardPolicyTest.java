@@ -37,6 +37,13 @@ public class QueueCardPolicyTest {
         Playlist.instance().setCurrent(b);
         assertNull(QueueCardPolicy.localGroupId(b, groups));
     }
+    @Test public void explicitQueueKeepsItsGroupAtTheLastVideoAfterLaunchFlagIsConsumed() {
+        b.fromQueue = true; Playlist.instance().add(b);
+        b.fromQueue = false; Playlist.instance().setCurrent(b);
+        assertEquals(Integer.valueOf(123), QueueCardPolicy.localGroupId(b, groups));
+        Playlist.instance().clearExceptCurrent();
+        assertNull(QueueCardPolicy.localGroupId(b, groups));
+    }
     @Test public void anotherVideoAndEmptyQueueCannotClaimTheQueueCard() {
         assertNull(QueueCardPolicy.localGroupId(video("ccccccccccc"), groups));
         Playlist.instance().clear(); assertNull(QueueCardPolicy.localGroupId(a, groups));

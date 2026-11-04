@@ -287,14 +287,14 @@ public final class QueueSheet {
             if (mDisposed) return;
             mVideos.clear();
             mVideos.addAll(Playlist.instance().getAll());
-            mPlaying = Playlist.instance().getCurrent();
+            mPlaying = playingItem();
             notifyDataSetChanged();
             onCountChanged.run();
         }
 
         boolean matchesLiveQueue() {
             List<Video> live = Playlist.instance().getAll();
-            if (mPlaying != Playlist.instance().getCurrent() || live.size() != mVideos.size()) return false;
+            if (mPlaying != playingItem() || live.size() != mVideos.size()) return false;
             for (int i = 0; i < live.size(); i++) {
                 if (live.get(i) != mVideos.get(i)) return false;
             }
@@ -302,13 +302,18 @@ public final class QueueSheet {
         }
 
         int currentIndex() {
-            Video current = Playlist.instance().getCurrent();
+            Video current = playingItem();
             for (int i = 0; i < mVideos.size(); i++) {
                 if (mVideos.get(i) == current) {
                     return i;
                 }
             }
             return -1;
+        }
+
+        private Video playingItem() {
+            Playlist queue = Playlist.instance();
+            return queue.isRestoredQueue() ? null : queue.getCurrent();
         }
 
         boolean canMove(int position) {
@@ -338,9 +343,13 @@ public final class QueueSheet {
             if (!canRemove(position)) {
                 return;
             }
-            Video video = mVideos.remove(position);
+            Video video = mVideos.get(position);
+            if (!Playlist.instance().removeQueuedItem(video)) {
+                requestRefresh();
+                return;
+            }
+            mVideos.remove(position);
             video.fromQueue = false;
-            Playlist.instance().remove(video);
             notifyItemRemoved(position);
             onCountChanged.run();
         }

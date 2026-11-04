@@ -986,7 +986,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
 
         Playlist playlist = Playlist.instance();
 
-        if (!playlist.contains(mVideo)) {
+        if (!playlist.canRemoveQueuedItem(mVideo)) {
             return;
         }
 
@@ -994,8 +994,11 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
                 UiOptionItem.from(
                         getContext().getString(R.string.remove_from_playback_queue),
                         optionItem -> {
+                            if (!playlist.removeQueuedItem(mVideo)) {
+                                closeDialog();
+                                return;
+                            }
                             mVideo.fromQueue = false;
-                            playlist.remove(mVideo);
                             if (mCallback != null) {
                                 mCallback.onItemAction(mVideo, VideoMenuCallback.ACTION_REMOVE_FROM_QUEUE);
                             }

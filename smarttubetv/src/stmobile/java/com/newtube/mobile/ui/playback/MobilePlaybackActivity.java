@@ -1011,7 +1011,7 @@ public class MobilePlaybackActivity extends MobileActivity
         // NEWTUBE(touch-prefetch, experiment): off unless a debug/benchmark build sets
         // debug.arc.touch_prefetch_ms (see SwitchExperiments); release builds always pass 0.
         long touchPrefetchMs = com.newtube.mobile.player.SwitchExperiments.touchPrefetchStillMs();
-        mRelatedAdapter = new RelatedVideoAdapter(this::onRelatedClicked,
+        mRelatedAdapter = new RelatedVideoAdapter(this::onRelatedClicked, this::onRelatedLongClicked,
                 touchPrefetchMs > 0 ? this::onRelatedPressed : null, touchPrefetchMs);
         mWatchRelated.setLayoutManager(new LinearLayoutManager(this));
         mWatchRelated.setNestedScrollingEnabled(false);
@@ -1025,7 +1025,7 @@ public class MobilePlaybackActivity extends MobileActivity
         // Queue list: same row layout and same click routing as Up next, but it scrolls INSIDE the
         // card (nested scrolling on + a max height) so a long playlist can't push the rest of the
         // watch page off the bottom. Rows are re-bound on every video change, so no fixed size.
-        mQueueAdapter = new RelatedVideoAdapter(this::onRelatedClicked);
+        mQueueAdapter = new RelatedVideoAdapter(this::onRelatedClicked, this::onRelatedLongClicked);
         mQueueList.setLayoutManager(new LinearLayoutManager(this));
         mQueueList.setHasFixedSize(false);
         mQueueList.setAdapter(mQueueAdapter);
@@ -6512,7 +6512,8 @@ public class MobilePlaybackActivity extends MobileActivity
         runOnUiThread(() -> {
             mSuggestionVideos.remove(group.getId());
             mSuggestionGroups.remove(group.getId());
-            rebuildRelatedList();
+            if (group.getType() == MediaGroup.TYPE_PLAYBACK_QUEUE) refreshQueueSuggestions();
+            else rebuildRelatedList();
         });
     }
 
@@ -6587,12 +6588,13 @@ public class MobilePlaybackActivity extends MobileActivity
             if (mRelatedAdapter != null) {
                 mRelatedAdapter.submitList(new ArrayList<>());
             }
-            // Hide the queue card until the new video's rows say it's still in one. mQueueExpanded
-            // is deliberately NOT reset: staying open across an in-queue advance is the point.
-            if (mQueueCard != null) {
+            // Recommendations can reset while the same explicit queue keeps playing. Keep that
+            // card and its rows visible until the fresh local snapshot renders; no /next wait.
+            boolean keepLocalQueue = QueueCardPolicy.keepsExplicitQueue(getVideo());
+            if (mQueueCard != null && !keepLocalQueue) {
                 mQueueCard.setVisibility(View.GONE);
             }
-            if (mQueueAdapter != null) {
+            if (mQueueAdapter != null && !keepLocalQueue) {
                 mQueueAdapter.submitList(new ArrayList<>());
             }
             if (mWatchRelatedLabel != null) {
@@ -6603,6 +6605,9 @@ public class MobilePlaybackActivity extends MobileActivity
             // A new video is loading: the video itself starts first (by design), so show the
             // pulsing "up next" skeleton until the related feed lands.
             showRelatedSkeleton();
+            // A metadata/next-video refresh clears recommendations, not the user's queue.
+            // Rebuild its local snapshot even when background playback has no new /next result.
+            refreshQueueSuggestions();
         });
     }
 
@@ -8325,6 +8330,14 @@ public class MobilePlaybackActivity extends MobileActivity
         }
     }
 
+    private boolean onRelatedLongClicked(Video video) {
+        if (mPresenter == null || video == null || isFinishing() || isDestroyed()) {
+            return false;
+        }
+        mPresenter.onSuggestionItemLongClicked(video);
+        return true;
+    }
+
     private void onRelatedClicked(Video video) {
         onRelatedClicked(video, null);
     }
@@ -8428,15 +8441,19 @@ public class MobilePlaybackActivity extends MobileActivity
     private void refreshQueueSuggestions() {
         String title = getString(R.string.action_playback_queue);
         int id = title.hashCode();
-        // null, not empty, when the playing video is the last one (Playlist.getAllAfterCurrent).
-        List<Video> next = Playlist.instance().getAllAfterCurrent();
+        // Keep a user-built queue at its final entry; upcoming-only rows would erase its header.
+        List<Video> next = QueueCardPolicy.keepsExplicitQueue(getVideo())
+                ? Playlist.instance().getAll() : Playlist.instance().getAllAfterCurrent();
         if (next == null || next.isEmpty()) {
-            boolean removed = mSuggestionVideos.remove(id) != null;
+            mSuggestionVideos.remove(id);
             mSuggestionGroups.remove(id);
-            if (removed) rebuildRelatedList();
+            rebuildRelatedList();
             return;
         }
-        if (QueueCardPolicy.sameItems(mSuggestionVideos.get(id), next)) return;
+        if (QueueCardPolicy.sameItems(mSuggestionVideos.get(id), next)) {
+            rebuildRelatedList(); // resuming can need a render even when membership is unchanged
+            return;
+        }
         VideoGroup group = VideoGroup.from(new ArrayList<>(next));
         group.setTitle(title);
         group.setId(id);
