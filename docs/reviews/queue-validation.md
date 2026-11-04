@@ -1,4 +1,6 @@
-# Phone queue: behaviour and validation
+# Phone queue: successor revision of PR #124
+
+**Use the current PR #124 head:** this is the verified successor to the earlier `d75ea5c2` queue patch. It includes the earlier changes plus account-specific persistence, private-playback safeguards and subsequent queue fixes. Please review and apply this updated version instead of the previous patch; the earlier version does not need to be applied separately.
 
 Extends the queue sheet introduced in [PR #102](https://github.com/aleixrodriala/newtube/pull/102) by @PimpinPumpkin. The original contribution remains in this branch's history. The queue is available from the player and from a collapsed bar on Home, Search, channels and playlist/upload screens.
 

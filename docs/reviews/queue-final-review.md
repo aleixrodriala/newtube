@@ -37,3 +37,9 @@ In the requested A → B → C phone check, the owner reported that B, the secon
 Controlled battery/wake-up measurement remains unperformed. Existing feedback covers ordinary idle/screen-off use; it is not a controlled comparison. No broad battery optimisation is included in this submission.
 
 The final source reviews made no maintainer mutations. The owner subsequently authorized the PR #124 update: fast-forward its head branch on the personal fork, replace its title/description with the successor version, and add an update notice. The maintainer's main branch and PR #102 are outside this authorization.
+
+## PR #124 update status
+
+The owner-authorized fast-forward of `mmifsud:submission/queue-improvements` succeeded. A read-back of PR #124 confirmed that it is open, mergeable, still based on maintainer `main` at `6f96a1b4`, and now contains the successor commits.
+
+The GitHub connector rejected both the title/description update and the conversation notice with HTTP 403, `Resource not accessible by integration`. Those metadata/comment changes were not performed. The prepared successor title/body remain in [queue-pr-draft.md](queue-pr-draft.md), and the validation page already linked by the existing PR now starts with an explicit successor notice. PR #102 and the maintainer main branch were not changed.
