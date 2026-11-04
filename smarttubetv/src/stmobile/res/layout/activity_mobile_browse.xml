@@ -80,7 +80,7 @@
         android:id="@+id/mobile_content_swipe"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+        app:layout_constraintBottom_toTopOf="@id/mobile_queue_bar"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/mobile_title_bar">
@@ -102,7 +102,7 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:visibility="gone"
-        app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+        app:layout_constraintBottom_toTopOf="@id/mobile_queue_bar"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/mobile_title_bar" />
@@ -124,7 +124,7 @@
         android:orientation="vertical"
         android:padding="24dp"
         android:visibility="gone"
-        app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+        app:layout_constraintBottom_toTopOf="@id/mobile_queue_bar"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/mobile_title_bar">
@@ -164,7 +164,7 @@
         android:layout_height="0dp"
         android:background="?attr/newtubeColorBackground"
         android:visibility="gone"
-        app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+        app:layout_constraintBottom_toTopOf="@id/mobile_queue_bar"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/mobile_title_bar"
@@ -276,7 +276,7 @@
         app:cardBackgroundColor="@android:color/black"
         app:cardCornerRadius="12dp"
         app:cardElevation="8dp"
-        app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+        app:layout_constraintBottom_toTopOf="@id/mobile_queue_bar"
         app:layout_constraintEnd_toEndOf="parent"
         tools:visibility="visible">
 
@@ -345,6 +345,16 @@
          absorbed below. Stock M2 wrap_content (56dp row) is the closest the widget allows;
          the view pads itself by the gesture-navigation inset (paddingBottomSystemWindowInsets)
          so the bar paints through to the display edge without squeezing the row. -->
+    <com.newtube.mobile.ui.playback.QueueBarView
+        android:id="@+id/mobile_queue_bar"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:background="?attr/newtubeColorBackground"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/mobile_bottom_nav"
         android:layout_width="0dp"

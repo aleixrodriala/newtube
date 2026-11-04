@@ -18,7 +18,7 @@ public final class CardMenuMigration {
 
     /** The phone's menu order: the stock order with the two moves below (the Settings' "Usual order"). */
     public static List<Long> phoneOrder(List<Long> stockOrder) {
-        return blockAfterPlayNext(shareAfterDownload(stockOrder));
+        return appendAfterPlayNext(blockAfterPlayNext(shareAfterDownload(stockOrder)));
     }
 
     static void applyIfDefault(MainUIData ui) {
@@ -33,6 +33,20 @@ public final class CardMenuMigration {
         ui.setMenuItemIndex(step1.indexOf(MainUIData.MENU_ITEM_SHARE_LINK), MainUIData.MENU_ITEM_SHARE_LINK);
         List<Long> step2 = blockAfterPlayNext(step1);
         ui.setMenuItemIndex(step2.indexOf(MainUIData.MENU_ITEM_BLOCK_CHANNEL), MainUIData.MENU_ITEM_BLOCK_CHANNEL);
+    }
+
+    /** Enable the newly exposed append action once per profile; preserve later user choices. */
+    static void enableQueueActionsOnce(MainUIData ui,
+            com.liskovsoft.smartyoutubetv2.common.prefs.AppPrefs prefs) {
+        if ("1".equals(prefs.getProfileData("queue_append_menu_v2"))) return;
+        applyIfDefault(ui); // preserve the existing phone's fresh-install menu migration
+        ui.setMenuItemEnabled(MainUIData.MENU_ITEM_ADD_TO_QUEUE);
+        ui.setMenuItemsOrder(appendAfterPlayNext(ui.getMenuItemsOrdered()));
+        prefs.setProfileData("queue_append_menu_v2", "1");
+    }
+
+    static List<Long> appendAfterPlayNext(List<Long> order) {
+        return moveAfter(order, MainUIData.MENU_ITEM_ADD_TO_QUEUE, MainUIData.MENU_ITEM_PLAY_NEXT, false);
     }
 
     /** {@code order} with Share moved to right after Download (unchanged if Download is absent). */

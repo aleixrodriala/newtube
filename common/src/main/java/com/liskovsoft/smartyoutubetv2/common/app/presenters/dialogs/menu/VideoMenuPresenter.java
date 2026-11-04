@@ -950,10 +950,12 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
         }
 
         Playlist playlist = Playlist.instance();
+        Video video = mVideo;
+        Video queued = playlist.getQueuedItem(video);
 
         // Remain ability to reorder already added video (e.g. move to the top)
         List<Video> all = playlist.getAll();
-        if (!all.isEmpty() && mVideo.equals(all.get(all.size() - 1))) {
+        if (queued != null && !all.isEmpty() && queued == all.get(all.size() - 1)) {
             return;
         }
 
@@ -961,15 +963,21 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
                 UiOptionItem.from(
                         getContext().getString(R.string.add_to_playback_queue),
                         optionItem -> {
-                            mVideo.fromQueue = true;
-                            playlist.add(mVideo);
+                            if (!queueActionStillApplies(playlist, video, queued)) {
+                                closeDialog();
+                                return;
+                            }
+                            Video target = queued != null ? queued : video;
+                            video.fromQueue = true;
+                            target.fromQueue = true;
+                            playlist.add(target);
                             if (mCallback != null) {
-                                mCallback.onItemAction(mVideo, VideoMenuCallback.ACTION_ADD_TO_QUEUE);
+                                mCallback.onItemAction(video, VideoMenuCallback.ACTION_ADD_TO_QUEUE);
                             }
 
                             closeDialog();
                             MessageHelpers.showMessage(getContext(), String.format("%s: %s",
-                                    mVideo.getAuthor(),
+                                    video.getAuthor(),
                                     getContext().getString(R.string.added_to_playback_queue))
                             );
                         }));
@@ -986,7 +994,8 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
 
         Playlist playlist = Playlist.instance();
 
-        if (!playlist.contains(mVideo)) {
+        Video queued = playlist.getQueuedItem(mVideo);
+        if (!playlist.canRemoveQueuedItem(queued)) {
             return;
         }
 
@@ -994,8 +1003,12 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
                 UiOptionItem.from(
                         getContext().getString(R.string.remove_from_playback_queue),
                         optionItem -> {
+                            if (!playlist.removeQueuedItem(queued)) {
+                                closeDialog();
+                                return;
+                            }
                             mVideo.fromQueue = false;
-                            playlist.remove(mVideo);
+                            queued.fromQueue = false;
                             if (mCallback != null) {
                                 mCallback.onItemAction(mVideo, VideoMenuCallback.ACTION_REMOVE_FROM_QUEUE);
                             }
@@ -1018,8 +1031,11 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
         }
 
         Playlist playlist = Playlist.instance();
+        Video video = mVideo;
+        Video queued = playlist.getQueuedItem(video);
 
-        if (Helpers.equals(playlist.getNext(), mVideo)) {
+        Video next = playlist.isRestoredQueue() ? playlist.getCurrent() : playlist.getNext();
+        if (queued != null && next == queued) {
             return;
         }
 
@@ -1027,18 +1043,29 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
                 UiOptionItem.from(
                         getContext().getString(R.string.play_next),
                         optionItem -> {
-                            mVideo.fromQueue = true;
-                            playlist.next(mVideo);
+                            if (!queueActionStillApplies(playlist, video, queued)) {
+                                closeDialog();
+                                return;
+                            }
+                            Video target = queued != null ? queued : video;
+                            video.fromQueue = true;
+                            target.fromQueue = true;
+                            playlist.next(target);
                             if (mCallback != null) {
-                                mCallback.onItemAction(mVideo, VideoMenuCallback.ACTION_PLAY_NEXT);
+                                mCallback.onItemAction(video, VideoMenuCallback.ACTION_PLAY_NEXT);
                             }
 
                             closeDialog();
                             MessageHelpers.showMessage(getContext(), String.format("%s: %s",
-                                    mVideo.getAuthor(),
+                                    video.getAuthor(),
                                     getContext().getString(R.string.play_next))
                             );
                         }));
+    }
+
+    private boolean queueActionStillApplies(Playlist playlist, Video video, Video queued) {
+        return queued != null ? playlist.canRemoveQueuedItem(queued)
+                : playlist.getQueuedItem(video) == null;
     }
 
     private void appendShowPlaybackQueueButton() {

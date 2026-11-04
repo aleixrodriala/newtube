@@ -255,6 +255,7 @@ public class MobileBrowseActivity extends MobileActivity
         // mini card; ordinary navigation still uses BrowseWindowAnimation's quick fade.
 
         setContentView(R.layout.activity_mobile_browse);
+        com.newtube.mobile.ui.playback.QueueBarView.bindBrowsing(this);
 
         registerBackHandler(this::handleBack);
 

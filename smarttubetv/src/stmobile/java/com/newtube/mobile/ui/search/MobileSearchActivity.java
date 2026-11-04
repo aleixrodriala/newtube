@@ -140,6 +140,7 @@ public class MobileSearchActivity extends MobileActivity
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_mobile_search);
+        com.newtube.mobile.ui.playback.QueueBarView.bindBrowsing(this);
 
         registerBackHandler(this::handleBack);
 

@@ -117,6 +117,7 @@ public class MobileChannelActivity extends MobileActivity
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_mobile_channel);
+        com.newtube.mobile.ui.playback.QueueBarView.bindBrowsing(this);
 
         registerBackHandler(this::handleBack);
 

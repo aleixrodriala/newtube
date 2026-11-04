@@ -105,6 +105,7 @@ public class MobileChannelUploadsActivity extends MobileActivity
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_mobile_channel_uploads);
+        com.newtube.mobile.ui.playback.QueueBarView.bindBrowsing(this);
 
         registerBackHandler(this::handleBack);
 

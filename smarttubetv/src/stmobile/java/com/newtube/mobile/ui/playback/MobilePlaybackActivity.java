@@ -85,7 +85,9 @@ import androidx.media3.ui.TimeBar;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.mediaserviceinterfaces.data.ChatItem;
+import com.liskovsoft.mediaserviceinterfaces.data.MediaGroup;
 import com.liskovsoft.mediaserviceinterfaces.data.PlaylistInfo;
+import com.liskovsoft.smartyoutubetv2.common.app.models.data.Playlist;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.QueuePlaybackMode;
@@ -191,6 +193,7 @@ public class MobilePlaybackActivity extends MobileActivity
     private TextView mTitleView;
     private ImageButton mBackButton;
     private ImageButton mPlayPauseButton;
+    private QueueBarView mQueueBar;
     private ImageButton mFullscreenButton;
     private TextView mPositionView;
     private TextView mDurationView;
@@ -340,6 +343,8 @@ public class MobilePlaybackActivity extends MobileActivity
     private ImageView mQueueChevron;
     private MaxHeightRecyclerView mQueueList;
     private RelatedVideoAdapter mQueueAdapter;
+    /** NEWTUBE(queue): the queue card's edit button, shown while the card lists the playback queue. */
+    @Nullable private View mQueueEdit;
     /** Collapsed by default, like YouTube's queue. Survives video changes within a session. */
     private boolean mQueueExpanded;
     private final List<Video> mQueueVideos = new ArrayList<>();
@@ -681,6 +686,8 @@ public class MobilePlaybackActivity extends MobileActivity
         mTitleView = findViewById(R.id.mobile_player_title);
         mBackButton = findViewById(R.id.mobile_player_back);
         mPlayPauseButton = findViewById(R.id.mobile_player_play_pause);
+        mQueueBar = findViewById(R.id.mobile_queue_bar);
+        mQueueBar.bind(this, this::openQueueSheet);
         mFullscreenButton = findViewById(R.id.mobile_player_fullscreen);
         mPositionView = findViewById(R.id.mobile_player_position);
         mDurationView = findViewById(R.id.mobile_player_duration);
@@ -1004,7 +1011,7 @@ public class MobilePlaybackActivity extends MobileActivity
         // NEWTUBE(touch-prefetch, experiment): off unless a debug/benchmark build sets
         // debug.arc.touch_prefetch_ms (see SwitchExperiments); release builds always pass 0.
         long touchPrefetchMs = com.newtube.mobile.player.SwitchExperiments.touchPrefetchStillMs();
-        mRelatedAdapter = new RelatedVideoAdapter(this::onRelatedClicked,
+        mRelatedAdapter = new RelatedVideoAdapter(this::onRelatedClicked, this::onRelatedLongClicked,
                 touchPrefetchMs > 0 ? this::onRelatedPressed : null, touchPrefetchMs);
         mWatchRelated.setLayoutManager(new LinearLayoutManager(this));
         mWatchRelated.setNestedScrollingEnabled(false);
@@ -1018,12 +1025,16 @@ public class MobilePlaybackActivity extends MobileActivity
         // Queue list: same row layout and same click routing as Up next, but it scrolls INSIDE the
         // card (nested scrolling on + a max height) so a long playlist can't push the rest of the
         // watch page off the bottom. Rows are re-bound on every video change, so no fixed size.
-        mQueueAdapter = new RelatedVideoAdapter(this::onRelatedClicked);
+        mQueueAdapter = new RelatedVideoAdapter(this::onRelatedClicked, this::onRelatedLongClicked);
         mQueueList.setLayoutManager(new LinearLayoutManager(this));
         mQueueList.setHasFixedSize(false);
         mQueueList.setAdapter(mQueueAdapter);
         mQueueList.setMaxHeight(Math.round(getResources().getDisplayMetrics().heightPixels * 0.5f));
         mQueueHeader.setOnClickListener(v -> toggleQueueExpanded());
+        mQueueEdit = findViewById(R.id.mobile_watch_queue_edit);
+        if (mQueueEdit != null) {
+            mQueueEdit.setOnClickListener(v -> openQueueSheet());
+        }
 
         // Expandable description (tap the views/date row or chevron).
         mWatchMetaRow.setOnClickListener(v -> toggleDescription());
@@ -1097,6 +1108,10 @@ public class MobilePlaybackActivity extends MobileActivity
      * Landscape: hide the content and let the video fill the whole screen (PLAYER POLISH immersive).
      */
     private void applyWatchLayoutForOrientation(int orientation) {
+        if (mQueueBar != null) {
+            mQueueBar.setAvailable(orientation != Configuration.ORIENTATION_LANDSCAPE
+                    && !isInPictureInPictureMode());
+        }
         if (mVideoArea == null) {
             return;
         }
@@ -1564,6 +1579,8 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mPresenter != null) {
             mPresenter.onViewResumed();
         }
+        // Edits made while browsing must be reflected on return, without background UI work.
+        if (getVideo() != null) refreshQueueSuggestions();
 
         // Foreground recovery: if a background startForeground was rejected (API 31+, see
         // MobilePlaybackService.onNotificationPosted), re-run the promotion now that we're visible.
@@ -1892,6 +1909,9 @@ public class MobilePlaybackActivity extends MobileActivity
         int scrollY = mWatchScroll != null ? mWatchScroll.getScrollY() : 0;
         View fresh = getLayoutInflater().inflate(R.layout.activity_mobile_playback, new FrameLayout(this), false);
         View freshArea = fresh.findViewById(R.id.mobile_watch_area);
+        if (mQueueBar != null) {
+            ThemeRefresh.copyColors(mQueueBar, fresh.findViewById(R.id.mobile_queue_bar), new ArrayList<>());
+        }
         List<RecyclerView> lists = new ArrayList<>();
         int skipped = freshArea != null ? ThemeRefresh.copyColors(liveArea, freshArea, lists) : 1;
         if (mCommentsPanel != null) {
@@ -2602,6 +2622,7 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mWatchScroll != null) {
             mWatchScroll.setVisibility(View.GONE);
         }
+        if (mQueueBar != null) mQueueBar.setAvailable(false);
         if (mCommentsPanel != null) {
             mCommentsPanel.setSuspended(true);
         }
@@ -4054,6 +4075,14 @@ public class MobilePlaybackActivity extends MobileActivity
             addMenuRow(content, sheet, R.drawable.ic_player_pip, R.string.mobile_player_pip,
                     null, false, this::enterPipFromMenu);
         }
+        // NEWTUBE(queue): the queue up here while there is one, with its size; it used to sit
+        // under More as the TV's text list.
+        int queued = Playlist.instance().getAll().size();
+        if (queued > 1) {
+            addMenuRow(content, sheet, R.drawable.ic_player_queue, R.string.mobile_queue_title,
+                    getResources().getQuantityString(R.plurals.mobile_queue_count, queued, queued),
+                    true, this::openQueueSheet);
+        }
         addMenuRow(content, sheet, R.drawable.ic_mobile_settings, R.string.mobile_menu_more,
                 null, true, this::openPlayerMoreMenu);
 
@@ -4103,7 +4132,7 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         // Playback queue.
         addMenuRow(content, sheet, R.drawable.ic_player_queue, R.string.mobile_menu_queue,
-                null, true, () -> openPlayerOption(R.id.action_playback_queue, false));
+                null, true, this::openQueueSheet);
         // Stats for nerds (debug overlay) toggle.
         addMenuRow(content, sheet, R.drawable.ic_player_stats, R.string.mobile_menu_stats,
                 stateLabel(statsOn), false, () -> openPlayerOption(R.id.action_video_stats, false));
@@ -6275,6 +6304,15 @@ public class MobilePlaybackActivity extends MobileActivity
         return true;
     }
 
+    /** Stop old-account playback synchronously before its queue is replaced. */
+    void closeForAccountChange() {
+        if (mPresenter != null) mPresenter.onFinish();
+        destroyPlayerObjects();
+        if (mPresenter != null && mPresenter.getView() == this) mPresenter.setView(null);
+        MiniPlayerBridge.deactivate();
+        finishReally();
+    }
+
     /** X tapped on the Browse mini bar: stop playback and quietly retire this hidden activity. */
     void closeFromMiniPlayer() {
         if (mPresenter != null) {
@@ -6483,7 +6521,8 @@ public class MobilePlaybackActivity extends MobileActivity
         runOnUiThread(() -> {
             mSuggestionVideos.remove(group.getId());
             mSuggestionGroups.remove(group.getId());
-            rebuildRelatedList();
+            if (group.getType() == MediaGroup.TYPE_PLAYBACK_QUEUE) refreshQueueSuggestions();
+            else rebuildRelatedList();
         });
     }
 
@@ -6558,12 +6597,13 @@ public class MobilePlaybackActivity extends MobileActivity
             if (mRelatedAdapter != null) {
                 mRelatedAdapter.submitList(new ArrayList<>());
             }
-            // Hide the queue card until the new video's rows say it's still in one. mQueueExpanded
-            // is deliberately NOT reset: staying open across an in-queue advance is the point.
-            if (mQueueCard != null) {
+            // Recommendations can reset while the same explicit queue keeps playing. Keep that
+            // card and its rows visible until the fresh local snapshot renders; no /next wait.
+            boolean keepLocalQueue = QueueCardPolicy.keepsExplicitQueue(getVideo());
+            if (mQueueCard != null && !keepLocalQueue) {
                 mQueueCard.setVisibility(View.GONE);
             }
-            if (mQueueAdapter != null) {
+            if (mQueueAdapter != null && !keepLocalQueue) {
                 mQueueAdapter.submitList(new ArrayList<>());
             }
             if (mWatchRelatedLabel != null) {
@@ -6574,6 +6614,9 @@ public class MobilePlaybackActivity extends MobileActivity
             // A new video is loading: the video itself starts first (by design), so show the
             // pulsing "up next" skeleton until the related feed lands.
             showRelatedSkeleton();
+            // A metadata/next-video refresh clears recommendations, not the user's queue.
+            // Rebuild its local snapshot even when background playback has no new /next result.
+            refreshQueueSuggestions();
         });
     }
 
@@ -8296,6 +8339,14 @@ public class MobilePlaybackActivity extends MobileActivity
         }
     }
 
+    private boolean onRelatedLongClicked(Video video) {
+        if (mPresenter == null || video == null || isFinishing() || isDestroyed()) {
+            return false;
+        }
+        mPresenter.onSuggestionItemLongClicked(video);
+        return true;
+    }
+
     private void onRelatedClicked(Video video) {
         onRelatedClicked(video, null);
     }
@@ -8363,6 +8414,63 @@ public class MobilePlaybackActivity extends MobileActivity
         mPresenter.onScrollEnd(last);
     }
 
+    // ---------------------------------------------------------------------------------
+    // NEWTUBE(queue): the queue sheet
+    // ---------------------------------------------------------------------------------
+
+    private void openQueueSheet() {
+        cancelAutoHide();
+        if (Playlist.instance().getAll().isEmpty()) {
+            com.google.android.material.snackbar.Snackbar.make(findViewById(android.R.id.content),
+                    R.string.mobile_queue_empty, com.google.android.material.snackbar.Snackbar.LENGTH_SHORT).show();
+            return;
+        }
+        QueueSheet.show(this, new QueueSheet.Host() {
+            @Override
+            public void playFromQueue(Video video) {
+                onRelatedClicked(video);
+            }
+
+            @Override
+            public void onQueueChanged() {
+                refreshQueueSuggestions();
+            }
+
+            @Override
+            public void showQueueSheet(BottomSheetDialog dialog) {
+                showPlayerSheet(dialog);
+            }
+        });
+    }
+
+    /**
+     * The watch page's "Playback queue" list after an edit in the sheet: the videos after the
+     * playing one, in their new order - the same group SuggestionsController builds.
+     */
+    private void refreshQueueSuggestions() {
+        String title = getString(R.string.action_playback_queue);
+        int id = title.hashCode();
+        // Keep a user-built queue at its final entry; upcoming-only rows would erase its header.
+        List<Video> next = QueueCardPolicy.keepsExplicitQueue(getVideo())
+                ? Playlist.instance().getAll() : Playlist.instance().getAllAfterCurrent();
+        if (next == null || next.isEmpty()) {
+            mSuggestionVideos.remove(id);
+            mSuggestionGroups.remove(id);
+            rebuildRelatedList();
+            return;
+        }
+        if (QueueCardPolicy.sameItems(mSuggestionVideos.get(id), next)) {
+            rebuildRelatedList(); // resuming can need a render even when membership is unchanged
+            return;
+        }
+        VideoGroup group = VideoGroup.from(new ArrayList<>(next));
+        group.setTitle(title);
+        group.setId(id);
+        group.setType(MediaGroup.TYPE_PLAYBACK_QUEUE);
+        group.setAction(VideoGroup.ACTION_REPLACE);
+        updateSuggestions(group);
+    }
+
     private void rebuildRelatedList() {
         mRelatedVideos.clear();
         mQueueVideos.clear();
@@ -8384,6 +8492,13 @@ public class MobilePlaybackActivity extends MobileActivity
             List<Video> vids = entry.getValue();
             if (vids == null) {
                 continue;
+            }
+            VideoGroup group = mSuggestionGroups.get(entry.getKey());
+            if (group != null && group.getType() == MediaGroup.TYPE_PLAYBACK_QUEUE) {
+                // The controller's queue row contains only upcoming videos. Read the same live
+                // store as the sheet so the card includes the current video and never old rows.
+                if (isQueueRow) mQueueVideos.addAll(Playlist.instance().getAll());
+                continue; // never present an obsolete local queue as recommendations
             }
             for (Video v : vids) {
                 if (v == null || com.newtube.mobile.ui.common.ShortsFilter.isShort(v)) {
@@ -8471,11 +8586,14 @@ public class MobilePlaybackActivity extends MobileActivity
     private Integer findQueueGroupId(Video current) {
         String currentId = current != null ? current.videoId : null;
 
-        if (currentId == null || !isChosenPlaylist(current)) {
-            return null;
-        }
+        if (currentId == null) return null;
+        Integer localQueue = QueueCardPolicy.localGroupId(current, mSuggestionGroups);
+        if (localQueue != null) return localQueue;
+        if (!isChosenPlaylist(current)) return null;
 
         for (Map.Entry<Integer, List<Video>> entry : mSuggestionVideos.entrySet()) {
+            VideoGroup group = mSuggestionGroups.get(entry.getKey());
+            if (group != null && group.getType() == MediaGroup.TYPE_PLAYBACK_QUEUE) continue;
             List<Video> vids = entry.getValue();
             if (vids == null) {
                 continue;
@@ -8552,6 +8670,9 @@ public class MobilePlaybackActivity extends MobileActivity
         PlaylistInfo info = !isSectionQueue || namesSameList ? currentInfo : null;
 
         VideoGroup queueGroup = queueId != null ? mSuggestionGroups.get(queueId) : null;
+        if (queueGroup != null && queueGroup.getType() == MediaGroup.TYPE_PLAYBACK_QUEUE) {
+            info = null; // remote playlist counters do not describe a locally edited queue
+        }
         // Prefer the title of the group whose videos are on screen, so the name always describes
         // the list under it.
         String name = queueGroup != null ? queueGroup.getTitle() : null;
@@ -8581,6 +8702,10 @@ public class MobilePlaybackActivity extends MobileActivity
         mQueueAdapter.setCurrentVideoId(currentId);
         mQueueAdapter.submitList(new ArrayList<>(mQueueVideos));
         mQueueCard.setVisibility(View.VISIBLE);
+        if (mQueueEdit != null) {
+            mQueueEdit.setVisibility(queueGroup != null && queueGroup.getType() == MediaGroup.TYPE_PLAYBACK_QUEUE
+                    ? View.VISIBLE : View.GONE);
+        }
         applyQueueExpanded();
     }
 

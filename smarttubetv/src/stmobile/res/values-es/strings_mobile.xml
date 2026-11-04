@@ -91,6 +91,19 @@
     <string name="mobile_watch_queue_from">Reproduciendo de %1$s</string>
     <string name="mobile_watch_queue_fallback">la cola</string>
     <string name="mobile_watch_queue_now_playing">Reproduciendo ahora</string>
+    <!-- NEWTUBE(queue): la hoja de la cola. -->
+    <string name="mobile_queue_title">Cola</string>
+    <string name="mobile_queue_clear">Borrar</string>
+    <string name="mobile_queue_edit">Editar cola</string>
+    <string name="mobile_queue_count_position">%1$d de %2$d</string>
+    <plurals name="mobile_queue_count">
+        <item quantity="one">%1$d vídeo</item>
+        <item quantity="many">%1$d vídeos</item>
+        <item quantity="other">%1$d vídeos</item>
+    </plurals>
+    <string name="mobile_queue_move_up">Subir</string>
+    <string name="mobile_queue_move_down">Bajar</string>
+    <string name="mobile_queue_empty">La cola está vacía. Usa Añadir a la cola en el menú de un vídeo.</string>
 
     <!-- Player controls (most are content descriptions read out by TalkBack) -->
     <string name="mobile_player_back">Atrás</string>
@@ -423,4 +436,13 @@
     <string name="mobile_about_share_text">NewTube, un cliente de YouTube para móviles basado en SmartTube: %1$s</string>
     <string name="sabr_vod_option">Preferir SABR aunque haya enlaces (experimental; próximo vídeo)</string>
     <string name="sabr_vod_stopped">Se ha detenido la reproducción SABR experimental. Pulsa reproducir para reintentar o desactiva SABR en Ajustes.</string>
+    <string name="mobile_queue_bar_next">%1$s · %2$s</string>
+    <string name="mobile_queue_bar_end">Cola terminada · toca para verla</string>
+    <string name="mobile_queue_bar_open">Abrir cola de reproducción. %1$s</string>
+    <plurals name="mobile_queue_bar_remaining">
+        <item quantity="one">%d vídeo restante</item>
+        <item quantity="other">%d vídeos restantes</item>
+    </plurals>
+    <string name="mobile_queue_untitled_video">Vídeo sin título</string>
+    <string name="add_to_playback_queue">Añadir a la cola</string>
 </resources>
