@@ -226,9 +226,18 @@ class Media3TrackAdapter {
                 builder.setPreferredVideoMimeTypes();
                 builder.setOverrideForType(
                         new TrackSelectionOverride(location.group.getMediaTrackGroup(), location.trackIndex));
-            } else if (!mTracks.getGroups().isEmpty()) {
-                Log.d(TAG, "applyVideoTarget: no track matches %s, leaving Auto in place", item);
-            } // else: tracks not known yet - re-resolved in onTracksChanged
+            } else {
+                // NEWTUBE(quality-pin): the rung doesn't exist on this video (a persisted pick
+                // carried to a stream offering only other rungs). Cap ABR at the picked rung's
+                // own size instead of leaving the lifted unbounded ceiling - the user's choice
+                // must never be exceeded, only fallen under. (Tracks not known yet falls here
+                // too; onTracksChanged re-resolves once they arrive.)
+                builder.clearOverridesOfType(C.TRACK_TYPE_VIDEO);
+                if (item.getWidth() > 0 && item.getHeight() > 0) {
+                    builder.setMaxVideoSize(item.getWidth(), item.getHeight());
+                }
+                Log.d(TAG, "applyVideoTarget: no track matches %s, capping ABR at its size", item);
+            }
         }
 
         mTrackSelector.setParameters(builder);
