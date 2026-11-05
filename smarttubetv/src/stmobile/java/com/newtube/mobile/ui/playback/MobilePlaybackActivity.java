@@ -7253,14 +7253,13 @@ public class MobilePlaybackActivity extends MobileActivity
         for (java.util.Map.Entry<String, FormatItem> rung : rungs.entrySet()) {
             FormatItem item = rung.getValue();
             addQualityRow(qualityList, rung.getKey(), rung.getKey().equals(selectedRung), () -> {
-                // Mirrors HQDialogController.selectFormatOption: while the preset (Auto) is the
-                // persisted default, an explicit rung is a per-session override, like YouTube.
+                // NEWTUBE(quality-pin): an explicit rung is the user's STANDING choice - persist
+                // it app-wide (it survives new videos and engine restarts, and the rescues never
+                // override it) and drop any session override, so quality only changes when the
+                // user changes it. Only the Auto row below goes back to Auto.
                 setFormat(item);
-                if (isAutoFormat(playerData.getFormat(FormatItem.TYPE_VIDEO))) {
-                    playerData.setTempVideoFormat(item);
-                } else {
-                    playerData.setFormat(item);
-                }
+                playerData.setTempVideoFormat(null);
+                playerData.setFormat(item);
                 dialog.dismiss();
             });
         }

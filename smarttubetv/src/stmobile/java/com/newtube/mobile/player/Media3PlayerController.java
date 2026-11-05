@@ -989,7 +989,11 @@ public class Media3PlayerController implements Player.Listener {
     private void applyPersistedFormats() {
         com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData =
                 com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(mContext);
-        selectFormat(playerData.getFormat(FormatItem.TYPE_VIDEO));
+        // NEWTUBE(quality-pin): the per-session video override (an explicit rung picked while the
+        // Auto default is persisted) must survive an engine restart (error fix, settings change),
+        // exactly as VideoStateController.restoreVideoFormat restores temp first on a new source.
+        FormatItem tempVideo = playerData.getTempVideoFormat();
+        selectFormat(tempVideo != null ? tempVideo : playerData.getFormat(FormatItem.TYPE_VIDEO));
         selectFormat(playerData.getStoredAudioPreference()); // never a stored language pick (#52)
         selectFormat(playerData.getFormat(FormatItem.TYPE_SUBTITLE));
     }

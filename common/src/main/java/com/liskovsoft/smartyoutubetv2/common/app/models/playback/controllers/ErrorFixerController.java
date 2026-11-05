@@ -1377,13 +1377,12 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     }
 
     /**
-     * NEWTUBE(pin-rescue): relax an EXPLICIT track pin only after a fresh URL/client remint failed
-     * too. An initial 403 commonly rejects every URL minted by one /player client; blaming whichever
-     * audio/video loader happened to surface first produced a false "audio track failing" toast and
-     * needlessly discarded the user's choice. A repeat at startup (consecutive count) or at the same
-     * media position (the counter that survives READY playback) identifies a track-specific failure.
-     * When media3 can identify the source renderer, only that pin is eligible; legacy/unknown errors
-     * preserve the prior video-then-audio fallback. The actual session-only switch is applied by
+     * NEWTUBE(quality-pin): an explicit VIDEO pin is never relaxed - the user's standing quality
+     * choice outranks every recovery (see the video branch below). An AUDIO pin still falls back
+     * to the default after a fresh URL/client remint failed too: an initial 403 commonly rejects
+     * every URL minted by one /player client, and a repeat at startup (consecutive count) or at
+     * the same media position identifies a track-specific failure. When media3 can identify the
+     * source renderer, only that pin is eligible; the actual session-only switch is applied by
      * {@link #reassertPinRescueIfArmed} on the reload; persisted preferences are never overwritten.
      */
     private void maybeRescuePinnedFormat(String reason, int rendererIndex) {
@@ -1416,13 +1415,17 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         // first, observe the next cycle, then audio. Media3's inferred renderer targets one directly.
         FormatItem pinnedVideo = getEffectiveVideoFormat();
         if (videoCandidate && !videoRescued && !isAutoFormat(pinnedVideo)) {
-            mPinRescueArmed = true;
-            mPinRescueVideoId = videoId;
-
-            android.util.Log.d("NetPath", "rescue pin->auto reason=" + reason);
-            MessageHelpers.showLongMessage(getContext(),
-                    getContext().getString(R.string.msg_quality_pin_fallback, qualityLabel(pinnedVideo)));
-            return;
+            // NEWTUBE(quality-pin): an explicit quality pick is the user's standing choice - it is
+            // never auto-relaxed to Auto (the old fallback here reset the session quality mid-video,
+            // which users read as "my 360p turned into Auto 1080p"). A persistently dead pinned URL
+            // keeps failing until the auto-fix cap surfaces the error for a manual retry or another
+            // pick. Audio-renderer errors can still rescue the audio pin below; unknown-renderer
+            // legacy errors lose that twin rescue, bounded by the same cap.
+            if (rendererIndex != PlayerEventListener.RENDERER_INDEX_AUDIO) {
+                android.util.Log.d("NetPath", "rescue pin kept reason=" + reason
+                        + " (explicit quality pick is standing)");
+                return;
+            }
         }
 
         if (audioCandidate && !audioRescued && !isAutoFormat(getEffectiveAudioFormat())) {
@@ -1491,7 +1494,7 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         return track == null || track.format == null || track.format.id == null;
     }
 
-    /** Distinct resolution rung of the pinned format: "1080p" / "1080p60" style (for the toast). */
+    /** Distinct resolution rung of the pinned format: "1080p" / "1080p60" style. */
     private static String qualityLabel(FormatItem item) {
         int height = item.getHeight();
         if (height <= 0) {
@@ -1584,6 +1587,14 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
      */
     private void lowerVideoQuality() {
         if (getPlayer() == null) {
+            return;
+        }
+
+        // NEWTUBE(quality-pin): an explicit quality pick is the user's standing choice - never
+        // auto-adjust it on a stall. A dying link keeps failing until the auto-fix cap surfaces
+        // the error for a manual retry or another quality pick; the cap bounds the loop.
+        if (!isAutoFormat(getEffectiveVideoFormat())) {
+            NetPath.log(NetPath.context() + " recovery-lower-quality skipped reason=explicit-pin");
             return;
         }
 
