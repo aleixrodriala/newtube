@@ -60,14 +60,17 @@ public class VideoStateController extends BasePlayerController {
         if (!item.equals(getVideo())) {
             mNewVideoTimeMs = System.currentTimeMillis();
             mPrevGate.reset(nowMs(), false); // its watch time starts when it plays
+            // NEWTUBE(quality-pin): a genuinely new video ends the per-session quality override
+            // (an explicit rung picked while the Auto default is persisted) and audio session pick.
+            // A reload of the SAME video (error-fix url remint, live poll) keeps them, so the
+            // user's pick survives instead of silently reverting to Auto a few seconds later.
+            getPlayerData().setTempVideoFormat(null);
+            getPlayerData().setTempAudioFormat(null);
         } else {
             mPrevGate.onStopped(nowMs()); // a reload of this video: its loading isn't watching
         }
 
         setPlayEnabled(true); // video just added
-
-        getPlayerData().setTempVideoFormat(null);
-        getPlayerData().setTempAudioFormat(null);
 
         enableIncognitoIfNeeded(item);
 
