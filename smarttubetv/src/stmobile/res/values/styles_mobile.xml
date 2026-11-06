@@ -250,6 +250,10 @@
         <item name="android:windowLightStatusBar">false</item>
     </style>
 
+    <style name="ThemeOverlay.NewTube.BottomSheetDialog.Description" parent="ThemeOverlay.NewTube.BottomSheetDialog.Player">
+        <item name="android:backgroundDimAmount">0</item>
+    </style>
+
     <!-- Recommendations float over the playing video in either app theme. -->
     <style name="ThemeOverlay.NewTube.FullscreenRecommendations" parent="ThemeOverlay.NewTube.BottomSheetDialog.Player">
         <item name="bottomSheetStyle">@style/Widget.NewTube.FullscreenRecommendations</item>
