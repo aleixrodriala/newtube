@@ -361,4 +361,7 @@
     <string name="mobile_about_share_text">NewTube — клиент YouTube для телефонов на базе SmartTube: %1$s</string>
     <string name="sabr_vod_option">Предпочитать SABR, даже когда ссылки работают (экспериментально; следующее VOD)</string>
     <string name="sabr_vod_stopped">Экспериментальное воспроизведение SABR остановлено. Нажмите воспроизведение для повтора или отключите SABR в настройках.</string>
+    <string name="mobile_card_go_to_channel">Перейти к каналу %1$s</string>
+    <string name="mobile_theme_pure_black">Чисто чёрный</string>
+    <string name="mobile_theme_pure_black_summary">Чёрный фон вместо серого когда стоит тёмная тема. Экономит батарею на OLED экранах</string>
 </resources>
