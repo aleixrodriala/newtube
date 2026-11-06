@@ -332,6 +332,60 @@
 
                 </LinearLayout>
 
+                <LinearLayout
+                    android:id="@+id/mobile_player_fullscreen_actions"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_gravity="bottom"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="12dp"
+                    android:visibility="gone">
+
+                    <ImageButton
+                        android:id="@+id/mobile_player_like"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_watch_like"
+                        android:padding="12dp"
+                        android:src="@drawable/ic_watch_thumb_up_outline"
+                        android:tint="@color/mobile_player_on_video" />
+
+                    <ImageButton
+                        android:id="@+id/mobile_player_dislike"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_watch_dislike"
+                        android:padding="12dp"
+                        android:src="@drawable/ic_watch_thumb_down_outline"
+                        android:tint="@color/mobile_player_on_video" />
+
+                    <ImageButton
+                        android:id="@+id/mobile_player_watch_later"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/add_video_to_watch_later"
+                        android:padding="12dp"
+                        android:src="@drawable/ic_player_playlist_add"
+                        android:tint="@color/mobile_player_on_video" />
+
+                    <Space android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1" />
+
+                    <TextView
+                        android:id="@+id/mobile_player_recommendations"
+                        android:layout_width="wrap_content"
+                        android:layout_height="48dp"
+                        android:background="@drawable/bg_mobile_player_chapter"
+                        android:gravity="center"
+                        android:paddingHorizontal="12dp"
+                        android:text="@string/mobile_player_more_videos"
+                        android:textColor="@color/mobile_player_on_video"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
             </FrameLayout>
 
             <!-- NEWTUBE(seek bar): the seek bar, YouTube-style - outside the controls overlay so that
@@ -347,13 +401,32 @@
 
             <!-- While the bar is dragged: the time under the finger and its chapter, in a pill above
                  the bar (the other controls step aside). -->
-            <TextView
-                android:id="@+id/mobile_player_scrub_chapter"
-                style="@style/MobilePlayerPill"
+            <LinearLayout
+                android:id="@+id/mobile_player_scrub_preview"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:layout_gravity="bottom|center_horizontal"
                 android:layout_marginBottom="@dimen/mobile_player_scrub_pill_margin"
-                android:visibility="gone"
-                tools:text="2:10:42   Dictionaries" />
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/mobile_player_scrub_image"
+                    android:layout_width="160dp"
+                    android:layout_height="90dp"
+                    android:background="@drawable/bg_video_badge"
+                    android:clipToOutline="true"
+                    android:contentDescription="@null"
+                    android:scaleType="fitXY"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/mobile_player_scrub_chapter"
+                    style="@style/MobilePlayerPill"
+                    android:layout_marginTop="4dp"
+                    tools:text="2:10:42   Dictionaries" />
+            </LinearLayout>
 
             <!-- Top pill: "Release to cancel" while a drag rests where playback was, "2x" while
                  press-and-hold speeds the video up. -->

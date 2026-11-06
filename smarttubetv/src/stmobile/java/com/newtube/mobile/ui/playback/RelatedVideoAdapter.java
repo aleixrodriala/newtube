@@ -49,6 +49,7 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
     }
 
     private final OnRelatedClickListener mClickListener;
+    private final int mItemLayout;
     @androidx.annotation.Nullable
     private final OnRelatedPressListener mPressListener;
     private final long mPressIntentMs;
@@ -62,11 +63,21 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         this(clickListener, null, 0);
     }
 
+    public RelatedVideoAdapter(OnRelatedClickListener clickListener, int itemLayout) {
+        this(clickListener, null, 0, itemLayout);
+    }
+
     /** {@code pressListener} fires after {@code pressIntentMs} of a still finger; null/0 = off. */
     public RelatedVideoAdapter(OnRelatedClickListener clickListener,
             @androidx.annotation.Nullable OnRelatedPressListener pressListener, long pressIntentMs) {
+        this(clickListener, pressListener, pressIntentMs, R.layout.item_mobile_related_video);
+    }
+
+    private RelatedVideoAdapter(OnRelatedClickListener clickListener,
+            @androidx.annotation.Nullable OnRelatedPressListener pressListener, long pressIntentMs, int itemLayout) {
         super(DIFF_CALLBACK);
         mClickListener = clickListener;
+        mItemLayout = itemLayout;
         mPressListener = pressIntentMs > 0 ? pressListener : null;
         mPressIntentMs = pressIntentMs;
     }
@@ -104,7 +115,7 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
     @Override
     public RelatedViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View view = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_mobile_related_video, parent, false);
+                .inflate(mItemLayout, parent, false);
         return new RelatedViewHolder(view, mClickListener, mPressListener, mPressIntentMs);
     }
 

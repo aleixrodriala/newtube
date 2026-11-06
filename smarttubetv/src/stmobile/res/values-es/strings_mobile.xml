@@ -428,4 +428,9 @@
     <string name="mobile_about_share_text">NewTube, un cliente de YouTube para móviles basado en SmartTube: %1$s</string>
     <string name="sabr_vod_option">Preferir SABR aunque haya enlaces (experimental; próximo vídeo)</string>
     <string name="sabr_vod_stopped">Se ha detenido la reproducción SABR experimental. Pulsa reproducir para reintentar o desactiva SABR en Ajustes.</string>
+    <string name="mobile_player_more_videos">Más vídeos</string>
+    <string name="mobile_player_close_recommendations">Cerrar recomendaciones</string>
+    <string name="mobile_player_no_recommendations">No hay recomendaciones disponibles</string>
+    <string name="mobile_watch_later_remove">Quitar de Ver más tarde</string>
+    <string name="mobile_watch_later_error">No se ha podido actualizar Ver más tarde. Vuelve a intentarlo.</string>
 </resources>

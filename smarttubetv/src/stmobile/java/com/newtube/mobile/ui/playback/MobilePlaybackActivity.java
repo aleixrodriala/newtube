@@ -132,6 +132,7 @@ import com.newtube.mobile.ui.common.Haptics;
 import com.newtube.mobile.ui.common.MagneticDrag;
 import com.newtube.mobile.ui.common.MobileActivity;
 import com.newtube.mobile.ui.common.MobileSheets;
+import com.newtube.mobile.ui.common.MobileSnackbar;
 import com.newtube.mobile.ui.common.Motion;
 import com.newtube.mobile.ui.common.ThemeMode;
 import com.newtube.mobile.ui.common.ThemeRefresh;
@@ -192,6 +193,13 @@ public class MobilePlaybackActivity extends MobileActivity
     private ImageButton mBackButton;
     private ImageButton mPlayPauseButton;
     private ImageButton mFullscreenButton;
+    private View mFullscreenActions;
+    private ImageButton mFullscreenLike;
+    private ImageButton mFullscreenDislike;
+    private ImageButton mFullscreenWatchLater;
+    private WatchLaterAction mWatchLaterAction;
+    private View mScrubPreviewRoot;
+    private StoryboardPreview mStoryboardPreview;
     private TextView mPositionView;
     private TextView mDurationView;
     private TextView mLiveChip;
@@ -301,6 +309,9 @@ public class MobilePlaybackActivity extends MobileActivity
     private int mChapterButtonIndex = -1;
     /** The open Chapters list, closed when the chapters change (autoplay): its rows would seek the next video. */
     @Nullable private BottomSheetDialog mChaptersSheet;
+    @Nullable private BottomSheetDialog mRecommendationsSheet;
+    @Nullable private RelatedVideoAdapter mFullscreenRelatedAdapter;
+    @Nullable private TextView mFullscreenRelatedEmpty;
     private View mWatchChatEntry;
     private String mCommentsKey;
     private String mLiveChatKey;
@@ -682,6 +693,10 @@ public class MobilePlaybackActivity extends MobileActivity
         mBackButton = findViewById(R.id.mobile_player_back);
         mPlayPauseButton = findViewById(R.id.mobile_player_play_pause);
         mFullscreenButton = findViewById(R.id.mobile_player_fullscreen);
+        mFullscreenActions = findViewById(R.id.mobile_player_fullscreen_actions);
+        mFullscreenLike = findViewById(R.id.mobile_player_like);
+        mFullscreenDislike = findViewById(R.id.mobile_player_dislike);
+        mFullscreenWatchLater = findViewById(R.id.mobile_player_watch_later);
         mPositionView = findViewById(R.id.mobile_player_position);
         mDurationView = findViewById(R.id.mobile_player_duration);
         mLiveChip = findViewById(R.id.mobile_player_live);
@@ -754,11 +769,26 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchCommentsCount = findViewById(R.id.mobile_watch_comments_count);
         mWatchChatEntry = findViewById(R.id.mobile_watch_chat_entry);
         mScrubChapterView = findViewById(R.id.mobile_player_scrub_chapter);
+        mScrubPreviewRoot = findViewById(R.id.mobile_player_scrub_preview);
+        mStoryboardPreview = new StoryboardPreview(findViewById(R.id.mobile_player_scrub_image),
+                YouTubeServiceManager.instance().getMediaItemService());
         mChapterButton = findViewById(R.id.mobile_player_chapter);
         mChapterButton.setOnClickListener(v -> showChaptersSheet());
     }
 
     private void setupControls() {
+        mFullscreenLike.setOnClickListener(v -> { mWatchLike.performClick(); armAutoHide(); });
+        mFullscreenDislike.setOnClickListener(v -> { mWatchDislike.performClick(); armAutoHide(); });
+        mFullscreenWatchLater.setOnClickListener(v -> {
+            if (!WatchActionFeedback.blockIfSignedOut(this, R.string.msg_sign_in_to_save)) {
+                Video video = getVideo();
+                if (video != null) {
+                    mWatchLaterAction.toggle(video.videoId);
+                }
+            }
+            armAutoHide();
+        });
+        findViewById(R.id.mobile_player_recommendations).setOnClickListener(v -> showRecommendations());
         mContainer.setSwipeListener(this);
         // Only let a swipe begin over the video box, so the watch content scrolls freely.
         mContainer.setDragStartBoundView(mVideoArea);
@@ -956,6 +986,7 @@ public class MobilePlaybackActivity extends MobileActivity
         mTimeBar.addListener(new TimeBar.OnScrubListener() {
             @Override
             public void onScrubStart(TimeBar timeBar, long position) {
+                releaseImageRequests("seek-preview");
                 mScrubbing = true;
                 // Grabbing the bar definitively ends any double-tap seek burst: make sure the
                 // release seek below resolves with the bounded default, not a leaked directional
@@ -1000,7 +1031,85 @@ public class MobilePlaybackActivity extends MobileActivity
         armAutoHide();
     }
 
+    private void loadWatchLater() {
+        Video video = getVideo();
+        if (mWatchLaterAction != null && isLandscape() && mControlsVisible && !mIsInPip
+                && video != null && com.liskovsoft.youtubeapi.service.YouTubeSignInService.instance().isSigned()) {
+            mWatchLaterAction.load(video.videoId);
+        }
+    }
+
+    private void updateWatchLaterButton() {
+        if (mFullscreenWatchLater == null) {
+            return;
+        }
+        boolean saved = mWatchLaterAction != null && mWatchLaterAction.isKnown() && mWatchLaterAction.isSaved();
+        boolean busy = mWatchLaterAction != null && mWatchLaterAction.isBusy();
+        mFullscreenWatchLater.setSelected(saved);
+        mFullscreenWatchLater.setEnabled(!busy);
+        mFullscreenWatchLater.setAlpha(busy ? 0.45f : 1f);
+        mFullscreenWatchLater.setImageResource(saved ? R.drawable.ic_mobile_check : R.drawable.ic_player_playlist_add);
+        mFullscreenWatchLater.setContentDescription(getString(saved
+                ? R.string.mobile_watch_later_remove : R.string.add_video_to_watch_later));
+    }
+
+    private void showRecommendations() {
+        if (!isLandscape() || mClosing || mIsInPip || isPlayerSheetShown()) {
+            return;
+        }
+        releaseImageRequests("fullscreen-recommendations");
+        BottomSheetDialog dialog = new BottomSheetDialog(this, R.style.ThemeOverlay_NewTube_FullscreenRecommendations);
+        View content = getLayoutInflater().inflate(R.layout.sheet_mobile_recommendations, null);
+        content.setMinimumHeight(getWindow().getDecorView().getHeight());
+        dialog.setContentView(content);
+        // The player owns immersion; Material otherwise pads for the hidden status bar.
+        ViewCompat.setOnApplyWindowInsetsListener(
+                dialog.findViewById(com.google.android.material.R.id.container), (view, insets) -> insets);
+        dialog.getBehavior().setMaxWidth(getWindow().getDecorView().getWidth());
+        RecyclerView list = content.findViewById(R.id.recommendations_list);
+        list.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
+        list.setItemAnimator(null);
+        mFullscreenRelatedEmpty = content.findViewById(R.id.recommendations_empty);
+        mFullscreenRelatedAdapter = new RelatedVideoAdapter((video, thumbnail) -> {
+            onRelatedClicked(video, thumbnail);
+            dialog.dismiss();
+        }, R.layout.item_mobile_fullscreen_video);
+        list.setAdapter(mFullscreenRelatedAdapter);
+        list.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView recycler, int dx, int dy) {
+                if (dx > 0 && !recycler.canScrollHorizontally(1)) {
+                    maybePageSuggestions();
+                }
+            }
+        });
+        content.findViewById(R.id.recommendations_close).setOnClickListener(v -> dialog.dismiss());
+        dialog.setOnDismissListener(d -> {
+            list.setAdapter(null);
+            if (mRecommendationsSheet == dialog) {
+                mRecommendationsSheet = null;
+                mFullscreenRelatedAdapter = null;
+                mFullscreenRelatedEmpty = null;
+                if (!mClosing && isLandscape() && !mIsInPip && !isFinishing()) {
+                    showControlsInternal(true);
+                }
+            }
+        });
+        mRecommendationsSheet = dialog;
+        submitRelatedWindow();
+        hideControls();
+        showPlayerSheet(dialog, true);
+    }
+
     private void setupWatchContent() {
+        mWatchLaterAction = new WatchLaterAction(YouTubeServiceManager.instance().getMediaItemService(),
+                () -> runOnUiThread(() -> {
+                    updateWatchLaterButton();
+                    if (mWatchLaterAction.isKnown() && !mWatchLaterAction.isBusy()) {
+                        setButtonState(R.id.action_playlist_add,
+                                mWatchLaterAction.isAnyPlaylistSaved() ? BUTTON_ON : BUTTON_OFF);
+                    }
+                }), () -> runOnUiThread(() -> MobileSnackbar.show(this, R.string.mobile_watch_later_error)));
         // NEWTUBE(touch-prefetch, experiment): off unless a debug/benchmark build sets
         // debug.arc.touch_prefetch_ms (see SwitchExperiments); release builds always pass 0.
         long touchPrefetchMs = com.newtube.mobile.player.SwitchExperiments.touchPrefetchStillMs();
@@ -1102,6 +1211,9 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) mVideoArea.getLayoutParams();
+        mFullscreenActions.setVisibility(orientation == Configuration.ORIENTATION_LANDSCAPE
+                ? View.VISIBLE : View.GONE);
+        loadWatchLater();
 
         // Pinch-zoom is a fullscreen gesture (the portrait 16:9 box keeps its two-finger touches
         // for nothing - matching YouTube, which only zooms in fullscreen).
@@ -1450,6 +1562,12 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     protected void onResume() {
         super.onResume();
+        // Account changes and the existing Save picker can both change membership while away.
+        if (mWatchLaterAction != null) {
+            mWatchLaterAction.reset();
+            updateWatchLaterButton();
+            loadWatchLater();
+        }
 
         PlayerTransitionBridge.LaunchSnapshot launch = PlayerTransitionBridge.take();
 
@@ -1692,6 +1810,12 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     protected void onDestroy() {
+        if (mWatchLaterAction != null) {
+            mWatchLaterAction.reset();
+        }
+        if (mStoryboardPreview != null) {
+            mStoryboardPreview.reset(null);
+        }
         DownloadRegistry.instance(this).removeListener(mDownloadsListener);
         MobileSheets.setPlayerShown(false, false);
         cancelAutoHide();
@@ -2198,13 +2322,13 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         boolean inline = !isLandscape();
         int side = inline ? 0 : dp(12);
-        int lift = inline ? 0 : dp(8);
+        int lift = inline ? 0 : dp(56); // 48dp quick actions below the bar, outside its touch band
         setMargins(mTimeBar, left + side, 0, right + side, bottom + lift);
         mTimeBar.setTrackAtBottom(inline);
         updateSeekBarLine();
         setMargins(mBottomRow, 0, 0, 0,
                 getResources().getDimensionPixelSize(R.dimen.mobile_player_bottom_row_margin) + lift);
-        setMargins(mScrubChapterView, 0, 0, 0,
+        setMargins(mScrubPreviewRoot, 0, 0, 0,
                 getResources().getDimensionPixelSize(R.dimen.mobile_player_scrub_pill_margin) + bottom + lift);
         setMargins(mTopPill, 0, top + dp(12), 0, 0);
         setMargins(mLevelPill, 0, top + dp(12), 0, 0);
@@ -3511,6 +3635,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private void showControlsInternal(boolean animate) {
         mControlsVisible = true;
+        loadWatchLater();
         mControlsRoot.setVisibility(View.VISIBLE);
         mControlsRoot.animate().cancel();
         if (animate) {
@@ -4215,6 +4340,10 @@ public class MobilePlaybackActivity extends MobileActivity
      * recipe) so the bars stay hidden.
      */
     private void showPlayerSheet(BottomSheetDialog dialog) {
+        showPlayerSheet(dialog, false);
+    }
+
+    private void showPlayerSheet(BottomSheetDialog dialog, boolean fullscreen) {
         pruneShownSheets();
         mShownSheets.add(new java.lang.ref.WeakReference<>(dialog));
         mSheetsOrientation = layoutOrientation();
@@ -4230,7 +4359,7 @@ public class MobilePlaybackActivity extends MobileActivity
             // video and the sheet jumped up a moment after its entrance.
             MobileSheets.keepSystemBarsHidden(window);
         }
-        if (immersive) {
+        if (immersive && !fullscreen) {
             // NEWTUBE(sheet-landscape): most of these sheets are taller than a phone held sideways.
             // Uncapped, a sheet that did not fit filled the screen up to its top edge; capped, it
             // stops short of it, the video stays in sight above, and its list scrolls.
@@ -5298,6 +5427,7 @@ public class MobilePlaybackActivity extends MobileActivity
     private static final int SWIPE_BRIGHTNESS = 4;
     private static final int SWIPE_VOLUME = 5;
     private static final int SWIPE_SEEK = 6;
+    private static final int SWIPE_RECOMMENDATIONS = 7;
     /**
      * Fullscreen: this share of the screen on the left (brightness) and the right (volume) - the
      * zones of ReVanced's swipe controls, which most people who swipe on YouTube learned them from.
@@ -5329,7 +5459,7 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     public int onSwipeStart(int direction, float downRawX, float downRawY, float dx, float dy) {
         if (mClosing || mIsInPip || mPipEnterPending || mScrubbing || mBackPreview
-                || mFullscreenSwipe != 0 || mVideoArea == null
+                || mFullscreenSwipe != 0 || mVideoArea == null || isPlayerSheetShown()
                 || (mExoPlayerController != null && mExoPlayerController.isHoldSpeedOn())) {
             return PlayerContainerLayout.SWIPE_NONE;
         }
@@ -5351,6 +5481,15 @@ public class MobilePlaybackActivity extends MobileActivity
             mSwipeLevels.begin(level == SWIPE_VOLUME ? SwipeLevels.VOLUME : SwipeLevels.BRIGHTNESS,
                     mVideoArea.getHeight());
             return level;
+        }
+        int[] location = new int[2];
+        mContainer.getLocationOnScreen(location);
+        float x = downRawX - location[0];
+        float width = mContainer.getWidth();
+        if (direction == PlayerContainerLayout.UP
+                && width > 0 && x >= width * LEVEL_ZONE && x <= width * (1f - LEVEL_ZONE)) {
+            cancelAutoHide();
+            return SWIPE_RECOMMENDATIONS;
         }
         return direction == PlayerContainerLayout.DOWN
                 ? beginFullscreenSwipe(SWIPE_EXIT_FULLSCREEN) : PlayerContainerLayout.SWIPE_NONE;
@@ -5383,6 +5522,15 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     public void onSwipeReleased(int swipe, float dx, float dy, float xVelocity, float yVelocity) {
         switch (swipe) {
+            case SWIPE_RECOMMENDATIONS:
+                float density = getResources().getDisplayMetrics().density;
+                if (-dy >= Math.max(48f * density, mVideoArea.getHeight() * 0.12f)
+                        || (dy < 0 && -yVelocity >= FULLSCREEN_FLICK_DP * density)) {
+                    showRecommendations();
+                } else {
+                    armAutoHide();
+                }
+                break;
             case SWIPE_MINIMIZE:
                 onDismissDragReleased(Math.max(0f, dy), yVelocity);
                 break;
@@ -5411,6 +5559,9 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     public void onSwipeCancelled(int swipe) {
         switch (swipe) {
+            case SWIPE_RECOMMENDATIONS:
+                armAutoHide();
+                break;
             case SWIPE_MINIMIZE:
                 onDismissDragCancelled();
                 break;
@@ -6547,6 +6698,9 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     public void clearSuggestions() {
         runOnUiThread(() -> {
+            if (mRecommendationsSheet != null) {
+                mRecommendationsSheet.dismiss();
+            }
             mRelatedRenderGate.cancelPending();
             mSuggestionVideos.clear();
             mSuggestionGroups.clear();
@@ -6706,7 +6860,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     public void setSeekPreviewTitle(String title) {
-        // TODO Wave N: chapter/seek-preview UI.
+        // updateScrubLabel uses the position under the finger, rather than the playing chapter.
     }
 
     @Override
@@ -6767,7 +6921,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     public void loadStoryboard() {
-        // TODO Wave N: storyboard thumbnail preview on the seek bar.
+        // StoryboardPreview resolves this lazily on the first scrub, keeping startup playback first.
     }
 
     @Override
@@ -7006,6 +7160,9 @@ public class MobilePlaybackActivity extends MobileActivity
         CharSequence title = index >= 0 ? mChapterVideos.get(index).title : null;
         String time = formatTime(positionMs);
         setTextIfChanged(mScrubChapterView, TextUtils.isEmpty(title) ? time : time + "   " + title);
+        if (mStoryboardPreview != null) {
+            mStoryboardPreview.show(positionMs);
+        }
     }
 
     /**
@@ -7018,13 +7175,17 @@ public class MobilePlaybackActivity extends MobileActivity
         mScrubChromeHidden = scrubbing;
         float alpha = scrubbing ? 0f : 1f;
         long duration = scrubbing ? Motion.FADE_OUT_MS : Motion.FADE_IN_MS;
-        for (View view : new View[] {mBackButton, mTitleView, mOptionsRow, mTransport, mBottomRow, mTopScrim}) {
+        for (View view : new View[] {mBackButton, mTitleView, mOptionsRow, mTransport, mBottomRow,
+                mFullscreenActions, mTopScrim}) {
             if (view != null) {
                 view.animate().cancel();
                 view.animate().alpha(alpha).setDuration(duration).setInterpolator(Motion.STANDARD).start();
             }
         }
-        fadePill(mScrubChapterView, scrubbing);
+        fadePill(mScrubPreviewRoot, scrubbing);
+        if (!scrubbing && mStoryboardPreview != null) {
+            mStoryboardPreview.hide();
+        }
     }
 
     /** The pill over the top of the video ({@code null} hides it). */
@@ -7754,6 +7915,10 @@ public class MobilePlaybackActivity extends MobileActivity
             Utils.removeCallbacks(mReleaseWatchMetadata);
             Utils.postDelayed(mReleaseWatchMetadata, WATCH_METADATA_TIMEOUT_MS);
             clearSuggestions();
+            mStoryboardPreview.reset(item.videoId);
+            mWatchLaterAction.reset();
+            updateWatchLaterButton();
+            loadWatchLater();
             resetWatchHeader();
             // A new video closes the comments panel and forgets the old video's comments.
             Utils.removeCallbacks(mPrefetchComments);
@@ -7938,6 +8103,10 @@ public class MobilePlaybackActivity extends MobileActivity
             String description = metadata.getDescription();
             if (!TextUtils.isEmpty(description)) {
                 mWatchDescription.setText(description);
+            }
+            if (mChapterVideos.isEmpty()) {
+                long duration = mExoPlayerController != null ? mExoPlayerController.getDurationMs() : 0;
+                setChapters(DescriptionChapters.parse(description, duration));
             }
 
             if (!TextUtils.isEmpty(metadata.getAuthor())) {
@@ -8149,11 +8318,15 @@ public class MobilePlaybackActivity extends MobileActivity
             // NEWTUBE(icons): filled while on, outlined while off, both in the text colour - the
             // CC button's language. A red tint on the active thumb broke the no-tints rule.
             mWatchLikeIcon.setImageResource(on ? R.drawable.ic_watch_thumb_up : R.drawable.ic_watch_thumb_up_outline);
+            mFullscreenLike.setImageResource(on ? R.drawable.ic_watch_thumb_up : R.drawable.ic_watch_thumb_up_outline);
+            mFullscreenLike.setSelected(on);
             if (mWatchLike != null) {
                 mWatchLike.setSelected(on);
             }
         } else if (buttonId == R.id.action_thumbs_down && mWatchDislikeIcon != null) {
             mWatchDislikeIcon.setImageResource(on ? R.drawable.ic_watch_thumb_down : R.drawable.ic_watch_thumb_down_outline);
+            mFullscreenDislike.setImageResource(on ? R.drawable.ic_watch_thumb_down : R.drawable.ic_watch_thumb_down_outline);
+            mFullscreenDislike.setSelected(on);
             if (mWatchDislike != null) {
                 mWatchDislike.setSelected(on);
             }
@@ -8442,6 +8615,11 @@ public class MobilePlaybackActivity extends MobileActivity
 
     /** As {@link #submitRelatedWindow()}; {@code onCommitted} runs once the list shows the slice. */
     private void submitRelatedWindow(Runnable onCommitted) {
+        if (mFullscreenRelatedAdapter != null) {
+            int end = Math.min(mRelatedWindow, mRelatedVideos.size());
+            mFullscreenRelatedAdapter.submitList(new ArrayList<>(mRelatedVideos.subList(0, end)));
+            mFullscreenRelatedEmpty.setVisibility(end == 0 ? View.VISIBLE : View.GONE);
+        }
         if (mRelatedAdapter != null) {
             int end = Math.min(mRelatedWindow, mRelatedVideos.size());
             mRelatedAdapter.submitList(new ArrayList<>(mRelatedVideos.subList(0, end)), onCommitted);
