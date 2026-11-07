@@ -37,7 +37,7 @@ public class WatchLaterActionTest {
     private final WatchLaterAction action = new WatchLaterAction(service, () -> {}, () -> failures++);
 
     @Test
-    public void addWaitsForSuccessAndIgnoresRepeatedTapsWhileBusy() {
+    public void playlistEditsWaitForSuccessPreserveMembershipAndRecoverFromFailure() {
         info = Observable.just(Arrays.asList(playlist("favorites", true), playlist("WL", false)));
         action.load("video");
         assertTrue(action.isKnown());
@@ -54,21 +54,16 @@ public class WatchLaterActionTest {
         edit.onComplete();
         assertFalse(action.isBusy());
         assertTrue(action.isSaved());
-    }
-
-    @Test
-    public void removalPreservesTheSavedIndicatorForOtherPlaylists() {
         info = Observable.just(Arrays.asList(playlist("WL", true), playlist("other", true)));
+        edit = PublishSubject.create();
         action.toggle("video");
         assertEquals("removeFromPlaylistObserve", operation);
         edit.onComplete();
         assertFalse(action.isSaved());
         assertTrue(action.isAnyPlaylistSaved());
-    }
 
-    @Test
-    public void failedEditKeepsThePreviousStateAndCanBeRetried() {
-        action.load("video");
+        info = Observable.just(Arrays.asList(playlist("WL", false)));
+        edit = PublishSubject.create();
         action.toggle("video");
         edit.onError(new IllegalStateException("offline"));
         assertEquals(1, failures);
@@ -81,7 +76,26 @@ public class WatchLaterActionTest {
     }
 
     @Test
-    public void switchingVideosDiscardsLateMembershipAndWriteCallbacks() {
+    public void unavailableMembershipAndStaleCallbacksCannotChangeTheWrongVideo() {
+        info = Observable.error(new IllegalStateException("offline"));
+        action.load("video");
+        assertFalse(action.isBusy());
+        assertFalse(action.isKnown());
+        assertEquals(0, failures);
+        info = Observable.just(Arrays.asList(playlist("WL", true)));
+        action.load("video");
+        assertTrue(action.isSaved());
+
+        info = Observable.just(Arrays.asList(playlist("other", true)));
+        action.toggle("video");
+        assertEquals(0, edits);
+        assertFalse(action.isBusy());
+        info = Observable.empty();
+        action.toggle("video");
+        assertEquals(2, failures);
+        assertFalse(action.isBusy());
+        assertEquals(0, edits);
+
         PublishSubject<List<PlaylistInfo>> pending = PublishSubject.create();
         info = pending;
         action.load("old");
@@ -94,31 +108,6 @@ public class WatchLaterActionTest {
         edit.onComplete();
         assertFalse(action.isKnown());
         assertFalse(action.isSaved());
-    }
-
-    @Test
-    public void aFailedBackgroundReadDoesNotInterruptPlaybackAndCanBeRetried() {
-        info = Observable.error(new IllegalStateException("offline"));
-        action.load("video");
-        assertFalse(action.isBusy());
-        assertFalse(action.isKnown());
-        assertEquals(0, failures);
-        info = Observable.just(Arrays.asList(playlist("WL", true)));
-        action.load("video");
-        assertTrue(action.isSaved());
-    }
-
-    @Test
-    public void missingOrEmptyPlaylistInfoCannotEditTheWrongPlaylistOrLeaveTheButtonBusy() {
-        info = Observable.just(Arrays.asList(playlist("other", true)));
-        action.toggle("video");
-        assertEquals(0, edits);
-        assertFalse(action.isBusy());
-        info = Observable.empty();
-        action.toggle("video");
-        assertEquals(2, failures);
-        assertFalse(action.isBusy());
-        assertEquals(0, edits);
     }
 
     private static PlaylistInfo playlist(String id, boolean selected) {

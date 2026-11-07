@@ -31,7 +31,7 @@ import io.reactivex.rxjava3.core.Observable;
 @ConscryptMode(ConscryptMode.Mode.OFF)
 public class FullscreenPlayerTest {
     @Test
-    public void descriptionChaptersPreserveTitlesAndHourTimestamps() {
+    public void descriptionChaptersValidateTitlesTimestampsAndRanges() {
         List<Video> chapters = DescriptionChapters.parse(
                 "A course\n0:00 Intro\n1:02 - Basics\n1:01:03 Advanced topics", 4_000_000);
         assertEquals(3, chapters.size());
@@ -39,10 +39,6 @@ public class FullscreenPlayerTest {
         assertEquals("Basics", chapters.get(1).title);
         assertEquals(3_663_000, chapters.get(2).startTimeMs);
         assertTrue(chapters.get(2).isChapter);
-    }
-
-    @Test
-    public void isolatedOrAmbiguousDescriptionTimestampsDoNotBecomeChapters() {
         for (String description : new String[] {null, "A link at 0:00", "0:00 Intro",
                 "0:10 Intro\n1:00 Topic", "0:00 Intro\n0:00 Duplicate",
                 "0:00 Intro\n1:00 Topic\n0:30 Earlier", "0:00 Intro\n1:70 Invalid"}) {

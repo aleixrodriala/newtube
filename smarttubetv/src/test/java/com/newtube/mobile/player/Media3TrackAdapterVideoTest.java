@@ -56,7 +56,7 @@ public class Media3TrackAdapterVideoTest {
         assertEquals(1080, override.mediaTrackGroup.getFormat(override.trackIndices.get(0)).height);
     }
 
-    @Test public void reusedHlsIdsRespectResolutionAcrossTrackChangesAndPersistence() {
+    @Test public void reusedHlsIdsRespectResolutionCodecAndFrameRateAcrossSources() {
         for (float frameRate : new float[] {25, Format.NO_VALUE}) {
             adapter.onTracksChanged(videoTracks("initial", frameRate));
             FormatItem choice = adapter.getFormats(FormatItem.TYPE_VIDEO).get(0);
@@ -69,9 +69,6 @@ public class Media3TrackAdapterVideoTest {
             adapter.selectFormat(ExoFormatItem.from(choice.toString()));
             assertPinned1080();
         }
-    }
-
-    @Test public void reusedIdsPreserveTheChosenCodecAndHighFrameRate() {
         Format avc = new Format.Builder().setId("1:").setSampleMimeType(MimeTypes.VIDEO_H264)
                 .setCodecs("avc1.640028").setWidth(1920).setHeight(1080).setFrameRate(30).build();
         Format vp9 = avc.buildUpon().setSampleMimeType(MimeTypes.VIDEO_VP9).setCodecs("vp09.00.40.08").build();
@@ -85,18 +82,7 @@ public class Media3TrackAdapterVideoTest {
         assertEquals(vp9High, override.mediaTrackGroup.getFormat(override.trackIndices.get(0)));
     }
 
-    @Test public void legacyAutoPresetClearsTheFixedPickAndKeepsItsCeiling() {
-        adapter.onTracksChanged(videoTracks("video", 25));
-        for (FormatItem auto : new FormatItem[] {FormatItem.VIDEO_FHD_VP9_60,
-                ExoFormatItem.from(FormatItem.VIDEO_FHD_VP9_60.toString())}) {
-            adapter.selectFormat(adapter.getFormats(FormatItem.TYPE_VIDEO).get(0));
-            adapter.selectFormat(auto);
-            assertTrue(selector.getParameters().overrides.isEmpty());
-            assertEquals(1920, selector.getParameters().maxVideoHeight);
-        }
-    }
-
-    @Test public void savedResolutionPinsTheBestAvailableRungInsteadOfAuto() {
+    @Test public void savedResolutionSurvivesFallbackAndOnlyAutoClearsTheFixedPick() {
         FormatItem saved = ExoFormatItem.fromVideoSpec("1920,1080,60,vp9", true);
         adapter.selectFormat(ExoFormatItem.from(saved.toString()));
         adapter.onTracksChanged(videoTracks("initial", 25)); // AVC-only video, no VP9 or 60 fps
@@ -115,5 +101,13 @@ public class Media3TrackAdapterVideoTest {
         adapter.onSourceChanged();
         adapter.onTracksChanged(videoTracks("1080-again", 30));
         assertPinned1080(); // fallback must never overwrite the saved choice
+
+        for (FormatItem auto : new FormatItem[] {FormatItem.VIDEO_FHD_VP9_60,
+                ExoFormatItem.from(FormatItem.VIDEO_FHD_VP9_60.toString())}) {
+            adapter.selectFormat(adapter.getFormats(FormatItem.TYPE_VIDEO).get(0));
+            adapter.selectFormat(auto);
+            assertTrue(selector.getParameters().overrides.isEmpty());
+            assertEquals(1920, selector.getParameters().maxVideoHeight);
+        }
     }
 }

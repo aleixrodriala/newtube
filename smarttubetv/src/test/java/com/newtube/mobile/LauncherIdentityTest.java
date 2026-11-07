@@ -32,13 +32,9 @@ public class LauncherIdentityTest {
     private final PackageManager pm = context.getPackageManager();
 
     @Test
-    public void freshInstallHasOnlyTheOriginalLauncher() {
+    public void launcherIdentitySwitchesBothWaysAndRestoresTheSavedChoice() throws Exception {
         assertFalse(LauncherIdentity.isYouTube(context));
         assertLauncher("NewTube");
-    }
-
-    @Test
-    public void switchesNameAndIconTogetherInBothDirections() throws Exception {
         int originalIcon = launcher().getIconResource();
         assertTrue(LauncherIdentity.setYouTube(context, true));
         assertTrue(LauncherIdentity.isYouTube(context));
@@ -58,10 +54,23 @@ public class LauncherIdentityTest {
         assertEquals(originalIcon, launcher().getIconResource());
         assertFalse(LauncherIdentity.restore(context));
         assertLauncher("NewTube");
+
+        // Restored preferences must also repair package overrides absent from a backup.
+        save(true);
+        assertTrue(LauncherIdentity.restore(context));
+        assertLauncher("YouTube");
     }
 
     @Test
-    public void repairsAnInterruptedOlderSwitchInEitherDirection() {
+    @Config(shadows = RejectDisablePackageManager.class)
+    public void failedAndInterruptedSwitchesAlwaysLeaveOneUsableLauncher() {
+        RejectDisablePackageManager.rejectNextDisable = true;
+        assertFalse(LauncherIdentity.setYouTube(context, true));
+        assertFalse(LauncherIdentity.isYouTube(context));
+        assertLauncher("NewTube");
+        LauncherIdentity.restore(context);
+        assertLauncher("NewTube");
+
         for (boolean youtube : new boolean[] {true, false}) {
             // Process died after saving intent and enabling the destination, before disabling
             // the previous alias. Either icon can start the app and finish the switch.
@@ -73,24 +82,6 @@ public class LauncherIdentityTest {
             assertTrue(LauncherIdentity.restore(context));
             assertLauncher(youtube ? "YouTube" : "NewTube");
         }
-    }
-
-    @Test
-    public void restoresTheSavedChoiceWhenPackageOverridesWereNotBackedUp() {
-        save(true);
-        assertTrue(LauncherIdentity.restore(context));
-        assertLauncher("YouTube");
-    }
-
-    @Test
-    @Config(shadows = RejectDisablePackageManager.class)
-    public void failedSwitchRestoresThePreviousChoiceAndLauncher() {
-        RejectDisablePackageManager.rejectNextDisable = true;
-        assertFalse(LauncherIdentity.setYouTube(context, true));
-        assertFalse(LauncherIdentity.isYouTube(context));
-        assertLauncher("NewTube");
-        LauncherIdentity.restore(context);
-        assertLauncher("NewTube");
     }
 
     private void save(boolean youtube) {

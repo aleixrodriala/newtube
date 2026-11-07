@@ -36,7 +36,7 @@ public class DescriptionSheetTest {
     private int clicks;
 
     @Test
-    public void aShortTapActivatesOnlyTheLinkUnderTheFinger() {
+    public void linkTapsStayDistinctFromLongPressSelectionAndScrolling() {
         SelectableLinkTextView view = linkView();
         touch(view, MotionEvent.ACTION_DOWN, 1, 0);
         touch(view, MotionEvent.ACTION_UP, 1, 80);
@@ -45,11 +45,6 @@ public class DescriptionSheetTest {
         touch(view, MotionEvent.ACTION_DOWN, outside, 0);
         touch(view, MotionEvent.ACTION_UP, outside, 80);
         assertEquals(1, clicks);
-    }
-
-    @Test
-    public void longPressSelectionAndScrollingNeverActivateLinks() {
-        SelectableLinkTextView view = linkView();
         touch(view, MotionEvent.ACTION_DOWN, 1, 0);
         touch(view, MotionEvent.ACTION_UP, 1, ViewConfiguration.getLongPressTimeout() + 100);
         Selection.setSelection((Spannable) view.getText(), 0, 4);
@@ -59,7 +54,7 @@ public class DescriptionSheetTest {
         touch(view, MotionEvent.ACTION_DOWN, 1, 0);
         touch(view, MotionEvent.ACTION_MOVE, 100, 50);
         touch(view, MotionEvent.ACTION_UP, 1, 100);
-        assertEquals(0, clicks);
+        assertEquals(1, clicks);
         assertTrue(view.isTextSelectable());
         assertEquals(0, view.getAutoLinkMask());
     }
