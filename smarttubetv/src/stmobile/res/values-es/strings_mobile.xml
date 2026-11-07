@@ -3,6 +3,10 @@
      the (already localized) shared header_* strings; "You" is ours, so it needs a
      translation or the bar reads "Inicio / Suscripciones / Historial / You". -->
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="mobile_search_filters">Filtros de búsqueda</string>
+    <string name="mobile_search_apply">Aplicar</string>
+    <string name="mobile_search_prioritize">Priorizar</string>
+    <string name="mobile_search_popularity">Popularidad</string>
     <string name="mobile_nav_you">Tú</string>
     <string name="mobile_you_explore">Explorar</string>
 

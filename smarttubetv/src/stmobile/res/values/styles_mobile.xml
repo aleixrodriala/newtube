@@ -397,6 +397,18 @@
         <item name="android:fontFamily">sans-serif</item>
     </style>
 
+    <style name="MobileBottomNavigation" parent="Widget.MaterialComponents.BottomNavigationView">
+        <item name="android:background">?attr/newtubeColorBackground</item>
+        <item name="itemIconSize">24dp</item>
+        <item name="itemIconTint">@color/mobile_bottom_nav_item</item>
+        <item name="itemTextAppearanceActive">@style/MobileBottomNavText</item>
+        <item name="itemTextAppearanceActiveBoldEnabled">false</item>
+        <item name="itemTextAppearanceInactive">@style/MobileBottomNavText</item>
+        <item name="paddingBottomSystemWindowInsets">true</item>
+        <item name="itemTextColor">@color/mobile_bottom_nav_item</item>
+        <item name="labelVisibilityMode">labeled</item>
+    </style>
+
     <!-- Watch-page loading skeleton (alpha-pulsed from code while related videos load). -->
     <!-- NEWTUBE(seek bar): a pill over the video (the seek bar's time/chapter, "Release to cancel",
          "2x"). -->

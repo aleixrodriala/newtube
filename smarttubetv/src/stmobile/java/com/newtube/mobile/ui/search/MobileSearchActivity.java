@@ -10,6 +10,7 @@ import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.view.KeyEvent;
+import android.view.Menu;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
@@ -20,21 +21,27 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsAnimationCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.android.material.bottomnavigation.BottomNavigationView;
+import com.liskovsoft.smartyoutubetv2.common.app.models.data.BrowseSection;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.search.MediaServiceSearchTagProvider;
 import com.liskovsoft.smartyoutubetv2.common.app.models.search.vineyard.Tag;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.SearchPresenter;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.BrowsePresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.SearchView;
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.browse.VideoCardAdapter;
+import com.newtube.mobile.ui.browse.BrowseNavigation;
+import com.newtube.mobile.ui.browse.MobileBrowseActivity;
 import com.newtube.mobile.ui.common.FilteredPageTopUp;
 import com.newtube.mobile.ui.common.MobileActivity;
 import com.newtube.mobile.ui.common.ShortsFilter;
@@ -89,9 +96,13 @@ public class MobileSearchActivity extends MobileActivity
     private MobileMiniPlayerController mMiniPlayer;
 
     private EditText mSearchInput;
+    private TextView mQuerySummary;
     private ImageButton mBackButton;
     private ImageButton mClearButton;
     private ImageButton mMicButton;
+    private ImageButton mFilterButton;
+    private BottomNavigationView mBottomNav;
+    private AlertDialog mFilterDialog;
     private RecyclerView mSuggestions;
     private SearchTagAdapter mTagAdapter;
     private RecyclerView mGrid;
@@ -151,6 +162,8 @@ public class MobileSearchActivity extends MobileActivity
 
         mBackButton.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
         mMicButton.setOnClickListener(v -> startVoiceRecognition());
+        mFilterButton.setOnClickListener(v -> showFilters());
+        setupBottomNav();
         // Clear the query, keep editing: focus stays, history rows replace the suggestions.
         mClearButton.setOnClickListener(v -> {
             setQueryText("");
@@ -161,19 +174,27 @@ public class MobileSearchActivity extends MobileActivity
         mPresenter = SearchPresenter.instance(this);
         mPresenter.setView(this);
         mPresenter.onViewInitialized();
+        updateFilterButton();
     }
 
     private void bindViews() {
         mSearchInput = findViewById(R.id.mobile_search_input);
+        mQuerySummary = findViewById(R.id.mobile_search_query_summary);
+        mQuerySummary.setOnClickListener(v -> {
+            mSearchInput.setVisibility(View.VISIBLE);
+            showKeyboard();
+        });
         mBackButton = findViewById(R.id.mobile_search_back);
         mClearButton = findViewById(R.id.mobile_search_clear);
         mMicButton = findViewById(R.id.mobile_search_mic);
+        mFilterButton = findViewById(R.id.mobile_search_filters);
+        mBottomNav = findViewById(R.id.mobile_bottom_nav);
         mSuggestions = findViewById(R.id.mobile_search_suggestions);
         mGrid = findViewById(R.id.mobile_search_grid);
         // NEWTUBE(mini-inset): the last row can scroll clear of the docked mini-player card.
         com.newtube.mobile.ui.playback.MiniPlayerListInset.attach(findViewById(R.id.mobile_mini_player), mGrid);
         mSkeleton = findViewById(R.id.mobile_feed_skeleton);
-        installImeInsets((View) mGrid.getParent());
+        installImeInsets(findViewById(R.id.mobile_search_root));
         mSearchMessage = findViewById(R.id.mobile_search_message);
         mLoadState = new SearchLoadState(mSearchMessage, () -> {
             if (mSubmittedQuery != null) {
@@ -187,8 +208,8 @@ public class MobileSearchActivity extends MobileActivity
      * frame as it slides. Under enforced edge-to-edge (Android 15+ for this target) adjustResize no
      * longer resizes the window, so the keyboard simply covered the lower suggestions and results;
      * where the window is still resized for it (the opt-out, up to Android 15) the keyboard's inset
-     * arrives already absorbed and this adds nothing. The content container already keeps clear of
-     * the navigation bar, which the keyboard's inset includes.
+     * arrives already absorbed and this adds nothing. While editing, hide the bottom tabs and let
+     * the whole search surface end at the keyboard; otherwise the tabs absorb the navigation inset.
      */
     private boolean mImeAnimating;
 
@@ -228,13 +249,64 @@ public class MobileSearchActivity extends MobileActivity
                 });
     }
 
-    private static void applyImePadding(View area, WindowInsetsCompat insets) {
+    private void applyImePadding(View area, WindowInsetsCompat insets) {
         int ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
-        int bars = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
-        int bottom = Math.max(0, ime - bars);
-        if (area.getPaddingBottom() != bottom) {
-            area.setPadding(area.getPaddingLeft(), area.getPaddingTop(), area.getPaddingRight(), bottom);
+        mBottomNav.setVisibility(ime > 0 ? View.GONE : View.VISIBLE);
+        if (area.getPaddingBottom() != ime) {
+            area.setPadding(area.getPaddingLeft(), area.getPaddingTop(), area.getPaddingRight(), ime);
         }
+    }
+
+    @Override
+    protected boolean shouldInsetContentForNavigationBar() {
+        return false; // BottomNavigationView includes the gesture inset in its own background.
+    }
+
+    private void setupBottomNav() {
+        BrowsePresenter browse = BrowsePresenter.instance(getApplicationContext());
+        Menu menu = mBottomNav.getMenu();
+        for (BrowseSection section : BrowseNavigation.sections(this, browse.getSections())) {
+            menu.add(Menu.NONE, section.getId() + BrowseNavigation.ITEM_ID_OFFSET, menu.size(), section.getTitle())
+                    .setIcon(BrowseNavigation.iconFor(section));
+        }
+        menu.add(Menu.NONE, BrowseNavigation.YOU_ITEM_ID, menu.size(), R.string.mobile_nav_you)
+                .setIcon(R.drawable.ic_nav_you);
+        if (browse.getView() instanceof MobileBrowseActivity) {
+            mBottomNav.setSelectedItemId(((MobileBrowseActivity) browse.getView()).getSelectedNavigationItemId());
+        }
+        mBottomNav.setOnItemSelectedListener(item -> {
+            openBrowseTab(item.getItemId());
+            return true;
+        });
+        mBottomNav.setOnItemReselectedListener(item -> openBrowseTab(item.getItemId()));
+    }
+
+    private void openBrowseTab(int itemId) {
+        hideKeyboard();
+        startActivity(new Intent(this, MobileBrowseActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(MobileBrowseActivity.EXTRA_NAV_ITEM, itemId));
+        finishReally();
+    }
+
+    private void showFilters() {
+        if (mFilterDialog != null && mFilterDialog.isShowing()) return;
+        hideKeyboard();
+        mSearchInput.clearFocus();
+        mSearchInput.removeCallbacks(mSuggestReload);
+        mSuggestGeneration++;
+        mSuggestions.setVisibility(View.GONE);
+        mFilterDialog = SearchFiltersDialog.show(this, mPresenter.getSearchOptions(), options -> {
+            mPresenter.setSearchOptions(options);
+            updateFilterButton();
+            mLastSubmitText = null; // Filters must bypass the duplicate IME submission guard.
+            submitSearch(getSearchText(), "filters");
+        });
+    }
+
+    private void updateFilterButton() {
+        mFilterButton.setColorFilter(getColor(mPresenter.getSearchOptions() == 0
+                ? R.color.mobile_color_on_surface : R.color.mobile_color_primary));
     }
 
     private void setupSuggestions() {
@@ -279,7 +351,7 @@ public class MobileSearchActivity extends MobileActivity
 
             @Override
             public void afterTextChanged(Editable s) {
-                syncClearButton();
+                syncQueryControls();
                 if (!mSuppressTextWatcher) {
                     // NEWTUBE(page-load-errors): the "No results for ..." / offline state speaks for
                     // the SUBMITTED query; once the text is edited it would be about the wrong one
@@ -322,6 +394,7 @@ public class MobileSearchActivity extends MobileActivity
         // Tapping back into the field re-opens the suggestion overlay: history when the
         // field is empty, live suggestions for the current text otherwise (YouTube-style).
         mSearchInput.setOnFocusChangeListener((v, hasFocus) -> {
+            syncQueryControls();
             if (hasFocus) {
                 loadSearchTags(getSearchText());
             }
@@ -395,13 +468,18 @@ public class MobileSearchActivity extends MobileActivity
         mSuppressTextWatcher = false;
         // The watcher still ran (suppressed branch skips only the tag reload) but keep this
         // explicit: the clear button mirrors "field has text".
-        syncClearButton();
+        syncQueryControls();
     }
 
-    private void syncClearButton() {
+    private void syncQueryControls() {
         if (mClearButton != null) {
             mClearButton.setVisibility(TextUtils.isEmpty(mSearchInput.getText()) ? View.GONE : View.VISIBLE);
         }
+        mFilterButton.setEnabled(!getSearchText().trim().isEmpty());
+        boolean summarize = !mSearchInput.hasFocus() && !TextUtils.isEmpty(mSearchInput.getText());
+        if (summarize) mQuerySummary.setText(mSearchInput.getText().toString());
+        mQuerySummary.setVisibility(summarize ? View.VISIBLE : View.GONE);
+        mSearchInput.setVisibility(summarize ? View.INVISIBLE : View.VISIBLE);
     }
 
     private void submitSearch(String query) {
@@ -615,6 +693,7 @@ public class MobileSearchActivity extends MobileActivity
 
     @Override
     protected void onDestroy() {
+        if (mFilterDialog != null) mFilterDialog.dismiss();
         MiniPlayerBridge.unregisterMiniHost(this);
         mTornDown = true; // NEWTUBE(shorts): the teardown's spinner-off must not page on
 
@@ -637,8 +716,7 @@ public class MobileSearchActivity extends MobileActivity
 
     @Override
     public int getMiniCardBottomOffsetPx() {
-        // Overlay card (mobile_mini_player_overlay.xml) sits flush at the content bottom.
-        return 0;
+        return Math.round(56 * getResources().getDisplayMetrics().density);
     }
 
     // NOTE: back normally flows OnBackPressedDispatcher -> MobileActivity.finish() ->

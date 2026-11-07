@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="mobile_search_filters">Search filters</string>
+    <string name="mobile_search_apply">Apply</string>
+    <string name="mobile_search_prioritize">Prioritize</string>
+    <string name="mobile_search_popularity">Popularity</string>
     <!-- NewTube branding: override SmartTube's app_name for the mobile flavor only -->
     <string name="app_name" translatable="false">NewTube</string>
     <string name="mobile_player_back">Back</string>
