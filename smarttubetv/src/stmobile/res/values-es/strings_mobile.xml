@@ -7,6 +7,8 @@
     <string name="mobile_menu_save_playlist">Guardar en una lista</string>
     <string name="mobile_menu_download_video">Descargar vídeo</string>
     <string name="mobile_search_filters">Filtros de búsqueda</string>
+    <string name="mobile_settings_casting">Transmitir a la TV</string>
+    <string name="mobile_settings_casting_summary">Mostrar los controles y permitir la conexión a televisores. Al desactivar esta opción se desconecta la sesión actual.</string>
     <string name="mobile_search_apply">Aplicar</string>
     <string name="mobile_search_prioritize">Priorizar</string>
     <string name="mobile_search_popularity">Popularidad</string>

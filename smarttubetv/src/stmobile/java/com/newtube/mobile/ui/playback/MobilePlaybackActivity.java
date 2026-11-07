@@ -106,6 +106,7 @@ import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.SubtitleTr
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.newtube.mobile.casting.CastPickerLauncher;
+import com.newtube.mobile.casting.CastPrefs;
 import com.newtube.mobile.casting.CastSessionManager;
 import com.newtube.mobile.casting.CastTarget;
 import com.newtube.mobile.casting.CastVolumeKeys;
@@ -1558,6 +1559,8 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     protected void onResume() {
         super.onResume();
+        updateCastIconTint();
+        if (!CastPrefs.isEnabled(this)) hideCastOverlay();
         // Account changes and the existing Save picker can both change membership while away.
         if (mWatchLaterAction != null) {
             mWatchLaterAction.reset();
@@ -3278,6 +3281,7 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mCastButton == null) {
             return;
         }
+        mCastButton.setVisibility(CastPrefs.isEnabled(this) ? View.VISIBLE : View.GONE);
         if (mCastSessionManager != null && mCastSessionManager.isConnected()) {
             // The player's own (fixed) blue: this icon is over the video in both themes.
             mCastButton.setColorFilter(getColorInt(R.color.mobile_player_cast_active));
@@ -3287,7 +3291,7 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     private void showCastOverlay() {
-        if (mCastOverlay == null) {
+        if (mCastOverlay == null || !CastPrefs.isEnabled(this)) {
             return;
         }
         CastTarget target = mCastSessionManager != null ? mCastSessionManager.getTarget() : null;
@@ -3586,7 +3590,8 @@ public class MobilePlaybackActivity extends MobileActivity
      * paused underneath, so state/controllers stay consistent and disconnect resumes instantly.
      */
     private void maybeRouteVideoToCast(String videoId) {
-        if (mCastSessionManager == null || !mCastSessionManager.isConnected() || videoId == null) {
+        if (!CastPrefs.isEnabled(this) || mCastSessionManager == null
+                || !mCastSessionManager.isConnected() || videoId == null) {
             return;
         }
         if (!Helpers.equals(videoId, mCastSessionManager.getVideoId())) {

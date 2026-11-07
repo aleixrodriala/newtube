@@ -63,6 +63,7 @@ import com.newtube.mobile.downloads.DownloadRegistry;
 import com.newtube.mobile.downloads.DownloadsBridge;
 import com.newtube.mobile.SessionWarmup;
 import com.newtube.mobile.casting.CastPickerLauncher;
+import com.newtube.mobile.casting.CastPrefs;
 import com.newtube.mobile.casting.CastSessionManager;
 import com.newtube.mobile.casting.CastTarget;
 import com.newtube.mobile.casting.CastVolumeKeys;
@@ -866,7 +867,9 @@ public class MobileBrowseActivity extends MobileActivity
         if (mCastButton == null) {
             return;
         }
-        boolean connecting = mCastSessionManager != null && mCastSessionManager.isConnecting();
+        boolean enabled = CastPrefs.isEnabled(this);
+        mCastButton.setVisibility(enabled ? View.VISIBLE : View.GONE);
+        boolean connecting = enabled && mCastSessionManager != null && mCastSessionManager.isConnecting();
         if (connecting != mCastIconAnimating) {
             mCastIconAnimating = connecting;
             mCastButton.setImageResource(connecting

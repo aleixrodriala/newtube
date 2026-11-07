@@ -50,6 +50,7 @@ public class CastSessionService extends Service implements CastSessionManager.Li
 
     /** Start (or refresh) the session service. Call from the foreground (session connect). */
     public static void start(Context context) {
+        if (!CastPrefs.isEnabled(context)) return;
         CastSessionManager.startSessionService(context, new Intent(context, CastSessionService.class));
     }
 
@@ -78,6 +79,10 @@ public class CastSessionService extends Service implements CastSessionManager.Li
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (!CastPrefs.isEnabled(this)) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         String action = intent != null ? intent.getAction() : null;
         CastSessionManager manager = CastSessionManager.instance(this);
 

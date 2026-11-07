@@ -31,6 +31,28 @@ public class CastPrefsTest {
         assertFalse(target.isAdFree());
     }
 
+    @Test public void disablingDisconnectsBlocksNewRoutesAndPreservesPairings() {
+        assertTrue(CastPrefs.isEnabled(context));
+        CastPrefs.addPairedScreen(context, new CastScreen("saved", "TV"), CastTarget.ReceiverApp.SMARTTUBE);
+        int[] disconnects = {0};
+        CastSessionManager manager = new CastSessionManager(context) {
+            @Override public void disconnect() { disconnects[0]++; super.disconnect(); }
+            @Override Connection createConnection(CastTarget target) {
+                throw new AssertionError("Disabled casting must not start a connection");
+            }
+        };
+        manager.setEnabled(false);
+        assertEquals(1, disconnects[0]);
+        assertFalse(CastPrefs.isEnabled(context.createConfigurationContext(context.getResources().getConfiguration())));
+        CastTarget target = CastTarget.fromCastDevice("TV", "192.0.2.1", 8009);
+        assertFalse(manager.connect(target));
+        assertFalse(manager.connectWithFallback(target));
+        manager.setEnabled(true);
+        assertTrue(CastPrefs.isEnabled(context));
+        assertEquals("saved", CastPrefs.getPairedTargets(context).get(0).getScreen().getScreenId());
+        assertEquals(CastTarget.ReceiverApp.SMARTTUBE, CastPrefs.getPairedTargets(context).get(0).getReceiverApp());
+    }
+
     @Test public void youtubePairingAndNameRefreshDoNotOverwriteSmarttubeIdentity() {
         CastPrefs.addPairedScreen(context, new CastScreen("smart", "TV"), CastTarget.ReceiverApp.SMARTTUBE);
         CastPrefs.addPairedScreen(context, new CastScreen("yt", "TV"), CastTarget.ReceiverApp.YOUTUBE);

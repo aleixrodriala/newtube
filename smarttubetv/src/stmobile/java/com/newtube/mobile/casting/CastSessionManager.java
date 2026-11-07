@@ -149,6 +149,11 @@ public class CastSessionManager {
         return sInstance;
     }
 
+    public void setEnabled(boolean enabled) {
+        CastPrefs.setEnabled(mContext, enabled);
+        if (!enabled) disconnect();
+    }
+
     // ---------------------------------------------------------------------------------
     // Sender availability (Lounge routes only - Route A is self-contained)
     // ---------------------------------------------------------------------------------
@@ -181,6 +186,7 @@ public class CastSessionManager {
     }
 
     private boolean connectResolved(CastTarget target, CastRoutePlan plan) {
+        if (!CastPrefs.isEnabled(mContext)) return false;
         // Tear down the old route with fallback disabled, then install the remaining route plan.
         mFallbackArmed = false;
         mFallbackSessionEnabled = false;
@@ -231,6 +237,7 @@ public class CastSessionManager {
     }
 
     private boolean startRoutePlan(List<CastTarget> routes) {
+        if (!CastPrefs.isEnabled(mContext)) return false;
         List<CastTarget> usable = new ArrayList<>();
         for (CastTarget route : routes) {
             if (route.getRoute() == CastTarget.Route.CAST_V2 || isSenderAvailable()) usable.add(route);
@@ -331,6 +338,10 @@ public class CastSessionManager {
 
     /** Shared TYPE_CONNECTED flow: mark connected, start the FGS, tell the UI (main thread). */
     private void handleConnected() {
+        if (!CastPrefs.isEnabled(mContext)) {
+            disconnect();
+            return;
+        }
         mConnected = true;
         notifyConnectingState(); // spinner off before the started fanout repaints the icons
         CastSessionService.start(mContext);
@@ -623,6 +634,7 @@ public class CastSessionManager {
 
     /** Consume the next receiver without ever revisiting an already failed route. */
     private boolean startNextRoute(CastRoutePlan plan, @Nullable String reason) {
+        if (!CastPrefs.isEnabled(mContext)) return false;
         cancelRouteResolution();
         mRoutePlan = null;
         mFallbackArmed = false;

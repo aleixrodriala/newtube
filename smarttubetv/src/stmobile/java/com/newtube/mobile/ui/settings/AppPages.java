@@ -25,6 +25,8 @@ import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.liskovsoft.youtubeapi.service.internal.MediaServiceData;
 import com.newtube.mobile.CardMenuMigration;
 import com.newtube.mobile.LauncherIdentity;
+import com.newtube.mobile.casting.CastPrefs;
+import com.newtube.mobile.casting.CastSessionManager;
 import com.newtube.mobile.ui.common.MobileSnackbar;
 import com.newtube.mobile.ui.common.ThemeMode;
 
@@ -86,6 +88,10 @@ final class AppPages {
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_voice_search),
                 context.getString(R.string.mobile_settings_voice_search_summary),
                 searchData::isInstantVoiceSearchEnabled, searchData::setInstantVoiceSearchEnabled));
+
+        rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_casting),
+                context.getString(R.string.mobile_settings_casting_summary),
+                () -> CastPrefs.isEnabled(context), on -> CastSessionManager.instance(context).setEnabled(on)));
 
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_24_hour),
                 context.getString(R.string.mobile_settings_24_hour_summary),

@@ -1,6 +1,7 @@
 package com.newtube.mobile.casting;
 
 import android.app.Activity;
+import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
@@ -49,6 +50,7 @@ public class CastPickerSheet {
     private final Handler mHandler = new Handler(Looper.getMainLooper());
 
     private BottomSheetDialog mDialog;
+    private SharedPreferences.OnSharedPreferenceChangeListener mAvailabilityListener;
     private View mListSection;
     private View mChooserSection;
     private TextView mChooserTitle;
@@ -74,6 +76,7 @@ public class CastPickerSheet {
     }
 
     public void show(SheetPresenter presenter) {
+        if (!CastPrefs.isEnabled(mActivity)) return;
         mDialog = new BottomSheetDialog(mActivity);
         View content = LayoutInflater.from(mActivity).inflate(R.layout.sheet_mobile_cast, null);
         mDialog.setContentView(content);
@@ -91,6 +94,10 @@ public class CastPickerSheet {
         for (CastTarget target : CastPrefs.getPairedTargets(mActivity)) mDevices.add(target);
         renderDevices();
         mDialog.setOnDismissListener(d -> teardown());
+        mAvailabilityListener = (prefs, key) -> {
+            if (!CastPrefs.isEnabled(mActivity)) mDialog.dismiss();
+        };
+        CastPrefs.prefs(mActivity).registerOnSharedPreferenceChangeListener(mAvailabilityListener);
         startDiscovery();
         mHandler.postDelayed(() -> {
             mDiscoveryReady = true;
@@ -106,6 +113,8 @@ public class CastPickerSheet {
     }
 
     private void teardown() {
+        CastPrefs.prefs(mActivity).unregisterOnSharedPreferenceChangeListener(mAvailabilityListener);
+        mAvailabilityListener = null;
         mClosed = true;
         mPendingTarget = null;
         mHandler.removeCallbacksAndMessages(null);

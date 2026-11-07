@@ -4,6 +4,8 @@
     <string name="mobile_menu_save_playlist">Save to playlist</string>
     <string name="mobile_menu_download_video">Download video</string>
     <string name="mobile_search_filters">Search filters</string>
+    <string name="mobile_settings_casting">Casting</string>
+    <string name="mobile_settings_casting_summary">Show cast controls and allow connecting to TVs. Turning this off disconnects the current session.</string>
     <string name="mobile_search_apply">Apply</string>
     <string name="mobile_search_prioritize">Prioritize</string>
     <string name="mobile_search_popularity">Popularity</string>

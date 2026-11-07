@@ -25,6 +25,7 @@ public final class CastPrefs {
 
     private static final String PREFS_NAME = "newtube_cast";
     private static final String KEY_PAIRED_SCREENS = "paired_screens";
+    private static final String KEY_ENABLED = "enabled";
     private static final String KEY_RECEIVER_APP_PREFIX = "receiver_app:";
     private static final String FIELD_SEP = "\u0001";
     private static final String ENTRY_SEP = "\u0002";
@@ -32,8 +33,16 @@ public final class CastPrefs {
     private CastPrefs() {
     }
 
-    private static SharedPreferences prefs(Context context) {
+    static SharedPreferences prefs(Context context) {
         return context.getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+    }
+
+    public static boolean isEnabled(Context context) {
+        return prefs(context).getBoolean(KEY_ENABLED, true);
+    }
+
+    static void setEnabled(Context context, boolean enabled) {
+        prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply();
     }
 
     /** All persisted screens, in the order they were paired. */

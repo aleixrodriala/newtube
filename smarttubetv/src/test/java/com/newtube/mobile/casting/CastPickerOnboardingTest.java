@@ -143,6 +143,22 @@ public class CastPickerOnboardingTest {
         assertEquals(0, manager.connections);
     }
 
+    @Test public void disablingClosesDiscoveryAndBlocksPickerAndDelayedPermissionResult() {
+        show();
+        assertTrue(sheet.isShowing());
+        manager.setEnabled(false);
+        shadowOf(Looper.getMainLooper()).idle();
+        assertFalse(sheet.isShowing());
+        CastPickerSheet.SheetPresenter mustNotOpen = dialog -> fail("Disabled cast picker opened");
+        CastPickerLauncher.open(activity, mustNotOpen);
+        assertTrue(CastPickerLauncher.handlePermissionResult(activity,
+                CastPickerLauncher.REQUEST_CODE_LOCAL_NETWORK, mustNotOpen));
+        picker.show(mustNotOpen);
+        manager.setEnabled(true);
+        show();
+        assertTrue(sheet.isShowing());
+    }
+
     @Test public void savedYoutubeRemainsUsableWhenDiscoveryFindsNothing() {
         saveYoutube();
         show();

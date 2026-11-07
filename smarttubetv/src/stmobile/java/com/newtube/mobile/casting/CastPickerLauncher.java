@@ -40,6 +40,7 @@ public final class CastPickerLauncher {
      * {@code onRequestPermissionsResult} -> {@link #handlePermissionResult} instead.
      */
     public static void open(Activity activity, CastPickerSheet.SheetPresenter presenter) {
+        if (!CastPrefs.isEnabled(activity)) return;
         if (Build.VERSION.SDK_INT >= 36
                 && activity.checkSelfPermission(PERM_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED) {
             activity.requestPermissions(new String[]{PERM_LOCAL_NETWORK}, REQUEST_CODE_LOCAL_NETWORK);

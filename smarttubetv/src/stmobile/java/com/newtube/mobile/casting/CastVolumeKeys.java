@@ -25,7 +25,7 @@ public final class CastVolumeKeys {
 
     /** @return true when the event was consumed (TV volume adjusted, or the paired UP swallowed). */
     public static boolean onDispatchKeyEvent(Activity activity, @Nullable KeyEvent event) {
-        if (event == null) {
+        if (event == null || !CastPrefs.isEnabled(activity)) {
             return false;
         }
         int keyCode = event.getKeyCode();
