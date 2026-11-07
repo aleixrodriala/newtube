@@ -5,6 +5,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CheckBox;
+import android.widget.ImageView;
 import android.widget.RadioButton;
 import android.widget.TextView;
 
@@ -80,8 +81,9 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             return new Row(TYPE_HEADER, null, null, title, null, false);
         }
 
-        static Row button(OptionItem item) {
-            return new Row(TYPE_BUTTON, null, item, item.getTitle(), item.getDescription(), false);
+        static Row button(OptionCategory category) {
+            OptionItem item = category.options.get(0);
+            return new Row(TYPE_BUTTON, category, item, item.getTitle(), item.getDescription(), false);
         }
 
         static Row radio(OptionCategory category, OptionItem item, boolean checked) {
@@ -140,7 +142,7 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
             switch (category.type) {
                 case OptionCategory.TYPE_SINGLE_BUTTON:
-                    rows.add(Row.button(category.options.get(0)));
+                    rows.add(Row.button(category));
                     break;
                 case OptionCategory.TYPE_SINGLE_SWITCH:
                     rows.add(Row.switchRow(category.options.get(0)));
@@ -275,6 +277,7 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     private static class RowViewHolder extends RecyclerView.ViewHolder {
+        private final ImageView icon;
         private final TextView title;
         private final TextView subtitle;
         private final RadioButton radio;
@@ -283,6 +286,7 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         RowViewHolder(@NonNull View itemView) {
             super(itemView);
+            icon = itemView.findViewById(R.id.dialog_row_icon);
             title = itemView.findViewById(R.id.dialog_row_title);
             subtitle = itemView.findViewById(R.id.dialog_row_subtitle);
             radio = itemView.findViewById(R.id.dialog_row_radio);
@@ -291,7 +295,12 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         void bind(Row row, Listener listener) {
-            title.setText(sizeInlineIcons(row.title, title));
+            int actionId = row.viewType == TYPE_BUTTON ? row.category.id : -1;
+            int iconRes = VideoMenuLayout.iconFor(actionId);
+            icon.setVisibility(iconRes == 0 ? View.GONE : View.VISIBLE);
+            if (iconRes != 0) icon.setImageResource(iconRes);
+            int labelRes = VideoMenuLayout.labelFor(actionId);
+            title.setText(labelRes != 0 ? title.getContext().getText(labelRes) : sizeInlineIcons(row.title, title));
 
             if (row.subtitle != null && row.subtitle.length() > 0) {
                 subtitle.setText(row.subtitle);

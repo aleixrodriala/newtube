@@ -21,6 +21,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerU
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.service.VideoStateService;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.service.VideoStateService.State;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.UiOptionItem;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.BrowsePresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.ChannelPresenter;
@@ -49,6 +50,8 @@ import java.util.List;
 import java.util.Map;
 
 public class VideoMenuPresenter extends BaseMenuPresenter {
+    /** Identifies the phone video-card menu without depending on translated labels. */
+    public static final int DIALOG_ID = 0x564d;
     private static final String TAG = VideoMenuPresenter.class.getSimpleName();
     private final MediaItemService mMediaItemService;
     private final AppDialogPresenter mDialogPresenter;
@@ -206,6 +209,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
 
         if (!mDialogPresenter.isEmpty()) {
             String title = mVideo != null ? mVideo.getTitle() : null;
+            if (isPhoneVideoMenu()) mDialogPresenter.setId(DIALOG_ID);
             // No need to add author because: 1) This could be a channel card. 2) This info isn't so important.
             mDialogPresenter.showDialog(title);
         }
@@ -227,8 +231,18 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
 
         if (!mDialogPresenter.isEmpty()) {
             String title = mVideo != null ? mVideo.getTitle() : null;
+            if (isPhoneVideoMenu()) mDialogPresenter.setId(DIALOG_ID);
             mDialogPresenter.showDialog(title);
         }
+    }
+
+    private boolean isPhoneVideoMenu() {
+        return PhoneUi.isEnabled() && mVideo != null && mVideo.hasVideo()
+                && !mVideo.isPlaylistCard() && !mVideo.isPlaylistAsChannel();
+    }
+
+    private void appendVideoAction(int id, OptionItem item) {
+        mDialogPresenter.appendSingleButton(isPhoneVideoMenu() ? id : -1, item);
     }
 
     private void appendAddToWatchLaterButton() {
@@ -240,7 +254,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
             return;
         }
 
-        mDialogPresenter.appendSingleButton(
+        appendVideoAction(R.string.add_video_to_watch_later,
                 UiOptionItem.from(
                         getContext().getString(R.string.add_video_to_watch_later),
                         optionItem -> {
@@ -326,7 +340,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
             return;
         }
 
-        mDialogPresenter.appendSingleButton(
+        appendVideoAction(R.string.dialog_add_to_playlist,
                 UiOptionItem.from(
                         getContext().getString(R.string.dialog_add_to_playlist),
                         optionItem -> AppDialogUtil.showAddToPlaylistDialog(getContext(), mVideo, mCallback)
@@ -347,7 +361,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
             return;
         }
 
-        mDialogPresenter.appendSingleButton(
+        appendVideoAction(R.string.dialog_download,
                 UiOptionItem.from(
                         getContext().getString(R.string.dialog_download),
                         optionItem -> VideoDownloads.request(getContext(), mVideo)
@@ -459,7 +473,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
 
         RxHelper.disposeActions(mNotInterestedAction);
 
-        mDialogPresenter.appendSingleButton(
+        appendVideoAction(R.string.not_interested,
                 UiOptionItem.from(getContext().getString(R.string.not_interested), optionItem -> {
                     if (PhoneUi.isEnabled()) {
                         sendFeedbackPhone(false);
@@ -787,7 +801,8 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
         }
 
         // NEWTUBE(share): on the phone a card's Share links the video, not the resume point in it.
-        AppDialogUtil.appendShareLinkDialogItem(getContext(), mDialogPresenter, mVideo, PhoneUi.isEnabled() ? 0 : -1);
+        AppDialogUtil.appendShareLinkDialogItem(getContext(), mDialogPresenter, mVideo,
+                PhoneUi.isEnabled() ? 0 : -1, isPhoneVideoMenu() ? R.string.share_link : -1);
     }
 
     private void appendShareQRLinkButton() {
@@ -1023,7 +1038,7 @@ public class VideoMenuPresenter extends BaseMenuPresenter {
             return;
         }
 
-        mDialogPresenter.appendSingleButton(
+        appendVideoAction(R.string.play_next,
                 UiOptionItem.from(
                         getContext().getString(R.string.play_next),
                         optionItem -> {

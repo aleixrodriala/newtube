@@ -98,6 +98,11 @@ public class AppDialogUtil {
      * Adds share link items to existing dialog.
      */
     public static void appendShareLinkDialogItem(Context context, AppDialogPresenter dialogPresenter, Video video, int positionSec) {
+        appendShareLinkDialogItem(context, dialogPresenter, video, positionSec, -1);
+    }
+
+    public static void appendShareLinkDialogItem(Context context, AppDialogPresenter dialogPresenter, Video video,
+                                               int positionSec, int categoryId) {
         if (video == null) {
             return;
         }
@@ -106,7 +111,7 @@ public class AppDialogUtil {
             return;
         }
 
-        dialogPresenter.appendSingleButton(
+        dialogPresenter.appendSingleButton(categoryId,
                 UiOptionItem.from(context.getString(R.string.share_link), optionItem -> {
                     // NEWTUBE(share): on the phone the menu has done its job once the share sheet opens.
                     if (PhoneUi.isEnabled()) {

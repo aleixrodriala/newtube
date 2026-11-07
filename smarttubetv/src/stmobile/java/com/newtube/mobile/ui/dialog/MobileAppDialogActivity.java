@@ -29,6 +29,7 @@ import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionCategory;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.ui.OptionItem;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
+import com.liskovsoft.smartyoutubetv2.common.app.presenters.dialogs.menu.VideoMenuPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.AppDialogView;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.common.MobileActivity;
@@ -101,12 +102,14 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
     private static final class DialogLevel {
         final List<OptionCategory> categories;
         final CharSequence title;
+        final boolean videoMenu;
         /** NEWTUBE(settings-scroll): where this level's list was when a level was opened over it. */
         Parcelable listState;
 
-        DialogLevel(List<OptionCategory> categories, CharSequence title) {
+        DialogLevel(List<OptionCategory> categories, CharSequence title, boolean videoMenu) {
             this.categories = categories;
             this.title = title;
+            this.videoMenu = videoMenu;
         }
     }
 
@@ -367,7 +370,8 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
 
         DialogLevel level = mLevels.get(mLevels.size() - 1);
 
-        mTitleView.setText(level.title);
+        CharSequence sheetTitle = level.videoMenu ? null : level.title;
+        mTitleView.setText(sheetTitle);
         // Show the back arrow when it can pop a level. A root-level sheet has no back arrow - the
         // scrim/back dismiss it.
         boolean showBack = canGoBack();
@@ -375,14 +379,19 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
         // NEWTUBE(sheet-title): a root sheet without a title (Repeat mode, Zoom: their category
         // header names them) left the bar as 56dp of blank between the handle and the first row -
         // a fifth of the height over the landscape player.
-        mToolbar.setVisibility(showBack || !TextUtils.isEmpty(level.title) ? View.VISIBLE : View.GONE);
+        mToolbar.setVisibility(showBack || !TextUtils.isEmpty(sheetTitle) ? View.VISIBLE : View.GONE);
         // NEWTUBE(sheet-title): without the arrow the title sat 4dp from the edge while every row
         // starts at 16dp; line it up with the rows. Beside the arrow, 4dp keeps the usual gap.
         mTitleView.setPaddingRelative(
                 getResources().getDimensionPixelSize(showBack
                         ? R.dimen.mobile_dialog_title_inset_with_back : R.dimen.mobile_dialog_title_inset),
                 mTitleView.getPaddingTop(), mTitleView.getPaddingEnd(), mTitleView.getPaddingBottom());
-        mAdapter.submit(level.categories, mRadioOverrides, level.title);
+        List<OptionCategory> rows = level.videoMenu
+                ? VideoMenuLayout.primary(level.categories, getString(R.string.mobile_menu_more), extras -> {
+                    for (OptionCategory category : extras) mPresenter.appendCategory(category);
+                    mPresenter.showDialog(getString(R.string.mobile_menu_more));
+                }) : level.categories;
+        mAdapter.submit(rows, mRadioOverrides, sheetTitle);
         RecyclerView.LayoutManager layoutManager = mRecyclerView.getLayoutManager();
         if (scroll == SCROLL_RESTORE && level.listState != null && layoutManager != null) {
             layoutManager.onRestoreInstanceState(level.listState);
@@ -628,7 +637,7 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
             if (!stackWasEmpty && mRecyclerView.getLayoutManager() != null) {
                 mLevels.get(mLevels.size() - 1).listState = mRecyclerView.getLayoutManager().onSaveInstanceState();
             }
-            mLevels.add(new DialogLevel(categories, title));
+            mLevels.add(new DialogLevel(categories, title, stackWasEmpty && id == VideoMenuPresenter.DIALOG_ID));
             renderTopLevel(SCROLL_TOP);
         });
     }

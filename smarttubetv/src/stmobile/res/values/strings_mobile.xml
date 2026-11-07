@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="mobile_menu_play_next">Play next in queue</string>
+    <string name="mobile_menu_save_playlist">Save to playlist</string>
+    <string name="mobile_menu_download_video">Download video</string>
     <string name="mobile_search_filters">Search filters</string>
     <string name="mobile_search_apply">Apply</string>
     <string name="mobile_search_prioritize">Prioritize</string>

@@ -203,6 +203,10 @@ public class AppDialogPresenter extends BasePresenter<AppDialogView> {
         mCategories.add(OptionCategory.singleButton(optionItem));
     }
 
+    public void appendSingleButton(int id, OptionItem optionItem) {
+        mCategories.add(OptionCategory.from(id, OptionCategory.TYPE_SINGLE_BUTTON, null, optionItem));
+    }
+
     public void showDialogMessage(String dialogTitle, Runnable onClose, int timeoutMs) {
         showDialog(dialogTitle, onClose);
 
