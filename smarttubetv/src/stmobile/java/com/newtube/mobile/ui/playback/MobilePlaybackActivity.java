@@ -49,6 +49,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
+import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.OneShotPreDrawListener;
@@ -228,6 +229,8 @@ public class MobilePlaybackActivity extends MobileActivity
     /** Persistent "why playback stopped" line (see {@link #showPlaybackNotice}). */
     private TextView mNoticeView;
     private ImageButton mSubtitlesButton;
+    private SwitchCompat mAutoplaySwitch;
+    private boolean mUpdatingAutoplaySwitch;
     private ImageButton mMoreButton;
     private ImageButton mPrevButton;
     private ImageButton mNextButton;
@@ -715,6 +718,7 @@ public class MobilePlaybackActivity extends MobileActivity
         mSetupHint = findViewById(R.id.mobile_player_setup_hint);
         mNoticeView = findViewById(R.id.mobile_player_notice);
         mCastButton = findViewById(R.id.mobile_player_cast);
+        mAutoplaySwitch = findViewById(R.id.mobile_player_autoplay);
         mCastOverlay = findViewById(R.id.mobile_cast_overlay);
         mCastOverlayTitle = findViewById(R.id.mobile_cast_overlay_title);
         mCastPlayPause = findViewById(R.id.mobile_cast_play_pause);
@@ -961,7 +965,7 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         // Gear menu: quality/speed/PiP plus the long tail of SmartTube player actions
-        // (see openPlayerMenu). The top-right row stays a YouTube-style trio: cast, CC, gear.
+        // (see openPlayerMenu). The top-right row keeps autoplay, cast, CC and gear.
         if (mMoreButton != null) {
             mMoreButton.setOnClickListener(v -> openPlayerMenu());
         }
@@ -972,6 +976,15 @@ public class MobilePlaybackActivity extends MobileActivity
             mCastButton.setOnClickListener(v -> openCastPicker());
         }
         setupCastOverlay();
+
+        mAutoplaySwitch.setOnCheckedChangeListener((button, checked) -> {
+            if (mUpdatingAutoplaySwitch) return;
+            int mode = checked ? PlayerConstants.PLAYBACK_MODE_ALL : PlayerConstants.PLAYBACK_MODE_PAUSE;
+            PlayerData.instance(this).setPlaybackMode(mode);
+            setButtonState(R.id.action_repeat, mode);
+            showPlayerHint(checked ? R.string.mobile_player_autoplay_on : R.string.mobile_player_autoplay_off, false);
+            armAutoHide();
+        });
         // CC tap toggles captions like the official app (last-used track <-> off; first use falls
         // through to the picker). The full track picker is the native captions sheet, reachable via
         // long-press here and the gear menu's Subtitles row - see showCaptionsSheet().
@@ -1275,7 +1288,7 @@ public class MobilePlaybackActivity extends MobileActivity
         playerData.setResizeMode(mode);
         playerData.setZoomPercents(-1);
         animateResizeMode(mode);
-        showZoomHint(zoomIn ? R.string.mobile_player_zoom_fill : R.string.mobile_player_zoom_original);
+        showPlayerHint(zoomIn ? R.string.mobile_player_zoom_fill : R.string.mobile_player_zoom_original, true);
     }
 
     /**
@@ -1313,13 +1326,14 @@ public class MobilePlaybackActivity extends MobileActivity
         }
     };
 
-    /** Show the YouTube-style zoom chip, re-arming the fade-out if a pinch fires again mid-show. */
-    private void showZoomHint(int textRes) {
+    /** Shared transient feedback for zoom and autoplay, re-arming the fade on repeated changes. */
+    private void showPlayerHint(int textRes, boolean chip) {
         if (mZoomHintView == null) {
             return;
         }
         mZoomHintView.removeCallbacks(mHideZoomHint);
         mZoomHintView.animate().cancel();
+        mZoomHintView.setBackgroundResource(chip ? R.drawable.bg_mobile_zoom_hint : 0);
         mZoomHintView.setText(textRes);
         if (mZoomHintView.getVisibility() != View.VISIBLE) {
             mZoomHintView.setAlpha(0f);
@@ -1561,6 +1575,7 @@ public class MobilePlaybackActivity extends MobileActivity
         super.onResume();
         updateCastIconTint();
         if (!CastPrefs.isEnabled(this)) hideCastOverlay();
+        updateAutoplaySwitch(QueuePlaybackMode.apply(getVideo(), PlayerData.instance(this).getPlaybackMode()));
         // Account changes and the existing Save picker can both change membership while away.
         if (mWatchLaterAction != null) {
             mWatchLaterAction.reset();
@@ -4588,6 +4603,21 @@ public class MobilePlaybackActivity extends MobileActivity
         PlayerData.instance(this).setPlaybackMode(mode);
         // Reflect on the (hidden) repeat button state so the menu shows the right On/Off next time.
         setButtonState(R.id.action_repeat, mode);
+    }
+
+    private void updateAutoplaySwitch(int mode) {
+        if (mAutoplaySwitch == null) return;
+        Video video = getVideo();
+        boolean available = video == null || !video.finishOnEnded;
+        boolean on = available && (mode == PlayerConstants.PLAYBACK_MODE_ALL
+                || mode == PlayerConstants.PLAYBACK_MODE_SHUFFLE || mode == PlayerConstants.PLAYBACK_MODE_LIST
+                || mode == PlayerConstants.PLAYBACK_MODE_REVERSE_LIST);
+        mUpdatingAutoplaySwitch = true;
+        mAutoplaySwitch.setChecked(on);
+        mUpdatingAutoplaySwitch = false;
+        mAutoplaySwitch.setEnabled(available);
+        androidx.core.view.ViewCompat.setStateDescription(mAutoplaySwitch,
+                getString(on ? R.string.mobile_player_autoplay_on : R.string.mobile_player_autoplay_off));
     }
 
     /** Open the Play-in-background / audio-mode option dialog via the reused AppDialog path. */
@@ -8329,7 +8359,9 @@ public class MobilePlaybackActivity extends MobileActivity
     private void updateButtonVisual(int buttonId, int buttonState) {
         boolean on = buttonState == BUTTON_ON;
 
-        if (buttonId == R.id.action_thumbs_up && mWatchLikeIcon != null) {
+        if (buttonId == R.id.action_repeat) {
+            updateAutoplaySwitch(buttonState);
+        } else if (buttonId == R.id.action_thumbs_up && mWatchLikeIcon != null) {
             // NEWTUBE(icons): filled while on, outlined while off, both in the text colour - the
             // CC button's language. A red tint on the active thumb broke the no-tints rule.
             mWatchLikeIcon.setImageResource(on ? R.drawable.ic_watch_thumb_up : R.drawable.ic_watch_thumb_up_outline);

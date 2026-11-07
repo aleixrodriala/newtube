@@ -117,8 +117,8 @@
                     android:tint="@color/mobile_player_on_video" />
 
                 <!-- paddingEnd must clear the full top-right options row (mobile_player_options):
-                     3 icon buttons * 48dp (no end margin) = 144dp. Otherwise the wrapped
-                     title runs under the leftmost option (cast) icon. -->
+                     the autoplay switch plus three 48dp icon buttons. Otherwise the wrapped
+                     title runs under the leftmost option. -->
                 <TextView
                     android:id="@+id/mobile_player_title"
                     android:layout_width="match_parent"
@@ -128,7 +128,7 @@
                     android:maxLines="2"
                     android:paddingStart="56dp"
                     android:paddingTop="12dp"
-                    android:paddingEnd="148dp"
+                    android:paddingEnd="204dp"
                     android:paddingBottom="12dp"
                     android:shadowColor="#80000000"
                     android:shadowDx="0"
@@ -139,7 +139,7 @@
                     android:textStyle="bold"
                     tools:text="Video title goes here and may wrap onto a second line" />
 
-                <!-- Top-right player options, YouTube-style trio: Cast, Subtitles/CC, and the
+                <!-- Top-right player options: Autoplay, Cast, Subtitles/CC, and the
                      gear. Everything else (quality, speed, PiP, the long tail) lives one level
                      down in the gear's bottom sheet (openPlayerMenu). -->
                 <LinearLayout
@@ -150,6 +150,21 @@
                     android:layout_marginTop="4dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/mobile_player_autoplay"
+                        android:layout_width="56dp"
+                        android:layout_height="@dimen/mobile_player_icon_button"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_player_autoplay"
+                        android:paddingHorizontal="4dp"
+                        android:thumb="@drawable/mobile_player_autoplay_thumb"
+                        app:showText="false"
+                        app:splitTrack="false"
+                        app:switchMinWidth="48dp"
+                        app:thumbTint="@null"
+                        app:track="@drawable/mobile_player_autoplay_track"
+                        app:trackTint="@null" />
 
                     <!-- Cast picker (casting wave): lists DIAL-discovered TVs + paired screens.
                          Route B only for now; see com.newtube.mobile.casting. -->
