@@ -423,4 +423,11 @@
     <string name="mobile_about_share_text">NewTube, un cliente de YouTube para móviles basado en SmartTube: %1$s</string>
     <string name="sabr_vod_option">Preferir SABR aunque haya enlaces (experimental; próximo vídeo)</string>
     <string name="sabr_vod_stopped">Se ha detenido la reproducción SABR experimental. Pulsa reproducir para reintentar o desactiva SABR en Ajustes.</string>
+    <!-- NEWTUBE(sleep-timer): Player gear menu sleep timer (issues #47, #77). -->
+    <string name="mobile_player_sleep_timer">Temporizador de apagado</string>
+    <string name="mobile_sleep_timer_end_of_video">Fin del vídeo</string>
+    <string name="mobile_sleep_timer_set">Temporizador configurado para %1$s</string>
+    <string name="mobile_sleep_timer_set_end_of_video">Temporizador configurado para el fin del vídeo</string>
+    <string name="mobile_sleep_timer_turned_off">Temporizador de apagado desactivado</string>
+    <string name="mobile_sleep_timer_paused">El temporizador de apagado ha pausado la reproducción</string>
 </resources>

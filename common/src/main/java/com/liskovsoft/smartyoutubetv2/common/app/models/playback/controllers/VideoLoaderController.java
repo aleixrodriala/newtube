@@ -19,6 +19,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.BasePlayerController;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.QueuePlaybackMode;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.SleepTimer;
 import com.liskovsoft.smartyoutubetv2.common.app.models.playback.manager.PlayerConstants;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.PlaybackPresenter;
@@ -283,6 +284,12 @@ public class VideoLoaderController extends BasePlayerController {
         stopPlayedClock();
         Utils.removeCallbacks(mNextPrefetchDue);
         if (getPlayer() == null) {
+            return;
+        }
+
+        if (SleepTimer.isEndOfVideoArmed()) {
+            SleepTimer.onEndOfVideoReached();
+            stopPlayback();
             return;
         }
 
@@ -794,6 +801,11 @@ public class VideoLoaderController extends BasePlayerController {
         return RxHelper.isAnyActionRunning(mFormatInfoAction);
     }
 
+    public void suppressPendingRecovery() {
+        mPreMediaRetry.clear();
+        disposeActions();
+    }
+
     private void disposeActions() {
         MediaServiceManager.instance().disposeActions();
         RxHelper.disposeActions(mFormatInfoAction);
@@ -1010,7 +1022,7 @@ public class VideoLoaderController extends BasePlayerController {
      * ({@link QueuePlaybackMode} - the playlist page's Shuffle button no longer flips the app-wide
      * setting), and then the two per-video specials that outrank both.
      */
-    private int getPlaybackMode() {
+    protected int getPlaybackMode() {
         Video video = getVideo();
         int playbackMode = QueuePlaybackMode.apply(video, getPlayerData().getPlaybackMode());
 

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material "bedtime" (crescent moon) glyph for the player Sleep-timer option. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12.3,2A10,10 0,0 0,10.4 2.18A10,10 0,0 1,21.82 13.6A10,10 0,1 0,12.3 2Z" />
+</vector>
