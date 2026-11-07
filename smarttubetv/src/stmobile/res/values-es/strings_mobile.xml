@@ -445,4 +445,5 @@
     <string name="mobile_player_no_recommendations">No hay recomendaciones disponibles</string>
     <string name="mobile_watch_later_remove">Quitar de Ver más tarde</string>
     <string name="mobile_watch_later_error">No se ha podido actualizar Ver más tarde. Vuelve a intentarlo.</string>
+    <string name="mobile_settings_quality_fixed_intro">Automática se adapta a tu conexión. La resolución elegida se mantiene cuando está disponible; si no, se usa la mejor resolución inferior. Puedes cambiarla para un vídeo desde los ajustes del reproductor.</string>
 </resources>
