@@ -13,7 +13,7 @@
     </item>
     <item android:top="1dp">
         <shape android:shape="rectangle">
-            <solid android:color="@color/mobile_color_surface" />
+            <solid android:color="?attr/newtubeColorSurface" />
             <corners
                 android:topLeftRadius="16dp"
                 android:topRightRadius="16dp" />

@@ -35,14 +35,24 @@
         <item name="colorAccent">@color/mobile_color_on_surface</item>
         <item name="colorSecondary">@color/mobile_color_on_surface</item>
         <item name="colorControlActivated">@color/mobile_color_on_surface</item>
-        <item name="android:colorBackground">@color/mobile_color_background</item>
-        <item name="colorSurface">@color/mobile_color_surface</item>
+        <!-- NEWTUBE(theme): the page colours (attrs_mobile.xml). ThemeOverlay.NewTube.PureBlack
+             replaces them on the dark side; everything below reads them through the attributes. -->
+        <item name="newtubePureBlack">false</item>
+        <item name="newtubeColorBackground">@color/mobile_color_background</item>
+        <item name="newtubeColorNavigationBar">@color/mobile_color_navigation_bar</item>
+        <item name="newtubeColorBackgroundScrim">@color/mobile_color_background_scrim</item>
+        <item name="newtubeColorField">@color/mobile_color_field</item>
+        <item name="newtubeColorSurface">@color/mobile_color_surface</item>
+        <item name="newtubeColorCard">@color/mobile_color_card</item>
+        <item name="newtubeColorCommentParent">@color/mobile_color_comment_parent</item>
+        <item name="android:colorBackground">?attr/newtubeColorBackground</item>
+        <item name="colorSurface">?attr/newtubeColorSurface</item>
         <item name="colorOnSurface">@color/mobile_color_on_surface</item>
-        <item name="android:windowBackground">@color/mobile_color_background</item>
+        <item name="android:windowBackground">?attr/newtubeColorBackground</item>
         <!-- Solid app-colored system bars from the first frame (otherwise colorPrimaryDark red
              flashes in the status bar until the runtime chrome in MobileActivity lands). -->
-        <item name="android:statusBarColor">@color/mobile_color_background</item>
-        <item name="android:navigationBarColor">@color/mobile_color_navigation_bar</item>
+        <item name="android:statusBarColor">?attr/newtubeColorBackground</item>
+        <item name="android:navigationBarColor">?attr/newtubeColorNavigationBar</item>
         <item name="android:windowLightStatusBar">@bool/mobile_light_system_bars</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="27">@bool/mobile_light_system_bars</item>
         <!-- Edge-to-edge (transparent bars, content underneath) is forced from targetSdk 35 on,
@@ -118,6 +128,25 @@
         <item name="cornerRadius">20dp</item>
     </style>
 
+    <!--
+      NEWTUBE(theme): Settings > General > Pure black (issues #73, #74). ThemeMode.applyPalette
+      lays this over a screen's theme before its window and views exist - and so under every
+      sheet, dialog and menu opened from it, whose themes are copies of the screen's - whenever
+      the screen is on the dark side (Dark, or System default while the system is dark). The page
+      goes #000000; sheets, dialogs and cards stay one step off black (#121212) so they keep an
+      edge. The light side never gets it. Only the attributes of attrs_mobile.xml change.
+    -->
+    <style name="ThemeOverlay.NewTube.PureBlack" parent="">
+        <item name="newtubePureBlack">true</item>
+        <item name="newtubeColorBackground">@color/mobile_pure_black_background</item>
+        <item name="newtubeColorNavigationBar">@color/mobile_pure_black_background</item>
+        <item name="newtubeColorBackgroundScrim">@color/mobile_pure_black_background_scrim</item>
+        <item name="newtubeColorField">@color/mobile_pure_black_background</item>
+        <item name="newtubeColorSurface">@color/mobile_pure_black_surface</item>
+        <item name="newtubeColorCard">@color/mobile_pure_black_surface</item>
+        <item name="newtubeColorCommentParent">@color/mobile_pure_black_surface</item>
+    </style>
+
     <style name="ThemeOverlay.NewTube.BottomSheetDialog" parent="ThemeOverlay.MaterialComponents.BottomSheetDialog">
         <item name="bottomSheetStyle">@style/Widget.NewTube.BottomSheet</item>
         <!-- ElevationOverlayProvider reads this off the THEME, not off the widget style.
@@ -133,8 +162,13 @@
       the colour runs under the gesture bar to the display edge.
     -->
     <style name="Widget.NewTube.BottomSheet" parent="Widget.MaterialComponents.BottomSheet.Modal">
-        <item name="backgroundTint">@color/mobile_color_surface</item>
+        <item name="backgroundTint">?attr/newtubeColorSurface</item>
         <item name="shapeAppearanceOverlay">@style/ShapeAppearance.NewTube.BottomSheet</item>
+        <!-- NEWTUBE(sheet-landscape): MaterialComponents squares an EXPANDED sheet's corners
+             (Material3 turns this off), so every sheet that opened fully - the gear and its More
+             level - had square corners and the pickers that opened at their peek round ones.
+             Only a sheet that reaches the top of the screen squares off now, as Material 3. -->
+        <item name="shouldRemoveExpandedCorners">false</item>
     </style>
 
     <style name="ShapeAppearance.NewTube.BottomSheet" parent="">
@@ -203,8 +237,8 @@
         <item name="android:windowAnimationStyle">@style/PlayerWindowAnimation</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:windowTranslucentStatus">false</item>
-        <item name="android:statusBarColor">@color/mobile_color_background</item>
-        <item name="android:navigationBarColor">@color/mobile_color_navigation_bar</item>
+        <item name="android:statusBarColor">?attr/newtubeColorBackground</item>
+        <item name="android:navigationBarColor">?attr/newtubeColorNavigationBar</item>
         <!-- NEWTUBE(theme): the status bar sits over the black video band in both themes
              (applySystemBarsForOrientation), so its icons stay light; so do those of the sheets
              opened over the video. The navigation bar follows the page (Theme.NewTube). -->
@@ -252,7 +286,7 @@
       next to the bottom sheets (user feedback).
     -->
     <style name="MobileAlertDialog" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
-        <item name="colorSurface">@color/mobile_color_surface</item>
+        <item name="colorSurface">?attr/newtubeColorSurface</item>
         <!-- Same trap as the sheets: the dialog's 24dp elevation blended white into colorSurface,
              so in the dark theme every dialog came out grey (#3F3F3F-ish) instead of the
              #1E1E1E of the sheets beside it. -->
@@ -486,6 +520,29 @@
         <item name="android:layout_marginTop">12dp</item>
         <item name="android:layout_marginEnd">48dp</item>
         <item name="android:background">@drawable/bg_skeleton_block</item>
+    </style>
+    <!-- NEWTUBE(feed-avatars): avatar + text lines under the thumb; the avatar shows on Home and
+         Subscriptions only (item_video_card's geometry: 36 dp, 4 dp in, 12 dp gap). -->
+    <style name="MobileSkeletonFeedTextRow">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">horizontal</item>
+    </style>
+    <style name="MobileSkeletonFeedAvatar">
+        <item name="android:layout_width">@dimen/mobile_card_avatar_size</item>
+        <item name="android:layout_height">@dimen/mobile_card_avatar_size</item>
+        <item name="android:layout_marginStart">4dp</item>
+        <item name="android:layout_marginTop">12dp</item>
+        <item name="android:layout_marginEnd">8dp</item>
+        <item name="android:background">@drawable/bg_comment_skeleton_avatar</item>
+        <item name="android:tag">avatar</item>
+        <item name="android:visibility">gone</item>
+    </style>
+    <style name="MobileSkeletonFeedText">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:orientation">vertical</item>
     </style>
     <style name="MobileSkeletonFeedLineNarrow">
         <item name="android:layout_width">180dp</item>

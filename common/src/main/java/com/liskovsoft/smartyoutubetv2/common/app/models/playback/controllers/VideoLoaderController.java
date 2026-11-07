@@ -250,7 +250,11 @@ public class VideoLoaderController extends BasePlayerController {
             return;
         }
 
-        openVideoInt(mSuggestionsController.getPrevious());
+        Video previous = mSuggestionsController.getPrevious();
+        if (previous != null) {
+            previous.fromPrevious = true; // NEWTUBE(prev-resume): resume where the user left it
+        }
+        openVideoInt(previous);
 
         if (getPlayerTweaksData().isPlayerUiOnNextEnabled()) {
             getPlayer().showOverlay(true);

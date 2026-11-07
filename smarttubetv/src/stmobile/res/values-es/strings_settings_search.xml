@@ -5,6 +5,7 @@
 
     <string name="mobile_settings_search_kw_account">iniciar sesión cerrar sesión google perfil cambiar</string>
     <string name="mobile_settings_search_kw_theme">modo oscuro modo claro noche apariencia colores</string>
+    <string name="mobile_settings_search_kw_pure_black">amoled oled negro modo oscuro noche batería</string>
     <string name="mobile_settings_search_kw_country">país región</string>
     <string name="mobile_settings_search_kw_start_screen">al abrir arranque pestaña por defecto inicio</string>
     <string name="mobile_settings_search_kw_interface_size">escala zoom letra tamaño del texto densidad más grande más pequeño</string>

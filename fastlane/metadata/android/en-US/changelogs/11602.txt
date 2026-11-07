@@ -1,0 +1,1 @@
+Fixed: vertical videos play in 1080p; full quality arrives sooner after a video starts; no 720p cap on the watch page when background data is off; player menus in fullscreen no longer jump, the More menu scrolls in landscape, and the Quality row shows the quality actually playing.

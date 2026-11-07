@@ -252,12 +252,16 @@ public class Media3SourceFactory {
             // Existing installs have no measurement timestamp: an old fast-network hint must
             // not select a large first chunk on today's weak link. Fresh transfers can raise
             // quality immediately; this does not constrain the user's explicit track choice.
-            boolean startupPolicy = !(BuildConfig.DEBUG || BuildConfig.BENCHMARK)
-                    || !"off".equals(DebugMediaShaper.prop("debug.arc.startup_abr"));
+            // Test builds: debug.arc.startup_abr=off runs the legacy seed, =stale treats every
+            // stored hint as too old (the first open of a session), without waiting it out.
+            String startupProp = BuildConfig.DEBUG || BuildConfig.BENCHMARK
+                    ? DebugMediaShaper.prop("debug.arc.startup_abr") : null;
+            boolean startupPolicy = !"off".equals(startupProp);
+            boolean forceStale = "stale".equals(startupProp);
             sBandwidthMeter = new StartupBandwidthMeter(builder.build(),
                     type -> StartupBandwidthMeter.seedFor(
                             preferences.getLong(bitrateKey(type), 0),
-                            preferences.getLong(KEY_BITRATE_TIME_PREFIX + type, 0),
+                            forceStale ? 0 : preferences.getLong(KEY_BITRATE_TIME_PREFIX + type, 0),
                             System.currentTimeMillis()),
                     (type, bitrate) -> saveMeasuredEstimate(context, type, bitrate), currentType,
                     startupPolicy, androidx.media3.common.util.Clock.DEFAULT);
@@ -267,7 +271,7 @@ public class Media3SourceFactory {
             NetPath.log(NetPath.context() + " abr-init network=" + networkTypeName(currentType)
                     + " seed=" + sBandwidthMeter.getBitrateEstimate()
                     + " storedSeed=" + (currentSeed > 0 ? currentSeed : "default")
-                    + " bootstrap=" + (startupPolicy ? "fresh" : "legacy")
+                    + " bootstrap=" + (!startupPolicy ? "legacy" : forceStale ? "forced-stale" : "fresh")
                     + " storedTypes=" + seededTypes);
         }
         return sBandwidthMeter;
@@ -472,6 +476,11 @@ public class Media3SourceFactory {
         if (BuildConfig.DEBUG || BuildConfig.BENCHMARK) {
             leafFactory = new DebugMediaShaper.Factory(leafFactory);
         }
+
+        // NEWTUBE(wall-swap): a 403 past what an armed VOD open already played waits for the
+        // recovery walk's answer and continues on its URL for the same file (MediaRepoint). Above
+        // the shaper (the synthetic wall is judged per answer), below the cache and the gates.
+        leafFactory = MediaRepoint.wrap(leafFactory);
 
         // googlevideo range-query mirroring sits directly on the leaf transport, BELOW the cache
         // tier (CacheDataSource upstream = resolving(leaf)): the cache key factory reads only

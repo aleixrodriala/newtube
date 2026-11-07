@@ -5,7 +5,7 @@
     android:color="?android:attr/colorControlHighlight">
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="@color/mobile_color_card" />
+            <solid android:color="?attr/newtubeColorCard" />
             <corners android:radius="12dp" />
         </shape>
     </item>

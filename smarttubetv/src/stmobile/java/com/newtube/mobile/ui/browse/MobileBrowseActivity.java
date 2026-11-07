@@ -326,7 +326,7 @@ public class MobileBrowseActivity extends MobileActivity
 
     private void setupSwipeRefresh() {
         mContentSwipe.setColorSchemeColors(getColorInt(R.color.mobile_color_on_surface));
-        mContentSwipe.setProgressBackgroundColorSchemeColor(getColorInt(R.color.mobile_color_surface));
+        mContentSwipe.setProgressBackgroundColorSchemeColor(com.newtube.mobile.ui.common.ThemeMode.color(this, R.attr.newtubeColorSurface));
         mContentSwipe.setOnRefreshListener(() -> {
             if (mPresenter != null) {
                 mPresenter.refresh(false);
@@ -1316,6 +1316,7 @@ public class MobileBrowseActivity extends MobileActivity
         mLastNearEndTriggerCount = -1;
         mContentGrid.animate().cancel();
         mContentGrid.setAlpha(1f);
+        setSkeletonAvatars(showsChannelAvatars(sectionId));
         if (switched) {
             // NEWTUBE(motion): another section is a new page, not an edit of the old one. Through
             // the item animator it played as a shuffle (Pixel 9, History -> Home: the old cards
@@ -1329,6 +1330,7 @@ public class MobileBrowseActivity extends MobileActivity
             // A re-paint landing before the switch's own commit supersedes it: it finishes the switch.
             mAdapter.submitList(new ArrayList<>(mCurrentVideos), this::onSectionSwapCommitted);
         } else {
+            syncChannelAvatars();
             mAdapter.submitList(new ArrayList<>(mCurrentVideos));
         }
         if (!mCurrentVideos.isEmpty()) {
@@ -1409,6 +1411,56 @@ public class MobileBrowseActivity extends MobileActivity
      * (add to playlist / share / subscribe / etc.) via {@code VideoMenuPresenter} and shows it
      * through {@code AppDialogPresenter} - now rendered by {@code MobileAppDialogActivity}.
      */
+    // ---------------------------------------------------------------------------------
+    // NEWTUBE(feed-avatars): the channel avatar on Home and Subscriptions cards
+    // ---------------------------------------------------------------------------------
+
+    /** Home and Subscriptions mix channels, so their cards show whose video it is, like YouTube. */
+    private static boolean showsChannelAvatars(int sectionId) {
+        return sectionId == MediaGroup.TYPE_HOME || sectionId == MediaGroup.TYPE_SUBSCRIPTIONS;
+    }
+
+    private void syncChannelAvatars() {
+        mAdapter.setChannelAvatars(showsChannelAvatars(mCurrentSectionId) ? this::onChannelAvatarClicked : null);
+    }
+
+    /** The loading skeleton's avatar circles, where the cards will have avatars. */
+    private void setSkeletonAvatars(boolean shown) {
+        List<View> avatars = new ArrayList<>();
+        collectTagged(mFeedSkeleton, "avatar", avatars);
+        for (View avatar : avatars) {
+            avatar.setVisibility(shown ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private static void collectTagged(View view, Object tag, List<View> out) {
+        if (tag.equals(view.getTag())) {
+            out.add(view);
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                collectTagged(group.getChildAt(i), tag, out);
+            }
+        }
+    }
+
+    /**
+     * Same route as the card menu's "Open channel". A Home tile does not carry its channel; when its
+     * avatar lookup found it, a copy carries it, so the page opens without first looking up the video.
+     */
+    private void onChannelAvatarClicked(Video video) {
+        String channelId = com.newtube.mobile.ui.common.ChannelAvatars.channelIdOf(video);
+        com.liskovsoft.smartyoutubetv2.common.misc.NetPath.log("card-avatar open channel=" + channelId
+                + " own=" + (video.channelId != null) + " section=" + mCurrentSectionId);
+        Video channel = video;
+        if (video.channelId == null && channelId != null) {
+            channel = Video.from(video);
+            channel.channelId = channelId;
+        }
+        MediaServiceManager.chooseChannelPresenter(this, channel);
+    }
+
     private boolean onVideoLongClicked(Video video) {
         if (mPresenter == null) {
             return false;
@@ -2338,6 +2390,9 @@ public class MobileBrowseActivity extends MobileActivity
             return;
         }
         mSectionSwapPending = false;
+        // With the new section's list, before its cards are bound (that happens at the next layout):
+        // the old section's cards never show the new section's avatars, nor the other way round.
+        syncChannelAvatars();
         // DiffUtil keeps the viewport anchored on a card both sections share; a new section starts
         // at its top.
         mLayoutManager.scrollToPositionWithOffset(0, 0);

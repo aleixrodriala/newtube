@@ -762,6 +762,18 @@ public class SuggestionsController extends BasePlayerController {
         return result;
     }
 
+    /**
+     * NEWTUBE(prev-restart): whether {@link #getPrevious()} would return a video, without its
+     * side effect (it flags the Playlist item {@code fromQueue}).
+     */
+    public boolean hasPrevious() {
+        if (getPlayer() == null || getVideo() == null) {
+            return false;
+        }
+
+        return getPreviousFromGroup(getVideo()) != null || Playlist.instance().getPrevious() != null;
+    }
+
     private Video getPreviousFromGroup(Video current) {
         Video result = null;
 

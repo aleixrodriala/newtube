@@ -58,6 +58,12 @@ final class AppPages {
                 .option(context.getString(R.string.mobile_theme_light), ThemeMode.LIGHT)
                 .option(context.getString(R.string.mobile_theme_dark), ThemeMode.DARK)
                 .bind(ThemeMode::get, mode -> ThemeMode.set(context, mode)));
+        // NEWTUBE(theme): pure black (issues #73, #74) - the dark side's page goes #000000. Applies
+        // to Dark and to System default while the system is dark; greyed out on Light.
+        rows.add(SettingsRow.toggle(context.getString(R.string.mobile_theme_pure_black),
+                context.getString(R.string.mobile_theme_pure_black_summary),
+                ThemeMode::isPureBlack, on -> ThemeMode.setPureBlack(context, on))
+                .enabledWhen(() -> ThemeMode.get() != ThemeMode.LIGHT));
 
         LanguageSettingsPresenter language = LanguageSettingsPresenter.instance(context);
         rows.add(SettingsRow.fromRadio(language.createLanguageCategory(),

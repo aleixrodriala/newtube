@@ -18,7 +18,8 @@ import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
  * answered or the first bytes arrived.
  *
  * <p>Debug and benchmark builds only, and only with {@code adb shell setprop debug.arc.bench 1}
- * (read when the player is created). Every {@link #TICK_MS} it logs one line:
+ * (read when the player is created). Every {@link #TICK_MS} ({@code debug.arc.bench_tick_ms}, 100 ms
+ * or more, to time a stall) it logs one line:
  * {@code bench-tick video=<id> pos=<ms> dur=<ms> buf=<ms> state=<READY|BUFFERING|ENDED|IDLE>
  * playing=<y|n> t=<elapsedRealtime>}. With {@code debug.arc.bench_seek <at_s>:<fraction>}
  * (e.g. {@code 90:0.7}) it seeks once per video to that fraction of the duration after
@@ -26,6 +27,7 @@ import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
  */
 public final class BenchTicker {
     private static final long TICK_MS = 10_000;
+    private long mTickMs = TICK_MS;
 
     /** What video the player is on; the activity knows, the player does not. */
     public interface VideoIdSource {
@@ -44,7 +46,7 @@ public final class BenchTicker {
         @Override public void run() {
             if (mStopped) return;
             tick();
-            mHandler.postDelayed(this, TICK_MS);
+            mHandler.postDelayed(this, mTickMs);
         }
     };
 
@@ -67,8 +69,12 @@ public final class BenchTicker {
             }
         }
         BenchTicker ticker = new BenchTicker(player, videoIds, seekAtMs, seekFraction);
-        NetPath.log("bench-start tickMs=" + TICK_MS + " seek=" + (seekAtMs >= 0 ? seek : "none"));
-        ticker.mHandler.postDelayed(ticker.mTick, TICK_MS);
+        String tick = systemProperty("debug.arc.bench_tick_ms");
+        if (tick != null && tick.matches("[0-9]{3,5}")) {
+            ticker.mTickMs = Long.parseLong(tick);
+        }
+        NetPath.log("bench-start tickMs=" + ticker.mTickMs + " seek=" + (seekAtMs >= 0 ? seek : "none"));
+        ticker.mHandler.postDelayed(ticker.mTick, ticker.mTickMs);
         return ticker;
     }
 

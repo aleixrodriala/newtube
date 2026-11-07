@@ -15,8 +15,7 @@ import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 
 /**
  * NEWTUBE(metered): process-wide "should the player save data" gate for its discretionary byte
- * policies - the forward-buffer ceiling ({@link MeteredBufferLoadControl}) and the inline-box rung
- * cap ({@link VideoViewportCap}). The load control asks on every loading decision - every ~10 ms
+ * policy, the forward-buffer ceiling ({@link MeteredBufferLoadControl}). The load control asks on every loading decision - every ~10 ms
  * while it is holding - so the answer must be a field read, never a binder call: one
  * {@code registerDefaultNetworkCallback} and one {@code ACTION_RESTRICT_BACKGROUND_CHANGED}
  * receiver keep two volatile flags current.
@@ -26,7 +25,10 @@ import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
  * megabytes. So "metered" alone no longer saves anything; the user must also have Android's Data
  * Saver restricting this app ({@code getRestrictBackgroundStatus() == ENABLED}; WHITELISTED -
  * "unrestricted data" for this app - and DISABLED do not save). Toggling Data Saver mid-playback
- * flips both policies for NEW chunks / loading decisions; nothing buffered is discarded.</p>
+ * flips the ceiling for NEW loading decisions; nothing buffered is discarded. ENABLED is also
+ * what an app whose per-app "Background data" is off gets, with Data Saver itself off, and no
+ * public API tells the two apart (2026-10-19, HANDOFF section 38) - which is why only the
+ * invisible buffer ceiling hangs off this gate, never the picture quality.</p>
  *
  * <p>Registration (and its one seeding read) runs on a one-shot background thread, NOT inside
  * {@code createPlayer()} on main: that is the TTFF path, and the answer is not needed there - the
@@ -60,8 +62,6 @@ final class MeteredNetworkMonitor {
     /** Test seam for the Data Saver half, same contract. */
     @Nullable private static volatile Boolean sDataSaverTestOverride;
     private static boolean sStarted;
-    /** Last published gate, so only a real flip reaches the viewport log. Guarded by the class. */
-    private static boolean sPublishedSaving;
 
     private MeteredNetworkMonitor() {
     }
@@ -78,7 +78,7 @@ final class MeteredNetworkMonitor {
         return override != null ? override : sDataSaver;
     }
 
-    /** The gate both byte policies hang off: metered AND Data Saver restricting this app. */
+    /** The buffer ceiling's gate: metered AND Data Saver restricting this app. */
     static boolean shouldSaveData() {
         return isMetered() && isDataSaverOn();
     }
@@ -232,11 +232,6 @@ final class MeteredNetworkMonitor {
         boolean saving = sMetered && sDataSaver;
         NetPath.log("buffer-cap network metered=" + yn(sMetered) + " dataSaver=" + yn(sDataSaver)
                 + " event=" + event + " -> " + (saving ? "on" : "off"));
-        if (saving != sPublishedSaving) {
-            sPublishedSaving = saving;
-            // The inline rung cap reads shouldSaveData() per selection by itself; this only logs it.
-            VideoViewportCap.shared().onSavingChanged(saving, event);
-        }
     }
 
     /** Test seam: pin the answer (null = live value again) without a ConnectivityManager. */

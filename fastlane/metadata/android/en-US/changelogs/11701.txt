@@ -1,0 +1,1 @@
+Fixed: a video decoder that fails to start no longer lowers your saved quality for every later video; the fallback now applies only to the video that failed.

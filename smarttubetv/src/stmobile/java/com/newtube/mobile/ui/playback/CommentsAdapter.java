@@ -555,7 +555,7 @@ final class CommentsAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
             mLinkColor = ContextCompat.getColor(context, R.color.mobile_color_link);
 
             if (isParent) {
-                int ground = ContextCompat.getColor(context, R.color.mobile_color_comment_parent);
+                int ground = com.newtube.mobile.ui.common.ThemeMode.color(context, R.attr.newtubeColorCommentParent);
                 itemView.setBackgroundColor(ground);
                 itemView.setPadding(itemView.getPaddingLeft(), itemView.getPaddingTop(),
                         itemView.getPaddingRight(), itemView.getPaddingBottom() + dp(context, 6));

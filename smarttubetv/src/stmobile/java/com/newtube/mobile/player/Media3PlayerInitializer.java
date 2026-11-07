@@ -36,8 +36,8 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
  *       {@link #createTrackSelector()}),</li>
  *   <li>only while saving data (a metered network AND Android Data Saver on for this app, see
  *       {@link MeteredNetworkMonitor}), a forward-buffer ceiling that grows with watch time
- *       ({@link MeteredBufferLoadControl}) and a rung cap to the portrait inline box; on any
- *       network, a small-window rung cap for PiP / the mini card ({@link VideoViewportCap}).</li>
+ *       ({@link MeteredBufferLoadControl}); on any network, a small-window rung cap for PiP /
+ *       the mini card ({@link VideoViewportCap}).</li>
  * </ul>
  */
 public class Media3PlayerInitializer {
@@ -172,10 +172,9 @@ public class Media3PlayerInitializer {
         //   HIGHEST 50/120s -> 85s.
         BufferPreset preset = resolveBufferPreset();
 
-        // NEWTUBE(viewport): same stock AdaptiveTrackSelection knobs; the subclass only adds the
-        // PiP/mini-card rung cap and the data-saving inline-box cap (VideoViewportCap - a no-op
-        // in fullscreen, or unless metered + Data Saver). The cap is process-wide so it survives
-        // this engine restart's fresh selector.
+        // NEWTUBE(viewport): same stock AdaptiveTrackSelection knobs; the subclass adds the
+        // PiP/mini-card rung cap (VideoViewportCap, process-wide so it survives this engine
+        // restart's fresh selector) and the startup-chunk replacement.
         DefaultTrackSelector trackSelector = new DefaultTrackSelector(
                 mContext,
                 new ViewportCappedTrackSelection.Factory(
@@ -186,9 +185,13 @@ public class Media3PlayerInitializer {
                         VideoViewportCap.shared()));
 
         // 1080p Auto ceiling, mobile default; an explicit user pick overrides it (the track
-        // adapter lifts the constraints when pinning a track).
+        // adapter lifts the constraints when pinning a track). Square, so it means "1080p" in
+        // both orientations: media3 checks width <= max AND height <= max with no rotation, and
+        // 1920x1080 left a vertical video's 1080p (1080x1920) and 720p (720x1280) out - vertical
+        // videos topped out at 608x1080, which YouTube calls 480p (VideoRung).
+        int ceiling = VideoRung.ceilingSide(1080);
         trackSelector.setParameters(trackSelector.buildUponParameters()
-                .setMaxVideoSize(1920, 1080)
+                .setMaxVideoSize(ceiling, ceiling)
                 .setExceedVideoConstraintsIfNecessary(true));
 
         return trackSelector;
@@ -447,6 +450,35 @@ public class Media3PlayerInitializer {
             super(context);
             mSkipOpusPreroll = skipOpusPreroll;
         }
+
+        /**
+         * DEBUG: {@code debug.arc.fail_decoder=video|audio} makes the first few decoder inits of
+         * that type in this process throw, enough to exhaust the decoder fallback list, so the
+         * error fixer's renderer branch can be exercised on an emulator. Kill the app to re-arm.
+         */
+        @Override
+        protected androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Factory getCodecAdapterFactory() {
+            androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Factory factory = super.getCodecAdapterFactory();
+            if (!com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG) {
+                return factory;
+            }
+            String target = DebugMediaShaper.prop("debug.arc.fail_decoder");
+            if (target.isEmpty()) {
+                return factory;
+            }
+            return configuration -> {
+                String mime = configuration.format.sampleMimeType;
+                boolean match = mime != null && mime.startsWith(target + "/");
+                if (match && sDebugDecoderFailuresLeft > 0) {
+                    sDebugDecoderFailuresLeft--;
+                    NetPath.log("debug fail-decoder mime=" + mime + " left=" + sDebugDecoderFailuresLeft);
+                    throw new java.io.IOException("debug.arc.fail_decoder " + mime);
+                }
+                return factory.createAdapter(configuration);
+            };
+        }
+
+        private static int sDebugDecoderFailuresLeft = 4;
 
         @Override
         protected void buildAudioRenderers(Context context, int extensionRendererMode,

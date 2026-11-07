@@ -645,6 +645,12 @@ public class MobileMainApplication extends MainApplication {
                 VideoInfoService.setVodVrLateEnabled("1".equals(vodVrLate));
                 android.util.Log.w("NetPath", "vod-vr-late " + ("1".equals(vodVrLate) ? "on" : "off") + " (debug)");
             }
+            // NEWTUBE(wall-swap): rollback of the seamless swap (MediaRepoint): the wall's 403 is
+            // fatal again and the reload recovers, as in 1.11.0-1.15.x.
+            if ("0".equals(getDebugSystemProperty("debug.arc.wall_swap"))) {
+                com.newtube.mobile.player.MediaRepoint.setEnabled(false);
+                android.util.Log.w("NetPath", "wall-swap off (debug)");
+            }
             String wall = getDebugSystemProperty("debug.arc.poison_wall_s");
             if (wall.matches("[0-9]{1,4}") && Integer.parseInt(wall) > 0) {
                 VideoInfoService.setDebugPlaybackWall(true);
@@ -937,6 +943,8 @@ public class MobileMainApplication extends MainApplication {
         // or the next repaint shows the previous user's feed.
         FeedCache.init(this);
         MediaServiceManager.instance().addAccountListener(account -> FeedCache.clear());
+        // Channel avatars of the Home/Subscriptions cards (not per account: no clear on a switch).
+        com.newtube.mobile.ui.common.ChannelAvatars.init(this);
 
         // API PRECONNECT (mobile-only): warm the www.youtube.com TLS/H2 session the instant the
         // process starts. RetrofitOkHttpHelper's InnerTube client is built via newBuilder() off

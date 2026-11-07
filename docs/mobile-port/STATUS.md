@@ -9,6 +9,33 @@ Phone-only: the TV flavors, vendored ExoPlayer fork and Leanback modules were
 deleted. Playback uses Media3 1.10.1 with embedded Cronet and an OkHttp fallback.
 Toolchain: AGP 9.2.1 / Gradle 9.6.1 / compileSdk 37 / targetSdk 37 / minSdk 24.
 
+## Quality start: vertical 1080p, startup chunks replaced (2026-10-19, branch fix/quality-start, Pixel)
+
+Reports: Auto takes too long to reach full quality; a 1080p default is "not obeyed". Fixed:
+vertical videos were capped at 608x1080 (YouTube's 480p) by a landscape-shaped ceiling, and the
+low chunks fetched before bandwidth is measured played out even after 1080p was being fetched.
+Details and the guards in HANDOFF §38. Pixel 9, benchmark `.check` builds, 2 runs per cell, time
+from the open until 1080p reaches the decoder ("stale" = the first video after 5 min, forced with
+`debug.arc.startup_abr=stale`):
+
+| Video | Network, hint | Before | After |
+|---|---|---|---|
+| Rick Astley (1080p25) | Wi-Fi, stale | 10.3 / 10.7 s | 5.2 / 5.3 s |
+| Rick Astley | LTE, stale | 5.4 / 5.2 s | 5.4 / 5.2 s |
+| Rick Astley | Wi-Fi or LTE, fresh | from the first frame | same |
+| 4K60 nature (1080p60 under Auto) | Wi-Fi, stale | 7.8 / 14.3 s | 7.2 / 7.1 s |
+| 4K60 nature | LTE, stale | 7.8 / 7.4 s | 7.5 / 7.4 s |
+| Vertical Short (1080x1920) | Wi-Fi / LTE, any | never (480p) | 10.7-11.3 s, first chunks 360p or 720p |
+
+No rebuffer in any cell (24 after, 20 before; a first LTE run of the fix is excluded: background data was turned off for the test app mid-run, which switches on the data-saving caps); first-frame times unchanged. What remains is the
+first chunk itself (5-7 s of video) at the cautious rung, plus one more when a chunk starts
+just inside the 5 s keep window (the vertical cells). 60 fps videos still open below 1080p60
+with a fresh hint (the 4 Mbps seed cap), left as is for start speed.
+
+The portrait-box 720p cap while "saving data" is removed: Android reports a per-app "Background
+data: off" exactly like Data Saver, so it also capped people (the owner included) who only meant
+"not in the background". The data-saving buffer ceiling (30 s + played) stays. HANDOFF §38.
+
 ## Settings in short pages (#2) (2026-10-02, branch feat/settings-redesign, emulator)
 
 Issue #2: the TV-era Settings were 25 screens and 1,015 rows (Player alone 37.7 screens of inline

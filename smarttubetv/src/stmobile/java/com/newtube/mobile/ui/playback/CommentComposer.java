@@ -75,6 +75,9 @@ final class CommentComposer {
         mPrefill = prefill != null ? prefill.trim() : null;
         mDialog = new AppCompatDialog(activity, R.style.MobileCommentComposer);
         Context context = mDialog.getContext();
+        // NEWTUBE(theme): the composer's style is a whole app theme, laid over a copy of the
+        // screen's - which resets pure black's page colours. Put them back.
+        com.newtube.mobile.ui.common.ThemeMode.applyPalette(context);
         mRoot = LayoutInflater.from(context).inflate(R.layout.mobile_comment_composer, null, false);
         mInput = mRoot.findViewById(R.id.comment_composer_input);
         mSend = mRoot.findViewById(R.id.comment_composer_send);

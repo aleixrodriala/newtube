@@ -65,6 +65,15 @@
     <color name="dialog_hint_color">#61000000</color>
     <color name="dialog_proxy_hint_color">#8A000000</color>
 
+    <!-- NEWTUBE(theme): Settings > General > Pure black (issues #73, #74), on the dark side only
+         (ThemeOverlay.NewTube.PureBlack). The page goes black; what is raised above it keeps a
+         lift - sheets, dialogs and cards one step off black instead of YouTube's grey - so a
+         sheet still has an edge against the black page and the scrim. See
+         docs/settings/PURE-BLACK.md. -->
+    <color name="mobile_pure_black_background">#000000</color>
+    <color name="mobile_pure_black_background_scrim">#66000000</color>
+    <color name="mobile_pure_black_surface">#121212</color>
+
     <!-- NEWTUBE(theme): player chrome, the same in BOTH themes - the player stays dark like
          YouTube's: controls and chips over the video, the mini player, the cast overlays. -->
     <color name="mobile_player_on_video">#FFFFFF</color>

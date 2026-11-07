@@ -1,5 +1,7 @@
 package com.liskovsoft.smartyoutubetv2.common.app.models.playback.controllers;
 
+import android.os.SystemClock;
+
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemMetadata;
 import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.mylogger.Log;
@@ -26,7 +28,7 @@ public class VideoStateController extends BasePlayerController {
     private static final long OFFICIAL_LIVE_BUFFER_MS = 15_000; // Official app buffer
     private static final long LIVE_BUFFER_MS = OFFICIAL_LIVE_BUFFER_MS;
     private static final long SHORT_LIVE_BUFFER_MS = 0; // Note, on buffer lower than the 60sec you'll notice segment skip
-    private static final long BEGIN_THRESHOLD_MS = 10_000;
+    private static final long BEGIN_THRESHOLD_MS = PreviousRestartGate.THRESHOLD_MS;
     private static final long EMBED_THRESHOLD_MS = 30_000;
     private static final int HISTORY_UPDATE_INTERVAL_MINUTES = 3; // Sync history every x minutes
     private boolean mIsPlayEnabled;
@@ -35,6 +37,7 @@ public class VideoStateController extends BasePlayerController {
     private boolean mIncognito;
     private final Runnable mUpdateHistory = this::saveState;
     private long mNewVideoTimeMs;
+    private final PreviousRestartGate mPrevGate = new PreviousRestartGate();
 
     /**
      * Fired after user clicked on video in browse activity<br/>
@@ -56,6 +59,9 @@ public class VideoStateController extends BasePlayerController {
 
         if (!item.equals(getVideo())) {
             mNewVideoTimeMs = System.currentTimeMillis();
+            mPrevGate.reset(nowMs(), false); // its watch time starts when it plays
+        } else {
+            mPrevGate.onStopped(nowMs()); // a reload of this video: its loading isn't watching
         }
 
         setPlayEnabled(true); // video just added
@@ -66,21 +72,49 @@ public class VideoStateController extends BasePlayerController {
         enableIncognitoIfNeeded(item);
 
         // Don't do reset on videoLoaded state because this will influences minimized music videos.
-        resetPositionIfNeeded(item);
+        // NEWTUBE(prev-resume): going back to the previous video resumes where the user left it
+        // (YouTube does), even for a short/music video, whose position is otherwise not kept.
+        boolean fromPrevious = item.fromPrevious;
+        item.fromPrevious = false;
+        resetPositionIfNeeded(item, fromPrevious);
         resetGlobalSpeedIfNeeded();
     }
 
     @Override
     public boolean onPreviousClicked() {
-        // Seek to the start on prev
-        if (getPlayer() != null && getPlayer().getPositionMs() > BEGIN_THRESHOLD_MS) {
+        if (getPlayer() == null) {
+            return false;
+        }
+
+        // NEWTUBE(prev-restart): seek to the start on prev, but only once the user has watched
+        // this video for a while since it (re)started - see PreviousRestartGate. The raw position
+        // alone kept restarting a video whose intro SponsorBlock skips past the threshold.
+        long positionMs = getPlayer().getPositionMs();
+        long nowMs = nowMs();
+        boolean restart = mPrevGate.shouldRestart(positionMs, nowMs, hasPrevious());
+        android.util.Log.d("PrevAction", "previous position=" + positionMs
+                + " watched=" + mPrevGate.getWatchedMs(nowMs) + " -> " + (restart ? "restart" : "previous"));
+
+        if (restart) {
             saveState(); // in case the user wants to go to previous video
             getPlayer().setPositionMs(100);
+            mPrevGate.reset(nowMs, getPlayer().isPlaying());
             return true;
         }
 
         // Pass to others handlers
         return false;
+    }
+
+    /** Overridable for tests. */
+    protected boolean hasPrevious() {
+        SuggestionsController suggestions = getController(SuggestionsController.class);
+        return suggestions != null && suggestions.hasPrevious();
+    }
+
+    /** Overridable for tests. */
+    protected long nowMs() {
+        return SystemClock.elapsedRealtime();
     }
 
     @Override
@@ -125,6 +159,8 @@ public class VideoStateController extends BasePlayerController {
             return;
         }
 
+        mPrevGate.onStopped(nowMs());
+
         // Save previous state
         if (getPlayer().containsMedia()) {
             setPlayEnabled(getPlayer().getPlayWhenReady());
@@ -166,6 +202,8 @@ public class VideoStateController extends BasePlayerController {
 
     @Override
     public void onEngineError(int type, int rendererIndex, Throwable error) {
+        mPrevGate.onStopped(nowMs()); // the recovery isn't watching
+
         if (getPlayer() == null) {
             return;
         }
@@ -193,6 +231,7 @@ public class VideoStateController extends BasePlayerController {
 
     @Override
     public void onPlay() {
+        mPrevGate.onPlaying(nowMs());
         setPlayEnabled(true);
         showHideScreensaver(false);
         // throttle seeking calls
@@ -201,6 +240,7 @@ public class VideoStateController extends BasePlayerController {
 
     @Override
     public void onPause() {
+        mPrevGate.onStopped(nowMs());
         setPlayEnabled(false);
         showHideScreensaver(true);
         // throttle seeking calls
@@ -231,6 +271,7 @@ public class VideoStateController extends BasePlayerController {
 
     @Override
     public void onPlayEnd() {
+        mPrevGate.onStopped(nowMs());
         saveState();
 
         // Don't enable screensaver here or you'll broke 'screen off' logic.
@@ -239,6 +280,7 @@ public class VideoStateController extends BasePlayerController {
 
     @Override
     public void onBuffering() {
+        mPrevGate.onStopped(nowMs()); // loading isn't watching
         // Restore speed on LIVE end or after seek
         restoreSpeedAndPositionIfNeeded();
 
@@ -330,7 +372,7 @@ public class VideoStateController extends BasePlayerController {
     /**
      * Reset position of currently opened music and live videos.
      */
-    private void resetPositionIfNeeded(Video item) {
+    private void resetPositionIfNeeded(Video item, boolean fromPrevious) {
         if (getStateService() == null || item == null) {
             return;
         }
@@ -344,7 +386,7 @@ public class VideoStateController extends BasePlayerController {
 
         // Reset position of music videos
         boolean isShort = state != null && state.durationMs < MUSIC_VIDEO_MAX_DURATION_MS
-                && !getPlayerTweaksData().isRememberPositionOfShortVideosEnabled();
+                && !getPlayerTweaksData().isRememberPositionOfShortVideosEnabled() && !fromPrevious;
         boolean isVideoEnded = state != null && state.durationMs - state.positionMs < 3_000;
         boolean isLive = item.isLive;
 

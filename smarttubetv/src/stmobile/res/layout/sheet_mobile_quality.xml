@@ -6,50 +6,62 @@
   title) and Direct Cast's quality cap (showDirectCastQualitySheet) all use it. Replaces the TV HQ
   dialog (every codec/fps variant) as the everyday picker - the full dialog stays reachable from
   the overflow menu for power users.
+
+  NEWTUBE(sheet-landscape): handle, title and hairline stay put and only the list scrolls - held
+  sideways, a phone fits few of these lists (the player caps the sheet below the top edge), and a
+  title that scrolled away left a column of bare values.
 -->
-<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/bg_mobile_sheet">
+    android:background="@drawable/bg_mobile_sheet"
+    android:orientation="vertical">
 
-    <LinearLayout
+    <View
+        android:layout_width="36dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_mobile_sheet_handle" />
+
+    <!-- NEWTUBE(sheets): the Speed/Subtitles header - plain title + hairline divider (was bold,
+         no divider: the one picker that looked different). -->
+    <TextView
+        android:id="@+id/quality_sheet_quality_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingBottom="12dp">
+        android:paddingHorizontal="20dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="12dp"
+        android:text="@string/mobile_quality_title"
+        android:textColor="@color/mobile_color_on_surface"
+        android:textSize="16sp" />
 
-        <View
-            android:layout_width="36dp"
-            android:layout_height="4dp"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_mobile_sheet_handle" />
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/mobile_color_divider" />
 
-        <!-- NEWTUBE(sheets): the Speed/Subtitles header - plain title + hairline divider (was bold,
-             no divider: the one picker that looked different). -->
-        <TextView
-            android:id="@+id/quality_sheet_quality_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingHorizontal="20dp"
-            android:paddingTop="10dp"
-            android:paddingBottom="12dp"
-            android:text="@string/mobile_quality_title"
-            android:textColor="@color/mobile_color_on_surface"
-            android:textSize="16sp" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/mobile_color_divider" />
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:overScrollMode="never">
 
         <LinearLayout
-            android:id="@+id/quality_sheet_quality_list"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:orientation="vertical" />
+            android:orientation="vertical"
+            android:paddingBottom="12dp">
 
-    </LinearLayout>
+            <LinearLayout
+                android:id="@+id/quality_sheet_quality_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:orientation="vertical" />
 
-</androidx.core.widget.NestedScrollView>
+        </LinearLayout>
+
+    </androidx.core.widget.NestedScrollView>
+
+</LinearLayout>

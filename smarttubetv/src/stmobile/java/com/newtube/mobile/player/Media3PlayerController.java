@@ -170,6 +170,19 @@ public class Media3PlayerController implements Player.Listener {
     private final ResumeSeekSnap mResumeSnap = new ResumeSeekSnap();
     /** NEWTUBE(wall-memory): this open's media requests, for the one-minute wall's signature. */
     private final MediaRequestLedger mMediaRequests = new MediaRequestLedger();
+    /** NEWTUBE(wall-swap): the watched generated-DASH VOD open, armed for a seamless swap. */
+    @Nullable
+    private volatile MediaRepoint.Session mRepoint;
+    /** NEWTUBE(wall-swap): stream start (ms) of this open's latest audio and video media requests. */
+    private long mLastAudioLoadStartMs = -1;
+    private long mLastVideoLoadStartMs = -1;
+    /**
+     * NEWTUBE(recovery-resume): the video whose playback a source error just stopped, and when. Its
+     * reload resumes EXACTLY where it stopped: the history resume's keyframe snap (ResumeSeekSnap)
+     * rewound the recovery 2-6 s, frames the user had just watched (issue #84).
+     */
+    @Nullable
+    private String mRecoveryResumeVideoId;
     /** elapsedRealtime of this open's first audio media request, to quantify a snap's audio cost. */
     private long mAudioChunkStartedAtMs;
     /** Media start time of that request (its audio segment), to see if a snap crosses into the previous one. */
@@ -183,6 +196,13 @@ public class Media3PlayerController implements Player.Listener {
                         androidx.media3.exoplayer.source.MediaLoadData mediaLoadData, int retryCount) {
                     if (mediaLoadData.dataType != C.DATA_TYPE_MEDIA || !isCurrentPeriod(eventTime)) {
                         return;
+                    }
+                    if (mediaLoadData.mediaStartTimeMs != C.TIME_UNSET) {
+                        if (mediaLoadData.trackType == C.TRACK_TYPE_AUDIO) {
+                            mLastAudioLoadStartMs = mediaLoadData.mediaStartTimeMs;
+                        } else if (mediaLoadData.trackType == C.TRACK_TYPE_VIDEO) {
+                            mLastVideoLoadStartMs = mediaLoadData.mediaStartTimeMs;
+                        }
                     }
                     if (mediaLoadData.trackType == C.TRACK_TYPE_AUDIO && mAudioChunkStartedAtMs == 0) {
                         mAudioChunkStartedAtMs = android.os.SystemClock.elapsedRealtime();
@@ -221,9 +241,7 @@ public class Media3PlayerController implements Player.Listener {
         mEventListener = eventListener;
         // NEWTUBE(viewport): the small-window cap is process-wide so it survives an engine restart
         // (release + fresh selector) while pinned. A NEW playback screen starts full size: a cap
-        // left by a previous instance (PiP dismissed, mini card closed) must not carry over. The
-        // inline box is re-reported by the new screen's first portrait layout.
-        clearInlineViewport("new-session");
+        // left by a previous instance (PiP dismissed, mini card closed) must not carry over.
         clearSmallWindowViewport("new-session");
         // A dropped build is a legitimate outcome, but a SILENT one is indistinguishable from a
         // player that was never asked to open anything - both leave a spinner at 00:00 and no log.
@@ -279,6 +297,12 @@ public class Media3PlayerController implements Player.Listener {
      * for its pre-roll ads (see ReadinessGate); 0 when it is not waiting.
      */
     public long getMediaReadinessHoldMs() {
+        // NEWTUBE(wall-swap): a refused request waiting for the recovery's answer is not a stall.
+        MediaRepoint.Session repoint = mRepoint;
+        long swapWaitMs = repoint != null ? repoint.waitLeftMs() : 0;
+        if (swapWaitMs > 0) {
+            return swapWaitMs;
+        }
         MediaItemFormatInfo answer = mReadinessAnswer;
         if (answer == null || !java.util.Objects.equals(answer.getVideoId(), getVideoId())) {
             return 0;
@@ -540,6 +564,9 @@ public class Media3PlayerController implements Player.Listener {
         mAudioChunkStartedAtMs = 0;
         mAudioChunkStartMs = C.TIME_UNSET;
         mMediaRequests.reset();
+        mLastAudioLoadStartMs = -1;
+        mLastVideoLoadStartMs = -1;
+        armRepoint(netPathType);
         PlayerInfrastructureWarmup.onPlaybackPreparing();
         mPlayer.setMediaSource(mediaSource);
         mPlayer.prepare();
@@ -551,6 +578,140 @@ public class Media3PlayerController implements Player.Listener {
         mFocusGraceUsed = false;
 
         NetPath.logPrepare(getVideoId(), netPathType); // NetPath milestone 3: source prepared
+    }
+
+    // ---------------------------------------------------------------------------------
+    // NEWTUBE(wall-swap) and NEWTUBE(recovery-resume)
+    // ---------------------------------------------------------------------------------
+
+    /** Arms the open just prepared when it is the watched video's generated-DASH VOD source. */
+    private void armRepoint(String netPathType) {
+        disarmRepoint();
+        boolean dash = "dash-mpd".equals(netPathType) || "dash-mpd-stash".equals(netPathType)
+                || "dash-mpd+hls".equals(netPathType);
+        MediaItemFormatInfo answer = mReadinessAnswer;
+        if (!dash || answer == null || (getVideo() != null && getVideo().isLive)) {
+            return;
+        }
+        mRepoint = MediaRepoint.arm(getVideoId(), answer, this::onSwapNeeded);
+    }
+
+    private void disarmRepoint() {
+        MediaRepoint.Session session = mRepoint;
+        mRepoint = null;
+        MediaRepoint.disarm(session);
+    }
+
+    /** A loader thread: an armed open's request was refused past what it played. */
+    private void onSwapNeeded(MediaRepoint.Session session, Uri refused) {
+        String mime = refused.isHierarchical() ? refused.getQueryParameter("mime") : null;
+        final boolean audio = mime != null && mime.startsWith("audio");
+        final String itag = MediaRepoint.itagOf(refused);
+        mMainHandler.post(() -> {
+            if (mRepoint != session || mPlayer == null) {
+                session.fail();
+                return;
+            }
+            // The refused request's stream start, for the wall's signature: its load-started event
+            // was queued on this looper before the request went out, so it has been read by now.
+            long forbiddenStartMs = audio ? mLastAudioLoadStartMs : mLastVideoLoadStartMs;
+            mMediaRequests.onForbidden(forbiddenStartMs);
+            NetPath.log(NetPath.context() + " wall-swap request video=" + session.videoId
+                    + " itag=" + itag + " track=" + (audio ? "audio" : "video")
+                    + " forbiddenStartMs=" + forbiddenStartMs + " pos=" + mPlayer.getCurrentPosition()
+                    + " bufferedMs=" + (mPlayer.getBufferedPosition() - mPlayer.getCurrentPosition())
+                    + " swap=" + session.swaps() + "/" + MediaRepoint.MAX_SWAPS);
+            mEventListener.onMediaRefusedAhead();
+        });
+    }
+
+    /**
+     * NEWTUBE(wall-swap): the recovery walk's answer for the waiting open. The refused requests,
+     * and every later one, go to its URLs for the same files.
+     */
+    public boolean repointMedia(MediaItemFormatInfo formatInfo) {
+        MediaRepoint.Session session = mRepoint;
+        if (session == null || !session.isPending() || formatInfo == null
+                || formatInfo.isUnplayable() || formatInfo.isLive()
+                || !session.videoId.equals(formatInfo.getVideoId())) {
+            return false;
+        }
+        java.util.Map<String, String> answer = MediaRepoint.keyedUrls(formatInfo);
+        java.util.Map<String, String> targets = new java.util.HashMap<>();
+        for (java.util.Map.Entry<String, String> entry : answer.entrySet()) {
+            if (session.keys.contains(entry.getKey())) {
+                targets.put(entry.getKey(), entry.getValue());
+            }
+        }
+        java.util.Set<String> refused = session.refusedKeys();
+        boolean landed = session.land(targets, ReadinessGate.forAnswer(formatInfo));
+        NetPath.log(NetPath.context() + " wall-swap " + (landed ? "landed" : "mismatch")
+                + " video=" + session.videoId + " files=" + targets.size() + "/" + session.keys.size()
+                + " refusedFiles=" + refused.size()
+                + " missing=" + (refused.size() - countContained(refused, targets.keySet()))
+                + " untilReadyMs=" + ReadinessGate.untilReadyMs(formatInfo));
+        if (!landed && com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG) {
+            // Keys are (id, itag, lmt, xtags): no signature, no ip, no expiry.
+            NetPath.log(NetPath.context() + " wall-swap keys open=" + session.keys + " answer=" + answer.keySet());
+        }
+        if (landed) {
+            mReadinessAnswer = formatInfo;
+            // The wall's evidence is per answer: what the old one served says nothing about this one.
+            mMediaRequests.reset();
+        }
+        return landed;
+    }
+
+    private static int countContained(java.util.Set<String> keys, java.util.Set<String> in) {
+        int n = 0;
+        for (String key : keys) {
+            if (in.contains(key)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** NEWTUBE(wall-swap): a refused request of the watched open waits for an answer. */
+    public boolean isRepointPending() {
+        MediaRepoint.Session session = mRepoint;
+        return session != null && session.isPending();
+    }
+
+    /** NEWTUBE(wall-swap): no answer for the waiting open: its refusal surfaces as before. */
+    public void cancelRepoint() {
+        MediaRepoint.Session session = mRepoint;
+        if (session != null && session.isPending()) {
+            NetPath.log(NetPath.context() + " wall-swap cancelled video=" + session.videoId);
+            session.fail();
+        }
+    }
+
+    private void noteRecoveryResume() {
+        Video video = getVideo();
+        if (mPlayer == null || video == null || video.isLive || mPlayer.isCurrentMediaItemLive()
+                || mPlayer.getCurrentPosition() <= 0) {
+            return;
+        }
+        mRecoveryResumeVideoId = video.videoId;
+    }
+
+    /**
+     * Consumes the recovery mark: whether this resume is the reload of a source error. The mark
+     * lives until the next resume, however long the outage kept the reload away (the retry
+     * schedule runs minutes); a resume of another video drops it.
+     */
+    private boolean isRecoveryResume() {
+        String videoId = mRecoveryResumeVideoId;
+        mRecoveryResumeVideoId = null;
+        return recoveryResumeExactEnabled() && videoId != null && videoId.equals(getVideoId());
+    }
+
+    /** Always on in release; debug/benchmark builds can A/B it with {@code debug.arc.recovery_exact=0}. */
+    static boolean recoveryResumeExactEnabled() {
+        return !((com.liskovsoft.smartyoutubetv2.tv.BuildConfig.DEBUG
+                || com.liskovsoft.smartyoutubetv2.tv.BuildConfig.BENCHMARK)
+                && "0".equals(DebugMediaShaper.prop("debug.arc.recovery_exact")));
     }
 
     // ---------------------------------------------------------------------------------
@@ -603,6 +764,13 @@ public class Media3PlayerController implements Player.Listener {
         }
         boolean live = mPlayer.isCurrentMediaItemLive()
                 || (getVideo() != null && getVideo().isLive);
+        if (isRecoveryResume()) {
+            // NEWTUBE(recovery-resume): the reload after a source error goes back to exactly where
+            // the picture stopped; a keyframe snap would replay seconds the user just watched.
+            NetPath.log(NetPath.context() + " resume-seek exact reason=recovery target=" + positionMs);
+            ownSeek(positionMs, androidx.media3.exoplayer.SeekParameters.EXACT);
+            return;
+        }
         if (!resumeSnapEnabled() || !mResumeSnap.onResumeRequest(positionMs, getDurationMs(), live)) {
             seekTo(positionMs); // the pre-snap behavior: player-wide seek parameters
             return;
@@ -770,6 +938,7 @@ public class Media3PlayerController implements Player.Listener {
         }
         mFirstFrameLogged = false; // new open = a fresh NetPath first-frame milestone
         mResumeSnap.onPrepare();
+        disarmRepoint();
 
         if (containsMedia()) {
             mPlayer.stop();
@@ -830,6 +999,7 @@ public class Media3PlayerController implements Player.Listener {
     }
 
     public void release() {
+        disarmRepoint();
         // Also prevents a running prebuild from repopulating the stash after this cleanup.
         mOpenGeneration.invalidate(this::clearStashedSource);
         if (mNextPreloader != null) {
@@ -1001,24 +1171,6 @@ public class Media3PlayerController implements Player.Listener {
     /** Full-size player again: lift the cap; ABR up-switches and refetches beyond 25 s natively. */
     public void clearSmallWindowViewport(String reason) {
         VideoViewportCap.shared().clear(reason);
-    }
-
-    /**
-     * NEWTUBE(viewport): the portrait watch-page video box is {@code widthPx x heightPx} real
-     * pixels ({@code fill}: a zoom/fill resize mode crops the video to it). While saving data - a
-     * metered network AND Android Data Saver on for this app ({@link MeteredNetworkMonitor}) -
-     * NEW chunks are capped to the rung that box can show: the same in-ABR cap as PiP (buffer
-     * kept, explicit quality picks untouched), re-checked on every selection so Wi-Fi or Data
-     * Saver off lifts it for the next chunk. A PiP/mini window wins while set. Cheap to repeat:
-     * an unchanged box is a no-op.
-     */
-    public void setInlineViewport(int widthPx, int heightPx, boolean fill) {
-        VideoViewportCap.shared().setInline(widthPx, heightPx, fill);
-    }
-
-    /** Fullscreen (landscape): no inline box, so no data-saving inline cap for NEW chunks. */
-    public void clearInlineViewport(String reason) {
-        VideoViewportCap.shared().clearInline(reason);
     }
 
     public FormatItem getVideoFormat() {
@@ -1358,6 +1510,9 @@ public class Media3PlayerController implements Player.Listener {
             DebugMediaShaper.disarmOneShotPoisonForRecovery();
         }
         if (mSabrSourceActive) {
+            if (mSabrWasFallback) {
+                noteRecoveryResume(); // its recovery may land on DASH
+            }
             int type = error instanceof ExoPlaybackException
                     ? ((ExoPlaybackException) error).type : ExoPlaybackException.TYPE_UNEXPECTED;
             if (mSabrWasFallback) {
@@ -1399,6 +1554,7 @@ public class Media3PlayerController implements Player.Listener {
         Throwable nested = error.getCause() != null ? error.getCause() : error;
         if (type == ExoPlaybackException.TYPE_SOURCE) {
             rendererIndex = inferSourceRendererIndex(nested);
+            noteRecoveryResume();
         }
 
         // The legacy TYPE_* int values match media3's, so the shared error-fixer logic holds.

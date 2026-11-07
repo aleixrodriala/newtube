@@ -29,6 +29,10 @@ kill_timers() {  # label
   local p left
   p=$(timer_pids | tr '\n' ' ')
   [ -n "${p// /}" ] && adbs shell "kill -9 $p" 2>/dev/null
+  # Their child sleep outlives a -9 to its sh (reparented to init, harmless but left running).
+  local s
+  s=$(adbs shell ps -A -o PID,ARGS 2>/dev/null | tr -d '\r' | awk '$2=="sleep" && $3=="14400" {print $1}' | tr '\n' ' ')
+  [ -n "${s// /}" ] && adbs shell "kill -9 $s" 2>/dev/null
   adbs shell rm -f /data/local/tmp/netbench-timer.pid
   left=$(timer_pids | tr '\n' ' ')
   say "$1: phone-side timers killed [${p:-none}], left [${left:-none}]"

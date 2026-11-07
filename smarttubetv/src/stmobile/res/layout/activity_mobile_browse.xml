@@ -10,7 +10,7 @@
     android:id="@+id/mobile_browse_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/mobile_color_background"><!--
+    android:background="?attr/newtubeColorBackground"><!--
     No fitsSystemWindows needed: MobileActivity.applyMobileSystemBars() keeps the decor fitting
     the system windows (solid app-colored status/nav bars), so this layout never renders
     under the bars regardless of what the player did to the display in between. -->
@@ -35,7 +35,7 @@
         android:id="@+id/mobile_title_bar"
         android:layout_width="0dp"
         android:layout_height="@dimen/mobile_title_bar_height"
-        android:background="@color/mobile_color_background"
+        android:background="?attr/newtubeColorBackground"
         android:ellipsize="end"
         android:gravity="center_vertical|start"
         android:maxLines="1"
@@ -162,7 +162,7 @@
         android:id="@+id/mobile_you_panel"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:background="@color/mobile_color_background"
+        android:background="?attr/newtubeColorBackground"
         android:visibility="gone"
         app:layout_constraintBottom_toTopOf="@id/mobile_bottom_nav"
         app:layout_constraintEnd_toEndOf="parent"
@@ -349,7 +349,7 @@
         android:id="@+id/mobile_bottom_nav"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:background="@color/mobile_color_background"
+        android:background="?attr/newtubeColorBackground"
         app:itemIconSize="24dp"
         app:itemIconTint="@color/mobile_bottom_nav_item"
         app:itemTextAppearanceActive="@style/MobileBottomNavText"

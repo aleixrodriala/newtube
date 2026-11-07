@@ -8,6 +8,8 @@
     <dimen name="mobile_card_target_width">168dp</dimen>
     <dimen name="mobile_card_spacing">8dp</dimen>
     <dimen name="mobile_card_corner_radius">12dp</dimen>
+    <!-- Channel avatar on Home/Subscriptions cards (YouTube's 36 dp). -->
+    <dimen name="mobile_card_avatar_size">36dp</dimen>
     <!-- Standard phone toolbar height (actionBarSize). -->
     <dimen name="mobile_title_bar_height">56dp</dimen>
     <!-- MobileAppDialogActivity: a sheet on a wide (landscape) window stops at Material's 640dp

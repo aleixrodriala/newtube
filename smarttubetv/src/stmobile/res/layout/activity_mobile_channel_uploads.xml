@@ -22,14 +22,14 @@
     android:id="@+id/mobile_channel_uploads_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/mobile_color_background"
+    android:background="?attr/newtubeColorBackground"
     android:orientation="vertical">
 
     <LinearLayout
         android:id="@+id/mobile_channel_uploads_toolbar"
         android:layout_width="match_parent"
         android:layout_height="@dimen/mobile_title_bar_height"
-        android:background="@color/mobile_color_background"
+        android:background="?attr/newtubeColorBackground"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 

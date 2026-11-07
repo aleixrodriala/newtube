@@ -88,6 +88,12 @@ public final class Video {
     public long pendingPosMs;
     public boolean fromQueue;
     public boolean fromCrashRestorer;
+    /**
+     * NEWTUBE(prev-resume): opened by the previous action (player button, notification, media
+     * session). Tells the state controller to resume where the user left it, even below the
+     * short/music-video length that otherwise starts at 0:00. Consumed on open.
+     */
+    public boolean fromPrevious;
     public boolean isPending;
     public boolean finishOnEnded;
     public boolean incognito;

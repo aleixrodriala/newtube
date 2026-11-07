@@ -413,6 +413,8 @@
     <string name="mobile_theme_system">Predeterminado del sistema</string>
     <string name="mobile_theme_light">Claro</string>
     <string name="mobile_theme_dark">Oscuro</string>
+    <string name="mobile_theme_pure_black">Negro puro</string>
+    <string name="mobile_theme_pure_black_summary">Negro en lugar de gris oscuro cuando la app está en oscuro. Ahorra batería en pantallas OLED</string>
 
     <string name="mobile_about_star">Dale una estrella a NewTube en GitHub</string>
     <string name="mobile_about_star_desc">Libre y de código abierto. Una estrella ayuda a que otros lo encuentren</string>

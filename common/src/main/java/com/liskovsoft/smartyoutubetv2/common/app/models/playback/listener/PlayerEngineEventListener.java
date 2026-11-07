@@ -44,4 +44,12 @@ public interface PlayerEngineEventListener {
     void onEngineError(int type, int rendererIndex, Throwable error);
     void onTrackChanged(FormatItem track);
     void onTrackSelected(FormatItem track);
+    /**
+     * NEWTUBE(wall-swap): googlevideo refused media of the watched VOD open past what it already
+     * played (the one-minute wall, a stale link). The engine keeps playing its buffer and holds the
+     * refused request; whoever recovers answers with {@code PlayerEngine.repointMedia} (the new
+     * answer) or {@code PlayerEngine.cancelRepoint} (the refusal then surfaces as an engine error).
+     * Main thread.
+     */
+    default void onMediaRefusedAhead() {}
 }

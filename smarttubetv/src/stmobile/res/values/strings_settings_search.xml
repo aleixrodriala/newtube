@@ -8,6 +8,7 @@
          word matches as a word start. Translate them as the words people would type. -->
     <string name="mobile_settings_search_kw_account">sign in log in sign out google profile switch</string>
     <string name="mobile_settings_search_kw_theme">dark mode light mode night appearance colors colours</string>
+    <string name="mobile_settings_search_kw_pure_black">amoled oled black dark mode night battery</string>
     <string name="mobile_settings_search_kw_country">country region</string>
     <string name="mobile_settings_search_kw_start_screen">launch startup opens on default tab home page</string>
     <string name="mobile_settings_search_kw_interface_size">ui scale zoom font text size density bigger smaller</string>

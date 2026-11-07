@@ -352,6 +352,11 @@ public class PlaybackPresenter extends BasePresenter<PlaybackView> implements Pl
     }
 
     @Override
+    public void onMediaRefusedAhead() {
+        process(PlayerEventListener::onMediaRefusedAhead);
+    }
+
+    @Override
     public void onPlay() {
         process(PlayerEventListener::onPlay);
     }

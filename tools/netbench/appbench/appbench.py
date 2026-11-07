@@ -185,7 +185,10 @@ def media_volume():
 
 
 def set_media_volume(v):
-    shell(f"cmd media_session volume --stream 3 --set {v}")
+    # cmd audio, not cmd media_session: on the Pixel's Android 17 a 0 from media_session mutes the
+    # stream, and media_session's later --set is then ignored (2026-10-19: a run left the owner's
+    # media volume muted at 0); AudioManager.setStreamVolume through cmd audio unmutes it.
+    shell(f"cmd audio set-volume 3 {v}")
 
 
 # The owner's in-call rule (2026-09-29): with --allow-call (or NETBENCH_ALLOW_CALL=1) an active call

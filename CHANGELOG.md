@@ -2,6 +2,113 @@
 
 All notable user-facing changes to NewTube, the phone app built on SmartTube.
 
+## 1.17.1 — 2026-10-22 — Pepe Viyuela Edition
+
+"Something trips over a chair, gets back up, and your quality is still where
+you left it." A fictional homage to Pepe Viyuela, for a decoder that stumbles
+without taking your settings down with it.
+
+### Fixed
+
+- **A video decoder that fails to start no longer lowers your quality for
+  good.** When the phone's decoder couldn't start (for example right after
+  the screen woke up, or with another app holding it), NewTube switched that
+  video to 1080p AVC to recover, and saved it as your format, so every later
+  video stayed capped. Now the fallback is only for the video that failed;
+  the next one starts on your choice again. Same for audio. Thanks to
+  SmartTube's fix (#6326).
+
+## 1.17.0 — 2026-10-20 — Florentino Fernández Edition
+
+"Every video now comes with a face, and none of them is an impression." A
+fictional homage to Florentino Fernández, for channel avatars on Home and
+Subscriptions.
+
+### New
+
+- **Channel avatars on Home and Subscriptions.** Each video shows its
+  channel's avatar next to the title, like YouTube. Tap the avatar to go
+  straight to the channel; tap anywhere else on the card to play. Avatars are
+  remembered, so they show up at once the next time. Mixes and playlists have
+  none.
+
+### Fixed
+
+- **A quick double tap on play/pause plays or pauses**, like YouTube. When
+  the controls were hidden, the second tap hid them again instead.
+- **Translations:** Romanian now covers almost all of the app's own screens,
+  thanks to the translators on
+  [Weblate](https://hosted.weblate.org/projects/newtube/).
+
+## 1.16.2 — 2026-10-19 — Dani Rovira Edition
+
+"Eight rows in a menu, and now you can reach all of them." A fictional homage
+to Dani Rovira, for player menus that stay put with the phone sideways and
+videos that get sharp sooner. (1.16.1 was tagged but never published; its
+fixes ship here.)
+
+### Fixed
+
+- **Vertical videos play in 1080p.** They were capped at 480p, whatever the
+  quality setting.
+- **Full quality arrives sooner.** The low-quality start of a video is
+  replaced once the connection allows more, so 1080p shows up in about 5 s on
+  Wi-Fi instead of about 10.
+- **No 720p cap on the watch page** when NewTube's "Background data" is off
+  on mobile data: Android reports that like Data Saver, so it capped the
+  picture for people who only meant "not in the background".
+
+- **Player menus in fullscreen stay still.** The settings menu no longer
+  jumps a couple of seconds after it opens: the system bars stay hidden, and
+  the controls behind it don't move until it closes.
+- **More scrolls in landscape.** Every row is reachable, the last row on
+  screen is cut in half so you can tell the list goes on, and dragging the
+  list no longer closes the menu.
+- **Quality, Subtitles and Speed** keep their title (and their bottom row) in
+  place while the list scrolls, and going from one menu to the next fades
+  across without the video flashing up in between.
+- **The Quality row shows what's playing** ("Auto (720p)") instead of always
+  "Auto (1080p60)".
+- Smaller: menus keep their rounded corners when fully open, Repeat lost an
+  empty title bar, and turning the phone with a menu open closes it.
+
+## 1.16.0 — 2026-10-19 — Andreu Buenafuente Edition
+
+"Good evening, and welcome to a release where the screen goes black on
+purpose." A fictional homage to Andreu Buenafuente, for pure black, upright
+vertical videos and a minute that no longer stutters.
+
+### New
+
+- **Pure black (#73, #74).** Settings › General › Pure black turns the dark
+  theme black (#000000) for OLED screens, also when the theme follows the
+  system. Sheets and cards stay one shade lighter so they still read as
+  raised. It applies live, no restart.
+- **Vertical videos go fullscreen upright (#69).** Fullscreen (button or
+  swipe up) on a portrait video now fills the screen in portrait instead of
+  rotating to landscape with black bars. Landscape videos still rotate.
+
+### Fixed
+
+- **The app opens on Android 7.0 again (#78).** Every Android 7.0 phone
+  closed NewTube right at launch, since the first public release.
+- **No pause and rewind at the one-minute mark (#84).** When YouTube refuses
+  a session at 60 seconds, the buffered video keeps playing while NewTube
+  fetches a working link for the same stream, so there's no stop and no jump
+  back. If that fails, the old recovery resumes at the exact second.
+- **⏮ goes back even with SponsorBlock.** After a restart, a second tap now
+  returns to the previous video even when SponsorBlock skipped an intro, and
+  the previous video resumes where you left it.
+- **Fullscreen on Android 11 (#68).** The first tap shows the player
+  controls, and the gesture bar no longer stays on screen.
+- **Audio tracks are labelled better:** "original", "dubbed" and audio
+  description tracks are told apart, and auto-translated subtitles are no
+  longer built from an auto-dubbed track. Search retries more reliably
+  (fixes from SmartTube upstream).
+- **Translations:** the app's own screens are now in Russian and
+  Simplified Chinese, and half in Romanian, thanks to the translators on
+  [Weblate](https://hosted.weblate.org/projects/newtube/).
+
 ## 1.15.3 — 2026-10-13 — Berto Romero Edition
 
 "Nothing changes, and that's the news." A fictional homage to Berto Romero,

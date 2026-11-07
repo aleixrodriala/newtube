@@ -270,6 +270,8 @@
     <string name="unsubscribed_from_channel">Unsubscribed</string>
     <string name="mobile_player_settings">Settings</string>
     <string name="mobile_more_options_for">More options for %1$s</string>
+    <!-- NEWTUBE(feed-avatars): a Home/Subscriptions card's channel avatar, for TalkBack. -->
+    <string name="mobile_card_go_to_channel">Go to channel %1$s</string>
     <string name="mobile_comment_likes">%1$s likes</string>
     <string name="mobile_mini_close">Close player</string>
 
@@ -455,6 +457,8 @@
     <string name="mobile_theme_system">System default</string>
     <string name="mobile_theme_light">Light</string>
     <string name="mobile_theme_dark">Dark</string>
+    <string name="mobile_theme_pure_black">Pure black</string>
+    <string name="mobile_theme_pure_black_summary">Black instead of dark grey when the app is dark. Saves battery on OLED screens</string>
 
     <!-- NEWTUBE(about-growth): the last two rows of Settings > About. Tap-only: no prompt, badge
          or counter. Never "ad-free" wording. -->

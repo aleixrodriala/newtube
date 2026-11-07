@@ -67,7 +67,7 @@
             </table>
           </div>
           <p>Nothing goes to the developer. The app has no analytics, no crash reporting and no ad SDKs: its <a href="https://github.com/aleixrodriala/newtube/blob/main/smarttubetv/build.gradle">dependencies</a> include none, and the APK's code contains no Firebase, Crashlytics, Sentry, ACRA, Google Play Services or ad-network classes. Details are in the <a href="https://github.com/aleixrodriala/newtube/blob/main/PRIVACY.md">privacy policy</a>.</p>
-          <p>If you sign in, the login token is stored on your phone and never sent to the developer; backups you turn on (Android's own, or the app's Backup &amp; restore) can include it. You can revoke it at any time at <a href="https://myaccount.google.com/security">myaccount.google.com/security</a>, under <em>Your connections to third-party apps &amp; services</em>.</p>
+          <p>If you sign in, the login token is stored on your phone and never sent to the developer. Since 1.15.1 it's left out of Android's own backup, phone-to-phone transfer and the app's Backup &amp; restore, so a restored phone starts signed out (backup files made before 1.15.1 still contain it). You can revoke it at any time at <a href="https://myaccount.google.com/security">myaccount.google.com/security</a>, under <em>Your connections to third-party apps &amp; services</em>.</p>
         </div>
       </div>
     </section>

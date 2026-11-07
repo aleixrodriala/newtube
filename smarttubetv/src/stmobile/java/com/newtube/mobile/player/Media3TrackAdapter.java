@@ -149,9 +149,12 @@ class Media3TrackAdapter {
 
         if (rendererIndex == TrackSelectorManager.RENDERER_INDEX_VIDEO) {
             // The pickers expect quality-descending order ("first of each rung is its best variant").
+            // Rungs by class, not height: a vertical video's 608x1080 is a 480p stream.
             Collections.sort(result, (item1, item2) -> {
-                if (item2.getHeight() != item1.getHeight()) {
-                    return item2.getHeight() - item1.getHeight();
+                int rung1 = VideoRung.classHeight(item1.getWidth(), item1.getHeight());
+                int rung2 = VideoRung.classHeight(item2.getWidth(), item2.getHeight());
+                if (rung2 != rung1) {
+                    return rung2 - rung1;
                 }
                 if (item2.getFrameRate() != item1.getFrameRate()) {
                     return Float.compare(item2.getFrameRate(), item1.getFrameRate());
@@ -206,9 +209,9 @@ class Media3TrackAdapter {
 
         if (isAutoTarget(item)) {
             builder.clearOverridesOfType(C.TRACK_TYPE_VIDEO);
-            int maxWidth = item.getWidth() > 0 ? item.getWidth() : Integer.MAX_VALUE;
-            int maxHeight = item.getHeight() > 0 ? item.getHeight() : Integer.MAX_VALUE;
-            builder.setMaxVideoSize(maxWidth, maxHeight);
+            // A square ceiling: the preset's class in either orientation (see VideoRung).
+            int ceiling = VideoRung.ceilingSide(VideoRung.classHeight(item.getWidth(), item.getHeight()));
+            builder.setMaxVideoSize(ceiling, ceiling);
             builder.setMaxVideoFrameRate(item.getFrameRate() > 0 ? Math.round(item.getFrameRate()) + 1 : Integer.MAX_VALUE);
             // Soft preference; media3 falls back to whatever the stream actually has.
             MediaTrack track = item.getTrack();
@@ -503,7 +506,13 @@ class Media3TrackAdapter {
     private static boolean matchesLoosely(int rendererIndex, FormatItem item, androidx.media3.common.Format format) {
         switch (rendererIndex) {
             case TrackSelectorManager.RENDERER_INDEX_VIDEO:
-                return item.getHeight() == format.height
+                // Same class, not same height: a 1080p pick carried from a landscape video to a
+                // vertical one means 1080x1920, not the 608x1080 (480p) that shares its height.
+                // A pick stored without its width can only be matched by height, as before.
+                return (item.getWidth() > 0
+                                ? VideoRung.classHeight(item.getWidth(), item.getHeight())
+                                        == VideoRung.classHeight(format.width, format.height)
+                                : item.getHeight() == format.height)
                         && Math.abs(item.getFrameRate() - format.frameRate) <= 2
                         && codecFamilyEquals(codecOf(item), format.codecs);
             case TrackSelectorManager.RENDERER_INDEX_AUDIO:

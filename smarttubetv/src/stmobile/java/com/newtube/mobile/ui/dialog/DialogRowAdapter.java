@@ -9,6 +9,8 @@ import android.widget.RadioButton;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.switchmaterial.SwitchMaterial;
@@ -117,12 +119,14 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      *                       sibling items' own {@code isSelected()} never flips. We need this map
      *                       purely to know which row to draw as checked after a tap.
      */
-    void submit(List<OptionCategory> categories, Map<OptionCategory, OptionItem> radioOverrides) {
-        mRows = build(categories, radioOverrides);
+    void submit(List<OptionCategory> categories, Map<OptionCategory, OptionItem> radioOverrides,
+                @Nullable CharSequence sheetTitle) {
+        mRows = build(categories, radioOverrides, sheetTitle);
         notifyDataSetChanged();
     }
 
-    private List<Row> build(List<OptionCategory> categories, Map<OptionCategory, OptionItem> radioOverrides) {
+    private List<Row> build(List<OptionCategory> categories, Map<OptionCategory, OptionItem> radioOverrides,
+                            @Nullable CharSequence sheetTitle) {
         List<Row> rows = new ArrayList<>();
 
         if (categories == null) {
@@ -142,7 +146,7 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     rows.add(Row.switchRow(category.options.get(0)));
                     break;
                 case OptionCategory.TYPE_RADIO_LIST: {
-                    if (category.title != null) {
+                    if (category.title != null && !repeatsTitle(category.title, sheetTitle)) {
                         rows.add(Row.header(category.title));
                     }
                     OptionItem override = radioOverrides != null ? radioOverrides.get(category) : null;
@@ -154,7 +158,7 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
                 case OptionCategory.TYPE_CHECKBOX_LIST:
                 case OptionCategory.TYPE_STRING_LIST: {
-                    if (category.title != null) {
+                    if (category.title != null && !repeatsTitle(category.title, sheetTitle)) {
                         rows.add(Row.header(category.title));
                     }
                     for (OptionItem item : category.options) {
@@ -163,7 +167,7 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     break;
                 }
                 case OptionCategory.TYPE_LONG_TEXT: {
-                    if (category.title != null) {
+                    if (category.title != null && !repeatsTitle(category.title, sheetTitle)) {
                         rows.add(Row.header(category.title));
                     }
                     rows.add(Row.text(category.options.get(0).getTitle()));
@@ -172,7 +176,7 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 case OptionCategory.TYPE_CHAT:
                 case OptionCategory.TYPE_COMMENTS: {
                     // TODO Wave N: live chat / comments panel. Read-only stub for now - must not crash.
-                    if (category.title != null) {
+                    if (category.title != null && !repeatsTitle(category.title, sheetTitle)) {
                         rows.add(Row.header(category.title));
                     }
                     rows.add(Row.text(mContext.getString(R.string.mobile_dialog_unavailable)));
@@ -182,6 +186,16 @@ class DialogRowAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         return rows;
+    }
+
+    /**
+     * NEWTUBE(sheet-title): a header that only repeats the sheet's title ("Playback queue" under
+     * "Playback queue", "Video speed" under "Video speed") is left out - a row of height for
+     * nothing, and over the landscape player there is little to spare.
+     */
+    @VisibleForTesting
+    static boolean repeatsTitle(CharSequence header, @Nullable CharSequence sheetTitle) {
+        return sheetTitle != null && header.toString().trim().equalsIgnoreCase(sheetTitle.toString().trim());
     }
 
     @Override

@@ -1,0 +1,1 @@
+New: pure black theme option; vertical videos go fullscreen upright. Fixed: launch crash on Android 7.0, the pause and rewind at the one-minute mark, the previous button with SponsorBlock, fullscreen bars on Android 11, audio track labels. New Russian, Chinese and Romanian translations.

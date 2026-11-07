@@ -5,6 +5,7 @@ import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcelable;
+import android.text.TextUtils;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
@@ -31,6 +32,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.AppDialogPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.AppDialogView;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.newtube.mobile.ui.common.MobileActivity;
+import com.newtube.mobile.ui.common.MobileSheets;
 import com.newtube.mobile.ui.common.Motion;
 
 import java.util.ArrayList;
@@ -115,6 +117,9 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
     private View mHandle;
     private MaxHeightRecyclerView mRecyclerView;
     private TextView mTitleView;
+    private View mToolbar;
+    /** NEWTUBE(sheet-landscape): opened over the player, whose bars it follows (onConfigurationChanged). */
+    private boolean mOverPlayer;
     private ImageButton mBackButton;
     private DialogRowAdapter mAdapter;
 
@@ -200,6 +205,13 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_mobile_app_dialog);
+        mOverPlayer = MobileSheets.isPlayerShown();
+        if (MobileSheets.isFullscreenPlayerShown()) {
+            // NEWTUBE(sheet-landscape): a picker over the fullscreen video (gear -> More -> Repeat,
+            // Zoom, Save to playlist...) - this window takes focus, so it must ask for the
+            // player's hidden bars itself, or they slide in over the video while it is open.
+            MobileSheets.keepSystemBarsHidden(getWindow());
+        }
 
         registerBackHandler(this::handleBack);
 
@@ -234,6 +246,7 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
         mHandle = findViewById(R.id.mobile_dialog_handle);
         mRecyclerView = findViewById(R.id.mobile_dialog_list);
         mTitleView = findViewById(R.id.mobile_dialog_title);
+        mToolbar = findViewById(R.id.mobile_dialog_toolbar);
         mBackButton = findViewById(R.id.mobile_dialog_back);
 
         // Sheet mode: tapping the dim scrim dismisses the whole dialog (like a Material sheet).
@@ -317,6 +330,15 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
     @Override
     public void onConfigurationChanged(@NonNull Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        if (mOverPlayer) {
+            // Turned with the picker open: the player goes fullscreen with the phone sideways and
+            // back to its watch page, which has its bars, when it is upright again.
+            if (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                MobileSheets.keepSystemBarsHidden(getWindow());
+            } else {
+                MobileSheets.showSystemBars(getWindow());
+            }
+        }
         // Rotation with the sheet open: re-cap width/height for the new window (the insets
         // callback also re-runs this, but not when the insets happen to be unchanged).
         applyDialogInsets();
@@ -350,13 +372,17 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
         // scrim/back dismiss it.
         boolean showBack = canGoBack();
         mBackButton.setVisibility(showBack ? View.VISIBLE : View.GONE);
+        // NEWTUBE(sheet-title): a root sheet without a title (Repeat mode, Zoom: their category
+        // header names them) left the bar as 56dp of blank between the handle and the first row -
+        // a fifth of the height over the landscape player.
+        mToolbar.setVisibility(showBack || !TextUtils.isEmpty(level.title) ? View.VISIBLE : View.GONE);
         // NEWTUBE(sheet-title): without the arrow the title sat 4dp from the edge while every row
         // starts at 16dp; line it up with the rows. Beside the arrow, 4dp keeps the usual gap.
         mTitleView.setPaddingRelative(
                 getResources().getDimensionPixelSize(showBack
                         ? R.dimen.mobile_dialog_title_inset_with_back : R.dimen.mobile_dialog_title_inset),
                 mTitleView.getPaddingTop(), mTitleView.getPaddingEnd(), mTitleView.getPaddingBottom());
-        mAdapter.submit(level.categories, mRadioOverrides);
+        mAdapter.submit(level.categories, mRadioOverrides, level.title);
         RecyclerView.LayoutManager layoutManager = mRecyclerView.getLayoutManager();
         if (scroll == SCROLL_RESTORE && level.listState != null && layoutManager != null) {
             layoutManager.onRestoreInstanceState(level.listState);
@@ -390,7 +416,7 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
             window.setStatusBarColor(android.graphics.Color.TRANSPARENT);
             // Below Android 8.1 the navigation buttons can't turn dark: keep the black bar there.
             window.setNavigationBarColor(Build.VERSION.SDK_INT >= 27 ? android.graphics.Color.TRANSPARENT
-                    : ContextCompat.getColor(this, R.color.mobile_color_navigation_bar));
+                    : com.newtube.mobile.ui.common.ThemeMode.color(this, R.attr.newtubeColorNavigationBar));
             androidx.core.view.WindowCompat.getInsetsController(window, window.getDecorView())
                     .setAppearanceLightStatusBars(false);
         }
@@ -428,6 +454,8 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
                     mContent.animate().translationY(0f).setDuration(Motion.ENTER_MS)
                             .setInterpolator(Motion.EMPHASIZED_DECELERATE).start();
                 }
+                // NEWTUBE(sheet-landscape): the player sheet this was opened from leaves now.
+                MobileSheets.notifyCoveringSheetShown();
                 return true;
             }
         });
@@ -487,6 +515,7 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
         super.onResume();
 
         mIsPaused = false;
+        MobileSheets.setPickerResumed(true);
 
         if (mPresenter != null) {
             mPresenter.onViewResumed();
@@ -515,6 +544,7 @@ public class MobileAppDialogActivity extends MobileActivity implements AppDialog
         super.onPause();
 
         mIsPaused = true;
+        MobileSheets.setPickerResumed(false);
 
         if (mPresenter != null) {
             mPresenter.onViewPaused();

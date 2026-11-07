@@ -114,6 +114,131 @@ public class MobileThemeTest {
         assertTrue(ThemeMode.isExistingInstall(context, migrations));
     }
 
+    @Test
+    @Config(qualifiers = "night")
+    public void pureBlackBlackensThePageAndKeepsRaisedSurfacesApart() {
+        Context dark = themed(R.style.Theme_NewTube);
+        assertEquals(0xFF0F0F0F, ThemeMode.color(dark, R.attr.newtubeColorBackground));
+        assertEquals(0xFF1E1E1E, ThemeMode.color(dark, R.attr.newtubeColorSurface));
+
+        Context black = themed(R.style.Theme_NewTube);
+        black.getTheme().applyStyle(R.style.ThemeOverlay_NewTube_PureBlack, true);
+        assertEquals(0xFF000000, ThemeMode.color(black, R.attr.newtubeColorBackground));
+        assertEquals(0xFF000000, ThemeMode.color(black, R.attr.newtubeColorNavigationBar));
+        assertEquals(0xFF000000, ThemeMode.color(black, R.attr.newtubeColorField));
+        assertEquals(0xFF121212, ThemeMode.color(black, R.attr.newtubeColorSurface));
+        assertEquals(0xFF121212, ThemeMode.color(black, R.attr.newtubeColorCard));
+        // What the framework and Material read: window, colorBackground, the sheets' colorSurface.
+        TypedArray a = black.obtainStyledAttributes(new int[] {android.R.attr.windowBackground,
+                android.R.attr.colorBackground, R.attr.colorSurface});
+        assertEquals(0xFF000000, a.getColor(1, 0));
+        assertEquals(0xFF121212, a.getColor(2, 0));
+        a.recycle();
+        // The other palette text keeps its dark-theme values.
+        assertEquals(0xFFFFFFFF, color(black, R.color.mobile_color_on_surface));
+    }
+
+    @Test
+    @Config(qualifiers = "night")
+    public void pureBlackFollowsTheSwitchOnTheDarkSide() {
+        Context app = RuntimeEnvironment.getApplication();
+        try {
+            ThemeMode.setPureBlack(app, true);
+            Context screen = themed(R.style.Theme_NewTube);
+            ThemeMode.applyPalette(screen);
+            assertEquals(0xFF000000, ThemeMode.color(screen, R.attr.newtubeColorBackground));
+            assertEquals(ThemeMode.LOOK_PURE_BLACK | Configuration.UI_MODE_NIGHT_YES, ThemeMode.currentLook(screen));
+
+            ThemeMode.setPureBlack(app, false);
+            Context next = themed(R.style.Theme_NewTube);
+            ThemeMode.applyPalette(next);
+            assertEquals(0xFF0F0F0F, ThemeMode.color(next, R.attr.newtubeColorBackground));
+            assertEquals(Configuration.UI_MODE_NIGHT_YES, ThemeMode.currentLook(next));
+            // (Taking it off a live screen is a theme rebuild: rebuiltThemesFollowTheSwitchEachWay.)
+        } finally {
+            ThemeMode.setPureBlack(app, false);
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "notnight")
+    public void pureBlackNeverReachesTheLightSide() {
+        Context app = RuntimeEnvironment.getApplication();
+        try {
+            ThemeMode.setPureBlack(app, true);
+            Context screen = themed(R.style.Theme_NewTube);
+            ThemeMode.applyPalette(screen);
+            assertEquals(0xFFFFFFFF, ThemeMode.color(screen, R.attr.newtubeColorBackground));
+            assertEquals(Configuration.UI_MODE_NIGHT_NO, ThemeMode.currentLook(screen));
+        } finally {
+            ThemeMode.setPureBlack(app, false);
+        }
+        assertEquals(Configuration.UI_MODE_NIGHT_NO, ThemeMode.look(Configuration.UI_MODE_NIGHT_NO, true));
+        int black = ThemeMode.look(Configuration.UI_MODE_NIGHT_YES, true);
+        assertEquals(Configuration.UI_MODE_NIGHT_YES, ThemeMode.night(black));
+        assertTrue((black & ThemeMode.LOOK_PURE_BLACK) != 0);
+    }
+
+    /**
+     * A screen that changes in place (the player) gets a rebuilt theme, and the drawables it
+     * inflates next must follow it each way, however many times the switch flips.
+     */
+    @Test
+    @Config(qualifiers = "night")
+    public void rebuiltThemesFollowTheSwitchEachWay() {
+        Context app = RuntimeEnvironment.getApplication();
+        java.util.List<Integer> styles = java.util.Collections.singletonList(R.style.Theme_NewTube_Player);
+        boolean[] flips = {true, false, true, false, true};
+        for (boolean black : flips) {
+            android.content.res.Resources.Theme theme = ThemeMode.buildTheme(app.getResources(), null, styles, black);
+            Context screen = new ContextThemeWrapper(app, 0) {
+                @Override
+                public android.content.res.Resources.Theme getTheme() {
+                    return theme;
+                }
+            };
+            assertEquals(black ? 0xFF000000 : 0xFF0F0F0F, ThemeMode.color(screen, R.attr.newtubeColorBackground));
+            assertEquals(black ? 0xFF121212 : 0xFF1E1E1E, cardColor(screen));
+        }
+    }
+
+    /**
+     * Pure black reaches a view only through the theme attributes (attrs_mobile.xml): a layout or
+     * drawable that names the page colours' @color tokens directly would stay dark grey.
+     */
+    @Test
+    public void layoutsReadThePageColoursThroughTheTheme() throws java.io.IOException {
+        java.util.regex.Pattern direct = java.util.regex.Pattern.compile(
+                "@color/mobile_color_(surface|card|field|background_scrim|navigation_bar|comment_parent)\\b"
+                        + "|android:(background|endColor|startColor|centerColor)=\"@color/mobile_color_background\""
+                        + "|<solid android:color=\"@color/mobile_color_background\"");
+        java.io.File res = new java.io.File("src/stmobile/res");
+        assertTrue("run from the module directory: " + res.getAbsolutePath(), res.isDirectory());
+        StringBuilder offenders = new StringBuilder();
+        for (String dir : new String[] {"layout", "drawable"}) {
+            java.io.File[] files = new java.io.File(res, dir).listFiles();
+            if (files == null) {
+                continue;
+            }
+            for (java.io.File file : files) {
+                String xml = new String(java.nio.file.Files.readAllBytes(file.toPath()),
+                        java.nio.charset.StandardCharsets.UTF_8);
+                if (direct.matcher(xml).find()) {
+                    offenders.append(dir).append('/').append(file.getName()).append(' ');
+                }
+            }
+        }
+        assertEquals("use ?attr/newtubeColor* instead", "", offenders.toString());
+    }
+
+    private static int cardColor(Context context) {
+        android.graphics.drawable.RippleDrawable card = (android.graphics.drawable.RippleDrawable)
+                ContextCompat.getDrawable(context, R.drawable.bg_watch_card);
+        android.graphics.drawable.GradientDrawable shape =
+                (android.graphics.drawable.GradientDrawable) card.getDrawable(0);
+        return shape.getColor().getDefaultColor();
+    }
+
     private static boolean lightControls(Context context) {
         TypedArray a = context.obtainStyledAttributes(new int[] {
                 R.attr.colorControlNormal, android.R.attr.textColorPrimary});

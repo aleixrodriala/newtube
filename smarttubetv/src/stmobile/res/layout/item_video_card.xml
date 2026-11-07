@@ -75,11 +75,29 @@
 
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- NEWTUBE(feed-avatars): the channel's avatar, on Home and Subscriptions (the adapter
+             shows it there). Tapping it opens the channel; the rest of the card still plays.
+             YouTube's size: 36 dp, 12 dp from the screen edge, 12 dp before the title. Centred on
+             the text beside it (owner, 2026-10-20), however many lines the title takes. -->
+        <ImageView
+            android:id="@+id/video_channel_avatar"
+            android:layout_width="@dimen/mobile_card_avatar_size"
+            android:layout_height="@dimen/mobile_card_avatar_size"
+            android:layout_marginStart="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:scaleType="centerCrop"
+            android:src="@drawable/bg_card_avatar_placeholder"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="@id/video_meta"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="@id/video_title"
+            tools:visibility="visible" />
+
         <TextView
             android:id="@+id/video_title"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
+            android:layout_marginStart="12dp"
             android:layout_marginTop="10dp"
             android:layout_marginEnd="4dp"
             android:ellipsize="end"
@@ -89,8 +107,9 @@
             android:textColor="@color/mobile_color_on_surface"
             android:textSize="16sp"
             app:layout_constraintEnd_toStartOf="@+id/video_overflow"
-            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintStart_toEndOf="@id/video_channel_avatar"
             app:layout_constraintTop_toBottomOf="@id/video_thumbnail_frame"
+            app:layout_goneMarginStart="4dp"
             tools:text="A great video title that may wrap to two lines" />
 
         <!-- Overflow = same context menu as card long-press (VideoMenuPresenter: Not interested,
@@ -111,7 +130,6 @@
             android:id="@+id/video_meta"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="4dp"
             android:layout_marginTop="3dp"
             android:layout_marginEnd="4dp"
             android:layout_marginBottom="10dp"
@@ -121,7 +139,7 @@
             android:textSize="13sp"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toStartOf="@id/video_overflow"
-            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintStart_toStartOf="@id/video_title"
             app:layout_constraintTop_toBottomOf="@id/video_title"
             tools:text="Channel name · 1.2M views · 3 weeks ago" />
 

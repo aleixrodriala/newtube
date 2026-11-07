@@ -10,7 +10,7 @@
     <gradient
         android:angle="270"
         android:startColor="#00000000"
-        android:centerColor="@color/mobile_color_background_scrim"
-        android:endColor="@color/mobile_color_background"
+        android:centerColor="?attr/newtubeColorBackgroundScrim"
+        android:endColor="?attr/newtubeColorBackground"
         android:type="linear" />
 </shape>

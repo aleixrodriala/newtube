@@ -60,6 +60,16 @@ public interface PlayerEngine extends PlayerConstants {
     default long getForbiddenMediaStartMs() { return -1; }
     default long getLowestServedMediaStartMs() { return -1; }
     default long getHighestServedMediaStartMs() { return -1; }
+    /**
+     * NEWTUBE(wall-swap): continue the watched open on {@code formatInfo}'s URLs for the same media
+     * files, without a reload (see PlayerEngineEventListener.onMediaRefusedAhead).
+     * @return false when the engine waits for no answer or the answer lacks a refused file
+     */
+    default boolean repointMedia(MediaItemFormatInfo formatInfo) { return false; }
+    /** NEWTUBE(wall-swap): no answer is coming: the held refusal fails as before. */
+    default void cancelRepoint() {}
+    /** NEWTUBE(wall-swap): a held refusal still waits for an answer. */
+    default boolean isRepointPending() { return false; }
     long getDurationMs();
     void setPlayWhenReady(boolean play);
     boolean getPlayWhenReady();

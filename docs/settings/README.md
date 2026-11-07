@@ -27,7 +27,7 @@ every page, old and new, with uiautomator dumps and scrolling to the end.
 Settings
   Account                       name / email, or "Not signed in"; opens the accounts sheet
   App
-    General                     Theme · Language · Location · Start screen · Interface size ·
+    General                     Theme · Pure black · Language · Location · Start screen · Interface size ·
                                 Search by voice right away · Use 24-hour time
     Tabs and feeds              Tabs › · Hidden videos › · Video menu › · Thumbnails ·
                                 Original titles · Order of Channels in You

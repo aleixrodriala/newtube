@@ -2,7 +2,9 @@
 <!-- Shimmering (ShimmerLinearLayout) loading skeleton for the feed grids. Mirrors
      item_video_card's geometry (16:9-ish thumb + title + meta line) so the real cards
      replace it without a jarring layout shift. Shown only while a section loads into an
-     EMPTY grid - never over content (returning to already-loaded content stays instant). -->
+     EMPTY grid - never over content (returning to already-loaded content stays instant).
+     NEWTUBE(feed-avatars): the avatar circles (tag "avatar") show where the cards have one, on
+     Home and Subscriptions (MobileBrowseActivity.setSkeletonAvatars). -->
 <com.newtube.mobile.ui.common.ShimmerLinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
@@ -16,20 +18,35 @@
 
     <LinearLayout style="@style/MobileSkeletonFeedCard">
         <View style="@style/MobileSkeletonFeedThumb" />
-        <View style="@style/MobileSkeletonFeedLineWide" />
-        <View style="@style/MobileSkeletonFeedLineNarrow" />
+        <LinearLayout style="@style/MobileSkeletonFeedTextRow">
+            <View style="@style/MobileSkeletonFeedAvatar" />
+            <LinearLayout style="@style/MobileSkeletonFeedText">
+                <View style="@style/MobileSkeletonFeedLineWide" />
+                <View style="@style/MobileSkeletonFeedLineNarrow" />
+            </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
 
     <LinearLayout style="@style/MobileSkeletonFeedCard">
         <View style="@style/MobileSkeletonFeedThumb" />
-        <View style="@style/MobileSkeletonFeedLineWide" />
-        <View style="@style/MobileSkeletonFeedLineNarrow" />
+        <LinearLayout style="@style/MobileSkeletonFeedTextRow">
+            <View style="@style/MobileSkeletonFeedAvatar" />
+            <LinearLayout style="@style/MobileSkeletonFeedText">
+                <View style="@style/MobileSkeletonFeedLineWide" />
+                <View style="@style/MobileSkeletonFeedLineNarrow" />
+            </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
 
     <LinearLayout style="@style/MobileSkeletonFeedCard">
         <View style="@style/MobileSkeletonFeedThumb" />
-        <View style="@style/MobileSkeletonFeedLineWide" />
-        <View style="@style/MobileSkeletonFeedLineNarrow" />
+        <LinearLayout style="@style/MobileSkeletonFeedTextRow">
+            <View style="@style/MobileSkeletonFeedAvatar" />
+            <LinearLayout style="@style/MobileSkeletonFeedText">
+                <View style="@style/MobileSkeletonFeedLineWide" />
+                <View style="@style/MobileSkeletonFeedLineNarrow" />
+            </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
 
 </com.newtube.mobile.ui.common.ShimmerLinearLayout>

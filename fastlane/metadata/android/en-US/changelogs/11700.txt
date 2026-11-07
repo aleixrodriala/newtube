@@ -1,0 +1,1 @@
+New: channel avatars on Home and Subscriptions cards; tap one to open the channel. Fixed: a quick double tap on play/pause plays or pauses; Romanian translation.

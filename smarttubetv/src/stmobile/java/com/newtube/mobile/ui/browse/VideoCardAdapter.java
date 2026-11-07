@@ -20,6 +20,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
+import com.newtube.mobile.ui.common.ChannelAvatars;
 import com.newtube.mobile.ui.playback.PlayerTransitionBridge;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
@@ -53,6 +54,10 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
 
     private final OnVideoClickListener mClickListener;
     private final OnVideoLongClickListener mLongClickListener;
+    /** NEWTUBE(feed-avatars): set = cards show their channel's avatar, and tapping it calls this. */
+    private OnVideoClickListener mChannelClickListener;
+    /** Held here; ChannelAvatars holds it weakly, so it goes away with this adapter. */
+    private final ChannelAvatars.Listener mAvatarListener = this::onAvatarsChanged;
 
     public VideoCardAdapter(OnVideoClickListener clickListener) {
         this(clickListener, null);
@@ -89,6 +94,41 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
         return item.isChannel() && !item.isPlaylistAsChannel() ? VIEW_TYPE_CHANNEL : VIEW_TYPE_VIDEO;
     }
 
+    /**
+     * NEWTUBE(feed-avatars): show each video card's channel avatar (Home, Subscriptions), opening the
+     * channel through {@code onChannelClick} when tapped; null hides them. The browse screen calls
+     * it once a section's new list is committed, before that list's cards are laid out; switching
+     * on or off also refreshes cards kept from the previous list.
+     */
+    public void setChannelAvatars(OnVideoClickListener onChannelClick) {
+        boolean changed = (mChannelClickListener == null) != (onChannelClick == null);
+        mChannelClickListener = onChannelClick;
+        if (onChannelClick != null) {
+            ChannelAvatars.addListener(mAvatarListener);
+        }
+        if (changed && getItemCount() > 0) {
+            notifyItemRangeChanged(0, getItemCount(), PAYLOAD_AVATAR);
+        }
+    }
+
+    private void onAvatarsChanged(java.util.Set<String> ids) {
+        if (mChannelClickListener == null) {
+            return;
+        }
+        boolean all = ids.contains(ChannelAvatars.ALL);
+        java.util.List<Video> current = getCurrentList();
+        for (int i = 0; i < current.size(); i++) {
+            Video video = current.get(i);
+            if (!VideoViewHolder.hasChannelAvatar(video)) {
+                continue;
+            }
+            String channelId = ChannelAvatars.channelIdOf(video);
+            if (all || ids.contains(video.videoId) || channelId != null && ids.contains(channelId)) {
+                notifyItemChanged(i, PAYLOAD_AVATAR);
+            }
+        }
+    }
+
     /** Full-span rows (channel results) for the grid's SpanSizeLookup in multi-column layouts. */
     public boolean isFullSpan(int position) {
         return position >= 0 && position < getItemCount() && getItemViewType(position) == VIEW_TYPE_CHANNEL;
@@ -110,6 +150,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             ((ChannelViewHolder) holder).bind(getItem(position), mLongClickListener);
         } else {
             ((VideoViewHolder) holder).bind(getItem(position), mLongClickListener);
+            ((VideoViewHolder) holder).bindChannelAvatar(mChannelClickListener);
         }
     }
 
@@ -152,12 +193,19 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
 
     /** Marker payload for in-place item mutations (watch progress, DeArrow overrides). */
     private static final Object PAYLOAD_SYNC = new Object();
+    /** NEWTUBE(feed-avatars): the card's channel avatar arrived or changed (ChannelAvatars). */
+    private static final Object PAYLOAD_AVATAR = new Object();
 
     @Override
     public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position,
             @NonNull java.util.List<Object> payloads) {
         if (!payloads.isEmpty() && holder instanceof VideoViewHolder) {
-            ((VideoViewHolder) holder).bindPartial(getItem(position));
+            VideoViewHolder card = (VideoViewHolder) holder;
+            if (payloads.contains(PAYLOAD_SYNC)) {
+                card.bindPartial(getItem(position));
+            }
+            // A sync can also bring the card its channel (Video.sync after playback).
+            card.bindChannelAvatar(mChannelClickListener);
         } else {
             super.onBindViewHolder(holder, position, payloads);
         }
@@ -175,8 +223,10 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
         private final TextView mTitle;
         private final TextView mMeta;
         private final View mOverflow;
+        private final ImageView mAvatar; // null on layouts without one
         private Video mVideo;
         private String mBoundThumbUrl;
+        private String mBoundAvatarUrl;
 
         public VideoViewHolder(@NonNull View itemView, OnVideoClickListener clickListener) {
             super(itemView);
@@ -188,6 +238,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             mTitle = itemView.findViewById(R.id.video_title);
             mMeta = itemView.findViewById(R.id.video_meta);
             mOverflow = itemView.findViewById(R.id.video_overflow);
+            mAvatar = itemView.findViewById(R.id.video_channel_avatar);
 
             itemView.setOnClickListener(v -> {
                 if (mVideo != null && clickListener != null) {
@@ -397,10 +448,79 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
                     }
                 };
 
+        /**
+         * NEWTUBE(feed-avatars): the channel avatar left of the title, on a video card of a screen
+         * that wants them ({@code onChannelClick} set). Its URL comes from {@link ChannelAvatars};
+         * an unknown one shows the placeholder circle and is asked for, and the adapter rebinds
+         * this when it arrives.
+         */
+        public void bindChannelAvatar(OnVideoClickListener onChannelClick) {
+            if (mAvatar == null) {
+                return;
+            }
+            Video video = mVideo;
+            if (onChannelClick == null || video == null || !hasChannelAvatar(video)) {
+                if (mAvatar.getVisibility() != View.GONE) {
+                    mAvatar.setVisibility(View.GONE);
+                    Glide.with(itemView.getContext().getApplicationContext()).clear(mAvatar);
+                    mBoundAvatarUrl = null;
+                }
+                return;
+            }
+
+            Context context = itemView.getContext();
+            mAvatar.setVisibility(View.VISIBLE);
+            mAvatar.setOnClickListener(v -> {
+                if (mVideo != null) {
+                    PlayerTransitionBridge.clear();
+                    onChannelClick.onVideoClick(mVideo);
+                }
+            });
+            String author = video.getAuthor();
+            mAvatar.setContentDescription(author != null && !author.isEmpty()
+                    ? context.getString(R.string.mobile_card_go_to_channel, author)
+                    : context.getString(R.string.open_channel));
+
+            int size = context.getResources().getDimensionPixelSize(R.dimen.mobile_card_avatar_size);
+            ChannelAvatars.request(video); // no-op when known and fresh
+            String url = ChannelAvatars.sized(ChannelAvatars.get(video), size);
+            if (url == null) {
+                mBoundAvatarUrl = null;
+                Glide.with(context.getApplicationContext()).clear(mAvatar);
+                mAvatar.setImageResource(R.drawable.bg_card_avatar_placeholder);
+                return;
+            }
+            if (url.equals(mBoundAvatarUrl)) {
+                return; // already showing (or loading) it: no flash on a rebind
+            }
+            mBoundAvatarUrl = url;
+            Glide.with(context)
+                    .load(url)
+                    .override(size)
+                    .circleCrop()
+                    .placeholder(R.drawable.bg_card_avatar_placeholder)
+                    .error(R.drawable.bg_card_avatar_placeholder)
+                    .transition(com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.withCrossFade(150))
+                    .into(mAvatar);
+        }
+
+        /**
+         * A single video. A mix or a playlist has no one channel to show (YouTube shows none there
+         * either; a mix's menu names no channel), nor has a channel row.
+         */
+        static boolean hasChannelAvatar(Video video) {
+            return video.videoId != null && !video.hasPlaylist();
+        }
+
         public void unbind() {
             mVideo = null;
             mBoundThumbUrl = null;
             Glide.with(itemView.getContext().getApplicationContext()).clear(mThumbnail);
+            if (mAvatar != null && mBoundAvatarUrl != null) {
+                Glide.with(itemView.getContext().getApplicationContext()).clear(mAvatar);
+                mAvatar.setImageResource(R.drawable.bg_card_avatar_placeholder);
+            }
+            mBoundAvatarUrl = null;
         }
     }
 

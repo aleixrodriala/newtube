@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- NEWTUBE(theme): the page colours that Settings > General > Pure black changes. Layouts,
+         drawables and code read these attributes, never the @color tokens behind them, so the
+         pure-black theme overlay (ThemeOverlay.NewTube.PureBlack, applied by ThemeMode to every
+         screen's theme) reaches every screen, sheet and dialog without a colour hack per view.
+         Theme.NewTube sets each one to its light/dark @color token. -->
+    <attr name="newtubePureBlack" format="boolean" />
+    <!-- The page: window, top bars, bottom nav, lists, the watch page, settings, search. -->
+    <attr name="newtubeColorBackground" format="color" />
+    <attr name="newtubeColorNavigationBar" format="color" />
+    <!-- The page colour at 40% (the playlist header's wash into the page). -->
+    <attr name="newtubeColorBackgroundScrim" format="color" />
+    <!-- The search box on the top bar (the page colour in the dark theme). -->
+    <attr name="newtubeColorField" format="color" />
+    <!-- Raised surfaces: sheets and dialogs; cards on the page; the comment a replies page is about. -->
+    <attr name="newtubeColorSurface" format="color" />
+    <attr name="newtubeColorCard" format="color" />
+    <attr name="newtubeColorCommentParent" format="color" />
+</resources>

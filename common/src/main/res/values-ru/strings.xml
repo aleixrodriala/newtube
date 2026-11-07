@@ -121,8 +121,8 @@
     <string name="repeat_mode_pause">Ставить воспроизведение на паузу после каждого видео (кроме очереди)</string>
     <string name="repeat_mode_pause_alt">Воспроизводить непрерывно только видео из плейлиста</string>
     <string name="repeat_mode_none">Завершать воспроизведение после одного видео (кроме очереди)</string>
-    <string name="subscribed_to_channel">Подписка оформлена</string>
-    <string name="unsubscribed_from_channel">Подписка не оформлена</string>
+    <string name="subscribed_to_channel">Вы подписаны</string>
+    <string name="unsubscribed_from_channel">Вы отписаны</string>
     <string name="subtitle_yellow_transparent">Жёлтые на прозрачном фоне</string>
     <string name="subtitle_white_transparent">Белые на прозрачном фоне</string>
     <string name="subtitle_white_black">Белые на чёрном фоне</string>
@@ -388,7 +388,7 @@
     <string name="simple_edit_value_hint">Введите значение</string>
     <string name="seek_interval">Интервал перемотки</string>
     <string name="seek_interval_sec">%s сек</string>
-    <string name="subtitle_system">Системный стиль (Настройки Андроид > Спец. возможности)</string>
+    <string name="subtitle_system">Системный стиль (Настройки Андроид &gt; Спец. возможности)</string>
     <string name="subtitle_scale">Масштаб субтитров</string>
     <string name="audio_sync_fix_desc">Альтернативный способ синхронизации аудио/видео. Считается устаревшим, но, в некоторых случаях, помогает.</string>
     <string name="audio_sync_fix">Исправление рассинхронизации звука</string>
