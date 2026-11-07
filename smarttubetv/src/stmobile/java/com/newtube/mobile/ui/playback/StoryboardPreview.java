@@ -46,7 +46,8 @@ final class StoryboardPreview {
             mMetadataRequest.dispose();
         }
         if (mTarget != null) {
-            Glide.with(mView).clear(mTarget);
+            // onDestroy runs after the Activity is marked destroyed; cleanup needs no Activity manager.
+            Glide.with(mView.getContext().getApplicationContext()).clear(mTarget);
         }
         mVideoId = videoId;
         mTarget = null;
