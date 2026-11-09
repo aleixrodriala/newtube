@@ -8,8 +8,8 @@
       both declare it required=true; tools:replace forces the merged value false).
     * android.hardware.touchscreen -> required (TV manifest declares it false).
 
-  SplashActivity already carries the normal LAUNCHER category in the main manifest,
-  so no launcher changes are needed here - it routes via SplashPresenter ->
+  Launcher aliases below replace SplashActivity's inherited launcher filter.
+  Both route via SplashPresenter ->
   ViewManager.startView(BrowseView.class)/startDefaultView(), both of which are
   re-pointed at the touch Home screen below (see MobileMainApplication).
 
@@ -100,7 +100,37 @@
             android:launchMode="singleTop"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|uiMode"
             android:theme="@style/Theme.NewTube"
-            tools:replace="android:launchMode,android:configChanges" />
+            tools:replace="android:launchMode,android:configChanges">
+            <intent-filter tools:node="removeAll" />
+        </activity>
+
+        <!-- Keep these names stable: PackageManager persists the selected alias across updates.
+             The target stays enabled and must be declared before both aliases. -->
+        <activity-alias
+            android:name="${applicationId}.launcher.NewTube"
+            android:targetActivity="com.liskovsoft.smartyoutubetv2.tv.ui.main.SplashActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:icon="@mipmap/app_icon">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="${applicationId}.launcher.YouTube"
+            android:targetActivity="com.liskovsoft.smartyoutubetv2.tv.ui.main.SplashActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/mobile_appearance_youtube"
+            android:icon="@drawable/app_icon_youtube">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <activity
             android:name="com.newtube.mobile.ui.browse.MobileBrowseActivity"
