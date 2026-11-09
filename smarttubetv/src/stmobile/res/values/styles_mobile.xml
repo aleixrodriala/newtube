@@ -250,6 +250,19 @@
         <item name="android:windowLightStatusBar">false</item>
     </style>
 
+    <!-- Recommendations float over the playing video in either app theme. -->
+    <style name="ThemeOverlay.NewTube.FullscreenRecommendations" parent="ThemeOverlay.NewTube.BottomSheetDialog.Player">
+        <item name="bottomSheetStyle">@style/Widget.NewTube.FullscreenRecommendations</item>
+        <item name="android:backgroundDimAmount">0.65</item>
+    </style>
+
+    <style name="Widget.NewTube.FullscreenRecommendations" parent="Widget.NewTube.BottomSheet">
+        <item name="backgroundTint">@android:color/transparent</item>
+        <item name="android:elevation">0dp</item>
+        <item name="paddingTopSystemWindowInsets">false</item>
+        <item name="paddingBottomSystemWindowInsets">false</item>
+    </style>
+
     <!-- NEWTUBE(theme): android:theme of the player's video area (and the mini player), so the
          ripples and default control colours over the video are the dark theme's in both themes.
          values-night/ redefines it empty: there the whole app is already dark, and the player

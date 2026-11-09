@@ -472,4 +472,9 @@
     <!-- Experimental SABR playback (was strings_sabr.xml) -->
     <string name="sabr_vod_option">Prefer SABR even when links work (experimental; next VOD)</string>
     <string name="sabr_vod_stopped">Experimental SABR playback stopped. Tap play to retry, or disable SABR in Settings.</string>
+    <string name="mobile_player_more_videos">More videos</string>
+    <string name="mobile_player_close_recommendations">Close recommendations</string>
+    <string name="mobile_player_no_recommendations">No recommendations available</string>
+    <string name="mobile_watch_later_remove">Remove from Watch Later</string>
+    <string name="mobile_watch_later_error">Couldn\'t update Watch Later. Please try again.</string>
 </resources>
