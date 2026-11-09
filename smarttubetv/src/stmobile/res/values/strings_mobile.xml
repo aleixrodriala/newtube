@@ -472,4 +472,5 @@
     <!-- Experimental SABR playback (was strings_sabr.xml) -->
     <string name="sabr_vod_option">Prefer SABR even when links work (experimental; next VOD)</string>
     <string name="sabr_vod_stopped">Experimental SABR playback stopped. Tap play to retry, or disable SABR in Settings.</string>
+    <string name="mobile_settings_quality_fixed_intro">Auto adapts to your connection. A selected resolution stays fixed when available, otherwise the best lower resolution is used. Change it for one video from the player\'s settings.</string>
 </resources>

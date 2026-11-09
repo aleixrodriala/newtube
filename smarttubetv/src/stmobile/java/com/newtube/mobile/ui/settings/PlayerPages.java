@@ -248,7 +248,7 @@ final class PlayerPages {
         PlayerData playerData = PlayerData.instance(context);
         PlayerTweaksData tweaks = PlayerTweaksData.instance(context);
 
-        rows.add(SettingsRow.note(context.getString(R.string.mobile_settings_quality_intro)));
+        rows.add(SettingsRow.note(context.getString(R.string.mobile_settings_quality_fixed_intro)));
         rows.add(defaultQuality(context));
 
         rows.add(SettingsRow.header(context.getString(R.string.mobile_settings_audio)));
@@ -262,7 +262,7 @@ final class PlayerPages {
         return new SettingsPages.Page(context.getString(R.string.mobile_settings_quality), rows);
     }
 
-    /** "Auto (up to 1080p)" or the cap the user picked, for the Video quality row on the top level. */
+    /** Auto or the saved resolution, for the Video quality row on the top level. */
     static CharSequence qualitySummary(Context context) {
         SettingsRow row = defaultQuality(context);
         CharSequence text = row.summaryText();
@@ -273,8 +273,7 @@ final class PlayerPages {
     private static final String QUALITY_OTHER = "other";
 
     /**
-     * YouTube-style quality choice: Auto plus one cap per resolution. Each cap is a preset (a
-     * ceiling the automatic selection stays under, 60 fps where the phone decodes it); the exact
+     * Auto plus one fixed choice per resolution, up to 60 fps where the phone decodes it; the exact
      * codec presets stay one level down, under Advanced > Video format. A preset picked there shows
      * here under its own name.
      */
@@ -284,34 +283,33 @@ final class PlayerPages {
         FormatItem auto = playerData.getDefaultVideoFormat();
         int autoHeight = auto != null && auto.getHeight() > 0 ? auto.getHeight() : 1080;
 
-        List<VideoPreset> caps = new ArrayList<>();
+        List<VideoPreset> presets = new ArrayList<>();
         for (int height : new int[] {2160, 1440, 1080, 720, 480, 360}) {
-            if (height == autoHeight) {
-                continue; // Auto is that cap already
-            }
             VideoPreset preset = bestPreset(height);
             if (preset != null) {
-                caps.add(preset);
+                presets.add(preset);
             }
         }
 
         SettingsRow.Choice<String> choice = SettingsRow.choice(context.getString(R.string.mobile_settings_default_quality));
         choice.option(context.getString(R.string.mobile_settings_quality_auto, autoHeight),
                 context.getString(R.string.mobile_settings_quality_auto_desc), QUALITY_AUTO);
-        String currentKey = current == null || !current.isPreset() ? QUALITY_AUTO : null;
-        for (VideoPreset preset : caps) {
+        String currentKey = current == null || (!current.isPreset() && current.getFormatId() == null)
+                ? QUALITY_AUTO : null;
+        for (VideoPreset preset : presets) {
             int height = preset.getHeight();
-            String description = height > autoHeight ? context.getString(R.string.mobile_settings_quality_more_data)
+            String description = height >= autoHeight ? context.getString(R.string.mobile_settings_quality_more_data)
                     : height <= 480 ? context.getString(R.string.mobile_settings_quality_data_saver)
                     : context.getString(R.string.mobile_settings_quality_less_data);
-            choice.option(context.getString(R.string.mobile_settings_quality_up_to, resolutionName(height)), description, preset.name);
+            choice.option(resolutionName(height), description, preset.name);
             if (currentKey == null && preset.format.equals(current)) {
                 currentKey = preset.name;
             }
         }
         if (currentKey == null) {
             // A preset chosen under Advanced (another codec or frame rate): show it by name.
-            choice.option(presetLabel(presetName(current)), QUALITY_OTHER);
+            choice.option(current.isPreset() ? presetLabel(presetName(current))
+                    : resolutionName(current.getHeight()), QUALITY_OTHER);
             currentKey = QUALITY_OTHER;
         }
         String selected = currentKey;
@@ -319,7 +317,7 @@ final class PlayerPages {
             if (QUALITY_AUTO.equals(key)) {
                 setFormat(playerData, playerData.getDefaultVideoFormat());
             } else if (!QUALITY_OTHER.equals(key)) {
-                for (VideoPreset preset : caps) {
+                for (VideoPreset preset : presets) {
                     if (preset.name.equals(key)) {
                         setFormat(playerData, preset.format);
                     }
@@ -333,6 +331,7 @@ final class PlayerPages {
         if (playerData.isLegacyCodecsForced()) {
             playerData.setLegacyCodecsForced(false);
         }
+        playerData.setTempVideoFormat(null);
         playerData.setFormat(format);
     }
 
@@ -667,7 +666,7 @@ final class PlayerPages {
         return new SettingsPages.Page(context.getString(R.string.mobile_settings_advanced), rows);
     }
 
-    /** Every preset, labelled "1080p60 · VP9", as the exact format the automatic quality stays under. */
+    /** Every fixed preset, labelled "1080p60 · VP9". */
     private static SettingsRow videoFormat(Context context, PlayerData playerData, PlayerTweaksData tweaks) {
         FormatItem current = playerData.getFormat(FormatItem.TYPE_VIDEO);
         boolean presetSelected = current != null && current.isPreset();
