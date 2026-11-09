@@ -2,7 +2,7 @@
 <!--
   Touch Search screen (Wave 4b).
 
-  Toolbar = back arrow + a rounded EditText (IME action = search) + a mic button for
+  Toolbar = back arrow + a rounded query/clear field (IME action = search) + a mic button for
   voice input. Below the toolbar, a horizontally-scrolling strip of tag SUGGESTION chips
   (fed live as the user types, via SearchPresenter's MediaServiceSearchTagProvider), and
   under that a single Material RecyclerView GRID of results (reuses VideoCardAdapter and
@@ -42,44 +42,87 @@
             android:padding="12dp"
             android:src="@drawable/ic_mobile_back_arrow" />
 
-        <EditText
-            android:id="@+id/mobile_search_input"
+        <LinearLayout
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="48dp"
             android:layout_marginHorizontal="4dp"
             android:layout_weight="1"
             android:background="@drawable/mobile_search_field_background"
-            android:hint="@string/mobile_search_hint"
-            android:imeOptions="actionSearch"
-            android:importantForAutofill="no"
-            android:inputType="text"
-            android:maxLines="1"
-            android:paddingHorizontal="16dp"
-            android:singleLine="true"
-            android:textColor="@color/mobile_color_on_surface"
-            android:textColorHint="@color/mobile_color_on_surface_secondary"
-            android:textSize="18sp" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="0dp">
 
-        <!-- Clear the query; visible only while the field has text. -->
-        <ImageButton
-            android:id="@+id/mobile_search_clear"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/mobile_search_clear"
-            android:padding="12dp"
-            android:src="@drawable/ic_sheet_close"
-            android:visibility="gone"
-            tools:visibility="visible" />
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1">
+
+                <EditText
+                    android:id="@+id/mobile_search_input"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@android:color/transparent"
+                    android:gravity="center_vertical"
+                    android:hint="@string/mobile_search_hint"
+                    android:imeOptions="actionSearch"
+                    android:importantForAutofill="no"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="0dp"
+                    android:singleLine="true"
+                    android:textColor="@color/mobile_color_on_surface"
+                    android:textColorHint="@color/mobile_color_on_surface_secondary"
+                    android:textSize="18sp" />
+
+                <!-- Results show the query's beginning; the full text stays in the editor. -->
+                <TextView
+                    android:id="@+id/mobile_search_query_summary"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:ellipsize="end"
+                    android:gravity="center_vertical"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="0dp"
+                    android:singleLine="true"
+                    android:textColor="@color/mobile_color_on_surface"
+                    android:textSize="18sp"
+                    android:visibility="gone" />
+
+            </FrameLayout>
+
+            <!-- Clear stays inside the pill, with its own full-size touch target. -->
+            <ImageButton
+                android:id="@+id/mobile_search_clear"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/mobile_search_clear"
+                android:padding="14dp"
+                android:src="@drawable/ic_sheet_close"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
+        </LinearLayout>
 
         <ImageButton
             android:id="@+id/mobile_search_mic"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/mobile_search_mic_background"
             android:contentDescription="@string/mobile_search_voice"
             android:padding="12dp"
             android:src="@drawable/ic_mobile_mic" />
+
+        <ImageButton
+            android:id="@+id/mobile_search_filters"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/mobile_search_filters"
+            android:enabled="false"
+            android:padding="12dp"
+            android:src="@drawable/ic_mobile_more_vert" />
 
     </LinearLayout>
 
@@ -129,11 +172,16 @@
             tools:listitem="@layout/item_mobile_search_suggestion"
             tools:visibility="visible" />
 
+        <!-- The mini-player stays above the same bottom navigation as the results. -->
+        <include layout="@layout/mobile_mini_player_overlay" />
     </FrameLayout>
 
-</LinearLayout>
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/mobile_bottom_nav"
+        style="@style/MobileBottomNavigation"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
 
-    <!-- Minimizing a video opened from these results keeps playback alive in this overlay. -->
-    <include layout="@layout/mobile_mini_player_overlay" />
+</LinearLayout>
 
 </FrameLayout>

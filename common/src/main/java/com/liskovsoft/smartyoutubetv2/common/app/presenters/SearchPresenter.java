@@ -167,6 +167,23 @@ public class SearchPresenter extends BasePresenter<SearchView> implements VideoG
         loadSearchResult(searchText);
     }
 
+    public int getSearchOptions() {
+        return mUploadDateOptions | mDurationOptions | mTypeOptions | mFeatureOptions | mSortingOptions;
+    }
+
+    /** Update together; the view submits once after its filter dialog is confirmed. */
+    public void setSearchOptions(int options) {
+        mUploadDateOptions = options & (SearchOptions.UPLOAD_DATE_LAST_HOUR | SearchOptions.UPLOAD_DATE_TODAY
+                | SearchOptions.UPLOAD_DATE_THIS_WEEK | SearchOptions.UPLOAD_DATE_THIS_MONTH | SearchOptions.UPLOAD_DATE_THIS_YEAR);
+        mDurationOptions = options & (SearchOptions.DURATION_UNDER_4 | SearchOptions.DURATION_BETWEEN_4_20
+                | SearchOptions.DURATION_OVER_20);
+        mTypeOptions = options & (SearchOptions.TYPE_VIDEO | SearchOptions.TYPE_CHANNEL
+                | SearchOptions.TYPE_PLAYLIST | SearchOptions.TYPE_MOVIE);
+        mFeatureOptions = options & (SearchOptions.FEATURE_LIVE | SearchOptions.FEATURE_4K | SearchOptions.FEATURE_HDR);
+        mSortingOptions = options & (SearchOptions.SORT_BY_RELEVANCE | SearchOptions.SORT_BY_UPLOAD_DATE
+                | SearchOptions.SORT_BY_VIEW_COUNT | SearchOptions.SORT_BY_RATING);
+    }
+
     private void loadSearchResult(String searchText) {
         Log.d(TAG, "Start search for '%s'", searchText);
 
@@ -178,7 +195,7 @@ public class SearchPresenter extends BasePresenter<SearchView> implements VideoG
         getView().clearSearch();
 
         mLoadAction = contentService.getSearchObserve(searchText,
-                mUploadDateOptions | mDurationOptions | mTypeOptions | mFeatureOptions | mSortingOptions)
+                getSearchOptions())
                 .subscribe(
                         mediaGroups -> {
                             Log.d(TAG, "Receiving results for '%s'", searchText);
