@@ -250,6 +250,9 @@
         <item name="android:windowLightStatusBar">false</item>
     </style>
 
+    <style name="ThemeOverlay.NewTube.BottomSheetDialog.Description" parent="ThemeOverlay.NewTube.BottomSheetDialog.Player">
+        <item name="android:backgroundDimAmount">0</item>
+    </style>
     <!-- NEWTUBE(theme): android:theme of the player's video area (and the mini player), so the
          ripples and default control colours over the video are the dark theme's in both themes.
          values-night/ redefines it empty: there the whole app is already dark, and the player
