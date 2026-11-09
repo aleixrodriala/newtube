@@ -15,6 +15,7 @@ import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.FormatItem;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.TrackSelectorManager;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.TrackSelectorUtil;
 import com.liskovsoft.smartyoutubetv2.common.exoplayer.selector.track.MediaTrack;
+import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -26,11 +27,9 @@ import java.util.List;
  * {@code DefaultTrackSelector} parameters, and the current {@link Tracks} back into
  * {@link FormatItem} lists for the pickers.
  *
- * <p>Where the legacy manager had to hand-build adaptive {@code SelectionOverride}s to get ABR,
- * media3 does the right thing natively: a preset ("Auto up to 1080p60 vp9") maps to plain
- * constraints ({@code setMaxVideoSize/...FrameRate} + a soft codec preference) under which the
- * player's own {@code AdaptiveTrackSelection} adapts; an explicit rung maps to a
- * {@link TrackSelectionOverride}. Overrides bind to a concrete {@code TrackGroup} of the CURRENT
+ * <p>Auto maps to ceiling constraints under which the player's own adaptive selection adapts.
+ * A saved resolution preset or explicit stream maps to a {@link TrackSelectionOverride}.
+ * Overrides bind to a concrete {@code TrackGroup} of the CURRENT
  * source, so explicit picks are re-resolved on every tracks change; the shared
  * {@code VideoStateController.restoreFormats} keeps calling {@code setFormat} on each new video,
  * exactly like on the legacy path.</p>
@@ -107,6 +106,8 @@ class Media3TrackAdapter {
         }
 
         mTargets[type] = formatItem;
+        NetPath.log(NetPath.context() + " track-request type=" + type + " target=" + formatItem
+                + " auto=" + isAutoTarget(formatItem));
         applyTarget(formatItem);
     }
 
@@ -193,12 +194,12 @@ class Media3TrackAdapter {
     }
 
     /**
-     * "Auto" = a ceiling preset, not a concrete stream. Same rule as the legacy selector
-     * (which detected presets by a missing format id).
+     * The legacy default has no id and isPreset=false. Explicit video settings have
+     * isPreset=true: keep those fixed, even though they have no source-specific id yet.
      */
     private static boolean isAutoTarget(FormatItem item) {
         if (item.isPreset()) {
-            return true;
+            return item.getType() != FormatItem.TYPE_VIDEO;
         }
         MediaTrack track = item.getTrack();
         return track == null || track.format == null || track.format.id == null;
@@ -218,7 +219,11 @@ class Media3TrackAdapter {
             String codec = track != null && track.format != null ? track.format.codecs : null;
             builder.setPreferredVideoMimeTypes(mimeTypesForCodec(codec));
         } else {
-            TrackLocation location = findTrack(TrackSelectorManager.RENDERER_INDEX_VIDEO, item);
+            TrackLocation location = item.isPreset() ? findBestVideoTrack(item)
+                    : findTrack(TrackSelectorManager.RENDERER_INDEX_VIDEO, item);
+            if (location == null && !item.isPreset()) {
+                location = findBestVideoTrack(item);
+            }
             if (location != null) {
                 // Lift the Auto ceiling out of the way: the override itself pins the track.
                 builder.setMaxVideoSize(Integer.MAX_VALUE, Integer.MAX_VALUE);
@@ -232,6 +237,28 @@ class Media3TrackAdapter {
         }
 
         mTrackSelector.setParameters(builder);
+    }
+
+    /** Highest supported rung under the saved choice; codec preference must not lower resolution. */
+    @Nullable
+    private TrackLocation findBestVideoTrack(FormatItem target) {
+        int ceiling = VideoRung.classHeight(target.getWidth(), target.getHeight());
+        FormatItem best = null;
+        // Already sorted by resolution, frame rate and codec quality.
+        for (FormatItem candidate : getFormats(TrackSelectorManager.RENDERER_INDEX_VIDEO)) {
+            int rung = VideoRung.classHeight(candidate.getWidth(), candidate.getHeight());
+            if (rung <= 0 || rung > ceiling
+                    || (target.getFrameRate() > 0 && target.getFrameRate() <= 40
+                            && candidate.getFrameRate() > 40)) {
+                continue;
+            }
+            if (best == null || (rung == VideoRung.classHeight(best.getWidth(), best.getHeight())
+                    && codecFamilyEquals(codecOf(target), codecOf(candidate))
+                    && !codecFamilyEquals(codecOf(target), codecOf(best)))) {
+                best = candidate;
+            }
+        }
+        return best != null ? findTrack(TrackSelectorManager.RENDERER_INDEX_VIDEO, best) : null;
     }
 
     private void applyAudioTarget(FormatItem item) {
@@ -358,9 +385,9 @@ class Media3TrackAdapter {
     }
 
     /**
-     * Locates the media3 track a {@link FormatItem} means. Exact format-id (itag) match first -
-     * ids are stable across sessions - then the legacy fallback chain (same rung + codec family
-     * for video, same language for subtitles). Audio itags are NOT unique on multi-language
+     * Locates the media3 track a {@link FormatItem} means. Prefer format-id matches whose video
+     * quality also matches: HLS can reuse one id across its rungs. Then fall back to rung + codec family
+     * for video and language for subtitles. Audio itags are NOT unique on multi-language
      * videos (every dub carries its own "251"; a persisted "en-us (original)" 251 once pinned a
      * pt-br auto-dub on a Spanish video), so audio ranks by language first:
      * {@link #findAudioTrack}.
@@ -382,12 +409,14 @@ class Media3TrackAdapter {
                     continue;
                 }
                 androidx.media3.common.Format format = group.getTrackFormat(i);
+                boolean compatible = matchesLoosely(rendererIndex, item, format);
 
-                if (targetId != null && targetId.equals(format.id)) {
+                if (targetId != null && targetId.equals(format.id)
+                        && (rendererIndex != TrackSelectorManager.RENDERER_INDEX_VIDEO || compatible)) {
                     return new TrackLocation(group, i);
                 }
 
-                if (fallback == null && matchesLoosely(rendererIndex, item, format)) {
+                if (fallback == null && compatible) {
                     fallback = new TrackLocation(group, i);
                 }
             }
@@ -513,8 +542,12 @@ class Media3TrackAdapter {
                                 ? VideoRung.classHeight(item.getWidth(), item.getHeight())
                                         == VideoRung.classHeight(format.width, format.height)
                                 : item.getHeight() == format.height)
-                        && Math.abs(item.getFrameRate() - format.frameRate) <= 2
-                        && codecFamilyEquals(codecOf(item), format.codecs);
+                        // Match the phone's standard/high-fps choices; 25 -> 30 fps on a new
+                        // video keeps the same choice, and unknown metadata cannot rule it out.
+                        && (item.getFrameRate() <= 0 || format.frameRate <= 0
+                                || (item.getFrameRate() > 40) == (format.frameRate > 40))
+                        && (codecOf(item) == null || format.codecs == null
+                                || codecFamilyEquals(codecOf(item), format.codecs));
             case TrackSelectorManager.RENDERER_INDEX_AUDIO:
                 return audioLanguageEquals(item.getLanguage(), Media3FormatConverter.pickLanguage(format))
                         && codecFamilyEquals(codecOf(item), format.codecs);
