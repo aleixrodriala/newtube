@@ -255,9 +255,9 @@ public class MobilePlaybackActivity extends MobileActivity
     private View mWatchContent;
     private TextView mWatchTitle;
     private TextView mWatchMeta;
-    private View mWatchMetaRow;
-    private ImageView mWatchExpand;
-    private TextView mWatchDescription;
+    private View mWatchInfo;
+    private MediaItemMetadata mWatchMetadata;
+    @Nullable private DescriptionSheet mDescriptionSheet;
     private View mWatchLike;
     private ImageView mWatchLikeIcon;
     private TextView mWatchLikeCount;
@@ -349,7 +349,6 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private Video mWatchVideo;
     private String mWatchVideoId;
-    private boolean mDescriptionExpanded;
 
     /**
      * Keep the portrait video box tied to the width the watch page actually receives. Display
@@ -721,9 +720,7 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchContent = findViewById(R.id.mobile_watch_content);
         mWatchTitle = findViewById(R.id.mobile_watch_title);
         mWatchMeta = findViewById(R.id.mobile_watch_meta);
-        mWatchMetaRow = findViewById(R.id.mobile_watch_meta_row);
-        mWatchExpand = findViewById(R.id.mobile_watch_expand);
-        mWatchDescription = findViewById(R.id.mobile_watch_description);
+        mWatchInfo = findViewById(R.id.mobile_watch_info);
         mWatchLike = findViewById(R.id.mobile_watch_like);
         mWatchLikeIcon = findViewById(R.id.mobile_watch_like_icon);
         mWatchLikeCount = findViewById(R.id.mobile_watch_like_count);
@@ -1025,8 +1022,7 @@ public class MobilePlaybackActivity extends MobileActivity
         mQueueList.setMaxHeight(Math.round(getResources().getDisplayMetrics().heightPixels * 0.5f));
         mQueueHeader.setOnClickListener(v -> toggleQueueExpanded());
 
-        // Expandable description (tap the views/date row or chevron).
-        mWatchMetaRow.setOnClickListener(v -> toggleDescription());
+        mWatchInfo.setOnClickListener(v -> showDescriptionSheet());
 
         // Actions row. Like/Dislike/Subscribe go through the presenter's onButtonClicked vocabulary
         // (R.id.action_*); the controller flips the visual state back via setButtonState. Share fires
@@ -1692,6 +1688,9 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     protected void onDestroy() {
+        if (mDescriptionSheet != null) {
+            mDescriptionSheet.dismiss();
+        }
         DownloadRegistry.instance(this).removeListener(mDownloadsListener);
         MobileSheets.setPlayerShown(false, false);
         cancelAutoHide();
@@ -6854,6 +6853,7 @@ public class MobilePlaybackActivity extends MobileActivity
         updateChapterMarks();
         mChapterButtonIndex = -1;
         updateChapterButton(mExoPlayerController != null ? mExoPlayerController.getPositionMs() : 0);
+        updateDescriptionSheet();
     }
 
     /** Same starts and titles: a re-delivered document of the same video, not a new chapter list. */
@@ -7807,15 +7807,14 @@ public class MobilePlaybackActivity extends MobileActivity
             mWatchSubs.setText(item.subscriberCount);
             mWatchSubs.setVisibility(View.VISIBLE);
         }
-        if (!TextUtils.isEmpty(item.description)) {
-            mWatchDescription.setText(item.description);
-        }
+        updateDescriptionSheet();
     }
 
     private void resetWatchHeader() {
-        mDescriptionExpanded = false;
-        mWatchDescription.setVisibility(View.GONE);
-        mWatchDescription.setText(null);
+        mWatchMetadata = null;
+        if (mDescriptionSheet != null) {
+            mDescriptionSheet.dismiss();
+        }
         mWatchMeta.setText(null);
         mWatchMeta.setMaxLines(1);
         mWatchLikeCount.setText(R.string.mobile_watch_count_placeholder);
@@ -7888,6 +7887,7 @@ public class MobilePlaybackActivity extends MobileActivity
         if (metadata == null) {
             return;
         }
+        mWatchMetadata = metadata;
 
         {
             // Clean "views • date" line. YouTube's raw date string arrives as "Published on
@@ -7936,8 +7936,9 @@ public class MobilePlaybackActivity extends MobileActivity
             }
 
             String description = metadata.getDescription();
-            if (!TextUtils.isEmpty(description)) {
-                mWatchDescription.setText(description);
+            if (mChapterVideos.isEmpty()) {
+                long duration = mExoPlayerController != null ? mExoPlayerController.getDurationMs() : 0;
+                setChapters(DescriptionChapters.parse(description, duration));
             }
 
             if (!TextUtils.isEmpty(metadata.getAuthor())) {
@@ -7994,6 +7995,7 @@ public class MobilePlaybackActivity extends MobileActivity
             if (mWatchChatEntry != null && mLiveChatKey != null) {
                 mWatchChatEntry.setVisibility(View.VISIBLE);
             }
+            updateDescriptionSheet();
         }
     }
 
@@ -8025,24 +8027,36 @@ public class MobilePlaybackActivity extends MobileActivity
         return TextUtils.isEmpty(text) || getString(R.string.mobile_watch_count_placeholder).contentEquals(text);
     }
 
-    private void toggleDescription() {
-        if (TextUtils.isEmpty(mWatchDescription.getText())) {
+    private void showDescriptionSheet() {
+        if (mClosing || mIsInPip || mWatchVideo == null || isPlayerSheetShown()) {
             return;
         }
-
-        mDescriptionExpanded = !mDescriptionExpanded;
-        // Smooth expand/collapse: animate the content column's layout change and spin the
-        // chevron, instead of the block just popping in.
-        ViewGroup content = (ViewGroup) mWatchDescription.getParent();
-        if (content != null) {
-            androidx.transition.TransitionManager.beginDelayedTransition(content,
-                    new androidx.transition.AutoTransition().setDuration(180));
+        int height = landscapeSheetMaxHeight();
+        if (!isLandscape()) {
+            int[] location = new int[2];
+            mVideoArea.getLocationInWindow(location);
+            height = getWindow().getDecorView().getHeight() - location[1] - mVideoArea.getHeight();
         }
-        mWatchDescription.setVisibility(mDescriptionExpanded ? View.VISIBLE : View.GONE);
-        // Expanded: let the views/date line wrap so long localized dates (e.g. "29 de des. 2019"
-        // behind a wordy label) are fully readable instead of ellipsized.
-        mWatchMeta.setMaxLines(mDescriptionExpanded ? Integer.MAX_VALUE : 1);
-        mWatchExpand.animate().rotation(mDescriptionExpanded ? 180f : 0f).setDuration(180).start();
+        if (height <= 0) {
+            return;
+        }
+        DescriptionSheet sheet = new DescriptionSheet(this, height,
+                position -> seekFromList(position, CHAPTER_SEEK_PARAMETERS));
+        sheet.setOnDismissListener(d -> {
+            if (mDescriptionSheet == sheet) {
+                mDescriptionSheet = null;
+            }
+        });
+        mDescriptionSheet = sheet;
+        updateDescriptionSheet();
+        showPlayerSheet(sheet);
+    }
+
+    private void updateDescriptionSheet() {
+        if (mDescriptionSheet != null && mWatchVideo != null) {
+            mDescriptionSheet.bind(mWatchVideo, mWatchMetadata, mWatchMeta.getText(), mChapterVideos,
+                    mExoPlayerController != null ? mExoPlayerController.getDurationMs() : 0);
+        }
     }
 
     /** Route Like / Dislike / Subscribe through the presenter's onButtonClicked vocabulary. */
