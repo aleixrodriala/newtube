@@ -454,6 +454,12 @@
     <string name="mobile_update_channel_desc">Downloading a NewTube update</string>
     <!-- NEWTUBE(theme): Settings > User interface > Theme. -->
     <string name="mobile_theme">Theme</string>
+    <string name="mobile_app_appearance">App appearance</string>
+    <string name="mobile_appearance_newtube">NewTube (Default)</string>
+    <string name="mobile_appearance_youtube" translatable="false">YouTube</string>
+    <string name="mobile_appearance_confirm">Changing the app name and icon may require restarting the app. Continue?</string>
+    <string name="mobile_appearance_launcher_note">Launchers may take time to refresh the name and icon. Existing home-screen shortcuts may need to be recreated.</string>
+    <string name="mobile_appearance_error">Couldn\'t change the app name and icon. Please try again.</string>
     <string name="mobile_theme_system">System default</string>
     <string name="mobile_theme_light">Light</string>
     <string name="mobile_theme_dark">Dark</string>

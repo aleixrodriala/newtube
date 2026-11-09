@@ -410,6 +410,11 @@
     <string name="mobile_update_channel_name">Actualizaciones de la app</string>
     <string name="mobile_update_channel_desc">Descarga de una actualización de NewTube</string>
     <string name="mobile_theme">Tema</string>
+    <string name="mobile_app_appearance">Apariencia de la app</string>
+    <string name="mobile_appearance_newtube">NewTube (Predeterminado)</string>
+    <string name="mobile_appearance_confirm">Cambiar el nombre y el icono de la app puede requerir reiniciarla. ¿Continuar?</string>
+    <string name="mobile_appearance_launcher_note">El lanzador puede tardar en actualizar el nombre y el icono. Puede que tengas que volver a crear los accesos directos de la pantalla de inicio.</string>
+    <string name="mobile_appearance_error">No se han podido cambiar el nombre y el icono de la app. Vuelve a intentarlo.</string>
     <string name="mobile_theme_system">Predeterminado del sistema</string>
     <string name="mobile_theme_light">Claro</string>
     <string name="mobile_theme_dark">Oscuro</string>

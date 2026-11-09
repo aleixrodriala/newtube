@@ -20,9 +20,11 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.SearchData;
 import com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover;
+import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.liskovsoft.youtubeapi.service.internal.MediaServiceData;
 import com.newtube.mobile.CardMenuMigration;
+import com.newtube.mobile.LauncherIdentity;
 import com.newtube.mobile.ui.common.MobileSnackbar;
 import com.newtube.mobile.ui.common.ThemeMode;
 
@@ -52,6 +54,12 @@ final class AppPages {
         GeneralData generalData = GeneralData.instance(context);
         MainUIData mainUIData = MainUIData.instance(context);
         SearchData searchData = SearchData.instance(context);
+
+        rows.add(SettingsRow.action(0, context.getString(R.string.mobile_app_appearance),
+                () -> context.getString(LauncherIdentity.isYouTube(context)
+                        ? R.string.mobile_appearance_youtube : R.string.mobile_appearance_newtube),
+                AppPages::showAppearance));
+        rows.add(SettingsRow.note(context.getString(R.string.mobile_appearance_launcher_note)));
 
         rows.add(SettingsRow.<Integer>choice(context.getString(R.string.mobile_theme))
                 .option(context.getString(R.string.mobile_theme_system), ThemeMode.SYSTEM)
@@ -84,6 +92,32 @@ final class AppPages {
                 generalData::is24HourLocaleEnabled, generalData::set24HourLocaleEnabled).needsRestart());
 
         return new SettingsPages.Page(context.getString(R.string.mobile_settings_general), rows);
+    }
+
+    private static void showAppearance(SettingsPageFragment page) {
+        Context context = page.requireContext();
+        int current = LauncherIdentity.isYouTube(context) ? 1 : 0;
+        page.showDialog(new MaterialAlertDialogBuilder(context, R.style.MobileAlertDialog)
+                .setTitle(R.string.mobile_app_appearance)
+                .setSingleChoiceItems(new String[] {
+                        context.getString(R.string.mobile_appearance_newtube),
+                        context.getString(R.string.mobile_appearance_youtube)
+                }, current, (dialog, which) -> {
+                    dialog.dismiss();
+                    confirm(page, R.string.mobile_app_appearance, R.string.mobile_appearance_confirm,
+                            android.R.string.ok, () -> {
+                                if (!LauncherIdentity.setYouTube(context, which == 1)) {
+                                    MobileSnackbar.show(context, R.string.mobile_appearance_error);
+                                } else if (which != current) {
+                                    // Launchers can remove the old alias's task on refresh. Use
+                                    // the existing state-saving restart through the real splash.
+                                    Utils.restartTheApp(context.getApplicationContext());
+                                }
+                                page.rebuild();
+                            });
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show());
     }
 
     /** The tab NewTube opens on: the enabled sections, then pinned channels and playlists. */
@@ -462,7 +496,7 @@ final class AppPages {
         return new SettingsPages.Page(context.getString(R.string.mobile_settings_privacy), rows);
     }
 
-    /** A confirmation whose button repeats the verb ("Clear"), red because it deletes something. */
+    /** A confirmation whose positive button names the action. */
     static void confirm(@NonNull SettingsPageFragment page, int titleRes, int bodyRes, int buttonRes, Runnable onConfirm) {
         page.showDialog(new MaterialAlertDialogBuilder(page.requireContext(), R.style.MobileAlertDialog)
                 .setTitle(titleRes)

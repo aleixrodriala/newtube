@@ -167,6 +167,10 @@ public class MobileMainApplication extends MainApplication {
         // global exception handler and every other View->Activity mapping.
         super.onCreate();
 
+        if (LauncherIdentity.restore(this)) {
+            com.liskovsoft.smartyoutubetv2.common.utils.Utils.restartTheApp(this);
+        }
+
         // Release-visible launch milestones + the "first frame drawn" hook used below.
         LaunchMilestones.install(this);
 
