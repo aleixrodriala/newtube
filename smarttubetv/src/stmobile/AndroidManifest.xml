@@ -35,6 +35,14 @@
          reused ExoPlayer alive + posts the media notification when the app is backgrounded / screen
          off. FOREGROUND_SERVICE (API 28+) and FOREGROUND_SERVICE_MEDIA_PLAYBACK (API 34+) are both
          normal, auto-granted permissions. POST_NOTIFICATIONS is already declared in the main manifest. -->
+    <!-- NEWTUBE(android-auto): Android Auto. The navigation templates give the app a drawing surface on the
+         car screen (video, parked only); speed and location only tell parked from moving. -->
+    <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
+    <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
+    <uses-permission android:name="com.google.android.gms.permission.CAR_SPEED" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- Video downloads run as a dataSync foreground service (the type Android 14 accepts for
@@ -307,6 +315,29 @@
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
 
+        <!-- NEWTUBE(android-auto): Android Auto entry point (navigation category = surface for video). -->
+        <service
+            android:name="com.newtube.mobile.auto.AutoCarAppService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <category android:name="androidx.car.app.category.NAVIGATION" />
+            </intent-filter>
+        </service>
+        <!-- NEWTUBE(android-auto): the same feeds in the car's music screen (sound only). -->
+        <service
+            android:name="com.newtube.mobile.auto.AutoMediaBrowserService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="2" />
     </application>
 
 </manifest>

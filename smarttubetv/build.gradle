@@ -410,6 +410,10 @@ dependencies {
     stmobileImplementation 'androidx.media3:media3-exoplayer-hls:' + media3Version
     stmobileImplementation 'androidx.media3:media3-datasource-okhttp:' + media3Version
     stmobileImplementation 'androidx.media3:media3-ui:' + media3Version
+    // Android Auto (Car App Library). app-projected brings the car hardware manager (speed) on a
+    // phone projecting to the car.
+    stmobileImplementation 'androidx.car.app:app:1.7.0'
+    stmobileImplementation 'androidx.car.app:app-projected:1.7.0'
     // Cronet leaf transport for the media path (H2/QUIC, like the legacy engine had): our copy of
     // media3's CronetDataSource (player/cronet) on the embedded Cronet engine that :sharedutils
     // ships (CronetManager). The media3-datasource-cronet artifact is not used: F-Droid rejects the
