@@ -27,19 +27,44 @@ choice mirrors `VideoLoaderController`. A `MediaSessionCompat` serves the steeri
 and the media app. Android Auto can start the process without Splash, so `AutoCarAppService`
 runs Splash's one-time setup (account store, global Rx error handler, proxy).
 
-## Install note (sideloaded builds)
+## Install (outside Google Play)
 
-Android Auto hides Car App Library apps that were not installed by Google Play, even with its
-developer setting "Unknown sources" on. The media entry only needs "Unknown sources". For the
-video screen, install with the Play installer mark:
+Android Auto only lists car apps it believes came from Google Play. Installing the APK the usual
+way (tapping it in a file manager, or `adb install`, even with `-i com.android.vending`) is
+recorded as installed by that app or by the shell, and Android Auto refuses it
+(`CAR.VALIDATOR: Package DENIED; failed all other checks`): the car then shows only the sound
+entry, never video. Its developer setting "Unknown sources" does not cover Car App Library apps.
 
-    adb install -r -i com.android.vending NewTube_<version>_universal.apk
+What Android Auto accepts is an install made by the phone's own system installer with Google
+Play named as the installer. `scripts/android-auto` does exactly that, from a computer:
 
-or with UnknownAuto (Shizuku, on the phone).
+1. On the phone: Settings > About phone > tap "Build number" 7 times, then
+   Settings > System > Developer options > **USB debugging** on.
+2. Put the NewTube APK in the same folder as the scripts.
+3. Plug the phone in with a cable and run **`Install.bat`** (Windows, double-click) or
+   **`./install.sh`** (macOS / Linux). Tap "Allow" on the phone's USB debugging prompt.
+4. On the phone: **Install / Update**, and if Google Play Protect warns: More details >
+   **Install anyway**.
+5. Reconnect the car. NewTube is in Android Auto's app grid.
+
+The script downloads Google's `adb` by itself when it is not installed, and also works over
+wireless debugging when the phone is already paired. **Every update must go through the script
+too**: an update installed the usual way replaces the record and Android Auto hides the app again.
+
+Check (`adb shell dumpsys package <package>`): `installerPackageName=com.android.vending` and
+`initiatingPackageName=com.google.android.packageinstaller`.
+
+## Car log
+
+`Android/data/<package>/files/newtube-auto.log` on the phone: connections, parked/moving
+changes with the speed source, each video opened (route, video on/off) and whether the picture
+came back after parking. If no frame arrives 2.5 s after parking, the player reopens the video at
+the same second.
 
 ## Tested
 
 Pixel 10a (Android 17) with Google's Desktop Head Unit 2.1 (`config/default_sensors.ini`, the
 `speed` command): launcher entry, feeds with thumbnails, playback, video parked / sound moving /
 video back when parked, switching to Spotify, Maps and Waze, reconnecting, and a force-stopped
-process. Also used in a Toyota Yaris 2025 (wireless Android Auto).
+process. Also used in a Toyota Yaris 2025 (wireless Android Auto): six parked/moving changes in
+one drive, picture back each time (0.6-2.1 s, once through the reopen).

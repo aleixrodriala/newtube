@@ -321,7 +321,10 @@ public final class AutoSurfaceRenderer implements SurfaceCallback, AutoPlayer.Li
         int left = mVisible.left, top = mVisible.top;
         int right = Math.max(0, mWidth - mVisible.right), bottom = Math.max(0, mHeight - mVisible.bottom);
         int pad = Math.round(16 * mRoot.getResources().getDisplayMetrics().density);
-        mIdle.setPadding(left + pad, top + pad, right + pad, bottom + pad);
+        // Leave room under the idle text for the progress bar, so a two-line title never pushes
+        // the "sound only" note under it.
+        int barRoom = Math.round(56 * mRoot.getResources().getDisplayMetrics().density);
+        mIdle.setPadding(left + pad, top + pad, right + pad, bottom + barRoom);
         mTopBar.setPadding(left + pad, top + pad / 2, right + pad, pad * 2);
         mBottomBar.setPadding(left + pad, pad * 2, right + pad, bottom + pad / 2);
     }

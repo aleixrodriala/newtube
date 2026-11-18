@@ -115,10 +115,16 @@ public final class DrivingState {
             }
             mSpeedListener = null;
         }
+        stopGps();
+    }
+
+    private void stopGps() {
         if (mLocationListener != null) {
             LocationManager lm = (LocationManager) mCarContext.getSystemService(Context.LOCATION_SERVICE);
             if (lm != null) lm.removeUpdates(mLocationListener);
             mLocationListener = null;
+            mGpsSpeed = -1;
+            AutoLog.i("gps off: the car reports its speed");
         }
     }
 
@@ -135,14 +141,17 @@ public final class DrivingState {
                 if (value >= 0) {
                     mCarSpeed = Math.abs(value);
                     mCarSpeedAt = SystemClock.elapsedRealtime();
+                    // The car's own speed is the truth; the phone's GPS jitters (2-3 m/s seen
+                    // standing still) and costs battery, so it stops once the car reports.
+                    stopGps();
                     evaluate();
                 }
             };
             carInfo().addSpeedListener(mMainExecutor, mSpeedListener);
-            android.util.Log.i("NewTubeAuto", "car speed listener on");
+            AutoLog.i("car speed listener on");
         } catch (Throwable error) {
             // Older Android Auto hosts or cars without the speed property: GPS covers it.
-            android.util.Log.w("NewTubeAuto", "car speed unavailable: " + error);
+            AutoLog.w("car speed unavailable: " + error);
             mSpeedListener = null;
         }
     }
@@ -191,7 +200,8 @@ public final class DrivingState {
     private void evaluate() {
         long now = SystemClock.elapsedRealtime();
         boolean carLive = mCarSpeed >= 0 && mSpeedListener != null;
-        boolean gpsLive = mGpsSpeed >= 0 && now - mGpsSpeedAt < GPS_STALE_MS;
+        // GPS only counts when the car does not report its own speed.
+        boolean gpsLive = !carLive && mGpsSpeed >= 0 && now - mGpsSpeedAt < GPS_STALE_MS;
 
         State next;
         if (!carLive && !gpsLive) {
@@ -210,7 +220,7 @@ public final class DrivingState {
             mSlowSince = -1;
         }
         if (next != mState) {
-            android.util.Log.i("NewTubeAuto", "driving " + mState + " -> " + next
+            AutoLog.i("driving " + mState + " -> " + next
                     + " car=" + (carLive ? mCarSpeed : "-") + " gps=" + (gpsLive ? mGpsSpeed : "-"));
             mState = next;
             mListener.onDrivingStateChanged(next);

@@ -57,6 +57,15 @@ public final class AutoPlayer {
 
     private boolean mVideoAllowed;
     private boolean mAudioOnlyByUser;
+    /** What applyVideoTrack last asked of the player: picture on or off. */
+    private boolean mVideoTrackOn = true;
+    /** A frame reached the surface since the picture was last switched back on. */
+    private boolean mFrameSinceVideoOn;
+    /** One reopen per "picture back on", so a video without a picture cannot loop. */
+    private boolean mVideoReopened;
+    /** Position to seek to once the current open is ready (a reopen to bring the picture back). */
+    private long mResumeAtMs = -1;
+    private static final long VIDEO_BACK_CHECK_MS = 2_500;
     private String mStatus = "";
 
     private AutoPlayer(Context context) {
@@ -73,6 +82,7 @@ public final class AutoPlayer {
     // ------------------------------------------------------------------ queue
 
     public void play(List<Video> videos, int index) {
+        mResumeAtMs = -1;
         mQueue.clear();
         for (Video video : videos) {
             if (video != null && video.videoId != null) {
@@ -96,6 +106,7 @@ public final class AutoPlayer {
     }
 
     public void next() {
+        mResumeAtMs = -1;
         if (hasNext()) {
             mIndex++;
             load(mQueue.get(mIndex));
@@ -107,6 +118,7 @@ public final class AutoPlayer {
             mPlayer.seekTo(0);
             return;
         }
+        mResumeAtMs = -1;
         if (hasPrevious()) {
             mIndex--;
             load(mQueue.get(mIndex));
@@ -181,10 +193,42 @@ public final class AutoPlayer {
     }
 
     private void applyVideoTrack() {
-        if (mController != null) {
-            mController.setVideoTrackDisabled(!(mVideoAllowed && !mAudioOnlyByUser));
+        if (mController == null) return;
+        boolean on = mVideoAllowed && !mAudioOnlyByUser;
+        mController.setVideoTrackDisabled(!on);
+        if (on && !mVideoTrackOn) {
+            // Parked again. Some streams (SABR above all) do not bring the picture back when the
+            // video track is re-enabled mid-play; if no frame arrives, reopen at the same second.
+            AutoLog.i("video on: waiting for a frame");
+            mFrameSinceVideoOn = false;
+            mVideoReopened = false;
+            mHandler.removeCallbacks(mVideoBackCheck);
+            mHandler.postDelayed(mVideoBackCheck, VIDEO_BACK_CHECK_MS);
+        } else if (!on && mVideoTrackOn) {
+            AutoLog.i("video off: sound only");
+            mHandler.removeCallbacks(mVideoBackCheck);
         }
+        mVideoTrackOn = on;
     }
+
+    private final Runnable mVideoBackCheck = new Runnable() {
+        @Override
+        public void run() {
+            if (!shouldShowVideo() || mPlayer == null || mFrameSinceVideoOn || mVideoReopened) {
+                AutoLog.i("video check: frame=" + mFrameSinceVideoOn
+                        + " show=" + shouldShowVideo());
+                return;
+            }
+            Video video = getVideo();
+            if (video == null) return;
+            mVideoReopened = true;
+            mResumeAtMs = Math.max(0, mPlayer.getCurrentPosition());
+            AutoLog.i("video check: no frame, reopening at " + mResumeAtMs + " ms");
+            boolean playing = mPlayer.getPlayWhenReady();
+            load(video);
+            mPlayer.setPlayWhenReady(playing);
+        }
+    };
 
     // ------------------------------------------------------------------ listeners
 
@@ -222,6 +266,22 @@ public final class AutoPlayer {
             public void onEvents(Player player, Player.Events events) {
                 changed();
             }
+
+            @Override
+            public void onRenderedFirstFrame() {
+                if (!mFrameSinceVideoOn) AutoLog.i("video frame on screen");
+                mFrameSinceVideoOn = true;
+            }
+
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                // A reopen to bring the picture back: return to the same second once ready.
+                if (state == Player.STATE_READY && mResumeAtMs > 0 && mPlayer != null) {
+                    long at = mResumeAtMs;
+                    mResumeAtMs = -1;
+                    if (Math.abs(mPlayer.getCurrentPosition() - at) > 2_000) mPlayer.seekTo(at);
+                }
+            }
         });
         ensureSession();
     }
@@ -256,25 +316,38 @@ public final class AutoPlayer {
         }
         mStatus = "";
         video.isLive = info.isLive();
+        String route;
         if (info.isLive() && info.containsDashUrl()) {
+            route = "live-dash";
             mController.openDashUrl(info.getDashManifestUrl());
         } else if (info.isLive() && info.containsHlsUrl()) {
+            route = "live-hls";
             mController.openHlsUrl(info.getHlsManifestUrl());
         } else if (info.containsDashFormats()) {
+            route = "dash";
             mController.openDash(info);
         } else if (info.containsSabrFormats()) {
+            route = "sabr";
             mController.openSabr(info);
         } else if (info.isHlsVodSelected()) {
+            route = "hls-vod";
             mController.openHlsVod(info);
         } else if (info.containsUrlFormats()) {
+            route = "progressive";
             mController.openProgressive(info);
         } else if (info.containsHlsUrl()) {
+            route = "hls";
             mController.openHlsUrl(info.getHlsManifestUrl());
         } else if (info.containsDashUrl()) {
+            route = "dash-url";
             mController.openDashUrl(info.getDashManifestUrl());
         } else {
+            route = "none";
             mStatus = "Formato não suportado";
         }
+        AutoLog.i("open " + video.videoId + " route=" + route
+                + " video=" + (mVideoAllowed && !mAudioOnlyByUser ? "on" : "off")
+                + (mResumeAtMs > 0 ? " resumeAt=" + mResumeAtMs : ""));
         mPlayer.setPlayWhenReady(true);
         applyVideoTrack();
         changed();
@@ -443,8 +516,57 @@ public final class AutoPlayer {
 
     // ------------------------------------------------------------------ teardown
 
+    // ------------------------------------------------------------------ continue after reconnecting
+
+    private static final String PREFS = "newtube_auto";
+
+    /** What was playing when the car last disconnected, or null. */
+    @Nullable
+    public Video getLastSession() {
+        android.content.SharedPreferences prefs = mContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String id = prefs.getString("videoId", null);
+        if (id == null) return null;
+        Video video = Video.from(id);
+        video.title = prefs.getString("title", "");
+        video.author = prefs.getString("author", null);
+        video.cardImageUrl = prefs.getString("card", null);
+        return video;
+    }
+
+    /** Plays the last session's video from where it stopped. */
+    public void resumeLastSession() {
+        Video video = getLastSession();
+        if (video == null) return;
+        long position = mContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong("position", 0);
+        java.util.List<Video> one = new ArrayList<>();
+        one.add(video);
+        play(one, 0);
+        mResumeAtMs = position > 5_000 ? position : -1;
+        AutoLog.i("continue " + video.videoId + " at " + position + " ms");
+    }
+
+    private void saveSession() {
+        Video video = getVideo();
+        if (video == null || mPlayer == null || video.isLive) return;
+        long position = Math.max(0, mPlayer.getCurrentPosition());
+        long duration = mPlayer.getDuration();
+        android.content.SharedPreferences.Editor editor =
+                mContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit();
+        if (duration > 0 && position > duration - 30_000) {
+            editor.clear(); // finished: nothing to continue
+        } else {
+            editor.putString("videoId", video.videoId)
+                    .putString("title", video.title != null ? video.title : "")
+                    .putString("author", video.getAuthor())
+                    .putString("card", video.getCardImageUrl())
+                    .putLong("position", position);
+        }
+        editor.apply();
+    }
+
     /** The car disconnected: stop the sound and free the player. */
     public void release() {
+        saveSession();
         mHandler.removeCallbacksAndMessages(null);
         if (mLoad != null) mLoad.dispose();
         mLoad = null;

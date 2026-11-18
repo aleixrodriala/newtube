@@ -6,8 +6,8 @@ import androidx.car.app.Session;
 import androidx.car.app.validation.HostValidator;
 
 /**
- * NEWTUBE(android-auto): Android Auto entry point. Sideloaded builds are only shown by Android Auto with
- * "Unknown sources" on in its developer settings, so any host is accepted.
+ * NEWTUBE(android-auto): Android Auto entry point. Any host is accepted: Android Auto itself decides
+ * whether to list the app (see scripts/android-auto for installs it accepts outside Google Play).
  */
 public class AutoCarAppService extends CarAppService {
     private static boolean sInitialized;
@@ -28,6 +28,8 @@ public class AutoCarAppService extends CarAppService {
         if (sInitialized) return;
         sInitialized = true;
         android.content.Context app = context.getApplicationContext();
+        AutoLog.init(app);
+        AutoLog.i("process started by Android Auto");
         com.liskovsoft.sharedutils.rx.RxHelper.setupGlobalErrorHandler();
         com.liskovsoft.sharedutils.prefs.GlobalPreferences.instance(app);
         try {

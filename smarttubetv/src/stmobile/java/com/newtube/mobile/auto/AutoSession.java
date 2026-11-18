@@ -15,6 +15,13 @@ import java.util.List;
 
 /** NEWTUBE(android-auto): one Android Auto connection - surface, parked/moving gate and the screens. */
 public class AutoSession extends Session {
+    private static int sActive;
+
+    /** A car screen (the navigation-category app) is open right now. */
+    static boolean isActive() {
+        return sActive > 0;
+    }
+
     private AutoSurfaceRenderer mRenderer;
     private DrivingState mDriving;
     private boolean mAskedPermissions;
@@ -23,6 +30,7 @@ public class AutoSession extends Session {
     @Override
     public Screen onCreateScreen(@NonNull Intent intent) {
         AutoPlayer player = AutoPlayer.get(getCarContext());
+        sActive++;
         mRenderer = new AutoSurfaceRenderer(getCarContext());
         getCarContext().getCarService(AppManager.class).setSurfaceCallback(mRenderer);
 
@@ -36,6 +44,7 @@ public class AutoSession extends Session {
         getLifecycle().addObserver(new DefaultLifecycleObserver() {
             @Override
             public void onDestroy(@NonNull LifecycleOwner owner) {
+                sActive = Math.max(0, sActive - 1);
                 mDriving.stop();
                 mRenderer.release();
                 player.setVideoAllowed(false);

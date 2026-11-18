@@ -63,6 +63,18 @@ public class AutoHomeScreen extends Screen implements AutoPlayer.Listener {
                     .setOnClickListener(() -> getScreenManager().push(new AutoPlayerScreen(context, mSession)))
                     .build());
         }
+        Video last = mWasActive ? null : player.getLastSession();
+        if (last != null) {
+            list.addItem(new Row.Builder()
+                    .setTitle("Continuar")
+                    .addText(last.title != null ? last.title : "")
+                    .setImage(icon(context, R.drawable.ic_auto_play))
+                    .setOnClickListener(() -> {
+                        player.resumeLastSession();
+                        getScreenManager().push(new AutoPlayerScreen(context, mSession));
+                    })
+                    .build());
+        }
         list.addItem(feedRow(context, "Subscrições", R.drawable.ic_auto_subs, AutoFeedScreen.Kind.SUBSCRIPTIONS));
         list.addItem(feedRow(context, "Início", R.drawable.ic_auto_home, AutoFeedScreen.Kind.HOME));
         list.addItem(feedRow(context, "Continuar a ver", R.drawable.ic_auto_play, AutoFeedScreen.Kind.CONTINUE));
