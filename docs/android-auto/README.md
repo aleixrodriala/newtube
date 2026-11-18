@@ -1,5 +1,7 @@
 # Android Auto
 
+(Guia de instalação em português: [LEIA-ME.md](LEIA-ME.md).)
+
 NewTube on the car screen, in two entries that share one player (`com.newtube.mobile.auto`):
 
 - **Car app** (Car App Library, navigation category): Subscriptions, Home, Continue watching,
