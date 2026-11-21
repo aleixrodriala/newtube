@@ -14,7 +14,8 @@ fail() { echo; echo "ERROR: $*" >&2; exit 1; }
 RELEASE_VERSION="1.17.1"
 
 # Where to fetch the release APK from when none is found next to the script (overridable).
-APK_URL="${NEWTUBE_AUTO_APK_URL:-https://github.com/ruipereira1/newtube/releases/download/android-auto-v${RELEASE_VERSION}/NewTube_${RELEASE_VERSION}_arm64-v8a.apk}"
+# The android-auto-v* tag itself has no assets; the arm64 APK lives on the upstream v* release.
+APK_URL="${NEWTUBE_AUTO_APK_URL:-https://github.com/aleixrodriala/newtube/releases/download/v${RELEASE_VERSION}/NewTube_${RELEASE_VERSION}_arm64-v8a.apk}"
 
 apk="${1:-}"
 if [ -z "$apk" ]; then

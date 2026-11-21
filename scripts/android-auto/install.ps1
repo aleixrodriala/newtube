@@ -21,8 +21,9 @@ $packages = @("io.github.aleixrodriala.arc.auto", "io.github.aleixrodriala.arc")
 $ReleaseVersion = "1.17.1"
 
 # Where to fetch the release APK from when none is found next to this script (overridable).
+# The android-auto-v* tag itself has no assets; the arm64 APK lives on the upstream v* release.
 $ApkUrl = if ($env:NEWTUBE_AUTO_APK_URL) { $env:NEWTUBE_AUTO_APK_URL } else {
-    "https://github.com/ruipereira1/newtube/releases/download/android-auto-v$ReleaseVersion/NewTube_${ReleaseVersion}_arm64-v8a.apk"
+    "https://github.com/aleixrodriala/newtube/releases/download/v$ReleaseVersion/NewTube_${ReleaseVersion}_arm64-v8a.apk"
 }
 
 function Say($t) { Write-Host $t }
