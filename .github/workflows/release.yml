@@ -142,6 +142,21 @@ jobs:
           done
           (cd dist && sha256sum -- *.apk > SHA256SUMS && cat SHA256SUMS)
 
+      # The Android Auto package: the release scripts plus the arm64 APK, zipped for attaching to
+      # the android-auto-v* tag's release. Install.bat / install.ps1 / install.sh also fetch the
+      # APK on their own when run without it, so this ZIP is a convenience, not a requirement.
+      - name: Build the Android Auto installer package
+        if: env.TAG != ''
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          mkdir -p dist/android-auto
+          cp scripts/android-auto/Install.bat scripts/android-auto/install.ps1 \
+             scripts/android-auto/install.sh dist/android-auto/
+          cp "dist/NewTube_${version}_arm64-v8a.apk" dist/android-auto/
+          (cd dist/android-auto && zip -q -X ../NewTube-Auto.zip *)
+          ls -l dist/NewTube-Auto.zip
+
       # The in-app updater's manifest, served from the release as
       # releases/latest/download/newtube.json once it's published (update-feed.yml also copies
       # it to the "latest" pre-release that 1.10.3 and older read).
