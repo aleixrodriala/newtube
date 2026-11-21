@@ -8,10 +8,30 @@ here="$(cd "$(dirname "$0")" && pwd)"
 packages="io.github.aleixrodriala.arc.auto io.github.aleixrodriala.arc"
 fail() { echo; echo "ERROR: $*" >&2; exit 1; }
 
+# Guard against installing an outdated APK over the Android Auto build: the filename carries the
+# version (NewTube_<version>_<abi>.apk, see CopyRenamedApks in smarttubetv/build.gradle), and the
+# expected one is RELEASE_VERSION below. Bump it at every release together with versionName.
+RELEASE_VERSION="1.17.1"
+
+# Where to fetch the release APK from when none is found next to the script (overridable).
+# The android-auto-v* tag itself has no assets; the arm64 APK lives on the upstream v* release.
+APK_URL="${NEWTUBE_AUTO_APK_URL:-https://github.com/aleixrodriala/newtube/releases/download/v${RELEASE_VERSION}/NewTube_${RELEASE_VERSION}_arm64-v8a.apk}"
+
 apk="${1:-}"
 if [ -z "$apk" ]; then
   apk="$(ls -t "$here"/NewTube*.apk 2>/dev/null | head -1 || true)"
-  [ -n "$apk" ] || fail "No NewTube*.apk next to this script. Download it into this folder."
+  # Nothing next to the script: download the release APK into this folder automatically,
+  # so Install.bat / ./install.sh work out of the box in a fresh extracted folder.
+  if [ -z "$apk" ]; then
+    echo "No NewTube*.apk next to this script. Downloading $APK_URL ..."
+    if curl -fL --retry 3 -o "$here/NewTube_${RELEASE_VERSION}_arm64-v8a.apk.tmp" "$APK_URL"; then
+      mv "$here/NewTube_${RELEASE_VERSION}_arm64-v8a.apk.tmp" "$here/NewTube_${RELEASE_VERSION}_arm64-v8a.apk"
+      apk="$here/NewTube_${RELEASE_VERSION}_arm64-v8a.apk"
+    else
+      rm -f "$here/NewTube_${RELEASE_VERSION}_arm64-v8a.apk.tmp"
+      fail "No NewTube*.apk next to this script and the automatic download failed. Download it into this folder manually (or pass a path/URL as argument): $APK_URL"
+    fi
+  fi
 fi
 case "$apk" in http://*|https://*)
   echo "Downloading $apk"; curl -fL -o /tmp/NewTube-Auto-download.apk "$apk"; apk=/tmp/NewTube-Auto-download.apk;;
@@ -19,10 +39,6 @@ esac
 [ -f "$apk" ] || fail "APK not found: $apk"
 echo "APK: $apk"
 
-# Guard against installing an outdated APK over the Android Auto build: the filename carries the
-# version (NewTube_<version>_<abi>.apk, see CopyRenamedApks in smarttubetv/build.gradle), and the
-# expected one is RELEASE_VERSION below. Bump it at every release together with versionName.
-RELEASE_VERSION="1.17.1"
 case "$(basename "$apk")" in
   *"$RELEASE_VERSION"*) echo "APK version: $RELEASE_VERSION (matches this release).";;
   *) fail "This APK doesn't look like version $RELEASE_VERSION ($(basename "$apk")). The Android Auto release is NewTube_${RELEASE_VERSION}_*.apk - download the newest one into this folder and run this again.";
