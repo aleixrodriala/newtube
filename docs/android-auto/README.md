@@ -45,7 +45,9 @@ Play named as the installer. `scripts/android-auto` does exactly that, from a co
 
 1. On the phone: Settings > About phone > tap "Build number" 7 times, then
    Settings > System > Developer options > **USB debugging** on.
-2. Put the NewTube APK in the same folder as the scripts.
+2. Put the NewTube APK in the same folder as the scripts — optional: with no `NewTube*.apk`
+   next to them, the installer downloads this release's APK into the folder by itself
+   (`NEWTUBE_AUTO_APK_URL` overrides the URL; you can also pass a path or URL as argument).
 3. Plug the phone in with a cable and run **`Install.bat`** (Windows, double-click) or
    **`./install.sh`** (macOS / Linux). Tap "Allow" on the phone's USB debugging prompt.
 4. On the phone: **Install / Update**, and if Google Play Protect warns: More details >
