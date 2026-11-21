@@ -33,6 +33,15 @@ if ($Apk -match '^https?://') {
 if (-not (Test-Path $Apk)) { Fail "APK not found: $Apk" }
 Say "APK: $Apk"
 
+# Guard against installing an outdated APK over the Android Auto build: the filename carries the
+# version (NewTube_<version>_<abi>.apk, see CopyRenamedApks in smarttubetv/build.gradle). Bump
+# ReleaseVersion at every release together with versionName in smarttubetv/build.gradle.
+$ReleaseVersion = "1.17.1"
+if ((Split-Path -Leaf $Apk) -notlike "*$ReleaseVersion*") {
+    Fail "This APK doesn't look like version $ReleaseVersion ($(Split-Path -Leaf $Apk)). The Android Auto release is NewTube_${ReleaseVersion}_*.apk - download the newest one into this folder and run this again."
+}
+Say "APK version: $ReleaseVersion (matches this release)."
+
 # 2. adb: on PATH, or Google's platform-tools downloaded once next to this script.
 $adb = (Get-Command adb -ErrorAction SilentlyContinue).Source
 if (-not $adb) {

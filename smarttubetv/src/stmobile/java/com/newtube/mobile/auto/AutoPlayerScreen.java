@@ -1,5 +1,7 @@
 package com.newtube.mobile.auto;
 
+import android.os.SystemClock;
+
 import androidx.annotation.NonNull;
 import androidx.car.app.CarContext;
 import androidx.car.app.CarToast;
@@ -26,6 +28,8 @@ public class AutoPlayerScreen extends Screen implements AutoPlayer.Listener {
     private boolean mLastHasNext;
     private boolean mLastAudioOnly;
     private boolean mLastVideo;
+    /** When the "video only parked" toast was last shown: a second press within seconds forces video on. */
+    private long mVideoWarnedAt;
 
     public AutoPlayerScreen(@NonNull CarContext carContext, AutoSession session) {
         super(carContext);
@@ -100,19 +104,53 @@ public class AutoPlayerScreen extends Screen implements AutoPlayer.Listener {
     private void toggleVideo() {
         CarContext context = getCarContext();
         AutoPlayer player = AutoPlayer.get(context);
+        DrivingState driving = mSession.getDrivingState();
+
+        if (AutoPrefs.isVideoAlwaysOn(context)) {
+            // Already forced: pressing again restores the parked gate.
+            AutoPrefs.setVideoAlwaysOn(context, false);
+            player.setAudioOnlyByUser(false);
+            driving.start();
+            player.setVideoAllowed(driving.getState() == DrivingState.State.PARKED);
+            mSession.getRenderer().setParkedHint(mSession.hintFor(driving.getState()));
+            CarToast.makeText(context, "Modo normal: vídeo só com o carro parado",
+                    CarToast.LENGTH_LONG).show();
+            return;
+        }
+
         if (!player.isAudioOnlyByUser()) {
+            // Video was showing (or about to): plain switch to audio only.
             player.setAudioOnlyByUser(true);
             return;
         }
+
         player.setAudioOnlyByUser(false);
-        DrivingState driving = mSession.getDrivingState();
         if (driving.getState() == DrivingState.State.PARKED) return;
-        if (!driving.hasAnySource()) {
-            CarToast.makeText(context, "Confirma no telemóvel o acesso à localização",
+
+        if (mVideoWarnedAt != 0 && SystemClock.elapsedRealtime() - mVideoWarnedAt < 6_000) {
+            // Second press within seconds: the driver insists — video always on, at their own risk.
+            AutoPrefs.setVideoAlwaysOn(context, true);
+            driving.stop();
+            player.setAudioOnlyByUser(false);
+            player.setVideoAllowed(true);
+            mSession.getRenderer().setParkedHint("");
+            mVideoWarnedAt = 0;
+            CarToast.makeText(context, "Vídeo sempre ligado (por tua conta e risco)",
                     CarToast.LENGTH_LONG).show();
+            return;
+        }
+
+        mVideoWarnedAt = SystemClock.elapsedRealtime();
+        if (!driving.hasAnySource()) {
             mSession.askForDrivingPermissions(true);
+            CarToast.makeText(context,
+                    "Sem acesso à velocidade não sei quando o carro está parado.\n"
+                            + "Toca outra vez em Vídeo para ligar sempre (por tua conta e risco).",
+                    CarToast.LENGTH_LONG).show();
         } else {
-            CarToast.makeText(context, "O vídeo só aparece com o carro parado",
+            CarToast.makeText(context,
+                    "O vídeo só aparece com o carro parado.\n"
+                            + "Toca outra vez em Vídeo para ligar sempre (por tua conta e risco).",
                     CarToast.LENGTH_LONG).show();
         }
     }

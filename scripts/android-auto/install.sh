@@ -19,6 +19,16 @@ esac
 [ -f "$apk" ] || fail "APK not found: $apk"
 echo "APK: $apk"
 
+# Guard against installing an outdated APK over the Android Auto build: the filename carries the
+# version (NewTube_<version>_<abi>.apk, see CopyRenamedApks in smarttubetv/build.gradle), and the
+# expected one is RELEASE_VERSION below. Bump it at every release together with versionName.
+RELEASE_VERSION="1.17.1"
+case "$(basename "$apk")" in
+  *"$RELEASE_VERSION"*) echo "APK version: $RELEASE_VERSION (matches this release).";;
+  *) fail "This APK doesn't look like version $RELEASE_VERSION ($(basename "$apk")). The Android Auto release is NewTube_${RELEASE_VERSION}_*.apk - download the newest one into this folder and run this again.";
+     ;;
+esac
+
 adb="$(command -v adb || true)"
 if [ -z "$adb" ]; then
   adb="$here/platform-tools/adb"
