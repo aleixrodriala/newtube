@@ -12,7 +12,7 @@ O Android Auto só mostra apps que acha que vieram da Google Play. Se instalares
 
 ## Passo a passo
 1. **Depuração USB** (só da primeira vez): Definições > Acerca do telemóvel > toca 7 vezes em "Número de compilação". Depois Definições > Sistema > Opções de programador > liga **Depuração USB**.
-2. **Junta numa pasta** o APK do NewTube e os ficheiros `Install.bat`, `install.ps1` e `install.sh`. Usa sempre o APK mais recente (o nome traz a versão, p.ex. `NewTube_1.17.1_arm64_v8a.apk`); o instalador recusa APKs de outra versão para não instalares uma atualização antiga por engano.
+2. **Junta numa pasta** o APK do NewTube e os ficheiros `Install.bat`, `install.ps1` e `install.sh`. Se não estiver lá nenhum APK, o instalador descarrega sozinho o desta versão para a pasta (podes mudar a origem com a variável `NEWTUBE_AUTO_APK_URL`). Usa sempre o APK mais recente (o nome traz a versão, p.ex. `NewTube_1.17.1_arm64-v8a.apk`); o instalador recusa APKs de outra versão para não instalares uma atualização antiga por engano.
 3. **Liga o telemóvel** ao computador com o cabo.
 4. **Corre o instalador:** Windows — duplo clique em `Install.bat`; Mac/Linux — no Terminal, nessa pasta, `./install.sh`. Da primeira vez descarrega sozinho as ferramentas da Google (adb).
 5. **No telemóvel:** "Permitir depuração USB?" → Permitir. Depois **Instalar / Atualizar**. Se o Google Play Protect avisar → Mais detalhes → **Instalar mesmo assim**. O computador diz "Done" no fim.

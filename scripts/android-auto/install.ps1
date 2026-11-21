@@ -15,14 +15,38 @@ $ErrorActionPreference = "Continue"   # adb writes progress to stderr
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $packages = @("io.github.aleixrodriala.arc.auto", "io.github.aleixrodriala.arc")
 
+# Guard against installing an outdated APK over the Android Auto build: the filename carries the
+# version (NewTube_<version>_<abi>.apk, see CopyRenamedApks in smarttubetv/build.gradle). Bump
+# ReleaseVersion at every release together with versionName in smarttubetv/build.gradle.
+$ReleaseVersion = "1.17.1"
+
+# Where to fetch the release APK from when none is found next to this script (overridable).
+$ApkUrl = if ($env:NEWTUBE_AUTO_APK_URL) { $env:NEWTUBE_AUTO_APK_URL } else {
+    "https://github.com/ruipereira1/newtube/releases/download/android-auto-v$ReleaseVersion/NewTube_${ReleaseVersion}_arm64-v8a.apk"
+}
+
 function Say($t) { Write-Host $t }
 function Fail($t) { Write-Host ""; Write-Host "ERROR: $t" -ForegroundColor Red; exit 1 }
 
-# 1. The APK: an argument, or the newest NewTube*.apk next to this script.
+# 1. The APK: an argument, or the newest NewTube*.apk next to this script; if there is none,
+#    download the release APK into this folder automatically so a fresh extracted folder works
+#    out of the box (Install.bat / .\install.ps1 with no arguments).
 if (-not $Apk) {
     $found = Get-ChildItem -Path $here -Filter "NewTube*.apk" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $found) { Fail "No NewTube*.apk next to this script. Download it into this folder." }
-    $Apk = $found.FullName
+    if (-not $found) {
+        $dest = Join-Path $here "NewTube_${ReleaseVersion}_arm64-v8a.apk"
+        Say "No NewTube*.apk next to this script. Downloading $ApkUrl ..."
+        try {
+            Invoke-WebRequest $ApkUrl -OutFile "$dest.tmp" -ErrorAction Stop
+            Move-Item "$dest.tmp" $dest -Force
+        } catch {
+            Remove-Item "$dest.tmp" -ErrorAction SilentlyContinue
+            Fail "No NewTube*.apk next to this script and the automatic download failed. Download it into this folder manually (or pass -Apk <path or URL>): $ApkUrl"
+        }
+        $Apk = $dest
+    } else {
+        $Apk = $found.FullName
+    }
 }
 if ($Apk -match '^https?://') {
     $dest = Join-Path $env:TEMP "NewTube-Auto-download.apk"
@@ -33,10 +57,6 @@ if ($Apk -match '^https?://') {
 if (-not (Test-Path $Apk)) { Fail "APK not found: $Apk" }
 Say "APK: $Apk"
 
-# Guard against installing an outdated APK over the Android Auto build: the filename carries the
-# version (NewTube_<version>_<abi>.apk, see CopyRenamedApks in smarttubetv/build.gradle). Bump
-# ReleaseVersion at every release together with versionName in smarttubetv/build.gradle.
-$ReleaseVersion = "1.17.1"
 if ((Split-Path -Leaf $Apk) -notlike "*$ReleaseVersion*") {
     Fail "This APK doesn't look like version $ReleaseVersion ($(Split-Path -Leaf $Apk)). The Android Auto release is NewTube_${ReleaseVersion}_*.apk - download the newest one into this folder and run this again."
 }
