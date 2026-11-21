@@ -35,11 +35,19 @@ public class AutoSession extends Session {
         getCarContext().getCarService(AppManager.class).setSurfaceCallback(mRenderer);
 
         mDriving = new DrivingState(getCarContext(), state -> {
-            player.setVideoAllowed(state == DrivingState.State.PARKED);
+            // "Vídeo sempre ligado" overrides the gate: speed no longer matters.
+            player.setVideoAllowed(AutoPrefs.isVideoAlwaysOn(getCarContext())
+                    || state == DrivingState.State.PARKED);
             mRenderer.setParkedHint(hintFor(state));
         });
-        mDriving.start();
-        mRenderer.setParkedHint(hintFor(DrivingState.State.UNKNOWN));
+        if (AutoPrefs.isVideoAlwaysOn(getCarContext())) {
+            // Gate off: video always, and no speed/location is needed or asked for.
+            player.setVideoAllowed(true);
+            mRenderer.setParkedHint("");
+        } else {
+            mDriving.start();
+            mRenderer.setParkedHint(hintFor(DrivingState.State.UNKNOWN));
+        }
 
         getLifecycle().addObserver(new DefaultLifecycleObserver() {
             @Override
@@ -61,6 +69,8 @@ public class AutoSession extends Session {
 
     /** {@code force}: the driver asked for video, so ask again even if once was refused. */
     public void askForDrivingPermissions(boolean force) {
+        // With the gate off ("Vídeo sempre ligado") nothing is needed to show video.
+        if (AutoPrefs.isVideoAlwaysOn(getCarContext())) return;
         if (mAskedPermissions && !force) return;
         mAskedPermissions = true;
         List<String> missing = new ArrayList<>();
@@ -70,6 +80,8 @@ public class AutoSession extends Session {
             missing.add(Manifest.permission.ACCESS_COARSE_LOCATION);
         }
         if (missing.isEmpty()) {
+            mDriving.start();
+            mRenderer.setParkedHint(hintFor(mDriving.getState()));
             askForBackgroundLocation();
             return;
         }
@@ -110,7 +122,7 @@ public class AutoSession extends Session {
         return mDriving;
     }
 
-    String hintFor(DrivingState.State state) {
+    public String hintFor(DrivingState.State state) {
         switch (state) {
             case PARKED:
                 return "";

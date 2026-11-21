@@ -1,6 +1,6 @@
 # NewTube Auto — guia de instalação (português)
 
-YouTube no ecrã do carro com Android Auto. **Vídeo só com o carro parado**; em andamento continua o som e a imagem volta sozinha quando o carro para. É uma app à parte do NewTube normal (podes ter as duas instaladas).
+YouTube no ecrã do carro com Android Auto. **Vídeo só com o carro parado**; em andamento continua o som e a imagem volta sozinha quando o carro para. Se quiseres, podes ligar o **vídeo sempre** (toca duas vezes no botão Vídeo no ecrã de reprodução — por tua conta e risco; toca outra vez para voltar ao normal). É uma app à parte do NewTube normal (podes ter as duas instaladas).
 
 ## Porque é preciso o instalador
 O Android Auto só mostra apps que acha que vieram da Google Play. Se instalares o APK da forma normal (tocar no ficheiro no telemóvel), o carro recusa a app ou mostra só o som. O instalador em [`scripts/android-auto`](../../scripts/android-auto) usa o instalador do próprio telemóvel com a Play Store como origem, que é o que o Android Auto aceita.

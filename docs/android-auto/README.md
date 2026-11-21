@@ -9,6 +9,9 @@ NewTube on the car screen, in two entries that share one player (`com.newtube.mo
   navigation category is the only one that gets a drawing surface, so video is drawn there,
   **only while the car is parked**. Moving, the video track is switched off (no video data is
   fetched) and the screen shows cover, title and a "sound only" note; the sound keeps playing.
+  The driver can override the gate: pressing the video button twice within seconds turns on
+  "video always" (`AutoPrefs`, persists across connections, at the user's own risk); a third
+  press restores the parked gate. With it on, no speed/location permission is needed or asked for.
 - **Media app** (`MediaBrowserService`): the same feeds in Android Auto's music screen, sound only,
   plus voice search ("play X on NewTube").
 
