@@ -23,6 +23,7 @@ import com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.liskovsoft.youtubeapi.service.internal.MediaServiceData;
 import com.newtube.mobile.CardMenuMigration;
+import com.newtube.mobile.car.CarModePrefs;
 import com.newtube.mobile.ui.common.MobileSnackbar;
 import com.newtube.mobile.ui.common.ThemeMode;
 
@@ -82,6 +83,12 @@ final class AppPages {
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_24_hour),
                 context.getString(R.string.mobile_settings_24_hour_summary),
                 generalData::is24HourLocaleEnabled, generalData::set24HourLocaleEnabled).needsRestart());
+
+        // NEWTUBE(android-auto): opt-in for video on the car display while the car is moving.
+        rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_car_passenger),
+                context.getString(R.string.mobile_settings_car_passenger_summary),
+                () -> CarModePrefs.isPassengerModeEnabled(context),
+                on -> CarModePrefs.setPassengerModeEnabled(context, on)));
 
         return new SettingsPages.Page(context.getString(R.string.mobile_settings_general), rows);
     }

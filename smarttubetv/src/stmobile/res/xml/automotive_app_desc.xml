@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android Auto: this app is a Car App Library (template) app, not a media-browser app. -->
+<automotiveApp>
+    <uses name="template" />
+</automotiveApp>

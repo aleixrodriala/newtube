@@ -423,4 +423,29 @@
     <string name="mobile_about_share_text">NewTube, un cliente de YouTube para móviles basado en SmartTube: %1$s</string>
     <string name="sabr_vod_option">Preferir SABR aunque haya enlaces (experimental; próximo vídeo)</string>
     <string name="sabr_vod_stopped">Se ha detenido la reproducción SABR experimental. Pulsa reproducir para reintentar o desactiva SABR en Ajustes.</string>
+
+    <!-- NEWTUBE(android-auto): pantalla del coche y ajuste de modo pasajero. -->
+    <string name="car_passenger_mode_off">El modo pasajero está desactivado. Actívalo para ver vídeo aquí.</string>
+    <string name="car_enable_passenger_mode">Activar modo pasajero</string>
+    <string name="car_disable_passenger_mode">Desactivar modo pasajero</string>
+    <string name="car_start_video">Inicia un vídeo en el teléfono o toca Menú para elegir uno aquí.</string>
+    <string name="car_video_unavailable_title">Vídeo no disponible</string>
+    <string name="car_video_unavailable">Toca Menú para elegir otro.</string>
+    <string name="car_menu">Menú</string>
+    <string name="car_menu_home">Inicio</string>
+    <string name="car_menu_subscriptions">Suscripciones</string>
+    <string name="car_menu_history">Historial</string>
+    <string name="car_menu_playlists">Listas</string>
+    <string name="car_menu_trending">Tendencias</string>
+    <string name="car_passenger_mode">Modo pasajero</string>
+    <string name="car_passenger_mode_summary">Mostrar vídeo en esta pantalla con el coche en marcha</string>
+    <string name="car_list_empty">Todavía no hay nada aquí.</string>
+    <string name="car_list_sign_in">Inicia sesión en NewTube en el teléfono para ver esta lista.</string>
+    <string name="car_list_error">No se pudo cargar esta lista. Comprueba la conexión a internet del teléfono.</string>
+    <string name="car_play">Reproducir</string>
+    <string name="car_pause">Pausar</string>
+    <string name="car_next">Siguiente</string>
+    <string name="car_previous">Anterior</string>
+    <string name="mobile_settings_car_passenger">Modo pasajero de Android Auto</string>
+    <string name="mobile_settings_car_passenger_summary">Mantener el vídeo en la pantalla del coche mientras el coche está en marcha. Solo para pasajeros: el conductor no debe mirar</string>
 </resources>

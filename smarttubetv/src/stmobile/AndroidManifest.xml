@@ -45,6 +45,14 @@
          for them. Normal, auto-granted permission. -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Android Auto (projected): AppManager.setSurfaceCallback() requires this normal permission.
+         It is what lets a navigation-category app draw on the car display. -->
+    <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
+
+    <!-- Android Auto (projected): NavigationTemplate refuses to render unless the app declares
+         this normal permission. Without it the host rejects the screen when the app is opened. -->
+    <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
+
     <!-- The in-app updater hands its APK straight to Android's installer (AppUpdates.systemInstaller):
          from Android 11 these queries make the installers visible, so apps that also open APK files
          do not turn the install into an "Open with" chooser. -->
@@ -306,6 +314,33 @@
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden|uiMode"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
+
+        <!--
+          Android Auto (projected). The Car App Library entry point. NAVIGATION is deliberate:
+          it is the only category that gets a drawing surface from the host, and the only one the
+          host keeps available while the car is moving. CarVideoScreen renders the live player
+          into that surface (see com.newtube.mobile.car and CarDisplayBridge).
+        -->
+        <service
+            android:name="com.newtube.mobile.car.NewTubeCarAppService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <category android:name="androidx.car.app.category.NAVIGATION" />
+            </intent-filter>
+        </service>
+
+        <!-- Car App Library reads this from the APPLICATION meta-data (AppInfo.retrieveMinCarAppApiLevel).
+             Declared inside the <service> it is invisible and the host shows
+             "unexpected error" with: Min API level not declared in manifest. -->
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="1" />
+
+        <!-- Tells Android Auto that this app contributes a Car App Library (template) app. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
 
     </application>
 

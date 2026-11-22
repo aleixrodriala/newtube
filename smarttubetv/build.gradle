@@ -382,6 +382,12 @@ dependencies {
     // Harmless for the TV flavors, which never reference it.
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.2.0'
 
+    // Android Auto (projected, stmobile only): Car App Library. The car screen is a navigation
+    // template because that is the only category the host gives a drawing surface to; the surface
+    // is filled with the live player (com.newtube.mobile.car). Pinned here, not in the shared
+    // constants, so the TV flavors and the submodule pointers stay untouched.
+    stmobileImplementation 'androidx.car.app:app:1.7.0'
+
     // Touch UI (stmobile flavor): spring physics for the magnetic drags (ui/common/MagneticDrag).
     // Material already brings this exact version in; named here because we call it directly.
     implementation 'androidx.dynamicanimation:dynamicanimation:1.1.0'

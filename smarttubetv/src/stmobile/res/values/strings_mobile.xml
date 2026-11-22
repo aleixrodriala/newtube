@@ -472,4 +472,31 @@
     <!-- Experimental SABR playback (was strings_sabr.xml) -->
     <string name="sabr_vod_option">Prefer SABR even when links work (experimental; next VOD)</string>
     <string name="sabr_vod_stopped">Experimental SABR playback stopped. Tap play to retry, or disable SABR in Settings.</string>
+
+    <!-- NEWTUBE(android-auto): the car screen and its settings row. Passenger mode is on by
+         default and keeps video on the car display while the car is moving; the switch turns it
+         off. -->
+    <string name="car_passenger_mode_off">Passenger mode is off. Turn it on to show video here.</string>
+    <string name="car_enable_passenger_mode">Turn on passenger mode</string>
+    <string name="car_disable_passenger_mode">Turn off passenger mode</string>
+    <string name="car_start_video">Start a video on your phone, or tap Menu to pick one here.</string>
+    <string name="car_video_unavailable_title">Video unavailable</string>
+    <string name="car_video_unavailable">Tap Menu to pick another one.</string>
+    <string name="car_menu">Menu</string>
+    <string name="car_menu_home">Home</string>
+    <string name="car_menu_subscriptions">Subscriptions</string>
+    <string name="car_menu_history">History</string>
+    <string name="car_menu_playlists">Playlists</string>
+    <string name="car_menu_trending">Trending</string>
+    <string name="car_passenger_mode">Passenger mode</string>
+    <string name="car_passenger_mode_summary">Show video on this screen while the car is moving</string>
+    <string name="car_list_empty">Nothing here yet.</string>
+    <string name="car_list_sign_in">Sign in to NewTube on your phone to see this list.</string>
+    <string name="car_list_error">Could not load this list. Check the phone\'s internet connection.</string>
+    <string name="car_play">Play</string>
+    <string name="car_pause">Pause</string>
+    <string name="car_next">Next</string>
+    <string name="car_previous">Previous</string>
+    <string name="mobile_settings_car_passenger">Android Auto passenger mode</string>
+    <string name="mobile_settings_car_passenger_summary">Keep video on the car screen while the car is moving. Only for passengers: the driver must not watch</string>
 </resources>
