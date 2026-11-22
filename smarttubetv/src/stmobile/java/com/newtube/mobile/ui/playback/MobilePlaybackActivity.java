@@ -515,6 +515,9 @@ public class MobilePlaybackActivity extends MobileActivity
 
         createPlayerObjects();
 
+        // Android Auto may already be showing its surface when a video is started from the phone.
+        CarDisplayBridge.attach(this);
+
         registerPipReceiver();
 
         // Casting: observe the (process-wide) session so the "Playing on TV" panel follows
@@ -1232,7 +1235,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
         // An engine restart (error fix, network flap) while backgrounded builds a FRESH selector
         // with video re-enabled; re-apply the audio-only drop so the restart doesn't resume video.
-        if (mBackgroundAudioMode) {
+        if (mBackgroundAudioMode && !isCarSurfaceActive()) {
             mExoPlayerController.setVideoTrackDisabled(true);
         }
 
@@ -1301,8 +1304,9 @@ public class MobilePlaybackActivity extends MobileActivity
         // Persistent surface: PlayerView owns no surface (surface_type="none"); hand the
         // session-long Surface to each new player instance. On the very first open the texture
         // may not exist yet - the SurfaceTextureListener attaches it on availability.
-        if (mSessionSurface != null) {
-            mPlayer.setVideoSurface(mSessionSurface);
+        Surface targetSurface = isCarSurfaceActive() ? mCarSurface : mSessionSurface;
+        if (targetSurface != null) {
+            mPlayer.setVideoSurface(targetSurface);
         }
         // The stock black shutter only lifts on a "rendered first frame" event tied to
         // PlayerView-owned surfaces; with the external surface it would sit over the loading
@@ -1634,7 +1638,8 @@ public class MobilePlaybackActivity extends MobileActivity
         // and decoding - onStop is not delivered while a PiP window stays visible, so reaching here
         // uninhibited means a real background (home without PiP, screen off, another screen on top).
         // Re-enabled at the top of onResume, before the texture reattach.
-        if (mPlayer != null && !mIsInPip && !mSuppressAutoPip && !isFinishing()) {
+        if (mPlayer != null && !mIsInPip && !mSuppressAutoPip && !isFinishing()
+                && !isCarSurfaceActive()) {
             setBackgroundAudioMode(true);
         }
 
@@ -1728,6 +1733,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
         // The only playback activity (singleInstance) is going away: no mini session can outlive it.
         MiniPlayerBridge.deactivate();
+        CarDisplayBridge.detach(this);
 
         // Fix situations when the engine wasn't properly destroyed (mirrors PlaybackFragment).
         destroyPlayerObjects();
@@ -4782,6 +4788,8 @@ public class MobilePlaybackActivity extends MobileActivity
     private TextureView mVideoTexture;
     private SurfaceTexture mSessionTexture;
     private Surface mSessionSurface;
+    /** Android Auto's drawing surface while the car screen is showing this session (see CarDisplayBridge). */
+    private Surface mCarSurface;
     private ImageView mVideoStill;
     /** Loading-still state: waiting for the NEW stream's STATE_READY... */
     private boolean mStillAwaitReady;
@@ -4829,7 +4837,7 @@ public class MobilePlaybackActivity extends MobileActivity
                 // Very first availability: adopt this texture for the whole session.
                 mSessionTexture = texture;
                 mSessionSurface = new Surface(texture);
-                if (mPlayer != null) {
+                if (mPlayer != null && !isCarSurfaceActive()) {
                     mPlayer.setVideoSurface(mSessionSurface);
                 }
             } else if (texture != mSessionTexture) {
@@ -6289,6 +6297,64 @@ public class MobilePlaybackActivity extends MobileActivity
     /** Live player accessor for the mini bar (package-private, see MiniPlayerBridge). */
     ExoPlayer getSharedPlayer() {
         return mPlayer;
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Android Auto (projected) - see CarDisplayBridge and com.newtube.mobile.car
+    // ---------------------------------------------------------------------------------
+
+    /** Render this session on the car display instead of the phone's session texture. */
+    void attachCarSurface(Surface surface) {
+        if (surface == null || !surface.isValid()) {
+            return;
+        }
+        mCarSurface = surface;
+        if (mPlayer != null) {
+            // onStop may have dropped the video renderer for background audio; the car screen is
+            // a visible video consumer, so bring it back before handing over the surface.
+            setBackgroundAudioMode(false);
+            mPlayer.setVideoSurface(surface);
+        }
+    }
+
+    /** The car screen went away: give the codec its session surface back. */
+    void detachCarSurface() {
+        mCarSurface = null;
+        if (mPlayer != null) {
+            mPlayer.setVideoSurface(mSessionSurface != null && mSessionSurface.isValid()
+                    ? mSessionSurface : null);
+        }
+        if (mIsStopped && !mIsInPip && !mSuppressAutoPip && !isFinishing()) {
+            setBackgroundAudioMode(true);
+        }
+    }
+
+    boolean isCarSurfaceActive() {
+        return mCarSurface != null && mCarSurface.isValid();
+    }
+
+    void togglePlayPauseFromCar() {
+        togglePlayPause();
+    }
+
+    void seekByFromCar(long deltaMs) {
+        if (mPlayer == null || mExoPlayerController == null) {
+            return;
+        }
+        long target = Math.max(0, mPlayer.getCurrentPosition() + deltaMs);
+        long duration = mPlayer.getDuration();
+        if (duration > 0) {
+            target = Math.min(target, duration);
+        }
+        mExoPlayerController.setPositionMs(target);
+    }
+
+    boolean playNextFromCar() {
+        return mPresenter != null && mPresenter.onNextClicked();
+    }
+
+    boolean playPreviousFromCar() {
+        return mPresenter != null && mPresenter.onPreviousClicked();
     }
 
     // ---------------------------------------------------------------------------------

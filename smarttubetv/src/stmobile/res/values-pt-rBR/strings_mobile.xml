@@ -1,3 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- NEWTUBE(android-auto): tela do carro e ajuste de modo passageiro. -->
+    <string name="car_passenger_mode_off">O modo passageiro está desligado. Ative-o para ver vídeo aqui.</string>
+    <string name="car_enable_passenger_mode">Ativar modo passageiro</string>
+    <string name="car_disable_passenger_mode">Desativar modo passageiro</string>
+    <string name="car_start_video">Inicie um vídeo no celular ou toque em Menu para escolher um aqui.</string>
+    <string name="car_video_unavailable_title">Vídeo indisponível</string>
+    <string name="car_video_unavailable">Toque em Menu para escolher outro.</string>
+    <string name="car_menu">Menu</string>
+    <string name="car_menu_home">Início</string>
+    <string name="car_menu_subscriptions">Inscrições</string>
+    <string name="car_menu_history">Histórico</string>
+    <string name="car_menu_playlists">Playlists</string>
+    <string name="car_menu_trending">Em alta</string>
+    <string name="car_passenger_mode">Modo passageiro</string>
+    <string name="car_passenger_mode_summary">Mostrar vídeo nesta tela com o carro em movimento</string>
+    <string name="car_list_empty">Ainda não há nada aqui.</string>
+    <string name="car_list_sign_in">Faça login na NewTube no celular para ver esta lista.</string>
+    <string name="car_list_error">Não foi possível carregar esta lista. Verifique a conexão de internet do celular.</string>
+    <string name="car_play">Reproduzir</string>
+    <string name="car_pause">Pausar</string>
+    <string name="car_next">Próximo</string>
+    <string name="car_previous">Anterior</string>
+    <string name="mobile_settings_car_passenger">Modo passageiro do Android Auto</string>
+    <string name="mobile_settings_car_passenger_summary">Manter o vídeo na tela do carro enquanto o carro está em movimento. Apenas para passageiros: o motorista não deve assistir</string>
 </resources>
