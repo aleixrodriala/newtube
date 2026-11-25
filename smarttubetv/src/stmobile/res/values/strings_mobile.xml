@@ -66,6 +66,11 @@
     <string name="mobile_watch_subscribe">Subscribe</string>
     <string name="mobile_watch_subscribed">Subscribed</string>
     <string name="mobile_watch_related">Up next</string>
+    <string name="mobile_player_more_videos">More videos</string>
+    <string name="mobile_player_close_recommendations">Close recommendations</string>
+    <string name="mobile_player_no_recommendations">No recommendations available</string>
+    <string name="mobile_watch_later_remove">Remove from Watch Later</string>
+    <string name="mobile_watch_later_error">Couldn\'t update Watch Later. Please try again.</string>
     <!-- In place of "Up next" when nothing loaded because there is no network (e.g. a download). -->
     <string name="mobile_watch_offline">You\'re offline</string>
     <!-- Queue card. "%1$s" is the playlist/queue name; the position line is "3 / 48". -->
