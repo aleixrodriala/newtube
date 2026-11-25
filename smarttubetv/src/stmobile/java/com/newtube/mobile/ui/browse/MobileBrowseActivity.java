@@ -26,6 +26,9 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -246,6 +249,13 @@ public class MobileBrowseActivity extends MobileActivity
     }
 
     @Override
+    protected boolean shouldInsetContentForDisplayCutout() {
+        // Spread backgrounds and bottom navigation across rotated foldable side cutouts; inset
+        // interactive content views internally below.
+        return false;
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
@@ -322,6 +332,60 @@ public class MobileBrowseActivity extends MobileActivity
         setupMiniPlayerBar();
         // NEWTUBE(mini-inset): the last card can scroll clear of the docked mini-player.
         com.newtube.mobile.ui.playback.MiniPlayerListInset.attach(mMiniPlayerBar, mContentGrid);
+        installBrowseCutoutInsets();
+    }
+
+    private void installBrowseCutoutInsets() {
+        View root = findViewById(R.id.mobile_browse_root);
+        View titleBack = findViewById(R.id.mobile_title_back);
+        if (root == null) {
+            return;
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, windowInsets) -> {
+            Insets cutout = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout());
+            int left = cutout.left;
+            int right = cutout.right;
+            mTopBar.setStartCutoutInset(left);
+            setSideMargins(titleBack, browseDp(4) + left, -1);
+            setSideMargins(mSearchButton, -1, browseDp(4) + right);
+            if (mContentSwipe != null) {
+                mContentSwipe.setPadding(left, 0, right, 0);
+            }
+            if (mFeedSkeleton != null) {
+                mFeedSkeleton.setPadding(left, 0, right, 0);
+            }
+            if (mYouPanel != null) {
+                mYouPanel.setPadding(left, 0, right, 0);
+            }
+            if (mErrorContainer != null) {
+                int pad = browseDp(24);
+                mErrorContainer.setPadding(pad + left, pad, pad + right, pad);
+            }
+            if (mBottomNav != null) {
+                mBottomNav.setPadding(left, mBottomNav.getPaddingTop(), right, mBottomNav.getPaddingBottom());
+            }
+            setSideMargins(mMiniPlayerBar, -1, browseDp(12) + right);
+            return windowInsets;
+        });
+        ViewCompat.requestApplyInsets(root);
+    }
+
+    private void setSideMargins(@Nullable View view, int left, int right) {
+        if (view == null || !(view.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)) {
+            return;
+        }
+        ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) view.getLayoutParams();
+        int newLeft = left >= 0 ? left : lp.getMarginStart();
+        int newRight = right >= 0 ? right : lp.getMarginEnd();
+        if (lp.getMarginStart() != newLeft || lp.getMarginEnd() != newRight) {
+            lp.setMarginStart(newLeft);
+            lp.setMarginEnd(newRight);
+            view.setLayoutParams(lp);
+        }
+    }
+
+    private int browseDp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private void setupSwipeRefresh() {

@@ -150,14 +150,20 @@ final class PlayerPages {
         // NEWTUBE(gestures): the optional player swipes (#12), on by default (PlayerGesturePrefs);
         // the fullscreen and minimize swipes are always on.
         rows.add(SettingsRow.header(context.getString(R.string.mobile_settings_gestures)));
+        rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_gesture_youtube_stock),
+                context.getString(R.string.mobile_settings_gesture_youtube_stock_summary),
+                () -> PlayerGesturePrefs.isStockYouTubeGesturesOn(context),
+                on -> PlayerGesturePrefs.setStockYouTubeGesturesOn(context, on)));
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_gesture_levels),
                 context.getString(R.string.mobile_settings_gesture_levels_summary),
                 () -> PlayerGesturePrefs.isLevelSwipesOn(context),
-                on -> PlayerGesturePrefs.setLevelSwipesOn(context, on)));
+                on -> PlayerGesturePrefs.setLevelSwipesOn(context, on))
+                .enabledWhen(() -> !PlayerGesturePrefs.isStockYouTubeGesturesOn(context)));
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_gesture_seek),
                 context.getString(R.string.mobile_settings_gesture_seek_summary),
                 () -> PlayerGesturePrefs.isSeekSwipeOn(context),
-                on -> PlayerGesturePrefs.setSeekSwipeOn(context, on)));
+                on -> PlayerGesturePrefs.setSeekSwipeOn(context, on))
+                .enabledWhen(() -> !PlayerGesturePrefs.isStockYouTubeGesturesOn(context)));
 
         rows.add(SettingsRow.header(context.getString(R.string.mobile_settings_watch_page)));
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_hide_related),

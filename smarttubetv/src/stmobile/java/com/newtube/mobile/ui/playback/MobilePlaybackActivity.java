@@ -51,6 +51,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
+import androidx.core.view.DisplayCutoutCompat;
 import androidx.core.view.OneShotPreDrawListener;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -181,6 +182,10 @@ public class MobilePlaybackActivity extends MobileActivity
     private PlayerContainerLayout mContainer;
     private PinchZoomLayout mVideoArea;
     private TextView mZoomHintView;
+    /** Continuous zoom factor relative to Fit (1f .. fillScale) when resize mode is DEFAULT. */
+    private float mCustomZoomScale = 1f;
+    private boolean mZoomBoundaryHit;
+    @Nullable private ValueAnimator mZoomScaleAnimator;
     private DoubleTapPlayerViewImpl mPlayerView;
     private YouTubeOverlay mYouTubeOverlay;
     private View mControlsRoot;
@@ -789,9 +794,24 @@ public class MobilePlaybackActivity extends MobileActivity
             }
         });
 
-        // Pinch on the video = YouTube's zoom-to-fill toggle. Enabled in landscape/fullscreen only
-        // (applyWatchLayoutForOrientation), like the official app.
-        mVideoArea.setPinchListener(this::onPinchZoom);
+        // Pinch on the video = smooth zoom between Original (fit) and Fill. Enabled in
+        // landscape/fullscreen only (applyWatchLayoutForOrientation), like the official app.
+        mVideoArea.setPinchListener(new PinchZoomLayout.PinchListener() {
+            @Override
+            public void onPinchBegin() {
+                MobilePlaybackActivity.this.onPinchBegin();
+            }
+
+            @Override
+            public void onPinchScale(float scaleFactor) {
+                MobilePlaybackActivity.this.onPinchScale(scaleFactor);
+            }
+
+            @Override
+            public void onPinchEnd() {
+                MobilePlaybackActivity.this.onPinchEnd();
+            }
+        });
 
         // PLAYER LAYOUT POLISH. The controls overlay fills the video box.
         //  * LANDSCAPE/fullscreen: the video is full-bleed to the screen edges, so inset the whole
@@ -821,6 +841,7 @@ public class MobilePlaybackActivity extends MobileActivity
         mVideoArea.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or_, ob) -> {
             if ((r - l) != (or_ - ol) || (b - t) != (ob - ot)) {
                 applyControlsInsets();
+                syncZoomScale();
             }
         });
 
@@ -1148,52 +1169,208 @@ public class MobilePlaybackActivity extends MobileActivity
                 mTitleView.setVisibility(View.GONE);
             }
         }
+        syncZoomScale();
     }
 
     /**
-     * A pinch crossed the trigger ratio: snap between "fill the screen" (crop) and "original"
-     * (fit). Writes the same PlayerData pair as the overflow "Zoom / aspect ratio" dialog
-     * (AppDialogUtil.createVideoZoomCategory), so the gesture, the dialog selection and the
-     * PlayerUIController restore-on-init all stay one setting.
+     * Maximum uniform scale factor over Fit (1.0f) that fills the video box without exceeding
+     * Fill-to-screen. Returns 1.0f when box dimensions or video aspect are not known yet.
      */
-    private void onPinchZoom(boolean zoomIn) {
-        int mode = zoomIn ? RESIZE_MODE_FIT_BOTH : RESIZE_MODE_DEFAULT;
-        if (mode != getResizeMode()) {
-            // NEWTUBE(haptics): the pinch snapped into the other zoom - a tick as it crosses over.
-            Haptics.tick(mVideoArea);
+    static float fillScaleFor(int boxWidth, int boxHeight, float videoAspect) {
+        if (boxWidth <= 0 || boxHeight <= 0 || !(videoAspect > 0f)) {
+            return 1f;
         }
-        PlayerData playerData = PlayerData.instance(this);
-        playerData.setResizeMode(mode);
-        playerData.setZoomPercents(-1);
-        animateResizeMode(mode);
-        showZoomHint(zoomIn ? R.string.mobile_player_zoom_fill : R.string.mobile_player_zoom_original);
+        float boxAspect = (float) boxWidth / boxHeight;
+        float ratio = boxAspect > videoAspect ? boxAspect / videoAspect : videoAspect / boxAspect;
+        return Math.max(1f, ratio);
     }
 
-    /**
-     * Apply a resize mode with YouTube's smooth grow/shrink instead of a one-frame snap: capture
-     * the content frame's current VISUAL size, switch the mode, then on the first pre-draw of the
-     * new layout start scaled to the old size and animate to 1. Aspect is preserved in both fit
-     * and zoom modes, so a single uniform factor is exact.
-     */
-    private void animateResizeMode(int mode) {
+    static float clampZoomScale(float scale, float maxScale) {
+        float ceiling = Math.max(1f, maxScale);
+        if (Float.isNaN(scale) || scale <= 1f) {
+            return 1f;
+        }
+        return Math.min(ceiling, scale);
+    }
+
+    private float currentVideoAspectForZoom() {
+        if (mVideoAspect > 0f) {
+            return mVideoAspect;
+        }
+        if (mPlayer != null && mPlayer.getVideoSize().width > 0 && mPlayer.getVideoSize().height > 0) {
+            VideoSize size = mPlayer.getVideoSize();
+            return size.width * size.pixelWidthHeightRatio / size.height;
+        }
+        return 0f;
+    }
+
+    private float currentFillScale() {
+        if (mPlayerView == null) {
+            return 1f;
+        }
+        int width = mPlayerView.getWidth() > 0 ? mPlayerView.getWidth()
+                : (mVideoArea != null ? mVideoArea.getWidth() : 0);
+        int height = mPlayerView.getHeight() > 0 ? mPlayerView.getHeight()
+                : (mVideoArea != null ? mVideoArea.getHeight() : 0);
+        return fillScaleFor(width, height, currentVideoAspectForZoom());
+    }
+
+    private void cancelZoomAnimation() {
+        if (mZoomScaleAnimator != null) {
+            mZoomScaleAnimator.cancel();
+            mZoomScaleAnimator = null;
+        }
+    }
+
+    private void applyContentFrameScale(float scale) {
         ViewGroup contentFrame = mPlayerView != null ? mPlayerView.getContentFrame() : null;
-        if (contentFrame == null || contentFrame.getWidth() == 0 || getResizeMode() == mode) {
-            setResizeMode(mode);
+        if (contentFrame != null) {
+            contentFrame.animate().cancel();
+            contentFrame.setScaleX(scale);
+            contentFrame.setScaleY(scale);
+        }
+    }
+
+    private void syncZoomScale() {
+        cancelZoomAnimation();
+        if (mIsInPip || mPipEnterPending) {
+            applyContentFrameScale(1f);
             return;
         }
-        final float visualWidth = contentFrame.getWidth() * contentFrame.getScaleX();
-        contentFrame.animate().cancel();
-        setResizeMode(mode);
-        OneShotPreDrawListener.add(contentFrame, () -> {
-            if (contentFrame.getWidth() == 0) {
-                return;
+        if (getResizeMode() != RESIZE_MODE_DEFAULT) {
+            applyContentFrameScale(1f);
+            return;
+        }
+        float applied = clampZoomScale(mCustomZoomScale, currentFillScale());
+        applyContentFrameScale(applied);
+    }
+
+    private void onPinchBegin() {
+        cancelZoomAnimation();
+        mZoomBoundaryHit = false;
+        float maxScale = currentFillScale();
+        if (getResizeMode() == RESIZE_MODE_FIT_BOTH) {
+            // Convert discrete Fill into Fit + continuous scale so pinching in starts seamlessly.
+            mCustomZoomScale = maxScale;
+            if (mPlayerView != null) {
+                mPlayerView.setResizeMode(RESIZE_MODE_DEFAULT);
             }
-            float startScale = visualWidth / contentFrame.getWidth();
-            contentFrame.setScaleX(startScale);
-            contentFrame.setScaleY(startScale);
-            contentFrame.animate().scaleX(1f).scaleY(1f).setDuration(220)
-                    .setInterpolator(new DecelerateInterpolator()).start();
+            applyContentFrameScale(maxScale);
+        } else if (getResizeMode() != RESIZE_MODE_DEFAULT) {
+            mCustomZoomScale = 1f;
+            if (mPlayerView != null) {
+                mPlayerView.setResizeMode(RESIZE_MODE_DEFAULT);
+            }
+            applyContentFrameScale(1f);
+        } else {
+            mCustomZoomScale = clampZoomScale(mCustomZoomScale, maxScale);
+        }
+    }
+
+    private void onPinchScale(float scaleFactor) {
+        float maxScale = currentFillScale();
+        if (maxScale <= 1.01f) {
+            showZoomHint(R.string.mobile_player_zoom_original);
+            return;
+        }
+        float raw = mCustomZoomScale * scaleFactor;
+        float next = clampZoomScale(raw, maxScale);
+        boolean atBoundary = next <= 1f || next >= maxScale;
+        if (atBoundary && !mZoomBoundaryHit && Math.abs(next - mCustomZoomScale) > 1e-4f) {
+            Haptics.tick(mVideoArea);
+            mZoomBoundaryHit = true;
+        } else if (!atBoundary) {
+            mZoomBoundaryHit = false;
+        }
+        mCustomZoomScale = next;
+        applyContentFrameScale(next);
+        showZoomHintText(formatZoomLabel(next, maxScale));
+    }
+
+    private void onPinchEnd() {
+        float maxScale = currentFillScale();
+        PlayerData playerData = PlayerData.instance(this);
+        if (mCustomZoomScale <= 1.03f || maxScale <= 1.01f) {
+            mCustomZoomScale = 1f;
+            playerData.setResizeMode(RESIZE_MODE_DEFAULT);
+            playerData.setZoomPercents(-1);
+            animateZoomTo(1f, RESIZE_MODE_DEFAULT, R.string.mobile_player_zoom_original);
+            return;
+        }
+        if (maxScale > 1.05f && mCustomZoomScale >= maxScale - 0.03f) {
+            mCustomZoomScale = 1f;
+            playerData.setResizeMode(RESIZE_MODE_FIT_BOTH);
+            playerData.setZoomPercents(-1);
+            animateZoomTo(maxScale, RESIZE_MODE_FIT_BOTH, R.string.mobile_player_zoom_fill);
+            return;
+        }
+        playerData.setResizeMode(RESIZE_MODE_DEFAULT);
+        playerData.setZoomPercents(Math.round(mCustomZoomScale * 100f));
+        applyControlsInsets();
+        showZoomHintText(formatZoomLabel(mCustomZoomScale, maxScale));
+    }
+
+    private CharSequence formatZoomLabel(float scale, float maxScale) {
+        if (scale <= 1.01f) {
+            return getString(R.string.mobile_player_zoom_original);
+        }
+        if (maxScale > 1.01f && scale >= maxScale - 0.01f) {
+            return getString(R.string.mobile_player_zoom_fill);
+        }
+        return getString(R.string.mobile_player_zoom_percent, Math.round(scale * 100f));
+    }
+
+    private void animateZoomTo(float targetScale, int finalResizeMode, int hintRes) {
+        ViewGroup contentFrame = mPlayerView != null ? mPlayerView.getContentFrame() : null;
+        if (contentFrame == null || contentFrame.getWidth() == 0) {
+            setResizeMode(finalResizeMode);
+            showZoomHint(hintRes);
+            return;
+        }
+        cancelZoomAnimation();
+        float startScale = contentFrame.getScaleX();
+        if (Math.abs(startScale - targetScale) < 0.005f) {
+            if (finalResizeMode == RESIZE_MODE_FIT_BOTH) {
+                setResizeMode(RESIZE_MODE_FIT_BOTH);
+            } else {
+                applyContentFrameScale(1f);
+                applyControlsInsets();
+            }
+            showZoomHint(hintRes);
+            return;
+        }
+        ValueAnimator anim = ValueAnimator.ofFloat(startScale, targetScale);
+        anim.setDuration(180);
+        anim.setInterpolator(new DecelerateInterpolator());
+        anim.addUpdateListener(a -> applyContentFrameScale((float) a.getAnimatedValue()));
+        anim.addListener(new AnimatorListenerAdapter() {
+            private boolean mCancelled;
+
+            @Override
+            public void onAnimationCancel(Animator animation) {
+                mCancelled = true;
+            }
+
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                if (mZoomScaleAnimator == animation) {
+                    mZoomScaleAnimator = null;
+                }
+                if (mCancelled) {
+                    return;
+                }
+                if (finalResizeMode == RESIZE_MODE_FIT_BOTH) {
+                    applyContentFrameScale(1f);
+                    setResizeMode(RESIZE_MODE_FIT_BOTH);
+                } else {
+                    applyContentFrameScale(1f);
+                    setResizeMode(RESIZE_MODE_DEFAULT);
+                }
+            }
         });
+        mZoomScaleAnimator = anim;
+        anim.start();
+        showZoomHint(hintRes);
     }
 
     private final Runnable mHideZoomHint = new Runnable() {
@@ -1206,12 +1383,16 @@ public class MobilePlaybackActivity extends MobileActivity
 
     /** Show the YouTube-style zoom chip, re-arming the fade-out if a pinch fires again mid-show. */
     private void showZoomHint(int textRes) {
+        showZoomHintText(getString(textRes));
+    }
+
+    private void showZoomHintText(CharSequence text) {
         if (mZoomHintView == null) {
             return;
         }
         mZoomHintView.removeCallbacks(mHideZoomHint);
         mZoomHintView.animate().cancel();
-        mZoomHintView.setText(textRes);
+        mZoomHintView.setText(text);
         if (mZoomHintView.getVisibility() != View.VISIBLE) {
             mZoomHintView.setAlpha(0f);
             mZoomHintView.setVisibility(View.VISIBLE);
@@ -1848,6 +2029,25 @@ public class MobilePlaybackActivity extends MobileActivity
             // just taken its place.
             dismissPlayerSheets();
         }
+        applyOrientationChrome(orientation);
+    }
+
+    @Override
+    public void onMultiWindowModeChanged(boolean isInMultiWindowMode, @NonNull Configuration newConfig) {
+        super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig);
+        if (mIsInPip) {
+            return;
+        }
+        if (isInMultiWindowMode) {
+            releaseFullscreenRequest();
+            mLayoutOverride = Configuration.ORIENTATION_UNDEFINED;
+            mLayoutOverrideBase = Configuration.ORIENTATION_UNDEFINED;
+        }
+        refreshContentInsets();
+        applyOrientationChrome(layoutOrientation(newConfig.orientation));
+    }
+
+    private void applyOrientationChrome(int orientation) {
         applyWatchLayoutForOrientation(orientation);
         applySystemBarsForOrientation(orientation);
         updateFullscreenIcon(orientation);
@@ -2139,6 +2339,13 @@ public class MobilePlaybackActivity extends MobileActivity
         return layoutOrientation() != Configuration.ORIENTATION_LANDSCAPE;
     }
 
+    @Override
+    protected boolean shouldInsetContentForDisplayCutout() {
+        // Keep the watch-page video and comments sheet spanning full width on rotated foldables;
+        // side cutout padding is applied inside applyControlsInsets() to text/controls only.
+        return false;
+    }
+
     /**
      * Landscape = edge-to-edge immersive fullscreen; portrait = normal with the status bar back.
      * Actual rotation is handled by the system (manifest {@code configChanges} keeps the live
@@ -2156,9 +2363,9 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mControlsRoot == null) {
             return;
         }
+        WindowInsetsCompat rootInsets = ViewCompat.getRootWindowInsets(mControlsRoot);
         int left = 0, top = 0, right = 0, bottom = 0;
         if (isLandscape()) {
-            WindowInsetsCompat rootInsets = ViewCompat.getRootWindowInsets(mControlsRoot);
             // The camera cutout too: a film wider than 16:9 has no pillarbox to keep the back
             // button and the time label off the punch hole any more (controlsStrip).
             Insets bars = rootInsets != null
@@ -2170,11 +2377,22 @@ public class MobilePlaybackActivity extends MobileActivity
                     ? box.getWidth() : getResources().getDisplayMetrics().widthPixels;
             int height = box.getHeight() > 0
                     ? box.getHeight() : getResources().getDisplayMetrics().heightPixels;
-            int strip = controlsStrip(width, height, mVideoAspect, getResizeMode());
+            float zoomScale = getResizeMode() == RESIZE_MODE_DEFAULT
+                    ? clampZoomScale(mCustomZoomScale, fillScaleFor(width, height, mVideoAspect)) : 1f;
+            int strip = controlsStrip(width, height, mVideoAspect, getResizeMode(), zoomScale);
             left = Math.max(bars.left, strip);
             right = Math.max(bars.right, strip);
             top = bars.top;
             bottom = bars.bottom;
+            applyWatchCutoutInsets(0, 0);
+        } else {
+            Insets cutout = rootInsets != null
+                    ? rootInsets.getInsets(WindowInsetsCompat.Type.displayCutout()) : Insets.NONE;
+            applyWatchCutoutInsets(cutout.left, cutout.right);
+            if (videoAreaOverlapsCutout(rootInsets)) {
+                left = cutout.left;
+                right = cutout.right;
+            }
         }
         if (mControlsRoot.getPaddingLeft() != left || mControlsRoot.getPaddingTop() != top
                 || mControlsRoot.getPaddingRight() != right || mControlsRoot.getPaddingBottom() != bottom) {
@@ -2183,6 +2401,42 @@ public class MobilePlaybackActivity extends MobileActivity
         bleedScrim(mTopScrim, left, top, right, 0);
         bleedScrim(mBottomScrim, left, 0, right, bottom);
         applySeekBarLayout(left, top, right, bottom);
+    }
+
+    private void applyWatchCutoutInsets(int left, int right) {
+        if (mWatchContent != null) {
+            int bottomPad = dp(24);
+            if (mWatchContent.getPaddingLeft() != left || mWatchContent.getPaddingRight() != right) {
+                mWatchContent.setPadding(left, 0, right, bottomPad);
+            }
+        }
+        if (mCommentsPanel != null) {
+            mCommentsPanel.setSideCutoutInsets(left, right);
+        }
+    }
+
+    private boolean videoAreaOverlapsCutout(@Nullable WindowInsetsCompat rootInsets) {
+        if (rootInsets == null || mVideoArea == null || mVideoArea.getHeight() <= 0) {
+            return false;
+        }
+        DisplayCutoutCompat cutout = rootInsets.getDisplayCutout();
+        if (cutout == null) {
+            return false;
+        }
+        int[] loc = new int[2];
+        mVideoArea.getLocationInWindow(loc);
+        int bandTop = loc[1];
+        int bandBottom = bandTop + mVideoArea.getHeight();
+        for (Rect rect : cutout.getBoundingRects()) {
+            if (cutoutOverlapsBand(rect.top, rect.bottom, bandTop, bandBottom)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static boolean cutoutOverlapsBand(int rectTop, int rectBottom, int bandTop, int bandBottom) {
+        return rectBottom > bandTop && rectTop < bandBottom;
     }
 
     /**
@@ -2334,7 +2588,11 @@ public class MobilePlaybackActivity extends MobileActivity
      * wider film, or a fill/zoom resize mode. An unknown aspect (no video size yet) counts as 16:9.
      */
     static int controlsStrip(int width, int height, float videoAspect, int resizeMode) {
-        int strip16x9 = Math.max(0, Math.round((width - height * 16f / 9f) / 2f));
+        return controlsStrip(width, height, videoAspect, resizeMode, 1f);
+    }
+
+    static int controlsStrip(int width, int height, float videoAspect, int resizeMode, float zoomScale) {
+        int strip16x9 = Math.max(0, Math.round((width - height * 16f / 9f * zoomScale) / 2f));
         if (resizeMode != PlayerConstants.RESIZE_MODE_DEFAULT
                 && resizeMode != PlayerConstants.RESIZE_MODE_FIT_HEIGHT) {
             return 0; // fixed width, fill and zoom all cover the full width
@@ -2342,7 +2600,7 @@ public class MobilePlaybackActivity extends MobileActivity
         if (!(videoAspect > 0f)) {
             return strip16x9;
         }
-        return Math.min(strip16x9, Math.max(0, Math.round((width - height * videoAspect) / 2f)));
+        return Math.min(strip16x9, Math.max(0, Math.round((width - height * videoAspect * zoomScale) / 2f)));
     }
 
     private void applySystemBarsForOrientation(int orientation) {
@@ -2450,8 +2708,10 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         WindowManager.LayoutParams attributes = getWindow().getAttributes();
+        boolean allowCutout = fullscreen
+                || getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
         int desired;
-        if (!fullscreen) {
+        if (!allowCutout) {
             desired = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT;
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             desired = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
@@ -2612,6 +2872,7 @@ public class MobilePlaybackActivity extends MobileActivity
             lp.weight = 0;
             mVideoArea.setLayoutParams(lp);
         }
+        applyContentFrameScale(1f);
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -3871,13 +4132,7 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         int layout = layoutOrientation();
         refreshContentInsets();
-        applyWatchLayoutForOrientation(layout);
-        applySystemBarsForOrientation(layout);
-        updateFullscreenIcon(layout);
-        onFullscreenSwipeConfigured();
-        if (mVideoArea != null) {
-            mVideoArea.post(this::updatePipActions);
-        }
+        applyOrientationChrome(layout);
     }
 
     /**
@@ -4660,6 +4915,7 @@ public class MobilePlaybackActivity extends MobileActivity
             // An unknown size keeps the last one, as the content frame does (DoubleTapPlayerViewImpl).
             if (videoSize.width > 0 && videoSize.height > 0) {
                 mVideoAspect = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height;
+                syncZoomScale();
                 applyControlsInsets();
             }
         }
@@ -5435,7 +5691,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
     /** Fullscreen: SWIPE_BRIGHTNESS / SWIPE_VOLUME for a swipe that began at {@code rawX}, if any. */
     private int levelSwipeAt(float rawX) {
-        if (!PlayerGesturePrefs.isLevelSwipesOn(this) || isCastOverlayShown()) {
+        if (!PlayerGesturePrefs.areLevelSwipesActive(this) || isCastOverlayShown()) {
             return PlayerContainerLayout.SWIPE_NONE;
         }
         int[] at = new int[2];
@@ -5461,7 +5717,7 @@ public class MobilePlaybackActivity extends MobileActivity
      * is dragged. Not from the screen's side edges, where gesture navigation's Back begins.
      */
     private int beginSeekSwipe(float rawX) {
-        if (!PlayerGesturePrefs.isSeekSwipeOn(this) || mPlayer == null || mExoPlayerController == null
+        if (!PlayerGesturePrefs.isSeekSwipeActive(this) || mPlayer == null || mExoPlayerController == null
                 || mTimeBar == null || isCastOverlayShown() || mMorphAnimator != null || mMorphFraction != 0f
                 || mContainer.isInSideSystemGestureBand(mSwipeDownRawX)) {
             return PlayerContainerLayout.SWIPE_NONE;
@@ -5740,7 +5996,10 @@ public class MobilePlaybackActivity extends MobileActivity
 
         float scale = video.width() > 0 ? cardW / video.width() : 0.44f;
         float cardH = video.height() * scale; // 16:9 video -> ~the card's 102dp
-        float targetX = mContainer.getWidth() - margin - cardW;
+        WindowInsetsCompat rootInsets = ViewCompat.getRootWindowInsets(mContainer);
+        int rightCutout = rootInsets != null
+                ? rootInsets.getInsets(WindowInsetsCompat.Type.displayCutout()).right : 0;
+        float targetX = mContainer.getWidth() - rightCutout - margin - cardW;
         float targetY = mContainer.getHeight() - bottomNav - margin - cardH;
 
         mMorphScaleX = scale;
@@ -8914,6 +9173,12 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mPlayerView != null) {
             mPlayerView.setResizeMode(mode);
         }
+        if (mode != RESIZE_MODE_DEFAULT) {
+            mCustomZoomScale = 1f;
+            applyContentFrameScale(1f);
+        } else {
+            syncZoomScale();
+        }
         applyControlsInsets(); // fill/zoom: the controls span the width (controlsStrip)
     }
 
@@ -8924,8 +9189,9 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     public void setZoomPercents(int percents) {
-        // Pinch-to-zoom itself is handled by PinchZoomLayout -> onPinchZoom (snap fill/fit via
-        // resize mode). TODO Wave N: the dialog's percent-based zoom values (50%-300%).
+        mCustomZoomScale = percents > 100 ? percents / 100f : 1f;
+        syncZoomScale();
+        applyControlsInsets();
     }
 
     @Override

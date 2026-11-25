@@ -21,6 +21,7 @@ final class BrowseTopBar {
     private final View mBack;
     private final int mWordmarkInset;
     private final int mBesideBackInset;
+    private int mStartCutoutInset;
 
     BrowseTopBar(Activity activity, Runnable onBack) {
         mTitle = activity.findViewById(R.id.mobile_title_bar);
@@ -40,7 +41,17 @@ final class BrowseTopBar {
         mTitle.setText(subScreen && title != null && title.length() > 0
                 ? title : mTitle.getContext().getString(R.string.app_name));
         mTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, subScreen ? SUBSCREEN_TITLE_SP : WORDMARK_SP);
-        mTitle.setPaddingRelative(subScreen ? mBesideBackInset : mWordmarkInset,
+        mTitle.setPaddingRelative((subScreen ? mBesideBackInset : mWordmarkInset) + mStartCutoutInset,
+                mTitle.getPaddingTop(), mTitle.getPaddingEnd(), mTitle.getPaddingBottom());
+    }
+
+    void setStartCutoutInset(int inset) {
+        if (mStartCutoutInset == inset) {
+            return;
+        }
+        mStartCutoutInset = inset;
+        boolean subScreen = mBack.getVisibility() == View.VISIBLE;
+        mTitle.setPaddingRelative((subScreen ? mBesideBackInset : mWordmarkInset) + mStartCutoutInset,
                 mTitle.getPaddingTop(), mTitle.getPaddingEnd(), mTitle.getPaddingBottom());
     }
 }

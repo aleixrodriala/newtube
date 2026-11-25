@@ -122,6 +122,8 @@
     <string name="pin_unpin_from_sidebar">Fijar en Tú</string>
     <string name="mobile_settings_experimental">Experimental</string>
     <string name="mobile_settings_gestures">Gestos</string>
+    <string name="mobile_settings_gesture_youtube_stock">Gestos estilo YouTube</string>
+    <string name="mobile_settings_gesture_youtube_stock_summary">Deslizar hacia abajo para salir de pantalla completa o minimizar; desactiva los gestos de brillo, volumen y búsqueda</string>
     <string name="mobile_settings_gesture_levels">Deslizar para el brillo y el volumen</string>
     <string name="mobile_settings_gesture_levels_summary">Arriba y abajo a la izquierda o a la derecha del vídeo a pantalla completa</string>
     <string name="mobile_settings_gesture_seek">Deslizar para avanzar o retroceder</string>

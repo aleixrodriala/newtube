@@ -78,6 +78,7 @@ final class SettingsSearch {
             {R.string.mobile_settings_video_menu, R.string.mobile_settings_search_kw_video_menu},
             {R.string.mobile_settings_channels_order, R.string.mobile_settings_search_kw_channels_order},
             {R.string.mobile_settings_watch_history, R.string.mobile_settings_search_kw_watch_history},
+            {R.string.mobile_settings_gesture_youtube_stock, R.string.mobile_settings_search_kw_gesture_youtube_stock},
             {R.string.mobile_settings_gesture_levels, R.string.mobile_settings_search_kw_gesture_levels},
             {R.string.mobile_settings_gesture_seek, R.string.mobile_settings_search_kw_gesture_seek},
             {R.string.mobile_settings_video_ends, R.string.mobile_settings_search_kw_video_ends},

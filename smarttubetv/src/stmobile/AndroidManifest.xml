@@ -86,8 +86,19 @@
          player re-colours its watch page in place so the video never stops. -->
     <application
         android:name="com.newtube.mobile.MobileMainApplication"
+        android:resizeableActivity="true"
         android:theme="@style/Theme.NewTube"
         tools:replace="android:name,android:theme">
+
+        <!-- Honor / Huawei MagicOS: allow full-screen rendering across the display cutout. -->
+        <meta-data
+            android:name="android.notch_support"
+            android:value="true" />
+
+        <!-- Declare seamless runtime resize across split-screen / foldable posture transitions. -->
+        <meta-data
+            android:name="android.supports_size_changes"
+            android:value="true" />
 
         <!-- The TV manifest makes Splash singleInstance, which puts it in a separate task and
              forces Android's non-overridable cross-task slide when it routes into mobile Home.
@@ -98,6 +109,7 @@
         <activity
             android:name="com.liskovsoft.smartyoutubetv2.tv.ui.main.SplashActivity"
             android:launchMode="singleTop"
+            android:resizeableActivity="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|uiMode"
             android:theme="@style/Theme.NewTube"
             tools:replace="android:launchMode,android:configChanges" />
@@ -106,6 +118,7 @@
             android:name="com.newtube.mobile.ui.browse.MobileBrowseActivity"
             android:exported="false"
             android:launchMode="singleTop"
+            android:resizeableActivity="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden|uiMode"
             android:screenOrientation="unspecified"
             android:theme="@style/Theme.NewTube" />
@@ -127,6 +140,7 @@
             tools:targetApi="33"
             android:exported="false"
             android:launchMode="singleTop"
+            android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|layoutDirection|keyboardHidden|uiMode"
             android:screenOrientation="user"

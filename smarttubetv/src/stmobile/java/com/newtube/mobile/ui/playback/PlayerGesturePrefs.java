@@ -16,6 +16,7 @@ import android.content.SharedPreferences;
 public final class PlayerGesturePrefs {
 
     private static final String PREFS_NAME = "newtube_gestures";
+    private static final String KEY_STOCK_YOUTUBE_GESTURES = "stock_youtube_gestures";
     private static final String KEY_LEVEL_SWIPES = "level_swipes";
     private static final String KEY_SEEK_SWIPE = "seek_swipe";
 
@@ -24,6 +25,19 @@ public final class PlayerGesturePrefs {
 
     private static SharedPreferences prefs(Context context) {
         return context.getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+    }
+
+    /**
+     * Standard YouTube-style swipe behaviour: disables brightness, volume, and horizontal seek
+     * swipes so vertical swipes across the full player exit fullscreen or minimize to the mini
+     * player while Home enters system PiP.
+     */
+    public static boolean isStockYouTubeGesturesOn(Context context) {
+        return prefs(context).getBoolean(KEY_STOCK_YOUTUBE_GESTURES, false);
+    }
+
+    public static void setStockYouTubeGesturesOn(Context context, boolean on) {
+        prefs(context).edit().putBoolean(KEY_STOCK_YOUTUBE_GESTURES, on).apply();
     }
 
     /** Swipe up and down on the left (brightness) and right (volume) of the fullscreen video. */
@@ -42,5 +56,15 @@ public final class PlayerGesturePrefs {
 
     public static void setSeekSwipeOn(Context context, boolean on) {
         prefs(context).edit().putBoolean(KEY_SEEK_SWIPE, on).apply();
+    }
+
+    /** Effective runtime check: custom level swipes only run when YouTube-stock mode is off. */
+    public static boolean areLevelSwipesActive(Context context) {
+        return !isStockYouTubeGesturesOn(context) && isLevelSwipesOn(context);
+    }
+
+    /** Effective runtime check: custom horizontal seek swipe only runs when YouTube-stock mode is off. */
+    public static boolean isSeekSwipeActive(Context context) {
+        return !isStockYouTubeGesturesOn(context) && isSeekSwipeOn(context);
     }
 }

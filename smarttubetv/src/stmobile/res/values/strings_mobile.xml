@@ -31,9 +31,10 @@
     <string name="mobile_playlist_play_all">Play all</string>
     <string name="mobile_playlist_shuffle">Shuffle</string>
     <!-- Shown after Shuffle, because it also turns the player's repeat mode to shuffle -->
-    <!-- Pinch-zoom hint chip, same copy as the YouTube app -->
+    <!-- Pinch-zoom hint chip, same copy as the YouTube app + percentage for intermediate zoom -->
     <string name="mobile_player_zoom_fill">Zoomed to fill</string>
     <string name="mobile_player_zoom_original">Original</string>
+    <string name="mobile_player_zoom_percent" translatable="false">%1$d%%</string>
 
     <!-- Player gear bottom-sheet menu -->
     <string name="mobile_player_more">More options</string>
@@ -261,6 +262,8 @@
     <string name="mobile_settings_experimental">Experimental</string>
     <!-- NEWTUBE(gestures): Settings > Player, the switches for the optional player swipes (#12). -->
     <string name="mobile_settings_gestures">Gestures</string>
+    <string name="mobile_settings_gesture_youtube_stock">YouTube-style gestures</string>
+    <string name="mobile_settings_gesture_youtube_stock_summary">Swipe down to exit fullscreen or minimize; disables brightness, volume, and seek swipes</string>
     <string name="mobile_settings_gesture_levels">Swipe for brightness and volume</string>
     <string name="mobile_settings_gesture_levels_summary">Up and down on the left or right of the fullscreen video</string>
     <string name="mobile_settings_gesture_seek">Swipe to seek</string>
