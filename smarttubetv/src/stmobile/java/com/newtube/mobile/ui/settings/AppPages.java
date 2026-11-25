@@ -16,6 +16,7 @@ import com.liskovsoft.smartyoutubetv2.common.app.presenters.settings.LanguageSet
 import com.liskovsoft.smartyoutubetv2.common.misc.BackupAndRestoreManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.MediaServiceManager;
 import com.liskovsoft.smartyoutubetv2.common.misc.VideoDownloads;
+import com.liskovsoft.smartyoutubetv2.common.prefs.AppPrefs;
 import com.liskovsoft.smartyoutubetv2.common.prefs.GeneralData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.SearchData;
@@ -173,6 +174,11 @@ final class AppPages {
                 .option(context.getString(R.string.mobile_settings_thumbnails_middle), ClickbaitRemover.THUMB_QUALITY_MIDDLE)
                 .option(context.getString(R.string.mobile_settings_thumbnails_end), ClickbaitRemover.THUMB_QUALITY_END)
                 .bind(mainUIData::getThumbQuality, mainUIData::setThumbQuality));
+
+        AppPrefs appPrefs = AppPrefs.instance(context);
+        rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_full_card_text),
+                context.getString(R.string.mobile_settings_full_card_text_summary),
+                appPrefs::isFullCardTextEnabled, appPrefs::setFullCardTextEnabled));
 
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_original_titles),
                 context.getString(R.string.mobile_settings_original_titles_summary),

@@ -107,6 +107,8 @@
     <string name="mobile_settings_thumbnails_start">Un fotograma del principio del vídeo</string>
     <string name="mobile_settings_thumbnails_middle">Un fotograma de la mitad del vídeo</string>
     <string name="mobile_settings_thumbnails_end">Un fotograma del final del vídeo</string>
+    <string name="mobile_settings_full_card_text">Mostrar todo el texto de las tarjetas</string>
+    <string name="mobile_settings_full_card_text_summary">Muestra en varias líneas los títulos y detalles largos de los vídeos</string>
     <string name="mobile_settings_original_titles">Títulos originales</string>
     <string name="mobile_settings_original_titles_summary">Muestra los títulos en su idioma original, no traducidos por YouTube</string>
     <string name="mobile_settings_channels_order">Orden de Canales en Tú</string>

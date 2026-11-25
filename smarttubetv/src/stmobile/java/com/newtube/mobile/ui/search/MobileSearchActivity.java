@@ -579,6 +579,9 @@ public class MobileSearchActivity extends MobileActivity
     @Override
     protected void onResume() {
         super.onResume();
+        if (mAdapter != null) {
+            mAdapter.refreshFullCardTextPreference(this);
+        }
 
         if (mPresenter != null) {
             mPresenter.onViewResumed();

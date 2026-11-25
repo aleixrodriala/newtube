@@ -19,9 +19,11 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
+import com.liskovsoft.smartyoutubetv2.common.prefs.AppPrefs;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
 import com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import com.newtube.mobile.ui.common.VideoCardText;
 
 /**
  * Compact single-column "up next / related" list adapter for the watch page
@@ -83,6 +85,17 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
 
         mCurrentVideoId = videoId;
         notifyDataSetChanged();
+    }
+
+    private boolean mShowFullCardText;
+
+    @SuppressLint("NotifyDataSetChanged")
+    public void refreshFullCardTextPreference(Context context) {
+        boolean enabled = AppPrefs.instance(context).isFullCardTextEnabled();
+        if (mShowFullCardText != enabled) {
+            mShowFullCardText = enabled;
+            notifyDataSetChanged();
+        }
     }
 
     private static final DiffUtil.ItemCallback<Video> DIFF_CALLBACK = new DiffUtil.ItemCallback<Video>() {
@@ -175,9 +188,10 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
             mVideo = video;
             Context context = itemView.getContext();
 
+            VideoCardText.applyLineLimits(mTitle, mSubtitle);
             mTitle.setText(video.getTitle());
 
-            // Single subtitle line = "Channel • views • date" (Video.getSecondTitle()). Previously the
+            // The subtitle contains "Channel • views • date" (Video.getSecondTitle()). Previously the
             // channel showed twice - once as its own byline (getAuthor(), which is just the channel token
             // extracted from the very same secondTitle) and again at the head of this metadata line, so
             // the two lines were identical whenever views/date were absent. Fall back to the bare channel

@@ -1450,6 +1450,12 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     protected void onResume() {
         super.onResume();
+        if (mRelatedAdapter != null) {
+            mRelatedAdapter.refreshFullCardTextPreference(this);
+        }
+        if (mQueueAdapter != null) {
+            mQueueAdapter.refreshFullCardTextPreference(this);
+        }
 
         PlayerTransitionBridge.LaunchSnapshot launch = PlayerTransitionBridge.take();
 

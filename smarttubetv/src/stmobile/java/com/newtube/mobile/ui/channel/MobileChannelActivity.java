@@ -446,6 +446,9 @@ public class MobileChannelActivity extends MobileActivity
     @Override
     protected void onResume() {
         super.onResume();
+        if (mAdapter != null) {
+            mAdapter.refreshFullCardTextPreference(this);
+        }
 
         // REORDER_TO_FRONT may reuse an existing channel Activity, bypassing onCreate entirely.
         // Complete a watch-page channel handoff here as well so that path still becomes mini mode.
