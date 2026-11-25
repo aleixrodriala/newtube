@@ -1450,6 +1450,12 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     protected void onResume() {
         super.onResume();
+        if (mRelatedAdapter != null) {
+            mRelatedAdapter.refreshUploadDatePreference(this);
+        }
+        if (mQueueAdapter != null) {
+            mQueueAdapter.refreshUploadDatePreference(this);
+        }
 
         PlayerTransitionBridge.LaunchSnapshot launch = PlayerTransitionBridge.take();
 

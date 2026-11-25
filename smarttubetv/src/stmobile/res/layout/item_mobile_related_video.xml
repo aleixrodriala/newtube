@@ -95,6 +95,15 @@
             android:textSize="13sp"
             tools:text="Channel name • 1.2M views • 2 days ago" />
 
+        <TextView
+            android:id="@+id/related_upload_date"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="@color/mobile_color_on_surface_secondary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
     </LinearLayout>
 
 </LinearLayout>

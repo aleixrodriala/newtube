@@ -19,9 +19,11 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
+import com.liskovsoft.smartyoutubetv2.common.prefs.AppPrefs;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
 import com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import com.newtube.mobile.ui.common.VideoCardMetadata;
 
 /**
  * Compact single-column "up next / related" list adapter for the watch page
@@ -85,6 +87,17 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         notifyDataSetChanged();
     }
 
+    private boolean mShowUploadDate;
+
+    @SuppressLint("NotifyDataSetChanged")
+    public void refreshUploadDatePreference(Context context) {
+        boolean enabled = AppPrefs.instance(context).isAlwaysShowUploadDateEnabled();
+        if (mShowUploadDate != enabled) {
+            mShowUploadDate = enabled;
+            notifyDataSetChanged();
+        }
+    }
+
     private static final DiffUtil.ItemCallback<Video> DIFF_CALLBACK = new DiffUtil.ItemCallback<Video>() {
         @Override
         public boolean areItemsTheSame(@NonNull Video oldItem, @NonNull Video newItem) {
@@ -128,6 +141,7 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         private final ProgressBar mWatchProgress;
         private final TextView mTitle;
         private final TextView mSubtitle;
+        private final TextView mUploadDate;
         private Video mVideo;
 
         @SuppressLint("ClickableViewAccessibility") // observes only; the row's click still runs
@@ -140,6 +154,7 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
             mWatchProgress = itemView.findViewById(R.id.related_watch_progress);
             mTitle = itemView.findViewById(R.id.related_title);
             mSubtitle = itemView.findViewById(R.id.related_subtitle);
+            mUploadDate = itemView.findViewById(R.id.related_upload_date);
 
             itemView.setOnClickListener(v -> {
                 if (mVideo != null && clickListener != null) {
@@ -182,10 +197,7 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
             // extracted from the very same secondTitle) and again at the head of this metadata line, so
             // the two lines were identical whenever views/date were absent. Fall back to the bare channel
             // name when no secondTitle is available.
-            CharSequence subtitle = video.getSecondTitle();
-            if (subtitle == null || subtitle.length() == 0) {
-                subtitle = video.getAuthor();
-            }
+            CharSequence subtitle = VideoCardMetadata.bind(video, mUploadDate);
             if (subtitle != null && subtitle.length() > 0) {
                 mSubtitle.setText(subtitle);
                 mSubtitle.setVisibility(View.VISIBLE);

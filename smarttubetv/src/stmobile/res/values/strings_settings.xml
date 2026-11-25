@@ -109,6 +109,8 @@
     <string name="mobile_settings_thumbnails_start">A frame from the start of the video</string>
     <string name="mobile_settings_thumbnails_middle">A frame from the middle of the video</string>
     <string name="mobile_settings_thumbnails_end">A frame from the end of the video</string>
+    <string name="mobile_settings_always_show_upload_date">Always show upload date</string>
+    <string name="mobile_settings_always_show_upload_date_summary">Give the upload date its own line on video cards</string>
     <string name="mobile_settings_original_titles">Original titles</string>
     <string name="mobile_settings_original_titles_summary">Show titles in the language they were written in, not YouTube\'s translation</string>
     <string name="mobile_settings_channels_order">Order of Channels in You</string>

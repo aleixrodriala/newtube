@@ -14,6 +14,7 @@ public final class SimpleMediaItem implements MediaItem {
     private String mCardImageUrl;
     private String mParams;
     private CharSequence mSecondTitle;
+    private String mUploadDate;
     private String mContentType;
     private int mType;
     private String mBackgroundImageUrl;
@@ -40,6 +41,7 @@ public final class SimpleMediaItem implements MediaItem {
 
         mediaItem.mTitle = metadata.getTitle();
         mediaItem.mSecondTitle = metadata.getSecondTitle();
+        mediaItem.mUploadDate = Video.getUploadDate(metadata);
         mediaItem.mVideoId = metadata.getVideoId();
         mediaItem.mPlaylistId = metadata.getPlaylistInfo() != null ?
                 metadata.getPlaylistInfo().getPlaylistId() : metadata.getNextVideo() != null ?
@@ -56,6 +58,7 @@ public final class SimpleMediaItem implements MediaItem {
         mediaItem.mId = video.id;
         mediaItem.mTitle = video.getTitle();
         mediaItem.mSecondTitle = video.getSecondTitle();
+        mediaItem.mUploadDate = video.getUploadDate();
         mediaItem.mContentType = video.category;
         mediaItem.mType = video.itemType;
         mediaItem.mVideoId = video.videoId;
@@ -198,6 +201,11 @@ public final class SimpleMediaItem implements MediaItem {
     @Override
     public String getBadgeText() {
         return mBadgeText;
+    }
+
+    @Override
+    public String getUploadDateText() {
+        return mUploadDate;
     }
 
     @Override
