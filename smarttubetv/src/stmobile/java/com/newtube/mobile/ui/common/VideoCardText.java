@@ -5,6 +5,7 @@ import android.widget.TextView;
 
 import com.liskovsoft.smartyoutubetv2.common.prefs.AppPrefs;
 
+/** Controls whether video card titles and details are shown in full. */
 public final class VideoCardText {
     private VideoCardText() {
     }
