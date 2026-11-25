@@ -347,17 +347,9 @@
          so the bar paints through to the display edge without squeezing the row. -->
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/mobile_bottom_nav"
+        style="@style/MobileBottomNavigation"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:background="?attr/newtubeColorBackground"
-        app:itemIconSize="24dp"
-        app:itemIconTint="@color/mobile_bottom_nav_item"
-        app:itemTextAppearanceActive="@style/MobileBottomNavText"
-        app:itemTextAppearanceActiveBoldEnabled="false"
-        app:itemTextAppearanceInactive="@style/MobileBottomNavText"
-        app:paddingBottomSystemWindowInsets="true"
-        app:itemTextColor="@color/mobile_bottom_nav_item"
-        app:labelVisibilityMode="labeled"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
