@@ -305,6 +305,8 @@ public class MobileMainApplication extends MainApplication {
         // ANDROID_VR (nothing to decipher) send /player once the JS is read instead of after its
         // ~1-3 s V8 validation, which runs in the background. Rollback: debug.arc.player_js_gate 0.
         VideoInfoService.setPreferNoPotClient(true);
+        YouTubeMediaItemService.setPreferProgressiveFormats(
+                () -> PlayerData.instance(this).isLegacyCodecsForced());
 
         // HLS FOR VOD (mobile-only): an answer whose adaptive formats carry no URL (SABR-only) but
         // that carries an HLS manifest plays over the manifest, from the sources measured to serve

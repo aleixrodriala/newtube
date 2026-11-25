@@ -11,6 +11,7 @@ import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.Format;
+import androidx.media3.common.MediaItem;
 import androidx.media3.exoplayer.DecoderCounters;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.upstream.BandwidthMeter;
@@ -68,6 +69,14 @@ public class Media3DebugInfoManager {
         }
 
         StringBuilder info = new StringBuilder("engine: media3\n");
+
+        MediaItem item = mPlayer.getCurrentMediaItem();
+        if (item != null && item.localConfiguration != null && item.localConfiguration.uri.isHierarchical()) {
+            String itag = item.localConfiguration.uri.getQueryParameter("itag");
+            if (itag != null && itag.matches("[0-9]+")) {
+                info.append("source itag: ").append(itag).append('\n');
+            }
+        }
 
         appendFormat(info, "video", mPlayer.getVideoFormat());
         appendFormat(info, "audio", mPlayer.getAudioFormat());
