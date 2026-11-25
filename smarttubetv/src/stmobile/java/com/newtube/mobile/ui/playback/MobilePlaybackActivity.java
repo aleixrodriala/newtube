@@ -1451,10 +1451,10 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onResume() {
         super.onResume();
         if (mRelatedAdapter != null) {
-            mRelatedAdapter.refreshUploadDatePreference(this);
+            mRelatedAdapter.refreshFullCardTextPreference(this);
         }
         if (mQueueAdapter != null) {
-            mQueueAdapter.refreshUploadDatePreference(this);
+            mQueueAdapter.refreshFullCardTextPreference(this);
         }
 
         PlayerTransitionBridge.LaunchSnapshot launch = PlayerTransitionBridge.take();

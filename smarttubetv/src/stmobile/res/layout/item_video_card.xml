@@ -132,31 +132,16 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="3dp"
             android:layout_marginEnd="4dp"
+            android:layout_marginBottom="10dp"
             android:ellipsize="end"
             android:maxLines="1"
             android:textColor="@color/mobile_color_on_surface_secondary"
             android:textSize="13sp"
-            app:layout_constraintBottom_toTopOf="@+id/video_upload_date"
-            app:layout_goneMarginBottom="10dp"
+            app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toStartOf="@id/video_overflow"
             app:layout_constraintStart_toStartOf="@id/video_title"
             app:layout_constraintTop_toBottomOf="@id/video_title"
             tools:text="Channel name · 1.2M views · 3 weeks ago" />
-
-        <TextView
-            android:id="@id/video_upload_date"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:layout_marginEnd="4dp"
-            android:layout_marginBottom="10dp"
-            android:textColor="@color/mobile_color_on_surface_secondary"
-            android:textSize="13sp"
-            android:visibility="gone"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="@id/video_title"
-            app:layout_constraintTop_toBottomOf="@id/video_meta" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 

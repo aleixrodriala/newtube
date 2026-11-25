@@ -45,7 +45,6 @@ public final class Video {
     public String deArrowTitle; // DeArrow's crowd-sourced title (wins over everything)
     public String unlocalizedTitle; // NEWTUBE(#45): the uploader's title, untranslated (Original titles)
     public CharSequence secondTitle;
-    private String uploadDate;
     private String metadataTitle;
     private CharSequence metadataSecondTitle;
     public String description;
@@ -177,12 +176,6 @@ public final class Video {
         video.reloadPageKey = item.getReloadPageKey();
         video.isLive = item.isLive();
         video.isUpcoming = item.isUpcoming();
-        if (video.hasVideo() && !video.isUpcoming && !video.isPlaylistCard()) {
-            video.uploadDate = item.getUploadDateText();
-            if (!hasUploadDate(video.uploadDate) && item.getPublishedDate() > 0) {
-                video.uploadDate = DateHelper.toShortDate(item.getPublishedDate(), true, true, false);
-            }
-        }
         video.isShorts = item.isShorts();
         video.isMovie = item.isMovie();
         video.clickTrackingParams = item.getClickTrackingParams();
@@ -201,7 +194,6 @@ public final class Video {
         video.category = item.category;
         video.itemType = item.itemType;
         video.secondTitle = item.secondTitle;
-        video.uploadDate = item.uploadDate;
         video.videoId = item.videoId;
         video.channelId = item.channelId;
         video.bgImageUrl = item.bgImageUrl;
@@ -329,22 +321,6 @@ public final class Video {
     public String getTitleFull() {
         return deArrowTitle != null ? deArrowTitle : unlocalizedTitle != null ? unlocalizedTitle
                 : metadataTitle != null ? metadataTitle : title;
-    }
-
-    public String getUploadDate() {
-        return hasVideo() && !isUpcoming && !isPlaylistCard() && hasUploadDate(uploadDate) ? uploadDate : null;
-    }
-
-    static String getUploadDate(MediaItemMetadata metadata) {
-        if (metadata.isUpcoming()) {
-            return null;
-        }
-        String relativeDate = metadata.getRelativePublishedDate();
-        return hasUploadDate(relativeDate) ? relativeDate : metadata.getPublishedDate();
-    }
-
-    private static boolean hasUploadDate(String date) {
-        return date != null && !date.trim().isEmpty();
     }
 
     public CharSequence getSecondTitle() {
@@ -493,7 +469,7 @@ public final class Video {
             split = Helpers.appendArray(split, new String[]{null});
         }
 
-        if (split.length != 23 && split.length != 24) {
+        if (split.length != 23) {
             return null;
         }
 
@@ -522,7 +498,6 @@ public final class Video {
         result.isLive = Helpers.parseBoolean(split[20]);
         result.channelGroupId = Helpers.parseStr(split[21]);
         result.searchQuery = Helpers.parseStr(split[22]);
-        result.uploadDate = split.length == 24 ? Helpers.parseStr(split[23]) : null;
 
         // Reset old type (int)
         if (Helpers.equals(result.channelGroupId, "-1")) {
@@ -535,10 +510,9 @@ public final class Video {
     @NonNull
     @Override
     public String toString() {
-        String serialized = Helpers.mergeObj(id, category, title, videoId, null, playlistId, channelId, bgImageUrl, cardImageUrl,
+        return Helpers.mergeObj(id, category, title, videoId, null, playlistId, channelId, bgImageUrl, cardImageUrl,
                 null, playlistParams, sectionId, getReloadPageKey(), itemType, secondTitle, previewUrl, percentWatched,
                 metadataTitle, metadataSecondTitle, badge, isLive, channelGroupId, searchQuery);
-        return hasUploadDate(uploadDate) ? Helpers.mergeObj(serialized, uploadDate) : serialized;
     }
 
     public boolean hasVideo() {
@@ -818,9 +792,6 @@ public final class Video {
             metadataTitle = metadata.getTitle();
         }
         metadataSecondTitle = metadata.getSecondTitle();
-        if (!hasUploadDate(uploadDate) && !isUpcoming) {
-            uploadDate = getUploadDate(metadata);
-        }
         // NOTE: Upcoming videos metadata wrongly reported as live (live == true, upcoming == false)
         //isLive = metadata.isLive();
         //isUpcoming = metadata.isUpcoming();
@@ -908,7 +879,6 @@ public final class Video {
         video.title = title;
         video.metadataTitle = metadataTitle;
         video.secondTitle = secondTitle;
-        video.uploadDate = uploadDate;
         video.metadataSecondTitle = metadataSecondTitle;
         video.percentWatched = percentWatched;
         video.cardImageUrl = cardImageUrl;

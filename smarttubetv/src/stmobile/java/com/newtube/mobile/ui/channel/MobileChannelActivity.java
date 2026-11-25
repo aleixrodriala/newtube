@@ -447,7 +447,7 @@ public class MobileChannelActivity extends MobileActivity
     protected void onResume() {
         super.onResume();
         if (mAdapter != null) {
-            mAdapter.refreshUploadDatePreference(this);
+            mAdapter.refreshFullCardTextPreference(this);
         }
 
         // REORDER_TO_FRONT may reuse an existing channel Activity, bypassing onCreate entirely.

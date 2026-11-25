@@ -17,7 +17,7 @@ public class AppPrefs extends SharedPreferencesBase implements AccountChangeList
     @SuppressLint("StaticFieldLeak")
     private static AppPrefs sInstance;
     private static final String ANONYMOUS_PROFILE_NAME = "anonymous";
-    private static final String ALWAYS_SHOW_UPLOAD_DATE = "always_show_upload_date";
+    private static final String FULL_CARD_TEXT = "full_card_text";
     private static final String MULTI_PROFILES = "multi_profiles";
     private static final String STATE_UPDATER_DATA = "state_updater_data";
     private static final String CHANNEL_GROUP_DATA = "channel_group_data";
@@ -58,12 +58,12 @@ public class AppPrefs extends SharedPreferencesBase implements AccountChangeList
         return sInstance;
     }
 
-    public boolean isAlwaysShowUploadDateEnabled() {
-        return getBoolean(ALWAYS_SHOW_UPLOAD_DATE, false);
+    public boolean isFullCardTextEnabled() {
+        return getBoolean(FULL_CARD_TEXT, false);
     }
 
-    public void setAlwaysShowUploadDateEnabled(boolean enabled) {
-        putBoolean(ALWAYS_SHOW_UPLOAD_DATE, enabled);
+    public void setFullCardTextEnabled(boolean enabled) {
+        putBoolean(FULL_CARD_TEXT, enabled);
     }
 
     public boolean isMultiProfilesEnabled() {

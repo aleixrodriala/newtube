@@ -176,9 +176,9 @@ final class AppPages {
                 .bind(mainUIData::getThumbQuality, mainUIData::setThumbQuality));
 
         AppPrefs appPrefs = AppPrefs.instance(context);
-        rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_always_show_upload_date),
-                context.getString(R.string.mobile_settings_always_show_upload_date_summary),
-                appPrefs::isAlwaysShowUploadDateEnabled, appPrefs::setAlwaysShowUploadDateEnabled));
+        rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_full_card_text),
+                context.getString(R.string.mobile_settings_full_card_text_summary),
+                appPrefs::isFullCardTextEnabled, appPrefs::setFullCardTextEnabled));
 
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_original_titles),
                 context.getString(R.string.mobile_settings_original_titles_summary),

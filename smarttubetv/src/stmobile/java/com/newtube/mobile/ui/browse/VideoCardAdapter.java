@@ -27,7 +27,7 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.AppPrefs;
 import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
 import com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover;
 import com.liskovsoft.smartyoutubetv2.tv.R;
-import com.newtube.mobile.ui.common.VideoCardMetadata;
+import com.newtube.mobile.ui.common.VideoCardText;
 
 /**
  * Touch video card adapter (port of the gist of
@@ -71,13 +71,13 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
         mLongClickListener = longClickListener;
     }
 
-    private boolean mShowUploadDate;
+    private boolean mShowFullCardText;
 
     @SuppressLint("NotifyDataSetChanged")
-    public void refreshUploadDatePreference(Context context) {
-        boolean enabled = AppPrefs.instance(context).isAlwaysShowUploadDateEnabled();
-        if (mShowUploadDate != enabled) {
-            mShowUploadDate = enabled;
+    public void refreshFullCardTextPreference(Context context) {
+        boolean enabled = AppPrefs.instance(context).isFullCardTextEnabled();
+        if (mShowFullCardText != enabled) {
+            mShowFullCardText = enabled;
             notifyDataSetChanged();
         }
     }
@@ -235,7 +235,6 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
         private final ProgressBar mWatchProgress;
         private final TextView mTitle;
         private final TextView mMeta;
-        private final TextView mUploadDate;
         private final View mOverflow;
         private final ImageView mAvatar; // null on layouts without one
         private Video mVideo;
@@ -251,7 +250,6 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             mWatchProgress = itemView.findViewById(R.id.video_watch_progress);
             mTitle = itemView.findViewById(R.id.video_title);
             mMeta = itemView.findViewById(R.id.video_meta);
-            mUploadDate = itemView.findViewById(R.id.video_upload_date);
             mOverflow = itemView.findViewById(R.id.video_overflow);
             mAvatar = itemView.findViewById(R.id.video_channel_avatar);
 
@@ -289,11 +287,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
                         : context.getString(R.string.mobile_player_more));
             }
 
-            mTitle.setText(video.getTitle());
-
-            // "Channel · 1.2M views · 3 weeks ago" like YouTube; author-only when the
-            // service didn't build the info line (e.g. some playlist rows).
-            mMeta.setText(VideoCardMetadata.bind(video, mUploadDate));
+            bindText(video);
 
             bindBadge(context, video);
             bindProgress(video);
@@ -311,8 +305,7 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             mVideo = video;
             Context context = itemView.getContext();
 
-            mTitle.setText(video.getTitle());
-            mMeta.setText(VideoCardMetadata.bind(video, mUploadDate));
+            bindText(video);
 
             bindBadge(context, video);
             bindProgress(video);
@@ -322,6 +315,13 @@ public class VideoCardAdapter extends ListAdapter<Video, RecyclerView.ViewHolder
             if (thumbnailUrl == null ? mBoundThumbUrl != null : !thumbnailUrl.equals(mBoundThumbUrl)) {
                 bindThumbnail(context, video);
             }
+        }
+
+        private void bindText(Video video) {
+            VideoCardText.applyLineLimits(mTitle, mMeta);
+            mTitle.setText(video.getTitle());
+            CharSequence meta = video.getSecondTitle();
+            mMeta.setText(meta == null || meta.length() == 0 ? video.getAuthor() : meta);
         }
 
         private void bindBadge(Context context, Video video) {

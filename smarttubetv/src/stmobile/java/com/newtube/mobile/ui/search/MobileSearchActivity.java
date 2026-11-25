@@ -580,7 +580,7 @@ public class MobileSearchActivity extends MobileActivity
     protected void onResume() {
         super.onResume();
         if (mAdapter != null) {
-            mAdapter.refreshUploadDatePreference(this);
+            mAdapter.refreshFullCardTextPreference(this);
         }
 
         if (mPresenter != null) {
