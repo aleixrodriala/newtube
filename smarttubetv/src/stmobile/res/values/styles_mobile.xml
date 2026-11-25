@@ -250,6 +250,12 @@
         <item name="android:windowLightStatusBar">false</item>
     </style>
 
+    <!-- NEWTUBE(theme): android:theme of the player's video area (and the mini player), so the
+         ripples and default control colours over the video are the dark theme's in both themes.
+         values-night/ redefines it empty: there the whole app is already dark, and the player
+         stays exactly as it was. -->
+    <style name="ThemeOverlay.NewTube.PlayerChrome" parent="ThemeOverlay.MaterialComponents.Dark" />
+
     <!-- Recommendations float over the playing video in either app theme. -->
     <style name="ThemeOverlay.NewTube.FullscreenRecommendations" parent="ThemeOverlay.NewTube.BottomSheetDialog.Player">
         <item name="bottomSheetStyle">@style/Widget.NewTube.FullscreenRecommendations</item>
@@ -262,12 +268,6 @@
         <item name="paddingTopSystemWindowInsets">false</item>
         <item name="paddingBottomSystemWindowInsets">false</item>
     </style>
-
-    <!-- NEWTUBE(theme): android:theme of the player's video area (and the mini player), so the
-         ripples and default control colours over the video are the dark theme's in both themes.
-         values-night/ redefines it empty: there the whole app is already dark, and the player
-         stays exactly as it was. -->
-    <style name="ThemeOverlay.NewTube.PlayerChrome" parent="ThemeOverlay.MaterialComponents.Dark" />
 
     <!--
       Translucent theme for MobileAppDialogActivity (context menus, player option pickers,

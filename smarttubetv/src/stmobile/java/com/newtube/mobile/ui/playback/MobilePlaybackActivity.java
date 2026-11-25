@@ -1810,12 +1810,6 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     protected void onDestroy() {
-        if (mWatchLaterAction != null) {
-            mWatchLaterAction.reset();
-        }
-        if (mStoryboardPreview != null) {
-            mStoryboardPreview.reset(null);
-        }
         DownloadRegistry.instance(this).removeListener(mDownloadsListener);
         MobileSheets.setPlayerShown(false, false);
         cancelAutoHide();
@@ -1825,6 +1819,12 @@ public class MobilePlaybackActivity extends MobileActivity
         Utils.removeCallbacks(mReleaseImageRequests);
         Utils.removeCallbacks(mReleaseWatchMetadata);
         Utils.removeCallbacks(mPrefetchComments);
+        if (mWatchLaterAction != null) {
+            mWatchLaterAction.reset();
+        }
+        if (mStoryboardPreview != null) {
+            mStoryboardPreview.reset(null);
+        }
         if (mCommentsPanel != null) {
             mCommentsPanel.release();
         }
