@@ -13,6 +13,8 @@ import androidx.core.content.ContextCompat;
 
 import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 
+import java.util.concurrent.CopyOnWriteArrayList;
+
 /**
  * NEWTUBE(metered): process-wide "should the player save data" gate for its discretionary byte
  * policy, the forward-buffer ceiling ({@link MeteredBufferLoadControl}). The load control asks on every loading decision - every ~10 ms
@@ -45,7 +47,7 @@ import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
  * {@code NetworkDiagnostics}); the platform fans default-network callbacks out to every
  * registrant, so a second one costs nothing measurable.</p>
  */
-final class MeteredNetworkMonitor {
+public final class MeteredNetworkMonitor {
     /**
      * {@code NetworkCapabilities.NET_CAPABILITY_TEMPORARILY_NOT_METERED} (API 30), spelled out so the
      * minSdk-24 build does not inline a newer-API field; {@code hasCapability} of a capability an
@@ -54,6 +56,8 @@ final class MeteredNetworkMonitor {
     private static final int NET_CAPABILITY_TEMPORARILY_NOT_METERED = 25;
 
     private static volatile boolean sMetered;
+    /** Current default network is cellular without Wi-Fi (for Wi-Fi vs mobile data quality, #130). */
+    private static volatile boolean sCellular;
     /** Data Saver is on and restricts this app (RESTRICT_BACKGROUND_STATUS_ENABLED). */
     private static volatile boolean sDataSaver;
     private static volatile boolean sKnown;
@@ -61,6 +65,9 @@ final class MeteredNetworkMonitor {
     @Nullable private static volatile Boolean sTestOverride;
     /** Test seam for the Data Saver half, same contract. */
     @Nullable private static volatile Boolean sDataSaverTestOverride;
+    /** Test seam for cellular transport, same contract. */
+    @Nullable private static volatile Boolean sCellularTestOverride;
+    private static final CopyOnWriteArrayList<Runnable> sCellularListeners = new CopyOnWriteArrayList<>();
     private static boolean sStarted;
 
     private MeteredNetworkMonitor() {
@@ -70,6 +77,24 @@ final class MeteredNetworkMonitor {
     static boolean isMetered() {
         Boolean override = sTestOverride;
         return override != null ? override : sMetered;
+    }
+
+    /** Cheap: a volatile read. True when the active default network is cellular (without Wi-Fi). */
+    public static boolean isCellular() {
+        Boolean override = sCellularTestOverride;
+        return override != null ? override : sCellular;
+    }
+
+    public static void addCellularListener(Runnable listener) {
+        if (listener != null) {
+            sCellularListeners.addIfAbsent(listener);
+        }
+    }
+
+    public static void removeCellularListener(Runnable listener) {
+        if (listener != null) {
+            sCellularListeners.remove(listener);
+        }
     }
 
     /** Cheap: a volatile read. False until the registration has read the status, and on failure. */
@@ -96,7 +121,7 @@ final class MeteredNetworkMonitor {
     }
 
     /** Idempotent and non-blocking. Safe from any thread; the first player creation calls it. */
-    static void start(@Nullable Context context) {
+    public static void start(@Nullable Context context) {
         synchronized (MeteredNetworkMonitor.class) {
             if (sStarted || context == null) {
                 return;
@@ -124,7 +149,8 @@ final class MeteredNetworkMonitor {
         final ConnectivityManager cm = manager;
         registerDataSaverReceiver(context, cm);
         try {
-            update(isMetered(cm.getNetworkCapabilities(cm.getActiveNetwork())), "start");
+            NetworkCapabilities initialCaps = cm.getNetworkCapabilities(cm.getActiveNetwork());
+            update(isMetered(initialCaps), isCellular(initialCaps), "start");
             cm.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
                 @Nullable private Network mCurrent;
 
@@ -137,7 +163,8 @@ final class MeteredNetworkMonitor {
                     // from inside a callback can race it (documented NetworkCallback caveat). Only
                     // API 24/25, which do not guarantee that follow-up, need the query.
                     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) {
-                        update(isMetered(cm.getNetworkCapabilities(network)), "available");
+                        NetworkCapabilities caps = cm.getNetworkCapabilities(network);
+                        update(isMetered(caps), isCellular(caps), "available");
                     }
                 }
 
@@ -146,7 +173,7 @@ final class MeteredNetworkMonitor {
                     synchronized (this) {
                         mCurrent = network;
                     }
-                    update(isMetered(capabilities), "capabilities");
+                    update(isMetered(capabilities), isCellular(capabilities), "capabilities");
                     // NEWTUBE(media-path): a roaming flip re-scopes this network's verdicts.
                     MediaPathRouting.onDefaultCapabilities(network, capabilities);
                 }
@@ -162,12 +189,12 @@ final class MeteredNetworkMonitor {
                         }
                         mCurrent = null;
                     }
-                    update(false, "lost");
+                    update(false, false, "lost");
                 }
             });
         } catch (RuntimeException e) {
             // SecurityException (no ACCESS_NETWORK_STATE) or a platform callback-limit failure.
-            update(false, "failed");
+            update(false, false, "failed");
             NetPath.log("buffer-cap network monitor failed error=" + e.getClass().getSimpleName());
         }
     }
@@ -210,13 +237,33 @@ final class MeteredNetworkMonitor {
                 && !capabilities.hasCapability(NET_CAPABILITY_TEMPORARILY_NOT_METERED);
     }
 
-    private static synchronized void update(boolean metered, String event) {
-        boolean previous = sMetered;
-        boolean first = !sKnown;
-        sMetered = metered;
-        sKnown = true;
-        if (previous != metered || first) {
-            publish(event);
+    /** Pure: cellular exactly when Android reports TRANSPORT_CELLULAR without TRANSPORT_WIFI. */
+    static boolean isCellular(@Nullable NetworkCapabilities capabilities) {
+        if (capabilities == null) {
+            return false;
+        }
+        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                && !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+    }
+
+    private static void update(boolean metered, boolean cellular, String event) {
+        boolean cellularChanged;
+        synchronized (MeteredNetworkMonitor.class) {
+            boolean previous = sMetered;
+            boolean prevCellular = sCellular;
+            boolean first = !sKnown;
+            sMetered = metered;
+            sCellular = cellular;
+            sKnown = true;
+            cellularChanged = prevCellular != cellular;
+            if (previous != metered || first) {
+                publish(event);
+            }
+        }
+        if (cellularChanged) {
+            for (Runnable listener : sCellularListeners) {
+                listener.run();
+            }
         }
     }
 
@@ -242,5 +289,10 @@ final class MeteredNetworkMonitor {
     /** Test seam: pin the Data Saver half (null = live value again). */
     static void setDataSaverForTest(@Nullable Boolean dataSaver) {
         sDataSaverTestOverride = dataSaver;
+    }
+
+    /** Test seam: pin cellular state (null = live value again). */
+    static void setCellularForTest(@Nullable Boolean cellular) {
+        sCellularTestOverride = cellular;
     }
 }
