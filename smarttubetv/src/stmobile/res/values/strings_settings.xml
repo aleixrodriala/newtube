@@ -195,6 +195,10 @@
     <!-- Video quality -->
     <string name="mobile_settings_quality_intro">The quality videos start in. You can change it for one video from the player\'s settings.</string>
     <string name="mobile_settings_default_quality">Default quality</string>
+    <string name="mobile_settings_quality_wifi">Default quality on Wi-Fi</string>
+    <string name="mobile_settings_quality_mobile">Default quality on mobile data</string>
+    <string name="mobile_settings_quality_same_as_wifi">Same as Wi-Fi</string>
+    <string name="mobile_settings_quality_summary_split">Wi-Fi: %1$s · Mobile: %2$s</string>
     <string name="mobile_settings_quality_auto">Auto (up to %1$dp)</string>
     <string name="mobile_settings_quality_auto_desc">Recommended. The best your connection allows</string>
     <string name="mobile_settings_quality_up_to">Up to %1$s</string>

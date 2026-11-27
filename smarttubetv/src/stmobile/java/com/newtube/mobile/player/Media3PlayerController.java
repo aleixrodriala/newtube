@@ -987,9 +987,11 @@ public class Media3PlayerController implements Player.Listener {
 
     /** Seed the adapter with the persisted picks (legacy applyShield720pFix analog). */
     private void applyPersistedFormats() {
+        MeteredNetworkMonitor.start(mContext);
         com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData playerData =
                 com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData.instance(mContext);
-        selectFormat(playerData.getFormat(FormatItem.TYPE_VIDEO));
+        selectFormat(NetworkQualityPrefs.resolveVideoFormat(
+                mContext, playerData, MeteredNetworkMonitor.isCellular()));
         selectFormat(playerData.getStoredAudioPreference()); // never a stored language pick (#52)
         selectFormat(playerData.getFormat(FormatItem.TYPE_SUBTITLE));
     }

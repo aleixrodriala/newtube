@@ -79,6 +79,7 @@ public class MeteredBufferLoadControlTest {
     public void tearDown() {
         MeteredNetworkMonitor.setMeteredForTest(null);
         MeteredNetworkMonitor.setDataSaverForTest(null);
+        MeteredNetworkMonitor.setCellularForTest(null);
     }
 
     // ---------------------------------------------------------------------------------
@@ -166,6 +167,13 @@ public class MeteredBufferLoadControlTest {
         shadowOf(unmetered5g).clearCapabilities();
         shadowOf(unmetered5g).addCapability(NetworkCapabilities.NET_CAPABILITY_TEMPORARILY_NOT_METERED);
         assertFalse(MeteredNetworkMonitor.isMetered(unmetered5g));
+
+        assertFalse(MeteredNetworkMonitor.isCellular(null));
+        assertTrue(MeteredNetworkMonitor.isCellular(cellular));
+        shadowOf(wifi).addTransportType(NetworkCapabilities.TRANSPORT_WIFI);
+        assertFalse(MeteredNetworkMonitor.isCellular(wifi));
+        shadowOf(wifi).addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR);
+        assertFalse(MeteredNetworkMonitor.isCellular(wifi));
     }
 
     @Test
