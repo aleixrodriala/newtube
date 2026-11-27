@@ -191,6 +191,8 @@
     <string name="mobile_settings_dislikes_summary">From Return YouTube Dislike, which receives the video\'s ID</string>
     <string name="mobile_settings_paid_promotion">Tell me about paid promotion</string>
     <string name="mobile_settings_paid_promotion_summary">A short message when a video says it includes a paid promotion</string>
+    <string name="mobile_settings_double_tap_seek">Double-tap to seek</string>
+    <string name="mobile_settings_double_tap_seek_seconds">%1$d seconds</string>
 
     <!-- Video quality -->
     <string name="mobile_settings_quality_intro">The quality videos start in. You can change it for one video from the player\'s settings.</string>

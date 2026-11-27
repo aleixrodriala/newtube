@@ -18,6 +18,10 @@ public final class PlayerGesturePrefs {
     private static final String PREFS_NAME = "newtube_gestures";
     private static final String KEY_LEVEL_SWIPES = "level_swipes";
     private static final String KEY_SEEK_SWIPE = "seek_swipe";
+    private static final String KEY_DOUBLE_TAP_SEEK_SECONDS = "double_tap_seek_seconds";
+
+    public static final int DEFAULT_DOUBLE_TAP_SEEK_SECONDS = 10;
+    public static final int[] DOUBLE_TAP_SEEK_OPTIONS = {3, 5, 10, 15, 20, 25, 30, 60};
 
     private PlayerGesturePrefs() {
     }
@@ -42,5 +46,16 @@ public final class PlayerGesturePrefs {
 
     public static void setSeekSwipeOn(Context context, boolean on) {
         prefs(context).edit().putBoolean(KEY_SEEK_SWIPE, on).apply();
+    }
+
+    /** Duration in seconds for each double-tap skip forward or rewind. */
+    public static int getDoubleTapSeekSeconds(Context context) {
+        int stored = prefs(context).getInt(KEY_DOUBLE_TAP_SEEK_SECONDS, DEFAULT_DOUBLE_TAP_SEEK_SECONDS);
+        return stored > 0 ? stored : DEFAULT_DOUBLE_TAP_SEEK_SECONDS;
+    }
+
+    public static void setDoubleTapSeekSeconds(Context context, int seconds) {
+        int normalized = seconds > 0 ? seconds : DEFAULT_DOUBLE_TAP_SEEK_SECONDS;
+        prefs(context).edit().putInt(KEY_DOUBLE_TAP_SEEK_SECONDS, normalized).apply();
     }
 }
