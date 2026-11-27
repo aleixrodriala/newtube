@@ -301,6 +301,12 @@ public class MobilePlaybackActivity extends MobileActivity
     private int mChapterButtonIndex = -1;
     /** The open Chapters list, closed when the chapters change (autoplay): its rows would seek the next video. */
     @Nullable private BottomSheetDialog mChaptersSheet;
+    @Nullable private View mSponsorSkipButton;
+    @Nullable private View mSponsorSkipAccent;
+    @Nullable private TextView mSponsorSkipLabel;
+    private long mSponsorSkipEndMs;
+    @Nullable private Runnable mSponsorSkipAction;
+    private final Runnable mHideSponsorSkipRunnable = this::hideSponsorSkipPrompt;
     private View mWatchChatEntry;
     private String mCommentsKey;
     private String mLiveChatKey;
@@ -756,6 +762,18 @@ public class MobilePlaybackActivity extends MobileActivity
         mScrubChapterView = findViewById(R.id.mobile_player_scrub_chapter);
         mChapterButton = findViewById(R.id.mobile_player_chapter);
         mChapterButton.setOnClickListener(v -> showChaptersSheet());
+        mSponsorSkipButton = findViewById(R.id.mobile_player_sponsor_skip);
+        mSponsorSkipAccent = findViewById(R.id.mobile_player_sponsor_skip_accent);
+        mSponsorSkipLabel = findViewById(R.id.mobile_player_sponsor_skip_label);
+        if (mSponsorSkipButton != null) {
+            mSponsorSkipButton.setOnClickListener(v -> {
+                Runnable action = mSponsorSkipAction;
+                hideSponsorSkipPrompt();
+                if (action != null) {
+                    action.run();
+                }
+            });
+        }
     }
 
     private void setupControls() {
@@ -1695,6 +1713,8 @@ public class MobilePlaybackActivity extends MobileActivity
         DownloadRegistry.instance(this).removeListener(mDownloadsListener);
         MobileSheets.setPlayerShown(false, false);
         cancelAutoHide();
+        Utils.removeCallbacks(mHideSponsorSkipRunnable);
+        mSponsorSkipAction = null;
         mOrientationHandBack.disarm();
         updateOrientationHandBackListener();
         hideRelatedSkeleton(); // cancels the pulse animator + pending timeout
@@ -2810,6 +2830,7 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         if (isInPictureInPictureMode) {
             mPipDismissPending = false;
+            hideSponsorSkipPrompt();
             MobileSheets.setPlayerShown(false, false); // the screen under PiP keeps its bars
             // A forced orientation must not survive into the pinned task - it wedges the window
             // there permanently (see mPrePipOrientation). Done here rather than in enterPipMode()
@@ -4602,6 +4623,9 @@ public class MobilePlaybackActivity extends MobileActivity
             setTextIfChanged(mDurationView, getString(R.string.mobile_player_duration, formatTime(duration)));
             updateLiveChip(position, duration);
             updateChapterButton(position);
+            if (mSponsorSkipEndMs > 0 && position >= mSponsorSkipEndMs) {
+                hideSponsorSkipPrompt();
+            }
         }
 
         updatePlayPauseIcon();
@@ -6779,6 +6803,70 @@ public class MobilePlaybackActivity extends MobileActivity
             return;
         }
         runOnUiThread(() -> mTimeBar.setSegments(segments));
+    }
+
+    @Override
+    public boolean showSponsorSkipPrompt(long skipPosMs, String categoryLabel, int accentColor,
+            long timeoutMs, Runnable onSkip) {
+        if (isFinishing() || isDestroyed() || mIsInPip || mSponsorSkipButton == null) {
+            return false;
+        }
+        runOnUiThread(() -> showSponsorSkipPromptUi(skipPosMs, categoryLabel, accentColor, timeoutMs, onSkip));
+        return true;
+    }
+
+    @Override
+    public void hideSponsorSkipPrompt() {
+        runOnUiThread(() -> {
+            Utils.removeCallbacks(mHideSponsorSkipRunnable);
+            mSponsorSkipEndMs = 0L;
+            mSponsorSkipAction = null;
+            if (mSponsorSkipButton != null && mSponsorSkipButton.getVisibility() == View.VISIBLE) {
+                mSponsorSkipButton.animate().cancel();
+                mSponsorSkipButton.setVisibility(View.GONE);
+            }
+        });
+    }
+
+    private void showSponsorSkipPromptUi(long skipPosMs, String categoryLabel, int accentColor,
+            long timeoutMs, Runnable onSkip) {
+        if (isFinishing() || isDestroyed() || mIsInPip || mSponsorSkipButton == null) {
+            return;
+        }
+        Utils.removeCallbacks(mHideSponsorSkipRunnable);
+        mSponsorSkipEndMs = skipPosMs;
+        mSponsorSkipAction = onSkip;
+
+        if (mSponsorSkipLabel != null) {
+            mSponsorSkipLabel.setText(getString(R.string.mobile_player_sponsor_skip, categoryLabel));
+        }
+        if (mSponsorSkipAccent != null) {
+            android.graphics.drawable.GradientDrawable dot = new android.graphics.drawable.GradientDrawable();
+            dot.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            dot.setColor(accentColor);
+            mSponsorSkipAccent.setBackground(dot);
+        }
+        android.graphics.drawable.Drawable bg = mSponsorSkipButton.getBackground();
+        if (bg != null) {
+            android.graphics.drawable.Drawable mutated = bg.mutate();
+            if (mutated instanceof android.graphics.drawable.GradientDrawable) {
+                int strokePx = Math.max(1, Math.round(1.5f * getResources().getDisplayMetrics().density));
+                ((android.graphics.drawable.GradientDrawable) mutated).setStroke(strokePx, accentColor);
+                mSponsorSkipButton.setBackground(mutated);
+            }
+        }
+
+        mSponsorSkipButton.animate().cancel();
+        if (mSponsorSkipButton.getVisibility() != View.VISIBLE) {
+            mSponsorSkipButton.setAlpha(0f);
+            mSponsorSkipButton.setVisibility(View.VISIBLE);
+            mSponsorSkipButton.animate().alpha(1f).setDuration(Motion.FADE_IN_MS).start();
+        } else {
+            mSponsorSkipButton.setAlpha(1f);
+        }
+        if (timeoutMs > 0) {
+            Utils.postDelayed(mHideSponsorSkipRunnable, timeoutMs);
+        }
     }
 
     @Override
