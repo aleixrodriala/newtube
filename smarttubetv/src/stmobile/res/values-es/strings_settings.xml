@@ -189,6 +189,8 @@
     <string name="mobile_settings_dislikes_summary">De Return YouTube Dislike, que recibe el ID del vídeo</string>
     <string name="mobile_settings_paid_promotion">Avisarme de promociones pagadas</string>
     <string name="mobile_settings_paid_promotion_summary">Un aviso breve cuando un vídeo dice que incluye una promoción pagada</string>
+    <string name="mobile_settings_double_tap_seek">Tocar dos veces para avanzar o retroceder</string>
+    <string name="mobile_settings_double_tap_seek_seconds">%1$d segundos</string>
 
     <!-- Video quality -->
     <string name="mobile_settings_quality_intro">La calidad con la que empiezan los vídeos. Puedes cambiarla para un vídeo desde los ajustes del reproductor.</string>

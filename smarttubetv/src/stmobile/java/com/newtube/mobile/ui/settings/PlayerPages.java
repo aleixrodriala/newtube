@@ -158,6 +158,7 @@ final class PlayerPages {
                 context.getString(R.string.mobile_settings_gesture_seek_summary),
                 () -> PlayerGesturePrefs.isSeekSwipeOn(context),
                 on -> PlayerGesturePrefs.setSeekSwipeOn(context, on)));
+        rows.add(doubleTapSeekDuration(context));
 
         rows.add(SettingsRow.header(context.getString(R.string.mobile_settings_watch_page)));
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_hide_related),
@@ -172,6 +173,20 @@ final class PlayerPages {
                 sponsorBlock::isPaidContentNotificationEnabled, sponsorBlock::setPaidContentNotificationEnabled));
 
         return new SettingsPages.Page(context.getString(R.string.mobile_settings_playback), rows);
+    }
+
+    private static SettingsRow doubleTapSeekDuration(Context context) {
+        SettingsRow.Choice<Integer> choice = SettingsRow.choice(
+                context.getString(R.string.mobile_settings_double_tap_seek));
+        for (int seconds : PlayerGesturePrefs.DOUBLE_TAP_SEEK_OPTIONS) {
+            choice.option(context.getString(R.string.mobile_settings_double_tap_seek_seconds, seconds), seconds);
+        }
+        return choice.bind(
+                        () -> PlayerGesturePrefs.getDoubleTapSeekSeconds(context),
+                        seconds -> PlayerGesturePrefs.setDoubleTapSeekSeconds(context, seconds))
+                .summary(() -> context.getString(
+                        R.string.mobile_settings_double_tap_seek_seconds,
+                        PlayerGesturePrefs.getDoubleTapSeekSeconds(context)));
     }
 
     private static final int SPEED_PER_CHANNEL = 0;

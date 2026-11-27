@@ -1338,7 +1338,8 @@ public class MobilePlaybackActivity extends MobileActivity
                     }
                 })
                 .player(mPlayer)
-                .playerView(mPlayerView);
+                .playerView(mPlayerView)
+                .seekSeconds(PlayerGesturePrefs.getDoubleTapSeekSeconds(this));
         mPlayerView.controller(mYouTubeOverlay);
 
         // Our own lightweight UI listener (separate from ExoPlayerController's): drives the
@@ -1579,6 +1580,9 @@ public class MobilePlaybackActivity extends MobileActivity
             clearBackdropForMorphStart();
         }
         updateOrientationHandBackListener();
+        if (mYouTubeOverlay != null) {
+            mYouTubeOverlay.seekSeconds(PlayerGesturePrefs.getDoubleTapSeekSeconds(this));
+        }
     }
 
     private void clearBackdropForMorphStart() {
