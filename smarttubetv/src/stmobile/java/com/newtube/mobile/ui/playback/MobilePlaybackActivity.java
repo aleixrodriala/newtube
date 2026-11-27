@@ -422,6 +422,10 @@ public class MobilePlaybackActivity extends MobileActivity
     private android.view.OrientationEventListener mOrientationListener;
     private int mLastPhoneDegrees = android.view.OrientationEventListener.ORIENTATION_UNKNOWN;
     private final Runnable mOrientationSettleCheck = () -> onPhoneOrientation(mLastPhoneDegrees);
+    private android.database.ContentObserver mAutoRotateObserver;
+    private long mLastHandBackMs;
+    private int mLastHandBackOrientation = Configuration.ORIENTATION_UNDEFINED;
+    private static final long HAND_BACK_SNAP_GUARD_MS = 1000;
     /** True while in true background audio-only playback (video renderer dropped); see setBackgroundAudioMode. */
     private boolean mBackgroundAudioMode;
 
@@ -516,6 +520,7 @@ public class MobilePlaybackActivity extends MobileActivity
         createPlayerObjects();
 
         registerPipReceiver();
+        registerAutoRotateObserver();
 
         // Casting: observe the (process-wide) session so the "Playing on TV" panel follows
         // whatever session connects/updates/ends while this player is open. A session that
@@ -587,6 +592,9 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onNewIntent(Intent intent) {
         cancelClose();
         super.onNewIntent(intent);
+        if (!mIsInPip && !mPipEnterPending && isAutoRotateOn()) {
+            releaseFullscreenRequest();
+        }
         // REORDER_TO_FRONT reuses this instance after mini mode. The pending card snapshot means
         // this is a new feed selection, not a plain mini-card expansion.
         if (PlayerTransitionBridge.hasPending()) {
@@ -1578,6 +1586,13 @@ public class MobilePlaybackActivity extends MobileActivity
             // then, or those frames were a blank black (dark) or white (light) screen over Home.
             clearBackdropForMorphStart();
         }
+        if (!mOrientationHandBack.isArmed() && !mIsInPip && !mPipEnterPending && isAutoRotateOn()) {
+            int requested = getRequestedOrientation();
+            if (requested == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    || requested == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
+                releaseFullscreenRequest();
+            }
+        }
         updateOrientationHandBackListener();
     }
 
@@ -1695,6 +1710,7 @@ public class MobilePlaybackActivity extends MobileActivity
         DownloadRegistry.instance(this).removeListener(mDownloadsListener);
         MobileSheets.setPlayerShown(false, false);
         cancelAutoHide();
+        unregisterAutoRotateObserver();
         mOrientationHandBack.disarm();
         updateOrientationHandBackListener();
         hideRelatedSkeleton(); // cancels the pulse animator + pending timeout
@@ -1828,6 +1844,10 @@ public class MobilePlaybackActivity extends MobileActivity
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
 
+        if (mContainer != null) {
+            mContainer.removeCallbacks(mRotationFallback);
+        }
+
         // PiP entry delivers a config change right AFTER onPictureInPictureModeChanged(true) hid
         // the watch UI; reapplying the portrait layout here un-hid it again, squeezing the whole
         // watch page into the tiny PiP window. PiP owns its video-only layout; the exit branch of
@@ -1838,6 +1858,21 @@ public class MobilePlaybackActivity extends MobileActivity
                 mExoPlayerController.setSmallWindowViewport("pip", newConfig);
             }
             return;
+        }
+
+        if (!mPipEnterPending && isAutoRotateOn()
+                && mLastHandBackOrientation != Configuration.ORIENTATION_UNDEFINED) {
+            long elapsed = android.os.SystemClock.uptimeMillis() - mLastHandBackMs;
+            int expected = mLastHandBackOrientation;
+            mLastHandBackOrientation = Configuration.ORIENTATION_UNDEFINED;
+            if (elapsed <= HAND_BACK_SNAP_GUARD_MS
+                    && newConfig.orientation != expected
+                    && OrientationHandBack.matches(expected, mLastPhoneDegrees)) {
+                setRequestedOrientation(expected == Configuration.ORIENTATION_LANDSCAPE
+                        ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                        : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+                armOrientationHandBack(expected);
+            }
         }
 
         refreshContentInsets();
@@ -2910,8 +2945,16 @@ public class MobilePlaybackActivity extends MobileActivity
             return;
         }
 
-        final int restore = mPrePipOrientation;
+        final int prePip = mPrePipOrientation;
         mPrePipOrientation = ORIENTATION_NONE;
+        final boolean freeOnAutoRotate = isAutoRotateOn()
+                && (prePip == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                || prePip == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        final int restore = freeOnAutoRotate ? FREE_ORIENTATION : prePip;
+        if (freeOnAutoRotate) {
+            mOrientationHandBack.disarm();
+            updateOrientationHandBackListener();
+        }
 
         if (mVideoArea == null) {
             setRequestedOrientation(restore);
@@ -3940,6 +3983,10 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private void onPhoneOrientation(int degrees) {
         mLastPhoneDegrees = degrees;
+        if (!mOrientationHandBack.isArmed()) {
+            return;
+        }
+        int target = mOrientationHandBack.getTarget();
         long now = android.os.SystemClock.uptimeMillis();
         if (!mOrientationHandBack.onOrientation(degrees, now)) {
             long remaining = mOrientationHandBack.remainingMs(now);
@@ -3948,6 +3995,11 @@ public class MobilePlaybackActivity extends MobileActivity
             } else {
                 Utils.removeCallbacks(mOrientationSettleCheck);
             }
+            return;
+        }
+        if (mLayoutOverride == Configuration.ORIENTATION_UNDEFINED
+                && getResources().getConfiguration().orientation != target) {
+            Utils.postDelayed(mOrientationSettleCheck, 150);
             return;
         }
         Utils.removeCallbacks(mOrientationSettleCheck);
@@ -3961,6 +4013,8 @@ public class MobilePlaybackActivity extends MobileActivity
         boolean ours = requested == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 || requested == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
         if (ours && !mIsInPip && isAutoRotateOn()) {
+            mLastHandBackMs = now;
+            mLastHandBackOrientation = target;
             setRequestedOrientation(FREE_ORIENTATION);
         }
         if (BuildConfig.DEBUG) {
@@ -3968,6 +4022,48 @@ public class MobilePlaybackActivity extends MobileActivity
                     "orientation hand-back degrees=" + degrees + " requested=" + requested
                             + " freed=" + (getRequestedOrientation() == FREE_ORIENTATION));
         }
+    }
+
+    private void registerAutoRotateObserver() {
+        if (mAutoRotateObserver != null) {
+            return;
+        }
+        mAutoRotateObserver = new android.database.ContentObserver(
+                new android.os.Handler(android.os.Looper.getMainLooper())) {
+            @Override
+            public void onChange(boolean selfChange) {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (isAutoRotateOn()) {
+                    if (!mIsInPip && !mPipEnterPending) {
+                        releaseFullscreenRequest();
+                    }
+                } else {
+                    mOrientationHandBack.disarm();
+                    updateOrientationHandBackListener();
+                }
+            }
+        };
+        try {
+            getContentResolver().registerContentObserver(
+                    android.provider.Settings.System.getUriFor(
+                            android.provider.Settings.System.ACCELEROMETER_ROTATION),
+                    false, mAutoRotateObserver);
+        } catch (RuntimeException ignored) {
+            mAutoRotateObserver = null;
+        }
+    }
+
+    private void unregisterAutoRotateObserver() {
+        if (mAutoRotateObserver == null) {
+            return;
+        }
+        try {
+            getContentResolver().unregisterContentObserver(mAutoRotateObserver);
+        } catch (RuntimeException ignored) {
+        }
+        mAutoRotateObserver = null;
     }
 
     private boolean isAutoRotateOn() {
@@ -5306,7 +5402,7 @@ public class MobilePlaybackActivity extends MobileActivity
     private static final float LEVEL_ZONE = 3f / 8f;
     /** The fullscreen swipes stick and click like the minimize one; a flick this fast (dp/s) goes at once. */
     private static final float FULLSCREEN_FLICK_DP = 800f;
-    private static final long FULLSCREEN_ROTATION_WAIT_MS = 700;
+    private static final long FULLSCREEN_ROTATION_WAIT_MS = 1000;
     /**
      * YouTube 21.18, measured: dragged down, the fullscreen video shrinks to 95% within ~38 dp and
      * slides down until 30% of its height, where it stops dead.
@@ -6075,6 +6171,9 @@ public class MobilePlaybackActivity extends MobileActivity
 
     /** Start a minimize morph: the drag's first move, a back gesture or Back itself. */
     private void beginMinimizeMorph() {
+        if (!mIsInPip && !mPipEnterPending && isAutoRotateOn()) {
+            releaseFullscreenRequest();
+        }
         computeMorphTarget(); // anchor the corner path once per morph
         // NEWTUBE(no-host-minimize): nothing of ours beneath - see the field doc.
         mMorphOverOwnBackdrop = MiniPlayerBridge.getMiniHost() == null;

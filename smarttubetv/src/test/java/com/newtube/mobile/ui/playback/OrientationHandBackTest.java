@@ -93,12 +93,15 @@ public class OrientationHandBackTest {
     public void disarmedNeverHandsBack() {
         OrientationHandBack handBack = new OrientationHandBack();
         assertFalse(handBack.isArmed());
+        assertEquals(Configuration.ORIENTATION_UNDEFINED, handBack.getTarget());
         assertFalse(handBack.onOrientation(0, 0));
         assertFalse(handBack.onOrientation(0, 10_000));
 
         handBack.arm(PORTRAIT);
         assertTrue(handBack.isArmed());
+        assertEquals(PORTRAIT, handBack.getTarget());
         handBack.disarm();
+        assertEquals(Configuration.ORIENTATION_UNDEFINED, handBack.getTarget());
         assertFalse(handBack.onOrientation(0, 20_000));
     }
 }

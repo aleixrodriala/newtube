@@ -17,11 +17,15 @@ import android.view.OrientationEventListener;
  * freeing it earlier could let the display snap to the stale orientation for a frame.</p>
  */
 final class OrientationHandBack {
-    static final long SETTLE_MS = 600;
+    static final long SETTLE_MS = 1000;
     private static final int NONE = Configuration.ORIENTATION_UNDEFINED;
 
     private int mTarget = NONE;
     private long mMatchingSinceMs = -1;
+
+    int getTarget() {
+        return mTarget;
+    }
 
     /** Start waiting for the phone to be held in {@code target} ({@code Configuration.ORIENTATION_*}). */
     void arm(int target) {
