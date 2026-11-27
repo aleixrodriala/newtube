@@ -31,6 +31,7 @@ import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.liskovsoft.youtubeapi.service.internal.MediaServiceData;
 import com.newtube.mobile.player.SabrSourcePreference;
 import com.newtube.mobile.ui.playback.PlayerGesturePrefs;
+import com.newtube.mobile.ui.playback.WatchLayoutPrefs;
 import com.newtube.mobile.ui.common.MobileSnackbar;
 
 import java.util.ArrayList;
@@ -160,6 +161,11 @@ final class PlayerPages {
                 on -> PlayerGesturePrefs.setSeekSwipeOn(context, on)));
 
         rows.add(SettingsRow.header(context.getString(R.string.mobile_settings_watch_page)));
+        rows.add(SettingsRow.<Boolean>choice(context.getString(R.string.mobile_settings_related_layout))
+                .option(context.getString(R.string.mobile_settings_related_layout_compact), false)
+                .option(context.getString(R.string.mobile_settings_related_layout_full), true)
+                .bind(() -> WatchLayoutPrefs.isRelatedFullCards(context),
+                        full -> WatchLayoutPrefs.setRelatedFullCards(context, full)));
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_hide_related),
                 context.getString(R.string.mobile_settings_hide_related_summary),
                 tweaks::isSuggestionsDisabled, tweaks::setSuggestionsDisabled));

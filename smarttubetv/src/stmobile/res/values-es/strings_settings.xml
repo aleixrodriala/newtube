@@ -183,6 +183,9 @@
     <string name="mobile_settings_resume_live">Continuar directos</string>
     <string name="mobile_settings_resume_live_summary">Retoma un directo donde lo dejaste, no en el punto en directo</string>
     <string name="mobile_settings_watch_page">Bajo el vídeo</string>
+    <string name="mobile_settings_related_layout">Diseño de A continuación</string>
+    <string name="mobile_settings_related_layout_compact">Compacto</string>
+    <string name="mobile_settings_related_layout_full">Tarjetas grandes</string>
     <string name="mobile_settings_hide_related">Ocultar A continuación</string>
     <string name="mobile_settings_hide_related_summary">Quita los vídeos relacionados bajo el reproductor</string>
     <string name="mobile_settings_dislikes">Mostrar los «no me gusta»</string>
