@@ -23,6 +23,8 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.MainUIData;
 import com.liskovsoft.smartyoutubetv2.common.utils.ClickbaitRemover;
 import com.liskovsoft.smartyoutubetv2.tv.R;
 
+import java.util.List;
+
 /**
  * Compact single-column "up next / related" list adapter for the watch page
  * ({@link MobilePlaybackActivity}). Mirrors {@code VideoCardAdapter}'s thumbnail/badge/progress
@@ -47,6 +49,8 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
     public interface OnRelatedPressListener {
         void onRelatedPress(Video video);
     }
+
+    private static final Object PAYLOAD_SYNC = new Object();
 
     private final OnRelatedClickListener mClickListener;
     @androidx.annotation.Nullable
@@ -85,6 +89,27 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         notifyDataSetChanged();
     }
 
+    /**
+     * Rebinds displayed rows whose underlying {@link Video} was mutated in place
+     * ({@code VideoGroup.ACTION_SYNC}, such as DeArrow titles/thumbnails or watch progress).
+     */
+    public void refreshItems(List<Video> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        List<Video> current = getCurrentList();
+        for (Video item : items) {
+            if (item == null) {
+                continue;
+            }
+            for (int i = 0; i < current.size(); i++) {
+                if (current.get(i).equals(item)) {
+                    notifyItemChanged(i, PAYLOAD_SYNC);
+                }
+            }
+        }
+    }
+
     private static final DiffUtil.ItemCallback<Video> DIFF_CALLBACK = new DiffUtil.ItemCallback<Video>() {
         @Override
         public boolean areItemsTheSame(@NonNull Video oldItem, @NonNull Video newItem) {
@@ -117,6 +142,19 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
     }
 
     @Override
+    public void onBindViewHolder(@NonNull RelatedViewHolder holder, int position,
+            @NonNull List<Object> payloads) {
+        if (payloads.contains(PAYLOAD_SYNC)) {
+            Video video = getItem(position);
+            boolean isCurrent = mCurrentVideoId != null && video != null
+                    && mCurrentVideoId.equals(video.videoId);
+            holder.bindPartial(video, isCurrent);
+            return;
+        }
+        onBindViewHolder(holder, position);
+    }
+
+    @Override
     public void onViewRecycled(@NonNull RelatedViewHolder holder) {
         super.onViewRecycled(holder);
         holder.unbind();
@@ -129,6 +167,7 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         private final TextView mTitle;
         private final TextView mSubtitle;
         private Video mVideo;
+        private String mBoundThumbnailUrl;
 
         @SuppressLint("ClickableViewAccessibility") // observes only; the row's click still runs
         RelatedViewHolder(@NonNull View itemView, OnRelatedClickListener clickListener,
@@ -174,7 +213,21 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         void bind(Video video, boolean isCurrent) {
             mVideo = video;
             Context context = itemView.getContext();
+            bindTextAndBadges(video, isCurrent);
+            bindThumbnail(context, video, resolveThumbnailUrl(context, video));
+        }
 
+        void bindPartial(Video video, boolean isCurrent) {
+            mVideo = video;
+            Context context = itemView.getContext();
+            bindTextAndBadges(video, isCurrent);
+            String thumbnailUrl = resolveThumbnailUrl(context, video);
+            if (!android.text.TextUtils.equals(thumbnailUrl, mBoundThumbnailUrl)) {
+                bindThumbnail(context, video, thumbnailUrl);
+            }
+        }
+
+        private void bindTextAndBadges(Video video, boolean isCurrent) {
             mTitle.setText(video.getTitle());
 
             // Single subtitle line = "Channel • views • date" (Video.getSecondTitle()). Previously the
@@ -195,7 +248,6 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
 
             bindBadge(video, isCurrent);
             bindProgress(video);
-            bindThumbnail(context, video);
         }
 
         private void bindBadge(Video video, boolean isCurrent) {
@@ -233,14 +285,18 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
             }
         }
 
-        private void bindThumbnail(Context context, Video video) {
+        private String resolveThumbnailUrl(Context context, Video video) {
             int thumbQuality = MainUIData.instance(context).getThumbQuality();
             String thumbnailUrl = ClickbaitRemover.updateThumbnail(video, thumbQuality);
 
             // NEWTUBE(net): downsampling happens on the DEVICE, so a 640px sddefault still crosses the
             // wire in full before Glide throws most of it away. Ask the CDN for the row's actual size
             // instead: 12 of these bind at once and the difference is ~1.3 MB vs ~300 KB per open.
-            thumbnailUrl = ClickbaitRemover.fitThumbnail(thumbnailUrl, relatedThumbWidthPx(context));
+            return ClickbaitRemover.fitThumbnail(thumbnailUrl, relatedThumbWidthPx(context));
+        }
+
+        private void bindThumbnail(Context context, Video video, String thumbnailUrl) {
+            mBoundThumbnailUrl = thumbnailUrl;
 
             // SCROLL-JANK FIX: opaque JPEG thumbs -> RGB_565 halves decode + GPU upload. The thumb view
             // is fixed-dp-sized, so Glide already downsamples to it (no override needed). Only build the
@@ -272,6 +328,7 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
 
         void unbind() {
             mVideo = null;
+            mBoundThumbnailUrl = null;
             Glide.with(itemView.getContext().getApplicationContext()).clear(mThumbnail);
         }
     }

@@ -6443,15 +6443,29 @@ public class MobilePlaybackActivity extends MobileActivity
                     if (existing == null) {
                         mSuggestionVideos.put(id, new ArrayList<>(incoming));
                         mSuggestionGroups.put(id, group);
-                    } else {
-                        for (Video v : incoming) {
-                            int idx = existing.indexOf(v);
-                            if (idx >= 0) {
-                                existing.set(idx, v);
-                            }
+                        break;
+                    }
+                    for (Video v : incoming) {
+                        int idx = existing.indexOf(v);
+                        if (idx >= 0) {
+                            existing.set(idx, v);
+                        }
+                        int relIdx = mRelatedVideos.indexOf(v);
+                        if (relIdx >= 0) {
+                            mRelatedVideos.set(relIdx, v);
+                        }
+                        int qIdx = mQueueVideos.indexOf(v);
+                        if (qIdx >= 0) {
+                            mQueueVideos.set(qIdx, v);
                         }
                     }
-                    break;
+                    if (mRelatedAdapter != null) {
+                        mRelatedAdapter.refreshItems(incoming);
+                    }
+                    if (mQueueAdapter != null) {
+                        mQueueAdapter.refreshItems(incoming);
+                    }
+                    return;
                 }
                 case VideoGroup.ACTION_APPEND:
                 default: {
