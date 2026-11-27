@@ -192,6 +192,9 @@ public class MobilePlaybackActivity extends MobileActivity
     private ImageButton mBackButton;
     private ImageButton mPlayPauseButton;
     private ImageButton mFullscreenButton;
+    @Nullable private View mFullscreenQuickActions;
+    @Nullable private ImageButton mFullscreenCommentsButton;
+    @Nullable private ImageButton mFullscreenShareButton;
     private TextView mPositionView;
     private TextView mDurationView;
     private TextView mLiveChip;
@@ -251,6 +254,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
     // Watch page (portrait content column under the video).
     private View mWatchRoot;
+    @Nullable private View mWatchArea;
     private NestedScrollView mWatchScroll;
     private View mWatchContent;
     private TextView mWatchTitle;
@@ -285,6 +289,7 @@ public class MobilePlaybackActivity extends MobileActivity
     private View mWatchCommentsEntry;
     private TextView mWatchCommentsCount;
     private CommentsPanel mCommentsPanel;
+    private boolean mLandscapeCommentsOpen;
     /** NEWTUBE(comments-panel): best effort, a little after the video starts, so the panel opens full. */
     private static final long COMMENTS_PREFETCH_DELAY_MS = 2_000;
     private final Runnable mPrefetchComments = this::prefetchComments;
@@ -682,6 +687,18 @@ public class MobilePlaybackActivity extends MobileActivity
         mBackButton = findViewById(R.id.mobile_player_back);
         mPlayPauseButton = findViewById(R.id.mobile_player_play_pause);
         mFullscreenButton = findViewById(R.id.mobile_player_fullscreen);
+        mFullscreenQuickActions = findViewById(R.id.mobile_player_fullscreen_quick_actions);
+        mFullscreenCommentsButton = findViewById(R.id.mobile_player_fs_comments);
+        mFullscreenShareButton = findViewById(R.id.mobile_player_fs_share);
+        if (mFullscreenCommentsButton != null) {
+            mFullscreenCommentsButton.setOnClickListener(v -> openFullscreenComments());
+        }
+        if (mFullscreenShareButton != null) {
+            mFullscreenShareButton.setOnClickListener(v -> {
+                armAutoHide();
+                shareCurrentVideo();
+            });
+        }
         mPositionView = findViewById(R.id.mobile_player_position);
         mDurationView = findViewById(R.id.mobile_player_duration);
         mLiveChip = findViewById(R.id.mobile_player_live);
@@ -717,6 +734,7 @@ public class MobilePlaybackActivity extends MobileActivity
         // Watch page content column.
         mWatchRoot = findViewById(R.id.mobile_watch_root);
         mWatchRoot.addOnLayoutChangeListener(mWatchRootLayoutListener);
+        mWatchArea = findViewById(R.id.mobile_watch_area);
         mWatchScroll = findViewById(R.id.mobile_watch_scroll);
         mWatchContent = findViewById(R.id.mobile_watch_content);
         mWatchTitle = findViewById(R.id.mobile_watch_title);
@@ -1108,15 +1126,14 @@ public class MobilePlaybackActivity extends MobileActivity
         mVideoArea.setPinchEnabled(orientation == Configuration.ORIENTATION_LANDSCAPE);
 
         if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
-            lp.height = LinearLayout.LayoutParams.MATCH_PARENT;
-            lp.weight = 0;
-            mVideoArea.setLayoutParams(lp);
-            if (mWatchScroll != null) {
-                mWatchScroll.setVisibility(View.GONE);
-            }
-            // Fullscreen hides an open comments panel and keeps its place for portrait.
-            if (mCommentsPanel != null) {
-                mCommentsPanel.setSuspended(true);
+            if (mLandscapeCommentsOpen) {
+                applyLandscapeCommentsLayout(true);
+            } else {
+                applyLandscapeCommentsLayout(false);
+                // Fullscreen hides an open comments panel and keeps its place for portrait.
+                if (mCommentsPanel != null) {
+                    mCommentsPanel.setSuspended(true);
+                }
             }
             // The watch-page title is hidden with the content in fullscreen, so retain the compact
             // title in the player chrome there.
@@ -1124,6 +1141,18 @@ public class MobilePlaybackActivity extends MobileActivity
                 mTitleView.setVisibility(View.VISIBLE);
             }
         } else {
+            mLandscapeCommentsOpen = false;
+            if (mWatchRoot instanceof LinearLayout) {
+                ((LinearLayout) mWatchRoot).setOrientation(LinearLayout.VERTICAL);
+            }
+            if (mWatchArea != null) {
+                LinearLayout.LayoutParams areaLp = (LinearLayout.LayoutParams) mWatchArea.getLayoutParams();
+                areaLp.width = LinearLayout.LayoutParams.MATCH_PARENT;
+                areaLp.height = 0;
+                areaLp.weight = 1f;
+                mWatchArea.setLayoutParams(areaLp);
+                mWatchArea.setPadding(0, 0, 0, 0);
+            }
             // Configuration width is already updated when display metrics/window views can still
             // have the previous landscape bounds. The layout listener above then makes this exact
             // for split-screen, inset and resize changes once the new window has been laid out.
@@ -1131,6 +1160,7 @@ public class MobilePlaybackActivity extends MobileActivity
             int width = Math.round(config.screenWidthDp
                     * getResources().getDisplayMetrics().density);
             if (width > 0) {
+                lp.width = LinearLayout.LayoutParams.MATCH_PARENT;
                 lp.height = inlineBoxHeight(width);
                 lp.weight = 0;
                 mVideoArea.setLayoutParams(lp);
@@ -1148,6 +1178,7 @@ public class MobilePlaybackActivity extends MobileActivity
                 mTitleView.setVisibility(View.GONE);
             }
         }
+        updateFullscreenQuickActions();
     }
 
     /**
@@ -1647,6 +1678,10 @@ public class MobilePlaybackActivity extends MobileActivity
             // Minimized with comments open: they went with the watch page, and the player comes
             // back without them (kept, so reopening is instant and in place).
             if (mCommentsPanel != null) {
+                mLandscapeCommentsOpen = false;
+                if (isLandscape()) {
+                    applyLandscapeCommentsLayout(false);
+                }
                 mCommentsPanel.closeImmediately();
             }
         }
@@ -2172,9 +2207,18 @@ public class MobilePlaybackActivity extends MobileActivity
                     ? box.getHeight() : getResources().getDisplayMetrics().heightPixels;
             int strip = controlsStrip(width, height, mVideoAspect, getResizeMode());
             left = Math.max(bars.left, strip);
-            right = Math.max(bars.right, strip);
+            right = mLandscapeCommentsOpen ? strip : Math.max(bars.right, strip);
             top = bars.top;
             bottom = bars.bottom;
+            if (mWatchArea != null) {
+                if (mLandscapeCommentsOpen) {
+                    mWatchArea.setPadding(0, bars.top, bars.right, bars.bottom);
+                } else {
+                    mWatchArea.setPadding(0, 0, 0, 0);
+                }
+            }
+        } else if (mWatchArea != null) {
+            mWatchArea.setPadding(0, 0, 0, 0);
         }
         if (mControlsRoot.getPaddingLeft() != left || mControlsRoot.getPaddingTop() != top
                 || mControlsRoot.getPaddingRight() != right || mControlsRoot.getPaddingBottom() != bottom) {
@@ -2198,7 +2242,7 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         boolean inline = !isLandscape();
         int side = inline ? 0 : dp(12);
-        int lift = inline ? 0 : dp(8);
+        int lift = inline ? 0 : dp(44);
         setMargins(mTimeBar, left + side, 0, right + side, bottom + lift);
         mTimeBar.setTrackAtBottom(inline);
         updateSeekBarLine();
@@ -2273,7 +2317,10 @@ public class MobilePlaybackActivity extends MobileActivity
             }
             float windowX = down.getX() + mRootAt[0];
             float windowY = down.getY() + mRootAt[1];
-            return !isOn(mFullscreenButton, windowX, windowY) && !isOn(mChapterButton, windowX, windowY)
+            return !isOn(mFullscreenButton, windowX, windowY)
+                    && !isOn(mFullscreenCommentsButton, windowX, windowY)
+                    && !isOn(mFullscreenShareButton, windowX, windowY)
+                    && !isOn(mChapterButton, windowX, windowY)
                     && !isOn(mLiveChip, windowX, windowY);
         }
 
@@ -2605,13 +2652,22 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mCommentsPanel != null) {
             mCommentsPanel.setSuspended(true);
         }
+        mLandscapeCommentsOpen = false;
+        if (mWatchRoot instanceof LinearLayout) {
+            ((LinearLayout) mWatchRoot).setOrientation(LinearLayout.VERTICAL);
+        }
+        if (mWatchArea != null) {
+            mWatchArea.setPadding(0, 0, 0, 0);
+        }
         if (mVideoArea != null) {
             mVideoArea.setVisibility(View.VISIBLE);
             LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) mVideoArea.getLayoutParams();
+            lp.width = LinearLayout.LayoutParams.MATCH_PARENT;
             lp.height = LinearLayout.LayoutParams.MATCH_PARENT;
             lp.weight = 0;
             mVideoArea.setLayoutParams(lp);
         }
+        updateFullscreenQuickActions();
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -3524,6 +3580,7 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         mTimeBar.setShown(true, animate);
         updatePlayPauseIcon();
+        updateFullscreenQuickActions();
 
         // NEWTUBE(perf): drive the 500ms progress loop only while controls are visible. startProgress
         // ticks once immediately (refresh on show) then reschedules every 500ms.
@@ -7018,7 +7075,8 @@ public class MobilePlaybackActivity extends MobileActivity
         mScrubChromeHidden = scrubbing;
         float alpha = scrubbing ? 0f : 1f;
         long duration = scrubbing ? Motion.FADE_OUT_MS : Motion.FADE_IN_MS;
-        for (View view : new View[] {mBackButton, mTitleView, mOptionsRow, mTransport, mBottomRow, mTopScrim}) {
+        for (View view : new View[] {mBackButton, mTitleView, mOptionsRow, mTransport,
+                mBottomRow, mFullscreenQuickActions, mTopScrim}) {
             if (view != null) {
                 view.animate().cancel();
                 view.animate().alpha(alpha).setDuration(duration).setInterpolator(Motion.STANDARD).start();
@@ -7634,6 +7692,71 @@ public class MobilePlaybackActivity extends MobileActivity
         mCommentsPanel.open();
     }
 
+    private void openFullscreenComments() {
+        if (mCommentsKey == null || mCommentsPanel == null || mIsInPip) {
+            return;
+        }
+        Utils.removeCallbacks(mPrefetchComments);
+        if (!isLandscape()) {
+            mCommentsPanel.open();
+            return;
+        }
+        mLandscapeCommentsOpen = true;
+        hideControls();
+        applyLandscapeCommentsLayout(true);
+        mCommentsPanel.setSuspended(false);
+        mCommentsPanel.open();
+    }
+
+    private void applyLandscapeCommentsLayout(boolean open) {
+        if (mVideoArea == null || mWatchRoot == null) {
+            return;
+        }
+        if (mWatchRoot instanceof LinearLayout) {
+            ((LinearLayout) mWatchRoot).setOrientation(
+                    open ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        }
+        LinearLayout.LayoutParams videoLp = (LinearLayout.LayoutParams) mVideoArea.getLayoutParams();
+        if (open) {
+            videoLp.width = 0;
+            videoLp.height = LinearLayout.LayoutParams.MATCH_PARENT;
+            videoLp.weight = 0.58f;
+        } else {
+            videoLp.width = LinearLayout.LayoutParams.MATCH_PARENT;
+            videoLp.height = LinearLayout.LayoutParams.MATCH_PARENT;
+            videoLp.weight = 0f;
+        }
+        mVideoArea.setLayoutParams(videoLp);
+        if (mWatchArea != null) {
+            LinearLayout.LayoutParams areaLp = (LinearLayout.LayoutParams) mWatchArea.getLayoutParams();
+            if (open) {
+                areaLp.width = 0;
+                areaLp.height = LinearLayout.LayoutParams.MATCH_PARENT;
+                areaLp.weight = 0.42f;
+                mWatchArea.setVisibility(View.VISIBLE);
+            } else {
+                areaLp.width = LinearLayout.LayoutParams.MATCH_PARENT;
+                areaLp.height = 0;
+                areaLp.weight = 1f;
+                mWatchArea.setPadding(0, 0, 0, 0);
+            }
+            mWatchArea.setLayoutParams(areaLp);
+        }
+        mVideoArea.post(this::applyControlsInsets);
+    }
+
+    private void updateFullscreenQuickActions() {
+        if (mFullscreenQuickActions == null) {
+            return;
+        }
+        boolean showBar = isLandscape() && !mIsInPip;
+        mFullscreenQuickActions.setVisibility(showBar ? View.VISIBLE : View.GONE);
+        if (mFullscreenCommentsButton != null) {
+            mFullscreenCommentsButton.setVisibility(
+                    showBar && mCommentsKey != null ? View.VISIBLE : View.GONE);
+        }
+    }
+
     /** Best effort: the first comments page, fetched while the video plays, so the panel opens full. */
     private void prefetchComments() {
         if (mCommentsPanel == null || mIsInPip || mIsStopped || isFinishing()) {
@@ -7660,6 +7783,15 @@ public class MobilePlaybackActivity extends MobileActivity
                 mWatchScroll.setImportantForAccessibility(shown
                         ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                         : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+            }
+            if (!shown && mLandscapeCommentsOpen) {
+                mLandscapeCommentsOpen = false;
+                if (isLandscape()) {
+                    applyLandscapeCommentsLayout(false);
+                    if (mCommentsPanel != null) {
+                        mCommentsPanel.setSuspended(true);
+                    }
+                }
             }
         }
     };
@@ -7834,6 +7966,7 @@ public class MobilePlaybackActivity extends MobileActivity
         // New video: clear comments/chat availability and any buffered chat until metadata returns.
         mCommentsKey = null;
         mLiveChatKey = null;
+        updateFullscreenQuickActions();
         if (mWatchCommentsEntry != null) {
             mWatchCommentsEntry.setVisibility(View.VISIBLE); // reserved; see above
         }
@@ -7974,6 +8107,7 @@ public class MobilePlaybackActivity extends MobileActivity
             // non-null live-chat key = live stream. Reuse the same keys the TV controllers use.
             mCommentsKey = metadata.getCommentsKey();
             mLiveChatKey = metadata.getLiveChatKey();
+            updateFullscreenQuickActions();
             if (mWatchCommentsEntry != null) {
                 mWatchCommentsEntry.setVisibility(mCommentsKey != null ? View.VISIBLE : View.GONE);
             }
