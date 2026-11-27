@@ -755,7 +755,12 @@ public class MobilePlaybackActivity extends MobileActivity
         mWatchChatEntry = findViewById(R.id.mobile_watch_chat_entry);
         mScrubChapterView = findViewById(R.id.mobile_player_scrub_chapter);
         mChapterButton = findViewById(R.id.mobile_player_chapter);
-        mChapterButton.setOnClickListener(v -> showChaptersSheet());
+        mChapterButton.setOnClickListener(v -> {
+            float controlsAlpha = mControlsRoot != null ? mControlsRoot.getAlpha() : 1f;
+            if (canOpenChaptersOnTap(mControlsVisible, mScrubChromeHidden, mScrubbing, controlsAlpha)) {
+                showChaptersSheet();
+            }
+        });
     }
 
     private void setupControls() {
@@ -2273,7 +2278,9 @@ public class MobilePlaybackActivity extends MobileActivity
             }
             float windowX = down.getX() + mRootAt[0];
             float windowY = down.getY() + mRootAt[1];
-            return !isOn(mFullscreenButton, windowX, windowY) && !isOn(mChapterButton, windowX, windowY)
+            boolean chapterActive = mControlsVisible && !mScrubChromeHidden && !mScrubbing;
+            return !isOn(mFullscreenButton, windowX, windowY)
+                    && !(chapterActive && isOn(mChapterButton, windowX, windowY))
                     && !isOn(mLiveChip, windowX, windowY);
         }
 
@@ -3522,6 +3529,9 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mScrubChromeHidden && !mScrubbing) {
             setScrubChrome(false); // a drag that ended while hidden must not leave them invisible
         }
+        if (mChapterButton != null) {
+            mChapterButton.setClickable(!mScrubChromeHidden && !mScrubbing);
+        }
         mTimeBar.setShown(true, animate);
         updatePlayPauseIcon();
 
@@ -3543,6 +3553,9 @@ public class MobilePlaybackActivity extends MobileActivity
 
         mControlsVisible = false;
         cancelAutoHide();
+        if (mChapterButton != null) {
+            mChapterButton.setClickable(false);
+        }
         // NEWTUBE(perf): controls hidden -> the progress loop stops; in portrait the seek bar's line
         // keeps a slower one (startProgressUpdates picks).
         startProgressUpdates();
@@ -7024,7 +7037,16 @@ public class MobilePlaybackActivity extends MobileActivity
                 view.animate().alpha(alpha).setDuration(duration).setInterpolator(Motion.STANDARD).start();
             }
         }
+        if (mChapterButton != null) {
+            mChapterButton.setClickable(!scrubbing && mControlsVisible);
+        }
         fadePill(mScrubChapterView, scrubbing);
+    }
+
+    /** Only allow chapter sheet opens while controls are visibly settled and not hidden for scrub. */
+    static boolean canOpenChaptersOnTap(boolean controlsVisible, boolean scrubChromeHidden,
+            boolean scrubbing, float controlsAlpha) {
+        return controlsVisible && !scrubChromeHidden && !scrubbing && controlsAlpha >= 0.9f;
     }
 
     /** The pill over the top of the video ({@code null} hides it). */
