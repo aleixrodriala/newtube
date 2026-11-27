@@ -192,6 +192,7 @@ public class MobilePlaybackActivity extends MobileActivity
     private ImageButton mBackButton;
     private ImageButton mPlayPauseButton;
     private ImageButton mFullscreenButton;
+    @Nullable private TextView mQualityButton;
     private TextView mPositionView;
     private TextView mDurationView;
     private TextView mLiveChip;
@@ -516,6 +517,7 @@ public class MobilePlaybackActivity extends MobileActivity
         createPlayerObjects();
 
         registerPipReceiver();
+        updateQualityButton();
 
         // Casting: observe the (process-wide) session so the "Playing on TV" panel follows
         // whatever session connects/updates/ends while this player is open. A session that
@@ -682,6 +684,13 @@ public class MobilePlaybackActivity extends MobileActivity
         mBackButton = findViewById(R.id.mobile_player_back);
         mPlayPauseButton = findViewById(R.id.mobile_player_play_pause);
         mFullscreenButton = findViewById(R.id.mobile_player_fullscreen);
+        mQualityButton = findViewById(R.id.mobile_player_quality);
+        if (mQualityButton != null) {
+            mQualityButton.setOnClickListener(v -> {
+                cancelAutoHide();
+                showQualitySheet();
+            });
+        }
         mPositionView = findViewById(R.id.mobile_player_position);
         mDurationView = findViewById(R.id.mobile_player_duration);
         mLiveChip = findViewById(R.id.mobile_player_live);
@@ -1579,6 +1588,7 @@ public class MobilePlaybackActivity extends MobileActivity
             clearBackdropForMorphStart();
         }
         updateOrientationHandBackListener();
+        updateQualityButton();
     }
 
     private void clearBackdropForMorphStart() {
@@ -2273,7 +2283,9 @@ public class MobilePlaybackActivity extends MobileActivity
             }
             float windowX = down.getX() + mRootAt[0];
             float windowY = down.getY() + mRootAt[1];
-            return !isOn(mFullscreenButton, windowX, windowY) && !isOn(mChapterButton, windowX, windowY)
+            return !isOn(mFullscreenButton, windowX, windowY)
+                    && !isOn(mQualityButton, windowX, windowY)
+                    && !isOn(mChapterButton, windowX, windowY)
                     && !isOn(mLiveChip, windowX, windowY);
         }
 
@@ -3524,6 +3536,7 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         mTimeBar.setShown(true, animate);
         updatePlayPauseIcon();
+        updateQualityButton();
 
         // NEWTUBE(perf): drive the 500ms progress loop only while controls are visible. startProgress
         // ticks once immediately (refresh on show) then reschedules every 500ms.
@@ -4156,6 +4169,31 @@ public class MobilePlaybackActivity extends MobileActivity
         return content.getRootView(); // not attached yet: the topmost parent, the scaffold's root
     }
 
+    private void updateQualityButton() {
+        if (mQualityButton == null) {
+            return;
+        }
+        if (!PlayerOverlayPrefs.isQualityButtonShown(this)) {
+            mQualityButton.setVisibility(View.GONE);
+            return;
+        }
+        PlayerData playerData = PlayerData.instance(this);
+        FormatItem tempOverride = playerData.getTempVideoFormat();
+        FormatItem chosen = tempOverride != null ? tempOverride : playerData.getFormat(FormatItem.TYPE_VIDEO);
+        String label;
+        if (!isAutoFormat(chosen) && chosen.getHeight() > 0) {
+            label = qualityLabel(chosen);
+        } else {
+            androidx.media3.common.Format playing = mPlayer != null ? mPlayer.getVideoFormat() : null;
+            label = playing != null && playing.height > 0
+                    ? qualityLabel(playing.width, playing.height, playing.frameRate)
+                    : getString(R.string.mobile_quality_auto_short);
+        }
+        setTextIfChanged(mQualityButton, label);
+        mQualityButton.setContentDescription(getString(R.string.mobile_player_quality) + ": " + label);
+        mQualityButton.setVisibility(View.VISIBLE);
+    }
+
     /**
      * Trailing value for the Quality row, official-app style: "Auto (720p)" while adaptive
      * (the rung actually playing right now), the pinned rung's label otherwise.
@@ -4661,6 +4699,7 @@ public class MobilePlaybackActivity extends MobileActivity
             if (videoSize.width > 0 && videoSize.height > 0) {
                 mVideoAspect = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height;
                 applyControlsInsets();
+                updateQualityButton();
             }
         }
 
@@ -7248,6 +7287,7 @@ public class MobilePlaybackActivity extends MobileActivity
             FormatItem auto = playerData.getDefaultVideoFormat();
             setFormat(auto);
             playerData.setFormat(auto);
+            updateQualityButton();
             dialog.dismiss();
         });
         for (java.util.Map.Entry<String, FormatItem> rung : rungs.entrySet()) {
@@ -7261,6 +7301,7 @@ public class MobilePlaybackActivity extends MobileActivity
                 } else {
                     playerData.setFormat(item);
                 }
+                updateQualityButton();
                 dialog.dismiss();
             });
         }
@@ -8818,6 +8859,7 @@ public class MobilePlaybackActivity extends MobileActivity
     @Override
     public void setFormat(FormatItem option) {
         mExoPlayerController.selectFormat(option);
+        updateQualityButton();
     }
 
     @Override
