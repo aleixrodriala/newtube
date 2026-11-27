@@ -320,6 +320,26 @@
 
                     </FrameLayout>
 
+                    <TextView
+                        android:id="@+id/mobile_player_quality"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center_vertical"
+                        android:layout_marginEnd="4dp"
+                        android:background="@drawable/bg_mobile_player_chapter"
+                        android:fontFeatureSettings="tnum"
+                        android:gravity="center"
+                        android:minHeight="32dp"
+                        android:paddingHorizontal="8dp"
+                        android:shadowColor="#80000000"
+                        android:shadowRadius="3"
+                        android:textColor="@android:color/white"
+                        android:textSize="@dimen/mobile_player_time_text"
+                        android:textStyle="bold"
+                        android:visibility="gone"
+                        tools:text="1080p"
+                        tools:visibility="visible" />
+
                     <ImageButton
                         android:id="@+id/mobile_player_fullscreen"
                         android:layout_width="@dimen/mobile_player_icon_button"

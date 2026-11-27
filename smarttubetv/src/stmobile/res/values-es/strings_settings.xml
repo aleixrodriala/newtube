@@ -193,6 +193,8 @@
     <!-- Video quality -->
     <string name="mobile_settings_quality_intro">La calidad con la que empiezan los vídeos. Puedes cambiarla para un vídeo desde los ajustes del reproductor.</string>
     <string name="mobile_settings_default_quality">Calidad predeterminada</string>
+    <string name="mobile_settings_overlay_quality">Botón de calidad en el reproductor</string>
+    <string name="mobile_settings_overlay_quality_summary">Muestra la resolución actual junto a pantalla completa para cambiarla rápido</string>
     <string name="mobile_settings_quality_auto">Automática (hasta %1$dp)</string>
     <string name="mobile_settings_quality_auto_desc">Recomendada. La mejor que permita tu conexión</string>
     <string name="mobile_settings_quality_up_to">Hasta %1$s</string>

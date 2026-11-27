@@ -31,6 +31,7 @@ import com.liskovsoft.smartyoutubetv2.tv.R;
 import com.liskovsoft.youtubeapi.service.internal.MediaServiceData;
 import com.newtube.mobile.player.SabrSourcePreference;
 import com.newtube.mobile.ui.playback.PlayerGesturePrefs;
+import com.newtube.mobile.ui.playback.PlayerOverlayPrefs;
 import com.newtube.mobile.ui.common.MobileSnackbar;
 
 import java.util.ArrayList;
@@ -250,6 +251,10 @@ final class PlayerPages {
 
         rows.add(SettingsRow.note(context.getString(R.string.mobile_settings_quality_intro)));
         rows.add(defaultQuality(context));
+        rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_overlay_quality),
+                context.getString(R.string.mobile_settings_overlay_quality_summary),
+                () -> PlayerOverlayPrefs.isQualityButtonShown(context),
+                shown -> PlayerOverlayPrefs.setQualityButtonShown(context, shown)));
 
         rows.add(SettingsRow.header(context.getString(R.string.mobile_settings_audio)));
         rows.add(SettingsRow.toggle(context.getString(R.string.mobile_settings_loudness),
