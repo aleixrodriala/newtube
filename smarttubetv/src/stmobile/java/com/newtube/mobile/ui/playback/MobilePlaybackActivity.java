@@ -6158,7 +6158,7 @@ public class MobilePlaybackActivity extends MobileActivity
         // last-resumed mini host is exactly the Activity visible through this translucent
         // window during the drag. Falling back to Home only when no host exists (deep link).
         MiniPlayerBridge.MiniHost host = MiniPlayerBridge.getMiniHost();
-        final Class<?> hostView = host != null ? host.getMiniHostViewClass() : BrowseView.class;
+        final Class<?> hostView = MiniPlayerBridge.getMinimizeDestinationViewClass();
 
         Runnable showHost = () -> {
             // prepareMiniHostForHandoff may run this a frame or more later, so re-check: the same

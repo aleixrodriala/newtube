@@ -13,6 +13,7 @@ import androidx.media3.common.VideoSize;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
+import com.liskovsoft.smartyoutubetv2.common.app.views.BrowseView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.PlaybackView;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ViewManager;
 
@@ -73,6 +74,8 @@ public final class MiniPlayerBridge {
     private static WeakReference<MobilePlaybackActivity> sActivity = new WeakReference<>(null);
     private static WeakReference<MobilePlaybackActivity> sPendingNavigation = new WeakReference<>(null);
     private static WeakReference<MiniHost> sMiniHost = new WeakReference<>(null);
+    @Nullable
+    private static Class<?> sLastHostViewClass;
     private static long sPendingNavigationAtMs;
     private static boolean sActive;
     private static Bitmap sHandoffStill;
@@ -89,18 +92,47 @@ public final class MiniPlayerBridge {
      */
     public static void registerMiniHost(MiniHost host) {
         sMiniHost = new WeakReference<>(host);
-    }
-
-    public static void unregisterMiniHost(MiniHost host) {
-        if (sMiniHost.get() == host) {
-            sMiniHost = new WeakReference<>(null);
+        if (host != null) {
+            sLastHostViewClass = host.getMiniHostViewClass();
         }
     }
 
-    /** The registered destination host, or null (deep-linked player with no screen beneath). */
+    public static void unregisterMiniHost(MiniHost host) {
+        unregisterMiniHost(host, false);
+    }
+
+    /**
+     * Detach a host when destroyed. Non-finishing teardown (background kill / recreation while
+     * the player sits on top) keeps the last host view class so minimizing/exiting playback still
+     * returns there instead of jumping back to Home.
+     */
+    public static void unregisterMiniHost(MiniHost host, boolean finishing) {
+        if (sMiniHost.get() == host) {
+            sMiniHost = new WeakReference<>(null);
+            if (finishing && (host == null || sLastHostViewClass == host.getMiniHostViewClass())) {
+                sLastHostViewClass = null;
+            }
+        }
+    }
+
+    /** The registered destination host, or null (deep-linked player or killed host). */
     @Nullable
     static MiniHost getMiniHost() {
         return sMiniHost.get();
+    }
+
+    /** View class to return to when exiting/minimizing the player, surviving non-finishing host kills. */
+    public static Class<?> getMinimizeDestinationViewClass() {
+        MiniHost host = sMiniHost.get();
+        if (host != null) {
+            return host.getMiniHostViewClass();
+        }
+        return sLastHostViewClass != null ? sLastHostViewClass : BrowseView.class;
+    }
+
+    public static void resetForTest() {
+        sMiniHost = new WeakReference<>(null);
+        sLastHostViewClass = null;
     }
 
     /**
