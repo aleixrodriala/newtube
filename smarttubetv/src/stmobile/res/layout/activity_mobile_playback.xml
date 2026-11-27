@@ -332,6 +332,43 @@
 
                 </LinearLayout>
 
+                <!-- Fullscreen quick actions below the seek bar (Comments & Share; landscape only). -->
+                <LinearLayout
+                    android:id="@+id/mobile_player_fullscreen_quick_actions"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom|start"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginBottom="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <ImageButton
+                        android:id="@+id/mobile_player_fs_comments"
+                        android:layout_width="@dimen/mobile_player_icon_button"
+                        android:layout_height="@dimen/mobile_player_icon_button"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_comments_title"
+                        android:padding="12dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_watch_comment"
+                        android:tint="@color/mobile_player_on_video"
+                        android:visibility="gone" />
+
+                    <ImageButton
+                        android:id="@+id/mobile_player_fs_share"
+                        android:layout_width="@dimen/mobile_player_icon_button"
+                        android:layout_height="@dimen/mobile_player_icon_button"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/mobile_watch_share"
+                        android:padding="12dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/ic_watch_share"
+                        android:tint="@color/mobile_player_on_video" />
+
+                </LinearLayout>
+
             </FrameLayout>
 
             <!-- NEWTUBE(seek bar): the seek bar, YouTube-style - outside the controls overlay so that
