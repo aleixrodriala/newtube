@@ -48,10 +48,14 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         void onRelatedPress(Video video);
     }
 
+    private static final int VIEW_TYPE_COMPACT = 0;
+    private static final int VIEW_TYPE_FULL = 1;
+
     private final OnRelatedClickListener mClickListener;
     @androidx.annotation.Nullable
     private final OnRelatedPressListener mPressListener;
     private final long mPressIntentMs;
+    private boolean mFullCards;
     /**
      * Video id to mark as "Now playing", or null for none. Only the queue list sets this - in the
      * Up-next list the playing video isn't present at all.
@@ -67,8 +71,25 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
             @androidx.annotation.Nullable OnRelatedPressListener pressListener, long pressIntentMs) {
         super(DIFF_CALLBACK);
         mClickListener = clickListener;
-        mPressListener = pressIntentMs > 0 ? pressListener : null;
+        mPressListener = pressListener != null && pressIntentMs > 0 ? pressListener : null;
         mPressIntentMs = pressIntentMs;
+    }
+
+    public void setFullCards(boolean fullCards) {
+        if (mFullCards == fullCards) {
+            return;
+        }
+        mFullCards = fullCards;
+        notifyDataSetChanged();
+    }
+
+    public boolean isFullCards() {
+        return mFullCards;
+    }
+
+    @Override
+    public int getItemViewType(int position) {
+        return mFullCards ? VIEW_TYPE_FULL : VIEW_TYPE_COMPACT;
     }
 
     /**
@@ -103,9 +124,11 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
     @NonNull
     @Override
     public RelatedViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View view = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_mobile_related_video, parent, false);
-        return new RelatedViewHolder(view, mClickListener, mPressListener, mPressIntentMs);
+        boolean fullCard = viewType == VIEW_TYPE_FULL;
+        int layoutRes = fullCard ? R.layout.item_mobile_related_video_full
+                : R.layout.item_mobile_related_video;
+        View view = LayoutInflater.from(parent.getContext()).inflate(layoutRes, parent, false);
+        return new RelatedViewHolder(view, mClickListener, mPressListener, mPressIntentMs, fullCard);
     }
 
     @Override
@@ -128,12 +151,15 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
         private final ProgressBar mWatchProgress;
         private final TextView mTitle;
         private final TextView mSubtitle;
+        private final boolean mFullCard;
         private Video mVideo;
 
         @SuppressLint("ClickableViewAccessibility") // observes only; the row's click still runs
         RelatedViewHolder(@NonNull View itemView, OnRelatedClickListener clickListener,
-                @androidx.annotation.Nullable OnRelatedPressListener pressListener, long pressIntentMs) {
+                @androidx.annotation.Nullable OnRelatedPressListener pressListener,
+                long pressIntentMs, boolean fullCard) {
             super(itemView);
+            mFullCard = fullCard;
 
             mThumbnail = itemView.findViewById(R.id.related_thumbnail);
             mBadge = itemView.findViewById(R.id.related_badge);
@@ -266,6 +292,9 @@ public class RelatedVideoAdapter extends ListAdapter<Video, RelatedVideoAdapter.
 
         /** Row thumb width in real pixels, so the CDN rendition is chosen for THIS screen's density. */
         private int relatedThumbWidthPx(Context context) {
+            if (mFullCard) {
+                return context.getResources().getDisplayMetrics().widthPixels;
+            }
             return context.getResources().getDimensionPixelSize(
                     R.dimen.mobile_watch_related_thumb_width);
         }

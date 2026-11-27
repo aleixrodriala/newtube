@@ -72,14 +72,12 @@
 
         <TextView
             android:id="@+id/related_title"
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:ellipsize="end"
             android:fontFamily="sans-serif-medium"
-            android:maxLines="2"
             android:textColor="@color/mobile_color_on_surface"
             android:textSize="15sp"
-            tools:text="A related video title that can wrap onto two lines" />
+            tools:text="A related video title that wraps cleanly across lines without truncation" />
 
         <!-- Single subtitle line: "Channel • views • date" (Video.getSecondTitle()). The former
              separate channel byline was dropped - it duplicated the channel token already at the
