@@ -181,11 +181,8 @@ public class MobilePlaybackActivity extends MobileActivity
 
     private PlayerContainerLayout mContainer;
     private PinchZoomLayout mVideoArea;
-    private TextView mZoomHintView;
-    /** Continuous zoom factor relative to Fit (1f .. fillScale) when resize mode is DEFAULT. */
-    private float mCustomZoomScale = 1f;
-    private boolean mZoomBoundaryHit;
-    @Nullable private ValueAnimator mZoomScaleAnimator;
+    @Nullable private PlayerZoomController mZoomController;
+    @Nullable private FlexModeController mFlexMode;
     private DoubleTapPlayerViewImpl mPlayerView;
     private YouTubeOverlay mYouTubeOverlay;
     private View mControlsRoot;
@@ -366,7 +363,10 @@ public class MobilePlaybackActivity extends MobileActivity
                 int width = right - left;
                 // Not in PiP: a portrait layout override (a landscape tablet that left
                 // fullscreen in place) outlives the PiP window, which must stay video-only.
-                if (width > 0 && !this.mIsInPip && !this.mPipEnterPending
+                if (mFlexMode != null) {
+                    mFlexMode.onRootLayoutChanged();
+                }
+                if (width > 0 && !this.mIsInPip && !this.mPipEnterPending && !isFlexMode()
                         && layoutOrientation()
                         == Configuration.ORIENTATION_PORTRAIT) {
                     applyPortraitVideoHeight(width);
@@ -672,7 +672,7 @@ public class MobilePlaybackActivity extends MobileActivity
     private void bindViews() {
         mContainer = findViewById(R.id.mobile_player_container);
         mVideoArea = findViewById(R.id.mobile_video_area);
-        mZoomHintView = findViewById(R.id.mobile_player_zoom_hint);
+        TextView zoomHintView = findViewById(R.id.mobile_player_zoom_hint);
         mPlayerView = findViewById(R.id.mobile_player_view);
         // NEWTUBE(seek bar): the video box leaves its children unclipped so that the seek bar's dot
         // can hang over the page - but the picture must stay in the box: zoomed to fill, a vertical
@@ -794,23 +794,11 @@ public class MobilePlaybackActivity extends MobileActivity
             }
         });
 
-        // Pinch on the video = smooth zoom between Original (fit) and Fill. Enabled in
-        // landscape/fullscreen only (applyWatchLayoutForOrientation), like the official app.
+        initZoomAndFlexControllers();
         mVideoArea.setPinchListener(new PinchZoomLayout.PinchListener() {
-            @Override
-            public void onPinchBegin() {
-                MobilePlaybackActivity.this.onPinchBegin();
-            }
-
-            @Override
-            public void onPinchScale(float scaleFactor) {
-                MobilePlaybackActivity.this.onPinchScale(scaleFactor);
-            }
-
-            @Override
-            public void onPinchEnd() {
-                MobilePlaybackActivity.this.onPinchEnd();
-            }
+            @Override public void onPinchBegin() { if (mZoomController != null) mZoomController.onPinchBegin(); }
+            @Override public void onPinchScale(float s) { if (mZoomController != null) mZoomController.onPinchScale(s); }
+            @Override public void onPinchEnd() { if (mZoomController != null) mZoomController.onPinchEnd(); }
         });
 
         // PLAYER LAYOUT POLISH. The controls overlay fills the video box.
@@ -855,6 +843,10 @@ public class MobilePlaybackActivity extends MobileActivity
         // single (non-double) tap to performClick() on the view captured at construction (itself,
         // since it isn't attached yet), so an OnClickListener here is exactly that single tap.
         mPlayerView.setOnClickListener(v -> {
+            if (isFlexMode()) {
+                togglePlayPause();
+                return;
+            }
             boolean reveal = !mControlsVisible;
             toggleControls();
             mInstantRevealAt = reveal ? android.os.SystemClock.uptimeMillis() : 0L;
@@ -1123,6 +1115,13 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) mVideoArea.getLayoutParams();
+        if (applyFlexWatchLayout(lp)) {
+            syncZoomScale();
+            return;
+        }
+        if (mTimeBar != null && !mIsInPip && mTimeBar.getVisibility() != View.VISIBLE) {
+            mTimeBar.setVisibility(View.VISIBLE);
+        }
 
         // Pinch-zoom is a fullscreen gesture (the portrait 16:9 box keeps its two-finger touches
         // for nothing - matching YouTube, which only zooms in fullscreen).
@@ -1177,20 +1176,11 @@ public class MobilePlaybackActivity extends MobileActivity
      * Fill-to-screen. Returns 1.0f when box dimensions or video aspect are not known yet.
      */
     static float fillScaleFor(int boxWidth, int boxHeight, float videoAspect) {
-        if (boxWidth <= 0 || boxHeight <= 0 || !(videoAspect > 0f)) {
-            return 1f;
-        }
-        float boxAspect = (float) boxWidth / boxHeight;
-        float ratio = boxAspect > videoAspect ? boxAspect / videoAspect : videoAspect / boxAspect;
-        return Math.max(1f, ratio);
+        return PlayerZoomController.fillScaleFor(boxWidth, boxHeight, videoAspect);
     }
 
     static float clampZoomScale(float scale, float maxScale) {
-        float ceiling = Math.max(1f, maxScale);
-        if (Float.isNaN(scale) || scale <= 1f) {
-            return 1f;
-        }
-        return Math.min(ceiling, scale);
+        return PlayerZoomController.clampZoomScale(scale, maxScale);
     }
 
     private float currentVideoAspectForZoom() {
@@ -1204,201 +1194,106 @@ public class MobilePlaybackActivity extends MobileActivity
         return 0f;
     }
 
-    private float currentFillScale() {
-        if (mPlayerView == null) {
-            return 1f;
-        }
-        int width = mPlayerView.getWidth() > 0 ? mPlayerView.getWidth()
-                : (mVideoArea != null ? mVideoArea.getWidth() : 0);
-        int height = mPlayerView.getHeight() > 0 ? mPlayerView.getHeight()
-                : (mVideoArea != null ? mVideoArea.getHeight() : 0);
-        return fillScaleFor(width, height, currentVideoAspectForZoom());
-    }
-
-    private void cancelZoomAnimation() {
-        if (mZoomScaleAnimator != null) {
-            mZoomScaleAnimator.cancel();
-            mZoomScaleAnimator = null;
-        }
-    }
-
-    private void applyContentFrameScale(float scale) {
-        ViewGroup contentFrame = mPlayerView != null ? mPlayerView.getContentFrame() : null;
-        if (contentFrame != null) {
-            contentFrame.animate().cancel();
-            contentFrame.setScaleX(scale);
-            contentFrame.setScaleY(scale);
-        }
-    }
-
     private void syncZoomScale() {
-        cancelZoomAnimation();
-        if (mIsInPip || mPipEnterPending) {
-            applyContentFrameScale(1f);
-            return;
-        }
-        if (getResizeMode() != RESIZE_MODE_DEFAULT) {
-            applyContentFrameScale(1f);
-            return;
-        }
-        float applied = clampZoomScale(mCustomZoomScale, currentFillScale());
-        applyContentFrameScale(applied);
-    }
-
-    private void onPinchBegin() {
-        cancelZoomAnimation();
-        mZoomBoundaryHit = false;
-        float maxScale = currentFillScale();
-        if (getResizeMode() == RESIZE_MODE_FIT_BOTH) {
-            // Convert discrete Fill into Fit + continuous scale so pinching in starts seamlessly.
-            mCustomZoomScale = maxScale;
-            if (mPlayerView != null) {
-                mPlayerView.setResizeMode(RESIZE_MODE_DEFAULT);
-            }
-            applyContentFrameScale(maxScale);
-        } else if (getResizeMode() != RESIZE_MODE_DEFAULT) {
-            mCustomZoomScale = 1f;
-            if (mPlayerView != null) {
-                mPlayerView.setResizeMode(RESIZE_MODE_DEFAULT);
-            }
-            applyContentFrameScale(1f);
-        } else {
-            mCustomZoomScale = clampZoomScale(mCustomZoomScale, maxScale);
+        if (mZoomController != null) {
+            mZoomController.syncScale();
         }
     }
 
-    private void onPinchScale(float scaleFactor) {
-        float maxScale = currentFillScale();
-        if (maxScale <= 1.01f) {
-            showZoomHint(R.string.mobile_player_zoom_original);
+    private void initZoomAndFlexControllers() {
+        mZoomController = new PlayerZoomController(this, new PlayerZoomController.Host() {
+            @Override public int getZoomResizeMode() { return getResizeMode(); }
+            @Override public void applyZoomResizeMode(int mode) { setResizeMode(mode); }
+            @Override public float getZoomVideoAspect() { return currentVideoAspectForZoom(); }
+            @Override public boolean isZoomSuspended() { return mIsInPip || mPipEnterPending; }
+            @Override public void onZoomInsetsChanged() { applyControlsInsets(); }
+        }, mPlayerView, mVideoArea, findViewById(R.id.mobile_player_zoom_hint));
+        View hingeSpacer = findViewById(R.id.mobile_flex_hinge_spacer);
+        View flexPanel = findViewById(R.id.mobile_flex_panel);
+        if (hingeSpacer == null || flexPanel == null || mWatchRoot == null || mWatchScroll == null) {
             return;
         }
-        float raw = mCustomZoomScale * scaleFactor;
-        float next = clampZoomScale(raw, maxScale);
-        boolean atBoundary = next <= 1f || next >= maxScale;
-        if (atBoundary && !mZoomBoundaryHit && Math.abs(next - mCustomZoomScale) > 1e-4f) {
-            Haptics.tick(mVideoArea);
-            mZoomBoundaryHit = true;
-        } else if (!atBoundary) {
-            mZoomBoundaryHit = false;
-        }
-        mCustomZoomScale = next;
-        applyContentFrameScale(next);
-        showZoomHintText(formatZoomLabel(next, maxScale));
+        mFlexMode = new FlexModeController(this, new FlexModeController.Host() {
+            @Override public boolean isFlexAllowed() { return !mClosing && !mIsInPip && !mPipEnterPending; }
+            @Override public void onFlexStateChanged() { applyOrientationChrome(layoutOrientation()); pushFlexProgressState(); }
+            @Override public void onFlexTogglePlayPause() { togglePlayPause(); }
+            @Override public void onFlexSeekByMs(long deltaMs) { seekByDeltaMs(deltaMs); }
+            @Override public void onFlexSeekToMs(long positionMs) { if (mExoPlayerController != null) mExoPlayerController.setPositionMs(positionMs); }
+            @Override public void onFlexPreviousClicked() { if (mPresenter != null) mPresenter.onPreviousClicked(); }
+            @Override public void onFlexNextClicked() { if (mPresenter != null) mPresenter.onNextClicked(); }
+            @Override public void onFlexShowSpeedSheet() { showSpeedSheet(); }
+            @Override public void onFlexShowQualitySheet() { showQualitySheet(); }
+            @Override public void onFlexToggleCaptions() { toggleCaptions(); }
+            @Override public void onFlexShowCaptionsSheet() { showCaptionsSheet(); }
+            @Override public void onFlexToggleZoomFill() { if (mZoomController != null) { mZoomController.toggleFillZoom(); pushFlexProgressState(); } }
+            @Override public void onFlexOpenComments() { onCommentsEntryClicked(); }
+            @Override public void onFlexOpenMoreMenu() { openPlayerMenu(); }
+            @Override public void onFlexShowChaptersSheet() { showChaptersSheet(); }
+            @Override public void onFlexJumpToLiveEdge() { jumpToLiveEdge(); }
+            @Override public long getFlexDurationMs() { return getDurationMs(); }
+            @Override public long getFlexPositionMs() { return mExoPlayerController != null ? mExoPlayerController.getPositionMs() : 0L; }
+        }, mWatchRoot, hingeSpacer, flexPanel, mWatchScroll);
     }
 
-    private void onPinchEnd() {
-        float maxScale = currentFillScale();
-        PlayerData playerData = PlayerData.instance(this);
-        if (mCustomZoomScale <= 1.03f || maxScale <= 1.01f) {
-            mCustomZoomScale = 1f;
-            playerData.setResizeMode(RESIZE_MODE_DEFAULT);
-            playerData.setZoomPercents(-1);
-            animateZoomTo(1f, RESIZE_MODE_DEFAULT, R.string.mobile_player_zoom_original);
-            return;
-        }
-        if (maxScale > 1.05f && mCustomZoomScale >= maxScale - 0.03f) {
-            mCustomZoomScale = 1f;
-            playerData.setResizeMode(RESIZE_MODE_FIT_BOTH);
-            playerData.setZoomPercents(-1);
-            animateZoomTo(maxScale, RESIZE_MODE_FIT_BOTH, R.string.mobile_player_zoom_fill);
-            return;
-        }
-        playerData.setResizeMode(RESIZE_MODE_DEFAULT);
-        playerData.setZoomPercents(Math.round(mCustomZoomScale * 100f));
-        applyControlsInsets();
-        showZoomHintText(formatZoomLabel(mCustomZoomScale, maxScale));
+    private boolean isFlexMode() {
+        return mFlexMode != null && mFlexMode.isActive();
     }
 
-    private CharSequence formatZoomLabel(float scale, float maxScale) {
-        if (scale <= 1.01f) {
-            return getString(R.string.mobile_player_zoom_original);
+    private boolean applyFlexWatchLayout(LinearLayout.LayoutParams lp) {
+        if (!isFlexMode() || mFlexMode == null) {
+            return false;
         }
-        if (maxScale > 1.01f && scale >= maxScale - 0.01f) {
-            return getString(R.string.mobile_player_zoom_fill);
+        mVideoArea.setPinchEnabled(true);
+        lp.height = mFlexMode.getTopPanelHeightPx();
+        lp.weight = 0;
+        mVideoArea.setLayoutParams(lp);
+        hideControls();
+        mControlsRoot.setVisibility(View.GONE);
+        if (mTimeBar != null) {
+            mTimeBar.setVisibility(View.GONE);
         }
-        return getString(R.string.mobile_player_zoom_percent, Math.round(scale * 100f));
+        if (mWatchScroll != null) {
+            mWatchScroll.setVisibility(mFlexMode.isShowingWatchPage() ? View.VISIBLE : View.GONE);
+        }
+        if (mCommentsPanel != null) {
+            mCommentsPanel.setSuspended(false);
+        }
+        if (mTitleView != null) {
+            mTitleView.setVisibility(View.GONE);
+        }
+        return true;
     }
 
-    private void animateZoomTo(float targetScale, int finalResizeMode, int hintRes) {
-        ViewGroup contentFrame = mPlayerView != null ? mPlayerView.getContentFrame() : null;
-        if (contentFrame == null || contentFrame.getWidth() == 0) {
-            setResizeMode(finalResizeMode);
-            showZoomHint(hintRes);
+    private void seekByDeltaMs(long deltaMs) {
+        if (mExoPlayerController == null) {
             return;
         }
-        cancelZoomAnimation();
-        float startScale = contentFrame.getScaleX();
-        if (Math.abs(startScale - targetScale) < 0.005f) {
-            if (finalResizeMode == RESIZE_MODE_FIT_BOTH) {
-                setResizeMode(RESIZE_MODE_FIT_BOTH);
-            } else {
-                applyContentFrameScale(1f);
-                applyControlsInsets();
-            }
-            showZoomHint(hintRes);
-            return;
-        }
-        ValueAnimator anim = ValueAnimator.ofFloat(startScale, targetScale);
-        anim.setDuration(180);
-        anim.setInterpolator(new DecelerateInterpolator());
-        anim.addUpdateListener(a -> applyContentFrameScale((float) a.getAnimatedValue()));
-        anim.addListener(new AnimatorListenerAdapter() {
-            private boolean mCancelled;
-
-            @Override
-            public void onAnimationCancel(Animator animation) {
-                mCancelled = true;
-            }
-
-            @Override
-            public void onAnimationEnd(Animator animation) {
-                if (mZoomScaleAnimator == animation) {
-                    mZoomScaleAnimator = null;
-                }
-                if (mCancelled) {
-                    return;
-                }
-                if (finalResizeMode == RESIZE_MODE_FIT_BOTH) {
-                    applyContentFrameScale(1f);
-                    setResizeMode(RESIZE_MODE_FIT_BOTH);
-                } else {
-                    applyContentFrameScale(1f);
-                    setResizeMode(RESIZE_MODE_DEFAULT);
-                }
-            }
-        });
-        mZoomScaleAnimator = anim;
-        anim.start();
-        showZoomHint(hintRes);
+        long duration = Math.max(0L, getDurationMs());
+        long current = Math.max(0L, mExoPlayerController.getPositionMs());
+        long target = Math.max(0L, duration > 0 ? Math.min(duration, current + deltaMs) : current + deltaMs);
+        setUserSeekDirection(deltaMs >= 0);
+        mExoPlayerController.setPositionMs(target);
+        pushFlexProgressState();
     }
 
-    private final Runnable mHideZoomHint = new Runnable() {
-        @Override
-        public void run() {
-            mZoomHintView.animate().alpha(0f).setDuration(250)
-                    .withEndAction(() -> mZoomHintView.setVisibility(View.GONE)).start();
-        }
-    };
-
-    /** Show the YouTube-style zoom chip, re-arming the fade-out if a pinch fires again mid-show. */
-    private void showZoomHint(int textRes) {
-        showZoomHintText(getString(textRes));
-    }
-
-    private void showZoomHintText(CharSequence text) {
-        if (mZoomHintView == null) {
+    private void pushFlexProgressState() {
+        if (!isFlexMode() || mFlexMode == null || mPlayer == null || mExoPlayerController == null) {
             return;
         }
-        mZoomHintView.removeCallbacks(mHideZoomHint);
-        mZoomHintView.animate().cancel();
-        mZoomHintView.setText(text);
-        if (mZoomHintView.getVisibility() != View.VISIBLE) {
-            mZoomHintView.setAlpha(0f);
-            mZoomHintView.setVisibility(View.VISIBLE);
-        }
-        mZoomHintView.animate().alpha(1f).setDuration(120).start();
-        mZoomHintView.postDelayed(mHideZoomHint, 900);
+        long pos = Math.max(0L, mExoPlayerController.getPositionMs());
+        long dur = Math.max(0L, getDurationMs());
+        long buf = Math.max(0L, mPlayer.getBufferedPosition());
+        Video video = getVideo();
+        boolean live = video != null && video.isLive;
+        boolean liveEdge = live && (dur - pos <= LIVE_EDGE_THRESHOLD_MS);
+        int chIdx = chapterIndexAt(pos);
+        String chTitle = (chIdx >= 0 && chIdx < mChapterVideos.size()) ? mChapterVideos.get(chIdx).title : null;
+        CharSequence title = mWatchTitle != null && !TextUtils.isEmpty(mWatchTitle.getText())
+                ? mWatchTitle.getText() : (mTitleView != null ? mTitleView.getText() : "");
+        boolean zoomFill = mZoomController != null && mZoomController.isFilled();
+        mFlexMode.updatePlaybackState(title, pos, dur, buf, mExoPlayerController.getPlayWhenReady(),
+                mIsEnded, live, liveEdge, chTitle, currentSpeedLabel(), currentQualityLabel(),
+                areCaptionsOn(), zoomFill, mCommentsKey != null);
     }
 
     private void createPlayerObjects() {
@@ -1621,6 +1516,9 @@ public class MobilePlaybackActivity extends MobileActivity
     protected void onStart() {
         super.onStart();
         mIsStopped = false;
+        if (mFlexMode != null) {
+            mFlexMode.start();
+        }
         applyKeepScreenOn(isActivelyPlaying());
         startProgressUpdates();
         if (mControlsVisible) {
@@ -1660,6 +1558,9 @@ public class MobilePlaybackActivity extends MobileActivity
             SystemPipBridge.onPipEnded();
         }
         mPipEnterPending = false;
+        if (mFlexMode != null) {
+            mFlexMode.onHostStateChanged();
+        }
         updateSwipeBrightness(); // NEWTUBE(gestures): after an undone PiP entry is cleared above
         if (!mIsInPip && mTimeBar != null && mTimeBar.getVisibility() != View.VISIBLE) {
             // NEWTUBE(seek bar): PiP hid the bar (applyPipVideoOnlyLayout); an entry undone before
@@ -1786,6 +1687,9 @@ public class MobilePlaybackActivity extends MobileActivity
         super.onStop();
 
         mIsStopped = true;
+        if (mFlexMode != null) {
+            mFlexMode.stop();
+        }
         MobileSheets.setPlayerShown(false, false); // onResume's bars pass sets it again
         applyKeepScreenOn(false); // a hidden window must not hold the screen; onStart re-applies
         stopProgressUpdates();
@@ -2119,8 +2023,12 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mClosing) {
             return;
         }
+        if (isFlexMode() && mFlexMode != null && mFlexMode.isShowingWatchPage()) {
+            mFlexMode.closeWatchPage();
+            return;
+        }
         // NEWTUBE(motion): like YouTube - Back leaves fullscreen first, then minimizes.
-        if (!mIsInPip && !mPipEnterPending
+        if (!mIsInPip && !mPipEnterPending && !isFlexMode()
                 && layoutOrientation() == Configuration.ORIENTATION_LANDSCAPE) {
             mBackPreview = false;
             toggleFullscreen();
@@ -2336,7 +2244,7 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     protected boolean shouldInsetContentForSystemBars() {
-        return layoutOrientation() != Configuration.ORIENTATION_LANDSCAPE;
+        return layoutOrientation() != Configuration.ORIENTATION_LANDSCAPE && !isFlexMode();
     }
 
     @Override
@@ -2364,6 +2272,9 @@ public class MobilePlaybackActivity extends MobileActivity
             return;
         }
         WindowInsetsCompat rootInsets = ViewCompat.getRootWindowInsets(mControlsRoot);
+        if (mFlexMode != null) {
+            mFlexMode.applyInsets(rootInsets);
+        }
         int left = 0, top = 0, right = 0, bottom = 0;
         if (isLandscape()) {
             // The camera cutout too: a film wider than 16:9 has no pillarbox to keep the back
@@ -2377,8 +2288,9 @@ public class MobilePlaybackActivity extends MobileActivity
                     ? box.getWidth() : getResources().getDisplayMetrics().widthPixels;
             int height = box.getHeight() > 0
                     ? box.getHeight() : getResources().getDisplayMetrics().heightPixels;
+            float rawZoom = mZoomController != null ? mZoomController.getCustomZoomScale() : 1f;
             float zoomScale = getResizeMode() == RESIZE_MODE_DEFAULT
-                    ? clampZoomScale(mCustomZoomScale, fillScaleFor(width, height, mVideoAspect)) : 1f;
+                    ? clampZoomScale(rawZoom, fillScaleFor(width, height, mVideoAspect)) : 1f;
             int strip = controlsStrip(width, height, mVideoAspect, getResizeMode(), zoomScale);
             left = Math.max(bars.left, strip);
             right = Math.max(bars.right, strip);
@@ -2604,9 +2516,9 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     private void applySystemBarsForOrientation(int orientation) {
-        MobileSheets.setPlayerShown(!mIsStopped && !mIsInPip,
-                orientation == Configuration.ORIENTATION_LANDSCAPE);
-        if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        boolean cinema = orientation == Configuration.ORIENTATION_LANDSCAPE || isFlexMode();
+        MobileSheets.setPlayerShown(!mIsStopped && !mIsInPip, cinema);
+        if (cinema) {
             applyDisplayCutoutMode(true);
             // Immersive full-bleed video (PLAYER POLISH behaviour).
             applyImmersiveSystemBars();
@@ -2872,7 +2784,9 @@ public class MobilePlaybackActivity extends MobileActivity
             lp.weight = 0;
             mVideoArea.setLayoutParams(lp);
         }
-        applyContentFrameScale(1f);
+        if (mZoomController != null) {
+            mZoomController.applyContentFrameScale(1f);
+        }
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -3063,6 +2977,9 @@ public class MobilePlaybackActivity extends MobileActivity
             Utils.removeCallbacks(mRoutedInRestore);
         }
 
+        if (mFlexMode != null) {
+            mFlexMode.onHostStateChanged();
+        }
         if (mSwipeLevels != null) {
             if (isInPictureInPictureMode) {
                 mSwipeLevels.cancel();
@@ -3771,6 +3688,10 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     private void showControlsInternal(boolean animate) {
+        if (isFlexMode()) {
+            startProgressUpdates();
+            return;
+        }
         mControlsVisible = true;
         mControlsRoot.setVisibility(View.VISIBLE);
         mControlsRoot.animate().cancel();
@@ -4776,6 +4697,7 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         mPlayPauseButton.setContentDescription(getString(glyph == GLYPH_REPLAY ? R.string.mobile_player_replay
                 : glyph == GLYPH_PAUSE ? R.string.mobile_player_pause : R.string.mobile_player_play));
+        pushFlexProgressState();
     }
 
     /**
@@ -4787,7 +4709,7 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mIsStopped) {
             return;
         }
-        if (mControlsVisible) {
+        if (mControlsVisible || isFlexMode()) {
             Utils.postDelayed(mProgressUpdateRunnable, 0);
         } else if (mTimeBar != null && mTimeBar.isLineShownWhenHidden()) {
             Utils.postDelayed(mLineUpdateRunnable, 0);
@@ -4834,7 +4756,7 @@ public class MobilePlaybackActivity extends MobileActivity
     }
 
     private void onProgressTick() {
-        if (mIsStopped || !mControlsVisible || mPlayer == null || mExoPlayerController == null) {
+        if (mIsStopped || (!mControlsVisible && !isFlexMode()) || mPlayer == null || mExoPlayerController == null) {
             return;
         }
 
@@ -4860,6 +4782,7 @@ public class MobilePlaybackActivity extends MobileActivity
         }
 
         updatePlayPauseIcon();
+        pushFlexProgressState();
 
         // Pixel-paced like the line: the bar now spans the whole width, and a short video's dot
         // stepped visibly at a fixed 500 ms.
@@ -5591,6 +5514,10 @@ public class MobilePlaybackActivity extends MobileActivity
         }
         mSwipeDownRawX = downRawX;
         boolean vertical = direction == PlayerContainerLayout.UP || direction == PlayerContainerLayout.DOWN;
+        if (isFlexMode()) {
+            return vertical && direction == PlayerContainerLayout.DOWN && canStartDismissDrag()
+                    ? SWIPE_MINIMIZE : PlayerContainerLayout.SWIPE_NONE;
+        }
         if (!vertical) {
             return beginSeekSwipe(downRawX + dx);
         }
@@ -7037,7 +6964,12 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mTimeBar == null) {
             return;
         }
-        runOnUiThread(() -> mTimeBar.setSegments(segments));
+        runOnUiThread(() -> {
+            mTimeBar.setSegments(segments);
+            if (mFlexMode != null) {
+                mFlexMode.setSegments(segments);
+            }
+        });
     }
 
     @Override
@@ -7191,6 +7123,9 @@ public class MobilePlaybackActivity extends MobileActivity
             starts[i] = mChapterVideos.get(i).startTimeMs;
         }
         mTimeBar.setChapterStarts(starts);
+        if (mFlexMode != null) {
+            mFlexMode.setChapterStarts(starts);
+        }
     }
 
     /** The chapter playing at {@code positionMs}: an index into mChapterVideos, -1 if none. */
@@ -7378,7 +7313,7 @@ public class MobilePlaybackActivity extends MobileActivity
         cancelAutoHide();
 
         int maxHeightPx = 0;
-        if (!isLandscape() && mVideoArea != null) {
+        if ((!isLandscape() || isFlexMode()) && mVideoArea != null) {
             int[] location = new int[2];
             mVideoArea.getLocationInWindow(location);
             int belowVideo = getWindow().getDecorView().getHeight() - (location[1] + mVideoArea.getHeight());
@@ -9173,13 +9108,14 @@ public class MobilePlaybackActivity extends MobileActivity
         if (mPlayerView != null) {
             mPlayerView.setResizeMode(mode);
         }
-        if (mode != RESIZE_MODE_DEFAULT) {
-            mCustomZoomScale = 1f;
-            applyContentFrameScale(1f);
-        } else {
-            syncZoomScale();
+        if (mZoomController != null) {
+            if (mode != RESIZE_MODE_DEFAULT) {
+                mZoomController.resetScaleToDefault();
+            } else {
+                mZoomController.syncScale();
+            }
         }
-        applyControlsInsets(); // fill/zoom: the controls span the width (controlsStrip)
+        applyControlsInsets();
     }
 
     @Override
@@ -9189,8 +9125,9 @@ public class MobilePlaybackActivity extends MobileActivity
 
     @Override
     public void setZoomPercents(int percents) {
-        mCustomZoomScale = percents > 100 ? percents / 100f : 1f;
-        syncZoomScale();
+        if (mZoomController != null) {
+            mZoomController.setCustomScaleFromPercents(percents);
+        }
         applyControlsInsets();
     }
 

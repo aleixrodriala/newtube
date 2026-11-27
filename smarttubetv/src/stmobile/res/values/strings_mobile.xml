@@ -259,6 +259,16 @@
     <string name="share_link">Share</string>
     <string name="mobile_you_pinned">Pinned</string>
     <string name="pin_unpin_from_sidebar">Pin to You</string>
+    <!-- Flex (tabletop) mode panel on foldables -->
+    <string name="mobile_flex_back_to_controls">Flex controls</string>
+    <string name="mobile_flex_rewind_10">Rewind 10 seconds</string>
+    <string name="mobile_flex_forward_10">Forward 10 seconds</string>
+    <string name="mobile_flex_comments">Comments</string>
+    <string name="mobile_flex_related">Related</string>
+    <string name="mobile_flex_zoom_fit">Fit</string>
+    <string name="mobile_flex_zoom_fill">Fill</string>
+    <string name="mobile_flex_touchpad_hint">Touchpad · Tap: Play/Pause · Double-tap: ±10s · Slide: Seek / Brightness / Volume</string>
+
     <string name="mobile_settings_experimental">Experimental</string>
     <!-- NEWTUBE(gestures): Settings > Player, the switches for the optional player swipes (#12). -->
     <string name="mobile_settings_gestures">Gestures</string>
