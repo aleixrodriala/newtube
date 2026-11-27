@@ -386,6 +386,10 @@ dependencies {
     // Material already brings this exact version in; named here because we call it directly.
     implementation 'androidx.dynamicanimation:dynamicanimation:1.1.0'
 
+    // Touch UI (stmobile flavor): foldable tabletop / Flex posture detection via WindowInfoTracker.
+    stmobileImplementation 'androidx.window:window:1.3.0'
+    stmobileImplementation 'androidx.window:window-java:1.3.0'
+
     // Touch UI (stmobile flavor): client-side QR encoder for the device-code sign-in
     // screen (com.newtube.mobile.ui.signin.MobileSignInActivity). Encoder only, no UI
     // dependency - we render the BitMatrix into a Bitmap ourselves - so it pulls in no

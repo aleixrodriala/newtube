@@ -197,11 +197,16 @@ public abstract class MobileActivity extends MotherActivity {
 
         ViewCompat.setOnApplyWindowInsetsListener(content, (view, windowInsets) -> {
             if (shouldInsetContentForSystemBars()) {
-                Insets insets = windowInsets.getInsets(
-                        WindowInsetsCompat.Type.systemBars()
-                                | WindowInsetsCompat.Type.displayCutout());
-                view.setPadding(insets.left, insets.top, insets.right,
-                        shouldInsetContentForNavigationBar() ? insets.bottom : 0);
+                Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+                Insets cutout = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout());
+                int left = shouldInsetContentForDisplayCutout()
+                        ? Math.max(bars.left, cutout.left) : bars.left;
+                int top = Math.max(bars.top, cutout.top);
+                int right = shouldInsetContentForDisplayCutout()
+                        ? Math.max(bars.right, cutout.right) : bars.right;
+                int bottom = shouldInsetContentForNavigationBar()
+                        ? Math.max(bars.bottom, cutout.bottom) : 0;
+                view.setPadding(left, top, right, bottom);
             } else {
                 view.setPadding(0, 0, 0, 0);
             }
@@ -212,6 +217,14 @@ public abstract class MobileActivity extends MotherActivity {
 
     /** Override for a screen that intentionally draws behind hidden system bars. */
     protected boolean shouldInsetContentForSystemBars() {
+        return true;
+    }
+
+    /**
+     * Override when a screen handles horizontal display-cutout insets internally so backgrounds
+     * and video surfaces can span edge-to-edge on rotated foldables/tablets.
+     */
+    protected boolean shouldInsetContentForDisplayCutout() {
         return true;
     }
 

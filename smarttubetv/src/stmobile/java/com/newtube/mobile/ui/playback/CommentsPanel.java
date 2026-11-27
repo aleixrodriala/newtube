@@ -1072,6 +1072,13 @@ final class CommentsPanel implements CommentsAdapter.Listener, CommentsPanelLayo
      * here the comments forget the link colour baked into their text, and the sort menu - a popup
      * with the old colours - closes.
      */
+    void setSideCutoutInsets(int left, int right) {
+        View sheet = mLayout.getSheet();
+        if (sheet != null && (sheet.getPaddingLeft() != left || sheet.getPaddingRight() != right)) {
+            sheet.setPadding(left, sheet.getPaddingTop(), right, sheet.getPaddingBottom());
+        }
+    }
+
     void onThemeChanged() {
         dismissSortMenu(false);
         dismissCommentMenu();

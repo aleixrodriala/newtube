@@ -623,8 +623,15 @@
 
         </com.newtube.mobile.ui.playback.PinchZoomLayout>
 
-        <!-- Everything under the video: the watch content, and the comments panel that slides
-             up over it (mobile_comments_panel, NEWTUBE(comments-panel)). -->
+        <View
+            android:id="@+id/mobile_flex_hinge_spacer"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:background="@android:color/black"
+            android:visibility="gone" />
+
+        <!-- Everything under the video: the watch content, the Flex control panel (tabletop mode),
+             and the comments panel that slides up over it (mobile_comments_panel). -->
         <FrameLayout
             android:id="@+id/mobile_watch_area"
             android:layout_width="match_parent"
@@ -1193,6 +1200,8 @@
             </LinearLayout>
 
         </androidx.core.widget.NestedScrollView>
+
+        <include layout="@layout/flex_playback_panel" />
 
         <include layout="@layout/mobile_comments_panel" />
 

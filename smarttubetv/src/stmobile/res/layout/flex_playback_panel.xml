@@ -1,0 +1,384 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lower-half control deck + touchpad shown in Flex (tabletop) mode below the horizontal hinge. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/mobile_flex_panel"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:theme="@style/ThemeOverlay.NewTube.PlayerChrome"
+    android:visibility="gone">
+
+    <!-- Compact return bar shown at the top of the bottom half when user toggles Related/Info. -->
+    <LinearLayout
+        android:id="@+id/mobile_flex_watch_bar"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_gravity="top"
+        android:background="#141414"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="12dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/mobile_flex_back_to_controls"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:background="@drawable/bg_flex_action_pill"
+            android:gravity="center"
+            android:paddingHorizontal="14dp"
+            android:text="@string/mobile_flex_back_to_controls"
+            android:textColor="@android:color/white"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/mobile_flex_watch_bar_time"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:fontFeatureSettings="tnum"
+            android:maxLines="1"
+            android:textColor="#B3FFFFFF"
+            android:textSize="12sp"
+            tools:text="04:12 / 18:35" />
+
+        <ImageButton
+            android:id="@+id/mobile_flex_watch_bar_play"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/mobile_player_pause"
+            android:padding="8dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_player_pause"
+            android:tint="@android:color/white" />
+
+    </LinearLayout>
+
+    <!-- Default Flex deck: header + seek bar + transport + quick actions + touchpad. -->
+    <LinearLayout
+        android:id="@+id/mobile_flex_deck"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#0D0D0D"
+        android:orientation="vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="12dp">
+
+        <!-- Title + Live chip + Chapter + Time -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/flex_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@android:color/white"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                tools:text="Video title" />
+
+            <TextView
+                android:id="@+id/flex_live"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_mobile_live_chip"
+                android:paddingHorizontal="7dp"
+                android:paddingVertical="2dp"
+                android:text="@string/mobile_player_live"
+                android:textColor="@android:color/white"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/flex_chapter_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_flex_action_pill"
+                android:drawableEnd="@drawable/ic_player_chapter_chevron"
+                android:drawablePadding="2dp"
+                android:ellipsize="end"
+                android:gravity="center_vertical"
+                android:maxWidth="160dp"
+                android:maxLines="1"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="4dp"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                android:visibility="gone"
+                tools:text="Chapters" />
+
+            <TextView
+                android:id="@+id/flex_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:fontFeatureSettings="tnum"
+                android:text="@string/mobile_player_time_default"
+                android:textColor="#CCFFFFFF"
+                android:textSize="12sp" />
+
+        </LinearLayout>
+
+        <!-- Dedicated seek bar for tabletop dragging -->
+        <com.newtube.mobile.ui.playback.PlayerTimeBar
+            android:id="@+id/flex_time_bar"
+            android:layout_width="match_parent"
+            android:layout_height="34dp"
+            android:layout_marginTop="4dp" />
+
+        <!-- Primary transport row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/flex_prev"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/mobile_player_previous"
+                android:padding="12dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_player_previous"
+                android:tint="@android:color/white" />
+
+            <ImageButton
+                android:id="@+id/flex_rew_10"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="12dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/mobile_flex_rewind_10"
+                android:padding="11dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_player_replay_10" />
+
+            <ImageButton
+                android:id="@+id/flex_play_pause"
+                android:layout_width="58dp"
+                android:layout_height="58dp"
+                android:layout_marginHorizontal="18dp"
+                android:background="@drawable/mobile_player_center_button_bg"
+                android:contentDescription="@string/mobile_player_pause"
+                android:padding="13dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_player_pause"
+                android:tint="@android:color/white" />
+
+            <ImageButton
+                android:id="@+id/flex_fwd_10"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="12dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/mobile_flex_forward_10"
+                android:padding="11dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_player_forward_10" />
+
+            <ImageButton
+                android:id="@+id/flex_next"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/mobile_player_next"
+                android:padding="12dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_player_next"
+                android:tint="@android:color/white" />
+
+        </LinearLayout>
+
+        <!-- Extra quick actions row -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/flex_action_speed"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:background="@drawable/bg_flex_action_pill"
+                    android:drawableStart="@drawable/ic_player_speed"
+                    android:drawablePadding="6dp"
+                    android:drawableTint="@android:color/white"
+                    android:gravity="center"
+                    android:paddingHorizontal="12dp"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    tools:text="1x" />
+
+                <TextView
+                    android:id="@+id/flex_action_quality"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_flex_action_pill"
+                    android:drawableStart="@drawable/ic_player_quality"
+                    android:drawablePadding="6dp"
+                    android:drawableTint="@android:color/white"
+                    android:gravity="center"
+                    android:paddingHorizontal="12dp"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    tools:text="1080p" />
+
+                <TextView
+                    android:id="@+id/flex_action_cc"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_flex_action_pill"
+                    android:drawableStart="@drawable/ic_player_cc_off"
+                    android:drawablePadding="6dp"
+                    android:gravity="center"
+                    android:paddingHorizontal="12dp"
+                    android:text="@string/mobile_player_subtitles"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/flex_action_zoom"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_flex_action_pill"
+                    android:drawableStart="@drawable/ic_player_zoom"
+                    android:drawablePadding="6dp"
+                    android:drawableTint="@android:color/white"
+                    android:gravity="center"
+                    android:paddingHorizontal="12dp"
+                    android:text="@string/mobile_flex_zoom_fit"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/flex_action_comments"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_flex_action_pill"
+                    android:drawableStart="@drawable/ic_watch_comment"
+                    android:drawablePadding="6dp"
+                    android:drawableTint="@android:color/white"
+                    android:gravity="center"
+                    android:paddingHorizontal="12dp"
+                    android:text="@string/mobile_flex_comments"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/flex_action_related"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_flex_action_pill"
+                    android:drawableStart="@drawable/ic_player_queue"
+                    android:drawablePadding="6dp"
+                    android:drawableTint="@android:color/white"
+                    android:gravity="center"
+                    android:paddingHorizontal="12dp"
+                    android:text="@string/mobile_flex_related"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <ImageButton
+                    android:id="@+id/flex_action_more"
+                    android:layout_width="36dp"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_flex_action_pill"
+                    android:contentDescription="@string/mobile_player_more"
+                    android:padding="7dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_mobile_settings"
+                    android:tint="@android:color/white" />
+
+            </LinearLayout>
+
+        </HorizontalScrollView>
+
+        <!-- Dedicated bottom touchpad + level feedback -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="10dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_flex_touchpad">
+
+            <com.newtube.mobile.ui.playback.FlexTouchpadView
+                android:id="@+id/flex_touchpad"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|center_horizontal"
+                android:gravity="center"
+                android:paddingHorizontal="16dp"
+                android:paddingBottom="10dp"
+                android:text="@string/mobile_flex_touchpad_hint"
+                android:textColor="#66FFFFFF"
+                android:textSize="11sp" />
+
+            <!-- Brightness/Volume feedback pill rendered inside the bottom touchpad -->
+            <LinearLayout
+                android:id="@+id/flex_level_pill"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|center_horizontal"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_mobile_player_pill"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="12dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="8dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/flex_level_icon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:importantForAccessibility="no" />
+
+                <com.newtube.mobile.ui.playback.LevelBar
+                    android:id="@+id/flex_level_bar"
+                    android:layout_width="120dp"
+                    android:layout_height="4dp"
+                    android:layout_marginStart="12dp" />
+
+            </LinearLayout>
+
+        </FrameLayout>
+
+    </LinearLayout>
+
+</FrameLayout>

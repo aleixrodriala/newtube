@@ -120,8 +120,19 @@
     <string name="share_link">Compartir</string>
     <string name="mobile_you_pinned">Fijados</string>
     <string name="pin_unpin_from_sidebar">Fijar en Tú</string>
+    <string name="mobile_flex_back_to_controls">Controles Flex</string>
+    <string name="mobile_flex_rewind_10">Retroceder 10 segundos</string>
+    <string name="mobile_flex_forward_10">Avanzar 10 segundos</string>
+    <string name="mobile_flex_comments">Comentarios</string>
+    <string name="mobile_flex_related">Relacionados</string>
+    <string name="mobile_flex_zoom_fit">Ajustar</string>
+    <string name="mobile_flex_zoom_fill">Rellenar</string>
+    <string name="mobile_flex_touchpad_hint">Touchpad · Toque: Reproducir/Pausar · Doble toque: ±10s · Desliza: Tiempo / Brillo / Volumen</string>
+
     <string name="mobile_settings_experimental">Experimental</string>
     <string name="mobile_settings_gestures">Gestos</string>
+    <string name="mobile_settings_gesture_youtube_stock">Gestos estilo YouTube</string>
+    <string name="mobile_settings_gesture_youtube_stock_summary">Deslizar hacia abajo para salir de pantalla completa o minimizar; desactiva los gestos de brillo, volumen y búsqueda</string>
     <string name="mobile_settings_gesture_levels">Deslizar para el brillo y el volumen</string>
     <string name="mobile_settings_gesture_levels_summary">Arriba y abajo a la izquierda o a la derecha del vídeo a pantalla completa</string>
     <string name="mobile_settings_gesture_seek">Deslizar para avanzar o retroceder</string>
