@@ -89,6 +89,7 @@ public class SponsorBlockController extends BasePlayerController {
         mSkipExclude = false;
         if (getPlayer() != null) {
             getPlayer().setSeekBarSegments(null); // reset colors
+            getPlayer().hideSponsorSkipPrompt();
         }
     }
 
@@ -280,8 +281,15 @@ public class SponsorBlockController extends BasePlayerController {
         closeTransparentDialog();
     }
 
-    private void confirmSkip(long skipPosMs, String category) {
-        if (mLastSkipPosMs == skipPosMs) {
+    private void confirmSkip(long skipPosMs, String category, int accentColor) {
+        if (mLastSkipPosMs == skipPosMs || getPlayer() == null) {
+            return;
+        }
+
+        long timeoutMs = computeSkipPromptTimeoutMs(
+                skipPosMs, getPlayer().getPositionMs(), getPlayer().getEffectiveSpeed());
+        if (getPlayer().showSponsorSkipPrompt(
+                skipPosMs, category, accentColor, timeoutMs, () -> setPositionMs(skipPosMs))) {
             return;
         }
 
@@ -304,13 +312,20 @@ public class SponsorBlockController extends BasePlayerController {
         );
 
         dialogPresenter.appendSingleButton(acceptOption);
-        dialogPresenter.setCloseTimeoutMs((long) ((skipPosMs - getPlayer().getPositionMs()) * getPlayer().getEffectiveSpeed()));
+        dialogPresenter.setCloseTimeoutMs(timeoutMs);
 
         dialogPresenter.enableTransparent(true);
         dialogPresenter.enableOverlay(true);
         dialogPresenter.enableExpandable(false);
         dialogPresenter.setId(CONTENT_BLOCK_ID);
         dialogPresenter.showDialog(getContext().getString(R.string.content_block_provider));
+    }
+
+    /** Duration to keep a manual skip prompt visible before the segment ends. */
+    public static long computeSkipPromptTimeoutMs(long skipPosMs, long positionMs, float effectiveSpeed) {
+        long remainingMs = Math.max(0L, skipPosMs - positionMs);
+        float speed = Math.max(0.25f, effectiveSpeed);
+        return Math.max(1_000L, Math.round(remainingMs / speed));
     }
 
     private List<SeekBarSegment> toSeekBarSegments(List<SponsorSegment> segments) {
@@ -407,7 +422,9 @@ public class SponsorBlockController extends BasePlayerController {
             } else if (type == SponsorBlockData.ACTION_SKIP_WITH_TOAST) {
                 messageSkip(skipPosMs, skipMessage);
             } else if (type == SponsorBlockData.ACTION_SHOW_DIALOG) {
-                confirmSkip(skipPosMs, skipMessage);
+                int accentColor = ContextCompat.getColor(
+                        getContext(), getSponsorBlockData().getColorRes(lastSegment.getCategory()));
+                confirmSkip(skipPosMs, skipMessage, accentColor);
             }
         }
 
@@ -415,6 +432,9 @@ public class SponsorBlockController extends BasePlayerController {
     }
 
     private void closeTransparentDialog() {
+        if (getPlayer() != null) {
+            getPlayer().hideSponsorSkipPrompt();
+        }
         AppDialogPresenter dialogPresenter = AppDialogPresenter.instance(getContext());
 
         if (dialogPresenter.isDialogShown() && dialogPresenter.getId() == CONTENT_BLOCK_ID) {

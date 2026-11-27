@@ -40,6 +40,17 @@ public interface PlayerUI {
     void setTitle(String title);
     void showProgressBar(boolean show);
     void setSeekBarSegments(List<SeekBarSegment> segments);
+    /**
+     * Mobile-only non-blocking skip pill shown during manual ("Ask me") SponsorBlock segments.
+     *
+     * @return true if the view rendered the floating prompt; false to fall back to the TV dialog
+     */
+    default boolean showSponsorSkipPrompt(long skipPosMs, String categoryLabel, int accentColor,
+            long timeoutMs, Runnable onSkip) {
+        return false;
+    }
+    default void hideSponsorSkipPrompt() {
+    }
     void updateEndingTime();
     void setChatReceiver(ChatReceiver chatReceiver);
 }
