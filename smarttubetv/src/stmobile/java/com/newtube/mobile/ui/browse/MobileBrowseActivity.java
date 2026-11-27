@@ -2219,6 +2219,14 @@ public class MobileBrowseActivity extends MobileActivity
                     mCurrentVideos.addAll(0, visibleFeedItems(group.getVideos()));
                     break;
                 case VideoGroup.ACTION_REMOVE:
+                    if (NotInterestedStore.isRecommendationSection(mCurrentSectionId)
+                            && group.getVideos() != null) {
+                        for (Video removed : group.getVideos()) {
+                            if (removed != null) {
+                                NotInterestedStore.add(this, removed.videoId);
+                            }
+                        }
+                    }
                     mCurrentVideos.removeAll(group.getVideos());
                     break;
                 case VideoGroup.ACTION_REMOVE_AUTHOR:
@@ -2483,7 +2491,7 @@ public class MobileBrowseActivity extends MobileActivity
      * has no Shorts, so none are shown in any section ({@link ShortsFilter}). Keep true playlists
      * (which use a similar service shape), and leave channel discovery to Search.
      */
-    private static List<Video> visibleFeedItems(List<Video> videos) {
+    private List<Video> visibleFeedItems(List<Video> videos) {
         List<Video> visible = new ArrayList<>();
         if (videos == null) {
             return visible;
@@ -2496,11 +2504,13 @@ public class MobileBrowseActivity extends MobileActivity
         return visible;
     }
 
-    private static boolean isVisibleFeedItem(Video video) {
+    private boolean isVisibleFeedItem(Video video) {
         return video != null
                 && !ShortsFilter.isShort(video)
                 && (!video.isChannel() || video.isPlaylistAsChannel())
-                && !isSearchQueryTile(video);
+                && !isSearchQueryTile(video)
+                && (!NotInterestedStore.isRecommendationSection(mCurrentSectionId)
+                        || !NotInterestedStore.contains(this, video.videoId));
     }
 
     /**
