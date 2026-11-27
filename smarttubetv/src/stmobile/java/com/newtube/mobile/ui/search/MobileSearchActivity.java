@@ -153,6 +153,7 @@ public class MobileSearchActivity extends MobileActivity
         mMicButton.setOnClickListener(v -> startVoiceRecognition());
         // Clear the query, keep editing: focus stays, history rows replace the suggestions.
         mClearButton.setOnClickListener(v -> {
+            SearchResultsCache.clear();
             setQueryText("");
             showKeyboard();
             loadSearchTags("");
@@ -431,6 +432,7 @@ public class MobileSearchActivity extends MobileActivity
 
         mSearchInput.removeCallbacks(mSuggestReload); // a pending suggest reload is moot now
         mSuggestGeneration++;                         // and any in-flight response is stale
+        SearchResultsCache.clear();
         mSubmittedQuery = normalized;
         mPendingFailure = -1;
         mSearchMessage.setVisibility(View.GONE);
@@ -615,7 +617,11 @@ public class MobileSearchActivity extends MobileActivity
 
     @Override
     protected void onDestroy() {
-        MiniPlayerBridge.unregisterMiniHost(this);
+        boolean finishing = isFinishing();
+        MiniPlayerBridge.unregisterMiniHost(this, finishing);
+        if (finishing) {
+            SearchResultsCache.clear();
+        }
         mTornDown = true; // NEWTUBE(shorts): the teardown's spinner-off must not page on
 
         if (mPresenter != null && mPresenter.getView() == this) {
@@ -742,6 +748,7 @@ public class MobileSearchActivity extends MobileActivity
             if (!mVideos.isEmpty()) {
                 mSearchMessage.setVisibility(View.GONE);
                 setSkeletonVisible(false);
+                SearchResultsCache.put(mSubmittedQuery, mVideos, mResultGroups);
             }
         });
     }
@@ -921,9 +928,34 @@ public class MobileSearchActivity extends MobileActivity
                 loadSearchTags("");
             } else {
                 setQueryText(searchText);
+                String normalized = searchText.trim();
+                SearchResultsCache.Entry cached = mVideos.isEmpty() ? SearchResultsCache.get(normalized) : null;
+                if (cached != null) {
+                    restoreCachedSearch(cached);
+                    return;
+                }
                 submitSearch(searchText);
             }
         });
+    }
+
+    private void restoreCachedSearch(SearchResultsCache.Entry cached) {
+        mSubmittedQuery = cached.query;
+        mLastSubmitText = cached.query;
+        mPendingFailure = -1;
+        mLoading = false;
+        mResultGroups.clear();
+        mResultGroups.addAll(cached.groups);
+        mVideos.clear();
+        mVideos.addAll(cached.videos);
+        mLastPaginationTriggerCount = -1;
+        mSearchMessage.setVisibility(View.GONE);
+        hideKeyboard();
+        mSearchInput.clearFocus();
+        mSuggestions.setVisibility(View.GONE);
+        mTagAdapter.clearTags();
+        setSkeletonVisible(false);
+        mAdapter.submitList(new ArrayList<>(mVideos));
     }
 
     @Override
