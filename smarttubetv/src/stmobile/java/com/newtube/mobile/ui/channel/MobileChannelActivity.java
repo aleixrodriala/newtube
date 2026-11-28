@@ -1,5 +1,6 @@
 package com.newtube.mobile.ui.channel;
 
+import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.view.View;
@@ -9,23 +10,33 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.ConcatAdapter;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
+import com.google.android.material.button.MaterialButton;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.tabs.TabLayout;
+import com.liskovsoft.mediaserviceinterfaces.MediaItemService;
+import com.liskovsoft.mediaserviceinterfaces.data.MediaItemMetadata;
 import com.liskovsoft.sharedutils.helpers.Helpers;
+import com.liskovsoft.sharedutils.mylogger.Log;
+import com.liskovsoft.sharedutils.rx.RxHelper;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.Video;
 import com.liskovsoft.smartyoutubetv2.common.app.models.data.VideoGroup;
+import com.liskovsoft.smartyoutubetv2.common.app.models.playback.controllers.SuggestionsController;
 import com.liskovsoft.smartyoutubetv2.common.app.presenters.ChannelPresenter;
 import com.liskovsoft.smartyoutubetv2.common.app.views.ChannelView;
+import com.liskovsoft.smartyoutubetv2.common.misc.NetPath;
 import com.liskovsoft.smartyoutubetv2.common.utils.LoadFailure;
 import com.liskovsoft.smartyoutubetv2.tv.R;
+import com.liskovsoft.youtubeapi.service.YouTubeServiceManager;
 import com.newtube.mobile.ui.browse.VideoCardAdapter;
 import com.newtube.mobile.ui.common.FilteredPageTopUp;
 import com.newtube.mobile.ui.common.MobileActivity;
+import com.newtube.mobile.ui.common.MobileSnackbar;
 import com.newtube.mobile.ui.common.ShortsFilter;
 import com.newtube.mobile.ui.playback.MiniPlayerBridge;
 import com.newtube.mobile.ui.playback.MobileMiniPlayerController;
@@ -34,6 +45,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.disposables.Disposable;
 
 /**
  * Touch Channel page (Wave 4a; tabbed 2026-07-09).
@@ -50,10 +64,24 @@ import java.util.Map;
  * playlist/sub-channel item opens {@code MobileChannelUploadsActivity}/this screen again
  * (via {@code VideoActionPresenter.apply()}); long-press/⋮ shows the context menu through
  * the Wave-3 {@code MobileAppDialogActivity}.</p>
+ *
+ * <p>NEWTUBE(subscribe): the title bar carries the channel's Subscribe/Unsubscribed pill - this
+ * page has no banner/avatar header to hold it. State comes from the opening card when the watch
+ * page handed over a synced video, else from the local subscription group or the first video's
+ * metadata; a tap flips it immediately, confirms with Undo, and reverts if YouTube refuses.</p>
  */
 public class MobileChannelActivity extends MobileActivity
         implements ChannelView, MiniPlayerBridge.MiniHost {
+    private static final String TAG = MobileChannelActivity.class.getSimpleName();
     private static final int SCROLL_END_THRESHOLD_ITEMS = 6;
+    /**
+     * NEWTUBE(subscribe): the "Subscriptions" channel group's fixed id
+     * ({@code ChannelGroupServiceImpl.SUBSCRIPTIONS_GROUP_ID}). It is a read-only hint: every
+     * in-app subscribe/unsubscribe keeps it current, so returning from a watch page can update the
+     * pill without a request. An account's pre-existing subscriptions are not in it until a
+     * metadata answer puts them there, hence the lookup below.
+     */
+    private static final String SUBSCRIPTIONS_CHANNEL_GROUP_ID = "1000";
 
     /** A channel section, keyed by its {@link VideoGroup#getId()} so continuations/replacements
      *  for the same row merge into it instead of creating a duplicate tab. */
@@ -86,6 +114,20 @@ public class MobileChannelActivity extends MobileActivity
     /** The header holds a real channel name (from the card, or from the loaded videos). */
     private boolean mTitleFromCard;
     private ImageButton mBackButton;
+    /** Subscribe/Unsubscribed pill in the title bar. */
+    private MaterialButton mSubscribeButton;
+    /** Channel the pill acts on; null while the presenter has not named one yet. */
+    private String mSubscribeChannelId;
+    /** State currently drawn on the pill. */
+    private boolean mSubscribed;
+    /** The card or a metadata answer settled the state (a provisional false is not known). */
+    private boolean mSubscribeStateKnown;
+    /** One state lookup per channel: failures keep the provisional state, they do not retry. */
+    private boolean mSubscribeStateRequested;
+    /** A subscribe/unsubscribe request is in flight. */
+    private boolean mSubscribeBusy;
+    private Disposable mSubscribeStateAction;
+    private Disposable mSubscribeAction;
     private MobileMiniPlayerController mMiniPlayer;
     private boolean mAnimateMiniFromPlayer;
     private SwipeRefreshLayout mSwipe;
@@ -133,6 +175,7 @@ public class MobileChannelActivity extends MobileActivity
         setupSwipeRefresh();
 
         mBackButton.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
+        mSubscribeButton.setOnClickListener(v -> onSubscribeClicked());
 
         mPresenter = ChannelPresenter.instance(this);
 
@@ -153,6 +196,7 @@ public class MobileChannelActivity extends MobileActivity
         String name = channel != null ? Helpers.firstNonNull(channel.getAuthor(), channel.getTitle()) : null;
         mTitleFromCard = name != null;
         mTitleView.setText(name != null ? name : getString(R.string.header_channels));
+        syncSubscriptionButton();
     }
 
     /** NEWTUBE: name a link-opened channel once its first videos arrive. */
@@ -173,6 +217,269 @@ public class MobileChannelActivity extends MobileActivity
         }
     }
 
+    // ---------------------------------------------------------------------------------
+    // Subscribe pill
+    // ---------------------------------------------------------------------------------
+
+    /**
+     * NEWTUBE(subscribe): point the pill at the channel this page now shows. A channel opened
+     * from the watch page arrives as its synced video card, which already carries the state; a
+     * channel card (search, menus) does not, so its first video's metadata answers it. Between
+     * those two, the local subscription group knows every channel subscribed in this app - which
+     * also covers coming back from a video where the user tapped Subscribe.
+     */
+    private void syncSubscriptionButton() {
+        String channelId = mPresenter != null ? mPresenter.getChannelId() : null;
+
+        if (channelId == null) {
+            mSubscribeChannelId = null;
+            mSubscribeButton.setVisibility(View.GONE);
+            return;
+        }
+
+        mSubscribeButton.setVisibility(View.VISIBLE);
+
+        if (channelId.equals(mSubscribeChannelId)) {
+            return; // same channel (a refresh or a retry): keep the settled state
+        }
+
+        mSubscribeChannelId = channelId;
+        mSubscribeStateKnown = false;
+        mSubscribeStateRequested = false;
+        RxHelper.disposeActions(mSubscribeStateAction);
+
+        Video channel = mPresenter.getChannel();
+
+        if (channel != null && (channel.isSynced || channel.isSubscribed)) {
+            applySubscribed(channel.isSubscribed, true);
+            return;
+        }
+
+        if (isLocallySubscribed(channelId)) {
+            applySubscribed(true, true);
+            return;
+        }
+
+        applySubscribed(false, false);
+        maybeRequestSubscriptionState();
+    }
+
+    /** Look the state up from the first video's metadata once a section has delivered one. */
+    private void maybeRequestSubscriptionState() {
+        String channelId = mSubscribeChannelId;
+
+        if (channelId == null || mSubscribeStateKnown || mSubscribeStateRequested || mSubscribeBusy) {
+            return;
+        }
+
+        Video sample = firstVideoOf(channelId);
+
+        if (sample == null) {
+            return; // sections are still arriving; the next group tries again
+        }
+
+        mSubscribeStateRequested = true;
+
+        MediaItemService service = YouTubeServiceManager.instance().getMediaItemService();
+        Observable<MediaItemMetadata> observable = sample.mediaItem != null
+                ? service.getMetadataObserve(sample.mediaItem)
+                : service.getMetadataObserve(sample.videoId, sample.getPlaylistId(),
+                        sample.playlistIndex, sample.playlistParams);
+
+        mSubscribeStateAction = observable.subscribe(
+                metadata -> {
+                    if (metadata == null || isFinishing() || isDestroyed()
+                            || mSubscribeStateKnown || mSubscribeBusy
+                            || !channelId.equals(mSubscribeChannelId)) {
+                        return;
+                    }
+
+                    String metadataChannelId = metadata.getChannelId();
+
+                    // A collaborative channel can put another channel's videos in a section.
+                    // Their subscription state is not this page's.
+                    if (metadataChannelId != null && !metadataChannelId.equals(channelId)) {
+                        NetPath.log("channel-subscribe state-mismatch page=" + channelId
+                                + " video=" + metadataChannelId);
+                        return;
+                    }
+
+                    applySubscribed(metadata.isSubscribed(), true);
+                    NetPath.log("channel-subscribe state=" + metadata.isSubscribed()
+                            + " channel=" + channelId);
+                },
+                error -> Log.e(TAG, "subscribe state lookup failed: %s", error.getMessage()));
+    }
+
+    /** The first card on this page that can answer its channel's metadata. */
+    @Nullable
+    private Video firstVideoOf(String channelId) {
+        for (Section section : mSections.values()) {
+            List<Video> candidates = section.group != null ? section.group.getVideos() : section.videos;
+
+            if (candidates == null) {
+                continue;
+            }
+
+            for (Video video : candidates) {
+                if (video == null || video.videoId == null) {
+                    continue;
+                }
+                if (video.channelId != null && !video.channelId.equals(channelId)) {
+                    continue; // another channel's video in a collaborative section
+                }
+                return video;
+            }
+        }
+
+        return null;
+    }
+
+    private void applySubscribed(boolean subscribed, boolean known) {
+        mSubscribed = subscribed;
+        mSubscribeStateKnown = known;
+
+        if (mSubscribeButton == null) {
+            return;
+        }
+
+        mSubscribeButton.setText(subscribed ? R.string.mobile_watch_subscribed : R.string.mobile_watch_subscribe);
+        // Same language as the watch page's pill: the main-action white/black while off, the
+        // quiet grey once subscribed.
+        mSubscribeButton.setBackgroundTintList(ColorStateList.valueOf(ContextCompat.getColor(this,
+                subscribed ? R.color.mobile_color_subscribed_button : R.color.mobile_color_inverse_surface)));
+        mSubscribeButton.setTextColor(ContextCompat.getColor(this,
+                subscribed ? R.color.mobile_color_on_surface : R.color.mobile_color_on_inverse_surface));
+    }
+
+    private void onSubscribeClicked() {
+        if (mSubscribeChannelId == null || mSubscribeBusy) {
+            return;
+        }
+
+        performSubscribe(mSubscribeChannelId, !mSubscribed, true);
+    }
+
+    private void performSubscribe(String channelId, boolean subscribe, boolean undoable) {
+        // The watch page flips its pill on the tap; do the same and put it back only if the
+        // request fails (the round trip can be slow on LTE).
+        boolean previousSubscribed = mSubscribed;
+        boolean previousKnown = mSubscribeStateKnown;
+
+        mSubscribeBusy = true;
+        applySubscribed(subscribe, true);
+        mSubscribeButton.setEnabled(false);
+
+        MediaItemService service = YouTubeServiceManager.instance().getMediaItemService();
+        Observable<Void> observable = subscribe
+                ? service.subscribeObserve(channelId)
+                : service.unsubscribeObserve(channelId);
+
+        RxHelper.disposeActions(mSubscribeAction);
+        // RxHelper delivery is on the main thread, so the visual state is safe to touch here.
+        mSubscribeAction = observable.subscribe(
+                ignored -> { },
+                error -> {
+                    Log.e(TAG, "subscribe request failed: %s", error.getMessage());
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+                    mSubscribeBusy = false;
+                    mSubscribeButton.setEnabled(true);
+
+                    if (!channelId.equals(mSubscribeChannelId)) {
+                        maybeRequestSubscriptionState(); // the page moved to another channel
+                        return;
+                    }
+
+                    applySubscribed(previousSubscribed, previousKnown); // the tap did not land
+                    MobileSnackbar.show(this, subscribe
+                            ? R.string.subscribe_failed : R.string.unsubscribe_failed);
+                },
+                () -> {
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+                    mSubscribeBusy = false;
+                    mSubscribeButton.setEnabled(true);
+
+                    if (!channelId.equals(mSubscribeChannelId)) {
+                        maybeRequestSubscriptionState(); // the page moved to another channel
+                        return;
+                    }
+
+                    applySubscribed(subscribe, true);
+
+                    Video channel = mPresenter != null ? mPresenter.getChannel() : null;
+                    if (channel != null) {
+                        channel.isSubscribed = subscribe;
+                    }
+
+                    // Kept watch-page documents carry the old subscribe state (same as the
+                    // video/upload menus do after their own toggle).
+                    SuggestionsController.onUserStateChanged();
+                    NetPath.log("channel-subscribe channel=" + channelId + " on=" + subscribe);
+                    confirmSubscription(channelId, subscribe, undoable);
+                });
+    }
+
+    private void confirmSubscription(String channelId, boolean subscribed, boolean undoable) {
+        String channel = mTitleFromCard && mTitleView != null ? mTitleView.getText().toString() : null;
+        String message = channel != null && !channel.isEmpty()
+                ? getString(subscribed ? R.string.mobile_subscribed_to : R.string.mobile_unsubscribed_from, channel)
+                : getString(subscribed ? R.string.mobile_subscribed : R.string.mobile_unsubscribed);
+
+        if (!undoable) {
+            MobileSnackbar.show(this, message, null, null);
+            return;
+        }
+
+        MobileSnackbar.show(this, message, getString(R.string.mobile_undo), () -> {
+            if (mSubscribeBusy || !channelId.equals(mSubscribeChannelId) || mSubscribed != subscribed) {
+                return;
+            }
+            performSubscribe(channelId, !subscribed, false);
+        });
+    }
+
+    /** Whether the app's local Subscriptions group holds this channel (see the id's note). */
+    private boolean isLocallySubscribed(String channelId) {
+        try {
+            String[] ids = YouTubeServiceManager.instance().getChannelGroupService()
+                    .findChannelIdsForGroup(SUBSCRIPTIONS_CHANNEL_GROUP_ID);
+
+            if (ids != null) {
+                for (String id : ids) {
+                    if (channelId.equals(id)) {
+                        return true;
+                    }
+                }
+            }
+        } catch (RuntimeException e) {
+            Log.e(TAG, "local subscription lookup failed: %s", e.getMessage());
+        }
+
+        return false;
+    }
+
+    /**
+     * Returning from a video (or a menu sheet) may have subscribed or unsubscribed elsewhere;
+     * every in-app action updates the local group, so this needs no request.
+     */
+    private void syncSubscriptionFromLocalState() {
+        if (mSubscribeChannelId == null || mSubscribeBusy) {
+            return;
+        }
+
+        boolean subscribed = isLocallySubscribed(mSubscribeChannelId);
+
+        if (subscribed != mSubscribed) {
+            applySubscribed(subscribed, true);
+        } else if (subscribed && !mSubscribeStateKnown) {
+            mSubscribeStateKnown = true;
+        }
+    }
+
     private void bindViews() {
         mGrid = findViewById(R.id.mobile_channel_grid);
         // NEWTUBE(mini-inset): the last row can scroll clear of the docked mini-player card.
@@ -181,6 +488,7 @@ public class MobileChannelActivity extends MobileActivity
         mProgressBar = findViewById(R.id.mobile_channel_progress);
         mTitleView = findViewById(R.id.mobile_channel_title);
         mBackButton = findViewById(R.id.mobile_channel_back);
+        mSubscribeButton = findViewById(R.id.mobile_channel_subscribe);
         mSwipe = findViewById(R.id.mobile_channel_swipe);
         mLoadState = new PageLoadState(findViewById(R.id.mobile_page_load_state), this::retryFirstPage);
     }
@@ -457,6 +765,7 @@ public class MobileChannelActivity extends MobileActivity
         if (mPresenter != null) {
             mPresenter.onViewResumed();
         }
+        syncSubscriptionFromLocalState();
         // Last-resumed host wins: a video opened from this channel minimizes back onto it.
         MiniPlayerBridge.registerMiniHost(this);
         if (mMiniPlayer != null) {
@@ -506,6 +815,7 @@ public class MobileChannelActivity extends MobileActivity
     protected void onDestroy() {
         MiniPlayerBridge.unregisterMiniHost(this);
         mTornDown = true;
+        RxHelper.disposeActions(mSubscribeStateAction, mSubscribeAction);
 
         if (mPresenter != null && mPresenter.getView() == this) {
             mPresenter.onViewDestroyed();
@@ -607,6 +917,9 @@ public class MobileChannelActivity extends MobileActivity
             if (content && section != null) {
                 section.group = group; // NEWTUBE(shorts): the next page's anchor
                 section.topUp.onPageLanded(shortsDropped);
+                // After the merge: the first single-section page is only now in mSections.
+                syncSubscriptionButton();
+                maybeRequestSubscriptionState();
             }
 
             // A SYNC/REMOVE for an unknown section (e.g. the just-watched video's position
@@ -682,6 +995,9 @@ public class MobileChannelActivity extends MobileActivity
                 mRestoreSectionTitle = null; // only a refresh's own clear carries the tab over
                 applyChannelTitle(); // NEWTUBE: another channel opened into this page
             }
+            // A refresh's own clear keeps the channel, so this is a no-op there; a different
+            // channel opened into this page must retarget the pill even mid-refresh.
+            syncSubscriptionButton();
             mSuppressTabCallback = true;
             mTabs.removeAllTabs();
             mTabs.setVisibility(View.GONE);
