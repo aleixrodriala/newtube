@@ -52,6 +52,25 @@
             android:textStyle="bold"
             tools:text="Some Channel" />
 
+        <!-- Subscribe/Unsubscribed pill. It lives in the title bar because this page has no
+             banner/avatar header; the watch page's channel row owns the same action there.
+             NEWTUBE(subscribe): state is filled from the channel card (watch-page handoff) or
+             from a first-video metadata lookup, then kept in step with the local subscription
+             store while this page is resumed. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/mobile_channel_subscribe"
+            style="@style/Widget.NewTube.Button.Pill"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:minWidth="0dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:text="@string/mobile_watch_subscribe"
+            android:visibility="gone"
+            tools:text="Subscribe"
+            tools:visibility="visible" />
+
     </LinearLayout>
 
     <!-- One tab per channel section, in delivery order. Hidden until sections arrive.
